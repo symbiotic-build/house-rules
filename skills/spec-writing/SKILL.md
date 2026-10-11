@@ -26,7 +26,8 @@ from it without asking questions.** The document must explain the product and it
 - **Worked examples are mandatory**: real inputs → how they're validated/transformed →
   what's stored. Multiple examples beat prose every time.
 - **Exact signatures, not descriptions**: real type/trait/schema definitions, module
-  layout, integration points. Prose describing code is a smell; code is shorter.
+  layout, integration points. Keep exact definitions in the reference material and
+  explain their behavior in the walkthrough. Code alone does not explain a stored value.
 - **Diagrams**: format follows [rules/writing.md §Format](../../rules/writing.md#format) (doc tiers:
   skill `design-canon` §Docs).
 - **Authoritative framing**: decisions are stated as decisions ("X does Y via Z"), with
@@ -46,12 +47,27 @@ Buildable is not enough: people read specs to understand, review and decide.
 - **One idea per paragraph**, sections short enough to read in one sitting, and one concrete
   example next to each concept rather than only in an appendix.
 - **Plain terms**: define every term at first use and in a glossary; no unexplained acronyms
-  or internal labels; ask for concrete things, not abstractions.
+  or internal labels; ask for concrete things, not abstractions. Explain terms in the
+  behavior they describe. Do not add a local glossary merely to explain invented names;
+  apply rules/writing.md's naming requirement instead.
 - **Tables for lookup, prose for understanding**: behaviour is not buried in table cells.
 - **Label authority**: decisions, assumptions, estimates and open questions are marked as such.
 - **Reader test**: read each section alone, pretending the rest is unavailable. A new engineer
   must be able to say what problem it solves, what the rule is and when it applies. If not,
-  add the missing opening, example or definition, or split the section.
+  rewrite the explanation or split the section. For every worked example, explain each
+  shown stored value: what it represents and any unit or code meaning. Explain why the
+  step writes, changes or keeps those values and what the caller observes. For arrays,
+  state the element meanings and
+  which entries correspond. For shared slots, name the record type and mapped field.
+  A compact dump fails when the reader must decode it from a glossary or another section.
+  Use a name/value/meaning listing or equally clear prose. A reference table may repeat
+  exact encodings after the walkthrough explains them.
+- **Check explanations against the source**: verify every new meaning and reason against
+  the schema or protocol. Preserve qualifications and exceptions. A successful link,
+  heading or content-preservation check is not a successful reader test.
+- **Preserve meaning when rewriting**: move exact values to annotated listings when needed.
+  Reword or consolidate repeated text without losing a rule, value or exception. Verify
+  the resulting explanation; do not require the old value-dump sentence to stay intact.
 - **Polish after review**: review rounds add patches. Before merge, one pass restructures the
   text, removes repetition and reruns the reader test.
 - **README**: a one-page user guide (what it does, how to use it, where the spec is), not a

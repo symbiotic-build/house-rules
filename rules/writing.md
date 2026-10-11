@@ -26,6 +26,13 @@ happened, why it matters and what to do, in that order.
 - One term per concept. Define it once at first use, then never use a synonym.
 - No unexplained acronyms, internal labels or IDs as a replacement for meaning. An ID may
   follow the plain description, never replace it.
+- In newly designed or redesigned internal storage, schemas and protocols, use readable
+  words for collection, column, field, row-kind and key-prefix names. A glossary does not
+  make an invented abbreviation a readable name. Name a shared slot by its value kind,
+  indexing role and position; state a field's mapping to that slot for its record type.
+- Preserve exact external API names and identifiers when citing existing code. Explain
+  them where needed. Standard terms and symbols defined beside a formula are allowed;
+  their use does not permit invented abbreviations in stored names.
 - Concrete over abstract: a real name, number, example or before/after, not "the
   mechanism" or "the invariant".
 - Keep the source's uncertainty and qualifiers. Never add a cause, frequency or number the
@@ -67,6 +74,15 @@ happened, why it matters and what to do, in that order.
 - Label claims `FACT`, `ASSUMPTION`, `ESTIMATE`, `ASSESSMENT` or `DECISION`. Quote an
   existing decision; never present a settled operator decision as open, or your own choice
   as settled.
+- In evidence narratives, label a paragraph or finding once when its claims have
+  the same authority. Keep evidence beside the supported claims. Split the passage or
+  mark the changed authority when fact, assessment or uncertainty changes.
+- In specifications, state normative behavior directly. Do not prefix ordinary rules,
+  definitions or walkthrough steps with claim labels. Mark measurements, designed costs,
+  assumptions, estimates and open choices in the block where they occur. Keep their
+  sources and limits. Follow a user's requested claim format when one is supplied.
+- The sentence-label format for operator question context applies to that context only;
+  it is not the format for a specification or an evidence narrative.
 - Label a claim `FACT` only after you verified it yourself, in this session, against its primary source.
   The source is code at a named commit, a command you ran, or a log or record you read.
 - Put the evidence for a `FACT` inside its sentence.

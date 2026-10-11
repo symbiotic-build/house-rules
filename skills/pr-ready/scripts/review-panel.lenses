@@ -7,6 +7,7 @@ frontend a read-only
 generalist-a a read-only
 generalist-b b read-only
 generalist-c c read-only
+naming-readability b read-only
 performance a read-only
 security a read-only
 spec-waste a read-only

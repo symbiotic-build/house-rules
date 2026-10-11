@@ -22,6 +22,16 @@ Verification invariant: rules/delivery.md §Verification. Local work follows
   Retain the complete pack and manifest and send the pack bytes unchanged.
   The [compiler contract](../../prompts/README.md#one-call-pack-assembly) covers
   Git object reads, matching compiler extraction, repository loaders and failures.
+- For document work, identify the reader and document kind in the task. Include
+  `skills/spec-writing/SKILL.md` for design/specification authors and all review roles;
+  include the applicable writing rules through the selected loading path. Supply one
+  representative approved passage when available. Make the task's acceptance criterion
+  the naming and reader requirements, not a count of definitions, headings or retained
+  expressions. Exact schema names in an input document are not a naming exception.
+  Give document triagers the same acceptance requirements as reviewers. For a document
+  readability repair, give its checker the complete rewritten section and worked example,
+  so it can verify meaning and newly added explanations as well as preservation.
+  Keep acceptance checks inside the authorized document scope and review resources.
 
 - Prompts are lists of whole files from the [prompt collection](../../prompts/README.md).
   Expand an implementer, fixer, reviewer, triager or checker role with

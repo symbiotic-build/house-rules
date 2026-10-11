@@ -220,7 +220,9 @@ class CompleteWorkerPackTest(unittest.TestCase):
                 with self.subTest(lens=lens.stem, session=session):
                     args = ("--session",) if session else ()
                     result = self.run_prompt(*args, text=source)
-                    self.assertEqual(result.stdout.count(lens.read_text()), 1)
+                    # A lens may include another lens; compare its expanded text.
+                    body, _ = prompt.expand(file=lens.relative_to(ROOT).as_posix(), session=session)
+                    self.assertEqual(result.stdout.count(body), 1)
                     for owner in self.shared:
                         self.assertEqual(result.stdout.count((ROOT / owner).read_text()),
                                          0 if session else 1)
@@ -709,9 +711,14 @@ class RuleOwnershipTest(unittest.TestCase):
         for path in (ROOT / "prompts/lenses").glob("*.md"):
             with self.subTest(path=path.name):
                 self.assertNotRegex(path.read_text(), r"skill `")
+                self.assertNotIn("spec-writing", path.read_text())
         design = self.text("prompts/lenses/design-spec.md")
-        self.assertIn("missing why, example or term definition", design)
-        self.assertIn("readability problems are non-blocking unless they hide or garble a rule", design)
+        self.assertIn("@rule house-rules:prompts/lenses/naming-readability.md", design)
+        self.assertNotIn("non-blocking unless they hide or garble a rule", design)
+        reader = self.text("prompts/lenses/naming-readability.md")
+        self.assertIn("missing why, example or term definition", reader)
+        self.assertIn("Report violations of these requirements as document requirement defects", reader)
+        self.assertIn("Do not accept a glossary elsewhere as closure", reader)
 
     def test_repair_order_has_one_home_and_reaches_every_role_once(self):
         canon = self.text("prompts/skills/no-fortification.md")

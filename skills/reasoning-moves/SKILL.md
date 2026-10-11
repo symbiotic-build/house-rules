@@ -49,8 +49,7 @@ selected collaboration mode come from rules/core.md; these checkpoints do not re
 
 - Distinguish measured results, source-backed facts, extrapolations, and hypotheses.
   Use [rules/writing.md §Claim labels](../../rules/writing.md#claim-labels).
-  Attach the evidence and limitation needed to assess a consequential claim; do not
-  require a label on every ordinary sentence.
+  Apply its labeling scope and attach the evidence and limits needed to assess each claim.
 - For noisy comparisons, report per skill `bench-discipline` §Measurement and uncertainty.
 - Inspect enough primary records to verify field meaning, data integrity, and the
   important aggregate claims. Choose coverage for the heterogeneity and consequence
