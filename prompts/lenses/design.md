@@ -6,3 +6,5 @@ feature or root cause and the counted cost of each layer. Apply the shared revie
 design class, Native-first and No fortification. Trace requirement removals and spec edits
 that match existing code to a recorded decision. Finding disposition follows the
 [shared review bar](../util/review-bar.md).
+
+@rule house-rules:prompts/util/premise-check.md

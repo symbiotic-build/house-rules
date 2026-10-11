@@ -10,7 +10,8 @@ When the same class of defect has already been fixed once, first ask whether the
 should exist: delete or narrow it when that suffices. Then check whether the spec is unclear.
 Only then introduce one shared mechanism that makes the class impossible instead of
 patching another call site. When a finding targets a mechanism an earlier fix round added,
-apply this repair order.
+apply this repair order. Defects whose triggers pass through one shared structure, such as
+a shared column pool, are one class even when their symptoms differ.
 
 - Treat the first and second occurrence of the same failure class as potentially valid product or scope discoveries.
 - Implementers and fixers: diagnose, fix, and verify them normally when they remain outcome-aligned.

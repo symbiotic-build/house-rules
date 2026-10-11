@@ -75,4 +75,8 @@ Ground every claim in the current spec or code; say where the spec is silent.
 - Comparisons and diagrams follow [rules/writing.md §Format](../../rules/writing.md#format).
 - Organize by consequence, not by the order the work happened. No activity logs.
 - After the operator answers, record each choice where it belongs (rules/core.md prime rule
-  11) and stop asking about it.
+  11) and stop asking about it. Record a choice as unratified when its brief failed the
+  reader test or left out a real alternative (rules/writing.md §Claim labels), and tell the
+  operator so in the same reply.
+- For a foundational choice, every option carries its premise-check counts
+  ([premise check](../../prompts/util/premise-check.md)).

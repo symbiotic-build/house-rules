@@ -40,6 +40,11 @@ Verification invariant: rules/delivery.md §Verification. Local work follows
   Includes are recursive whole files; missing files, paths outside the checkout,
   section references and cycles fail the build. `--list` prints included paths.
   Dispatchers generate prompts from these source files; never maintain local copies.
+- In a task part, list as settled only decisions that rules/writing.md §Claim labels calls
+  settled. List each unratified decision separately as open, with the brief test it failed.
+  Never override the [triage classes](../../prompts/util/triage-classes.md) for findings
+  against decisions. Give a design review the measured consumer counts its premise check
+  needs, or a first step that collects them.
 - Run `scripts/prepare.py fix <checkout> --reviews <files...>` before fixing, or
   `scripts/prepare.py pr <checkout>` before preparing a PR (Python 3.9+). It fetches the base and
   checks ownership with `upstream-contribution/scripts/repo-ownership.sh`. For external
@@ -131,8 +136,10 @@ Specialist dispatch follows
 - **Hosted review bots.** Review threads from bots the host runs on the PR (for example
   GitHub Copilot) are reviewer input for the next fix round, judged by the same bar. Before
   merging, the lead replies to each with the fix or the reason it is not one, and resolves it.
-- **Review reassessment.** After three fix rounds on one PR, stop for a lead decision to
-  simplify or split and record why; at most three fix rounds run per PR. Follow-ups are
+- **Review reassessment.** After three fix rounds on one PR or design record, stop for a
+  lead decision to simplify or split; first rerun the
+  [premise check](../../prompts/util/premise-check.md) and record why; at most three
+  fix rounds run per PR. Follow-ups are
   tracked before merging and never hold
   the merge; finding disposition follows the
   [shared review bar](../../prompts/util/review-bar.md).

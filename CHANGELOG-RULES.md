@@ -2,6 +2,25 @@
 
 Source notes for House Rules invariants and procedures.
 
+## rules/writing.md, rules/core.md, prompts/util/premise-check.md — Settled and unratified decisions, premise check
+
+Operator decision: 2026-10-11, issue #103, answer "8. yes" to applying all twelve
+review-process fixes as one change after #102, including the three-round cap for design
+records. The operator added: "we must change the operator as god premise. Everybody can
+make mistakes and we need to tune this so that it's not annoying but finds these kind of
+mistakes early." A design converged through many review rounds while a foundational
+choice, taken from a brief the operator could not read, was treated as binding at every
+stage; defects caused by the shared structure it introduced were fixed one at a time.
+The changes:
+
+- A settled operator decision is one chosen from a brief that passed the reader test and
+  compared the real alternatives. Any other recorded choice is an unratified decision.
+- Reviewers may question an unratified decision only after naming the brief test it failed.
+- The design and design-spec lenses include one premise check.
+- Triage never rejects a finding against an unratified decision as FALSE.
+- Defects whose triggers pass through one shared structure count as one class.
+- The three-fix-round reassessment covers design records and reruns the premise check.
+
 ## rules/writing.md, skills/spec-writing, prompts/lenses/naming-readability.md — Readable names, decodable examples, scoped claim labels
 
 Operator decision: 2026-10-11, issue #100, option 1 (all four proposals). A design produced
