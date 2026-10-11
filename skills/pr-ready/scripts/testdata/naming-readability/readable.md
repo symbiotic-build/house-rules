@@ -40,6 +40,11 @@ The head row stores these values:
 The two line rows store these values:
 
 - `row_kind = invoice_line`: the row describes one line of an invoice.
+- `status = 1` (received) and `cost_category = 7` (goods purchase): the invoice store copies
+  both values from the head when it inserts the lines. A search by article number finds a line
+  row and shows its invoice's status and category without reading the head. Whenever the
+  head's status or category changes, the invoice store rewrites both values on every line of
+  that invoice in the same transaction.
 - `insert_sequence = 5013` for line 1 and `5014` for line 2. They match entries 0 and 1 of
   the head's `line_sequences`.
 - `invoice_head_sequence = 5012`: both lines point to the head row inserted above. A search
