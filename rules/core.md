@@ -123,7 +123,9 @@
    Add mechanisms for repeated friction only when cheaper than the problem and protective of a documented invariant.
    Apply rules/outcome.md §Three-occurrence reassessment on the third occurrence.
 10. **Preserve settled decisions.**
-   Keep recorded decisions and postponed scope settled absent new evidence.
+   Keep settled decisions and postponed scope settled absent new evidence.
+   An unratified decision stays open (rules/writing.md §Claim labels).
+   A change to the constraint a decision names as its reason is new evidence.
    Reuse valid artifacts.
    Allow justified confirmation or replication.
 11. **Persist lasting decisions through `handoff-continuity` §Filing.**

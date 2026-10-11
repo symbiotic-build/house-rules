@@ -74,6 +74,11 @@ happened, why it matters and what to do, in that order.
 - Label claims `FACT`, `ASSUMPTION`, `ESTIMATE`, `ASSESSMENT` or `DECISION`. Quote an
   existing decision; never present a settled operator decision as open, or your own choice
   as settled.
+- An operator decision is settled only when the operator chose it from a brief that passed
+  the reader test below and compared the real alternatives, each with its side effects
+  (skill `decision-brief`). Any other recorded choice is an unratified decision.
+- Work may follow an unratified decision. Reviewers and authors treat it as open: they name
+  the test its brief failed and judge the choice on evidence.
 - In evidence narratives, label a paragraph or finding once when its claims have
   the same authority. Keep evidence beside the supported claims. Split the passage or
   mark the changed authority when fact, assessment or uncertainty changes.

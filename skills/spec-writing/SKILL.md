@@ -11,7 +11,7 @@ from it without asking questions.** The document must explain the product and it
 
 ## Before writing: sweep reality
 
-- Inspect the current implementation and constraints before writing. Use a multi-agent sweep for
+- Inspect the current implementation, its real consumers and constraints before writing. Use a multi-agent sweep for
   cross-cutting work when delegation is permitted and fits the campaign resource
   envelope. Otherwise perform the authoritative source sweep with the primary agent and
   propose additional review if beneficial. Verify inherited claims against canonical code
@@ -89,6 +89,8 @@ Buildable is not enough: people read specs to understand, review and decide.
   list of what runs before what, and which tier each consumer sees (skill `design-canon`).
 - **Parameters derived, not asserted**: every threshold/size/scale in a spec traces to a
   constraint or measurement; a magic constant is a bug until justified.
+- **Premise check**: run the [premise check](../../prompts/util/premise-check.md) on every
+  foundational choice before writing and again before approval.
 - **Every policy configurable** (skill `design-canon` §Decisions).
 
 ## Duty to critique

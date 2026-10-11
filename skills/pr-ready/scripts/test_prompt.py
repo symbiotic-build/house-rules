@@ -707,6 +707,30 @@ class RuleOwnershipTest(unittest.TestCase):
         self.assertIn("other roles report it in the final message's Open questions section", canon)
         self.assertIn("do not block on it", canon)
 
+    def test_premise_check_has_one_home_in_design_lens_packs(self):
+        check = self.text("prompts/util/premise-check.md")
+        for lens in ("design-spec", "design"):
+            source = ("@rule house-rules:prompts/roles/reviewer.md\n"
+                      f"@rule house-rules:prompts/lenses/{lens}.md\n")
+            for session in (False, True):
+                with self.subTest(lens=lens, session=session):
+                    result, _ = prompt.expand(source, session=session)
+                    self.assertEqual(" ".join(result.split()).count(check), 1)
+
+    def test_only_settled_operator_decisions_bind_review(self):
+        writing = self.text("rules/writing.md")
+        self.assertIn("Any other recorded choice is an unratified decision", writing)
+        self.assertIn("An unratified decision stays open", self.text("rules/core.md"))
+        false = [line for line in (ROOT / "prompts/util/triage-classes.md").read_text().splitlines()
+                 if line.startswith("- FALSE:")]
+        self.assertEqual(len(false), 1)
+        self.assertIn("settled operator decision", false[0])
+        self.assertIn("A finding against an unratified decision", false[0])
+        canon = self.text("prompts/skills/code-canon.md")
+        self.assertIn("That non-blocking path covers disagreement without new evidence", canon)
+        self.assertIn("A failed premise check or new evidence against a settled decision is a "
+                      "design finding", canon)
+
     def test_lenses_need_no_forbidden_skill_loads(self):
         for path in (ROOT / "prompts/lenses").glob("*.md"):
             with self.subTest(path=path.name):
