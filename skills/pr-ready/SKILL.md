@@ -23,8 +23,10 @@ Verification invariant: rules/delivery.md §Verification. Local work follows
   The [compiler contract](../../prompts/README.md#one-call-pack-assembly) covers
   Git object reads, matching compiler extraction, repository loaders and failures.
 - For document work, identify the reader and document kind in the task. Include
-  `skills/spec-writing/SKILL.md` for design/specification authors and all review roles;
-  include the applicable writing rules through the selected loading path. Supply one
+  `skills/spec-writing/SKILL.md` for design/specification authors only. Give reviewers,
+  triagers and document checkers `--lens naming-readability` (or `design-spec`, which
+  includes it); the review service stages only `prompts/`, `rules/` and `skills/pr-ready/`.
+  Include the applicable writing rules through the selected loading path. Supply one
   representative approved passage when available. Make the task's acceptance criterion
   the naming and reader requirements, not a count of definitions, headings or retained
   expressions. Exact schema names in an input document are not a naming exception.

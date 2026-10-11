@@ -21,7 +21,10 @@ available).
 For design-document and specification reviews, `design-spec` includes the
 `naming-readability` criteria. Use the approved panel resources. Give the triager and
 document checker the same criteria; accepted fixes are not complete until their examples
-pass them.
+pass them. When those criteria change, review the
+[acceptance pair](../scripts/testdata/naming-readability/) with one `design-spec` reviewer:
+`unreadable.md` must fail on its value dump and its `xs00` supplier-column claim, and
+`readable.md` must pass.
 
 The lead spawns specialists when the operator asks or a finding warrants one. The
 [`design`](../../../prompts/lenses/design.md) lens is required for design changes (specs, new
