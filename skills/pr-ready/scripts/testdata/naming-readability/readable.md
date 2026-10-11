@@ -3,8 +3,8 @@
 The `invoice_records` collection holds two row kinds: one invoice head row per invoice,
 and one invoice line row per line on that invoice.
 
-Both row kinds share one indexed text column, `shared_indexed_text_0`. Its meaning depends
-on the row kind:
+The store allows one indexed text column per collection, so both row kinds share it:
+`shared_indexed_text_0`. Its meaning depends on the row kind:
 
 - In an invoice head row, it holds the supplier reference.
 - In an invoice line row, it holds the article number of that line.
