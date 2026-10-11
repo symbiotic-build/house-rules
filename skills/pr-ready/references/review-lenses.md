@@ -29,8 +29,12 @@ targets 2 and 4 on the other, and `design-spec` continues the rotation. Differen
 families miss different defects, so a second family finds more than another round from
 the same one. When a family cannot run a reviewer (it fails to start, crashes, times out
 or returns malformed output), the next family runs the same target in the same round,
-and the report names both families. The panel is incomplete only when no family can run
-a target; the report then names the target. Merge eligibility for an incomplete panel
+and the report names both families. The review service does this automatically. The
+lane script does not: it reports the failed target, and the lead re-runs that target in
+the same round with a panel config (`REVIEW_PANEL_CONF`) whose line for the failed family
+names another configured family's CLI and model, then names both families in the round
+report. The panel is incomplete only when no family can run a target; the report then
+names the target. Merge eligibility for an incomplete panel
 follows [pr-ready §4](../SKILL.md#4-merge-and-cleanup).
 
 **Quick review** keeps one generalist (`generalist-a`, `generalist-b`, `generalist-c`

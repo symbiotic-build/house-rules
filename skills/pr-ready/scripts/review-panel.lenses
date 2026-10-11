@@ -1,6 +1,6 @@
 concurrency-restarts b read-only
 correctness-security a read-only
-design-spec b read-only
+design-spec a read-only
 design a read-only
 durability b read-only
 frontend a read-only
