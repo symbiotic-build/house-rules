@@ -18,12 +18,13 @@ for a supplier reference could match a line whose article number has the same te
 A supplier with reference SUP-4471 sends invoice 88123 with two lines. In one transaction,
 the invoice store first reserves three numbers from its increasing series, 5012 to 5014, one
 per row. The invoice store keeps one such series for the `invoice_records` collection. A
-number identifies one row; a rolled-back transaction leaves its numbers unused. It then inserts the head row and both line rows with those numbers, so the head can
+number identifies one row; a rolled-back transaction leaves its numbers unused. The invoice store then inserts the head row and both line rows with those numbers, so the head can
 list its lines before they exist. A reading client never sees a head without its lines.
 
 The head row stores these values:
 
-- `row_kind = invoice_head`: the row describes the whole invoice.
+- `row_kind = 1`: code 1 means invoice head; the row describes the whole invoice. The column
+  is an integer, so the storage engine indexes it.
 - `status = 1`: code 1 means received. The invoice has arrived and nobody has approved it yet.
 - `cost_category = 7`: code 7 means goods purchase. The invoice store copies it from the
   supplier register's default for SUP-4471. Approval routing reads this value.
@@ -40,7 +41,9 @@ The head row stores these values:
 
 The two line rows store these values:
 
-- `row_kind = invoice_line`: the row describes one line of an invoice.
+- `row_kind = 2`: code 2 means invoice line; the row describes one line of an invoice.
+- `supplier_invoice_number` and `line_sequences`: not set on line rows. A search by supplier
+  invoice number therefore returns only head rows.
 - `status = 1` (received) and `cost_category = 7` (goods purchase): the invoice store copies
   both values from the head when it inserts the lines. A search by article number finds a line
   row and shows its invoice's status and category without reading the head. Whenever the
