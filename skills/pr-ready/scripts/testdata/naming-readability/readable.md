@@ -6,7 +6,8 @@ and one invoice line row per line on that invoice.
 The storage engine allows one indexed text column per collection, so both row kinds share it:
 `shared_indexed_text_0`. Its meaning depends on the row kind:
 
-- In an invoice head row, it holds the supplier reference.
+- In an invoice head row, it holds the supplier reference: the identifier our supplier register
+  gives the supplier who sent the invoice.
 - In an invoice line row, it holds the article number of that line.
 
 A search on this column always also filters on `row_kind`. Without that filter, a search
@@ -23,7 +24,8 @@ The head row stores these values:
 
 - `row_kind = invoice_head`: the row describes the whole invoice.
 - `status = 1`: code 1 means received. The invoice has arrived and nobody has approved it yet.
-- `cost_category = 7`: code 7 means goods purchase. Approval routing reads this value.
+- `cost_category = 7`: code 7 means goods purchase. The receive step copies it from the
+  supplier register's default for SUP-4471. Approval routing reads this value.
 - `insert_sequence = 5012`: the first reserved number. A row's number never changes, so
   other rows can refer to it.
 - `invoice_head_sequence = 5012`: the `insert_sequence` of the head row this row belongs to.
