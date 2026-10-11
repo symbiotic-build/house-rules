@@ -2,6 +2,18 @@
 
 Source notes for House Rules invariants and procedures.
 
+## rules/writing.md, skills/spec-writing, prompts/lenses/naming-readability.md — Readable names, decodable examples, scoped claim labels
+
+Operator decision: 2026-10-11, issue #100, option 1 (all four proposals). A design produced
+by agents used invented abbreviations for storage names and showed stored values in worked
+examples without their meaning. Repeated reviews passed it because readability was
+non-blocking, the reader test checked only that examples existed, task prompts treated
+existing names as authoritative, and a repair added definitions around the values instead
+of explaining them. Claim labels on every sentence also made an evidence report hard to
+follow. The changes require readable names in new internal designs, a reader test that
+decodes every shown value, a naming-and-readability review criterion with blocking
+findings, document-task prompt guidance, and scoped claim labels.
+
 ## rules/writing.md — Claim-label presentation
 
 Operator direction: 2026-10-08, restore the chosen inline-code presentation of claim

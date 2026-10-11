@@ -18,6 +18,16 @@ their own reviewers, chosen by the
 paths a change touches: `design-spec` for design documents and specifications, `frontend`
 for user-interface code, and `ux` for user flows (with screenshots or a preview link when
 available).
+For design-document and specification reviews, `design-spec` includes the
+`naming-readability` criteria. Use the approved panel resources. Give the triager and
+document checker the same criteria; accepted fixes are not complete until their examples
+pass them. When those criteria change, review the
+[acceptance pair](../scripts/testdata/naming-readability/) with one `naming-readability`
+reviewer: `unreadable.md` must fail on its value dump and its `xs00` supplier-column
+claim. `readable.md` must pass every incident check: its names are readable, the shared
+column is mapped for each row kind, the array entries correspond to line rows, and no
+value is a compact dump. A clean approval of the whole invented example is not required
+(operator decision 2026-10-12, Q15 = 1).
 
 The lead spawns specialists when the operator asks or a finding warrants one. The
 [`design`](../../../prompts/lenses/design.md) lens is required for design changes (specs, new
