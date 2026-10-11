@@ -744,6 +744,26 @@ class RuleOwnershipTest(unittest.TestCase):
         self.assertIn("Report violations of these requirements as document requirement defects", reader)
         self.assertIn("Do not accept a glossary elsewhere as closure", reader)
 
+    def test_document_review_roles_get_readability_from_staged_files(self):
+        guidance = " ".join(self.text("skills/pr-ready/SKILL.md").split())
+        self.assertIn("`skills/spec-writing/SKILL.md` for design/specification authors only", guidance)
+        self.assertIn("reviewers, triagers and document checkers `--lens naming-readability`", guidance)
+        with tempfile.TemporaryDirectory() as tmp:
+            stage = Path(tmp)
+            for folder in ("prompts", "rules", "skills/pr-ready"):
+                shutil.copytree(ROOT / folder, stage / folder)
+            script = stage / "skills/pr-ready/scripts/prompt.py"
+            for role in ("reviewer", "triager", "checker"):
+                with self.subTest(role=role):
+                    text = (f"@rule house-rules:prompts/roles/{role}.md\n"
+                            "@rule house-rules:prompts/lenses/naming-readability.md\n")
+                    result = PromptTest().run_prompt(text=text, script=script, cwd=stage)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("Do not accept a glossary elsewhere as closure", result.stdout)
+            skill = PromptTest().run_prompt(text="@rule house-rules:skills/spec-writing/SKILL.md\n",
+                                            script=script, cwd=stage)
+            self.assertEqual(skill.returncode, 2)
+
     def test_repair_order_has_one_home_and_reaches_every_role_once(self):
         canon = self.text("prompts/skills/no-fortification.md")
         self.assertIn("When the same class of defect has already been fixed once", canon)
