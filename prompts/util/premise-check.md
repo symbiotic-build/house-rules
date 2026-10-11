@@ -6,7 +6,10 @@ A recorded decision does not exempt a choice from this check.
 
 - **Consumers measured.** Name each real consumer. Count its use from its code or data:
   record types, fields per type, field kinds, queries and sizes. A requirement sheet or
-  brief that already assumes the choice is not a measurement.
+  brief that already assumes the choice is not a measurement. Measure the target consumer:
+  code or behaviour scheduled for removal or replacement is a requirement the new design
+  must take over, not evidence of where the design should place it. Check the consumer's
+  roadmap or the operator's decisions before counting it.
 - **Fit.** Show the choice against those counts, including the largest consumer case. A
   size that limits consumers is derived from the counts before approval. Calling it
   provisional postpones its value, never its check.

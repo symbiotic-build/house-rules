@@ -21,6 +21,11 @@ The changes:
 - Defects whose triggers pass through one shared structure count as one class.
 - The three-fix-round reassessment covers design records and reruns the premise check.
 
+Operator correction: 2026-10-11. An analysis counted a consumer's legacy code, already
+scheduled for removal, as measured consumer evidence. The premise check now measures the
+target consumer: code or behaviour scheduled for removal or replacement is a requirement
+the new design takes over, not evidence of where to place it.
+
 ## rules/writing.md, skills/spec-writing, prompts/lenses/naming-readability.md — Readable names, decodable examples, scoped claim labels
 
 Operator decision: 2026-10-11, issue #100, option 1 (all four proposals). A design produced
