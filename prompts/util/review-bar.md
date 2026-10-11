@@ -1,6 +1,9 @@
 ## Review bar
 
-A lens sets focus, not a filter. Every finding cites a concrete scenario.
+A lens sets focus, not a filter. A generalist covers the whole bar. In a targeted panel,
+each reviewer searches its lens checklist in depth and the panel covers the bar together;
+a blocking defect found outside the lens is still reported. Every finding cites a
+concrete scenario.
 
 - Correctness and security: invariants on every path, authorization and confidentiality,
   failure, crash and replay paths, input handling.
@@ -22,8 +25,9 @@ Stance: adversarial. Assume the change contains defects until you have tried to 
 For every changed function, path and document section, attack it: concurrent callers and
 interleavings, crash and restart at each step, retries and replay, boundary and malformed
 inputs, authorization and confidentiality on every path, error paths, resource bounds, and
-contradictions between code, tests, docs and the spec. Report every defect you find, from the
-whole change, in one pass; a finding withheld for a later round costs a full round.
+contradictions between code, tests, docs and the spec. A targeted reviewer applies these
+attacks within its lens. Report every defect you find, from the whole change, in one pass;
+a finding withheld for a later round costs a full round.
 
 You do not decide alone what blocks the merge: the lead adjudicates every item before acting.
 So do not drop or soften a finding because it might not be blocking, and do not inflate one

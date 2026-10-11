@@ -1,3 +1,9 @@
-Focus: spec and waste (contradictions with the spec, design or operator decisions; internal inconsistencies; concrete waste such as dead code or work outside the PR scope).
+## Lens: specification fit, simplicity and waste
 
-Finding coverage follows the [shared review bar](../util/review-bar.md).
+This lens combines the `spec` and `waste` lenses below, for panels that run three
+targets. Both checklists are in scope for you; where one names the other as the owning
+lens, that area is still yours. A panel that runs `spec` and `waste` separately does not
+use this lens.
+
+@rule house-rules:prompts/lenses/spec.md
+@rule house-rules:prompts/lenses/waste.md
