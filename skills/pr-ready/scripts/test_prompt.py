@@ -722,7 +722,7 @@ class RuleOwnershipTest(unittest.TestCase):
         self.assertIn("Never ask the operator to decide from a brief that fails the checks below",
                       writing)
         self.assertIn("also on questions a subagent drafted", writing)
-        evidence = "A settled decision reopens only on new evidence: a benchmark"
+        evidence = "meaning evidence its brief did not show: a benchmark"
         self.assertIn(evidence, writing)
         self.assertIn("Reopen a settled decision only on new evidence (rules/writing.md §Claim "
                       "labels)", self.text("rules/core.md"))
@@ -741,11 +741,12 @@ class RuleOwnershipTest(unittest.TestCase):
                  if line.startswith("- FALSE:")]
         self.assertEqual(len(false), 1)
         self.assertIn("settled operator decision", false[0])
-        self.assertIn("new evidence against a settled decision is never FALSE", false[0])
+        self.assertIn("New evidence against a settled decision, including a failed premise check "
+                      "that shows it, is never FALSE", false[0])
         canon = self.text("prompts/skills/code-canon.md")
         self.assertIn("That non-blocking path covers disagreement without new evidence", canon)
-        self.assertIn("A failed premise check or new evidence against a settled decision is a "
-                      "design finding", canon)
+        self.assertIn("New evidence against a settled decision, including a failed premise check "
+                      "that shows it, is a design finding", canon)
 
     def test_lenses_need_no_forbidden_skill_loads(self):
         for path in (ROOT / "prompts/lenses").glob("*.md"):

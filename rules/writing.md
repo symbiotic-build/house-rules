@@ -77,7 +77,8 @@ happened, why it matters and what to do, in that order.
 - Never ask the operator to decide from a brief that fails the checks below or leaves out
   a real alternative with its side effects. The brief's author runs those checks before
   sending, also on questions a subagent drafted (skill `decision-brief` §Before sending).
-- A settled decision reopens only on new evidence: a benchmark, an agent finding confirmed
+- A settled decision reopens only on new evidence, meaning evidence its brief did not
+  show: a benchmark, an agent finding confirmed
   by a check, demonstrated overcomplication, a simpler mechanism that meets the same
   needs, or a change to the constraint the decision names as its reason. The reopened
   decision goes back to the operator as a brief that passes those checks.

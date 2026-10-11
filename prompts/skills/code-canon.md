@@ -9,8 +9,8 @@ Canon the change must follow:
   one under Claim labels. If the code follows one you think is wrong, reviewers report it
   under Spec issues with "operator decision needed"; other roles report it in the final
   message's Open questions section with the same label; do not block on it. That
-  non-blocking path covers disagreement without new evidence. A failed premise check or new
-  evidence against a settled decision is a design finding under the review bar's Cost and
+  non-blocking path covers disagreement without new evidence. New evidence against a settled
+  decision, including a failed premise check that shows it, is a design finding under the review bar's Cost and
   design findings.
 - Simplicity: one mechanism per concept; duplicates are merged; a shared owner is
   extended, never forked into a local copy; every structure has a defensible reason.

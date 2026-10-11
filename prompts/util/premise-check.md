@@ -22,4 +22,5 @@ A recorded decision does not exempt a choice from this check.
 
 A failed check is a design finding under [Cost and design findings](cost-and-design.md).
 Report the counts, the simpler design, and the operator decision the choice rests on, if
-any. A failed check is new evidence against that decision (writing rules, Claim labels).
+any. A failed check reopens a settled decision only when it shows new evidence (writing
+rules, Claim labels); repeating a failure the brief showed is disagreement.
