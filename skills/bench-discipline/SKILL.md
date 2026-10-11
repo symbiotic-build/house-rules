@@ -89,6 +89,7 @@ Retrieval evaluations also apply the [retrieval rules](references/retrieval-eval
   duplicates; obey the approved concurrency and stop conditions. Paid runs may run in
   parallel inside the approved envelope. Before a new run of the same experiment starts,
   finish or cancel its in-flight run. The agent chooses which, by best judgment.
+  Paid-run parallelism does not cover benchmarks or measured performance runs: [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work).
 - Validate a judge or grader against its specification and representative source-backed
   examples before trusting it. Inspect relevant raw traces when aggregate results are
   surprising; use `failure-forensics` for an unexplained failure or regression.
@@ -99,7 +100,7 @@ Retrieval evaluations also apply the [retrieval rules](references/retrieval-eval
 
 - Match the build profile, workload, and concurrency to the deployment or study question.
   Define expected resource behavior before diagnosing serialization or low utilization.
-  Isolation of competing performance runs: rules/delivery.md §Parallel work. This skill does not
+  Measured-run concurrency and overlap: [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work). This skill does not
   relax stronger shared-host, provider, or hardware restrictions.
 - Checkpoint expensive or non-reproducible stages according to the continuity policy.
   Record with each run: revision, effective configuration, dataset version, seed when
