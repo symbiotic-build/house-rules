@@ -726,6 +726,10 @@ class RuleOwnershipTest(unittest.TestCase):
         self.assertEqual(len(false), 1)
         self.assertIn("settled operator decision", false[0])
         self.assertIn("A finding against an unratified decision", false[0])
+        canon = self.text("prompts/skills/code-canon.md")
+        self.assertIn("That non-blocking path covers disagreement without new evidence", canon)
+        self.assertIn("A failed premise check or new evidence against a settled decision is a "
+                      "design finding", canon)
 
     def test_lenses_need_no_forbidden_skill_loads(self):
         for path in (ROOT / "prompts/lenses").glob("*.md"):
