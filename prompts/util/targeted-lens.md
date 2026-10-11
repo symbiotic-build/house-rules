@@ -11,8 +11,9 @@ your lens, in depth.
 - When you notice a defect outside your lens while reading, report it only when it is
   blocking. Report it once, under Blocking, with the title prefixed "Outside lens:" and
   the owning lens named. Do not investigate it further.
-- When your lens does not reach the change at all, approve and keep the full report
-  structure. Under Coverage, say in one line that the lens does not reach the change
-  and name the checklist items you checked.
+- When your lens does not reach the change at all, keep the full report structure.
+  Under Coverage, say in one line that the lens does not reach the change and name the
+  checklist items you checked. Approve only when Blocking is empty; an "Outside lens:"
+  blocker still requests changes.
 - Every finding still meets the [shared review bar](review-bar.md): a concrete
   scenario, the evidence, and honest placement.

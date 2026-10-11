@@ -25,8 +25,10 @@ lens:". The triager merges near-duplicates and keeps the owning lens's version.
 
 **Families.** Targets take the configured families in a fixed rotation, so each family
 covers different targets: with families A and B, targets 1 and 3 run on one family and
-targets 2 and 4 on the other, and `design-spec` continues the rotation. Different
-families miss different defects, so a second family finds more than another round from
+targets 2 and 4 on the other. In the review service, `design-spec` and other
+path-selected lenses continue the rotation. The lane script places each lens on the fixed
+family in `scripts/review-panel.lenses`, which alternates the four code targets.
+Different families miss different defects, so a second family finds more than another round from
 the same one. When a family cannot run a reviewer (it fails to start, crashes, times out
 or returns malformed output), the next family runs the same target in the same round,
 and the report names both families. The review service does this automatically. The
@@ -43,8 +45,8 @@ by family), because one reviewer must cover the whole bar.
 Reviewer definitions live in [`prompts/lenses/`](../../../prompts/lenses/); the
 machine-local config maps each family to a CLI, model and effort (House Rules keeps model
 choice out of the repository). Lens family and sandbox defaults live in
-`scripts/review-panel.lenses`, one `name family sandbox` per line; the code targets
-alternate families there. Lens files contain only prompt text.
+`scripts/review-panel.lenses`, one `name family sandbox` per line. Lens files contain
+only prompt text.
 
 ## Optional lenses
 
