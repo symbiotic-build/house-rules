@@ -14,20 +14,21 @@ for a supplier reference could match a line whose article number has the same te
 
 ## Worked example: a received invoice
 
-A supplier with reference SUP-4471 sends invoice 88123 with two lines. The invoice store
-inserts the head row and both line rows in one transaction, so a reading client never sees a
-head without its lines.
+A supplier with reference SUP-4471 sends invoice 88123 with two lines. In one transaction,
+the invoice store first reserves three numbers from its increasing series, 5012 to 5014, one
+per row. It then inserts the head row and both line rows with those numbers, so the head can
+list its lines before they exist. A reading client never sees a head without its lines.
 
 The head row stores these values:
 
 - `row_kind = invoice_head`: the row describes the whole invoice.
 - `status = 1`: code 1 means received. The invoice has arrived and nobody has approved it yet.
 - `cost_category = 7`: code 7 means goods purchase. Approval routing reads this value.
-- `insert_sequence = 5012`: the invoice store gives each row the next number in one
-  increasing series once, when it inserts the row. The number never changes, so other rows
-  can refer to it.
+- `insert_sequence = 5012`: the first reserved number. A row's number never changes, so
+  other rows can refer to it.
 - `invoice_head_sequence = 5012`: the `insert_sequence` of the head row this row belongs to.
-  A head row belongs to itself, so both values are 5012.
+  A head row belongs to itself, so both values are 5012. One search on
+  `invoice_head_sequence = 5012` therefore returns the head and its lines together.
 - `supplier_invoice_number = 88123`: the number printed on the supplier's invoice. People
   search by it.
 - `shared_indexed_text_0 = "SUP-4471"`: in a head row, the supplier reference.
@@ -39,7 +40,8 @@ The two line rows store these values:
 - `row_kind = invoice_line`: the row describes one line of an invoice.
 - `insert_sequence = 5013` for line 1 and `5014` for line 2. They match entries 0 and 1 of
   the head's `line_sequences`.
-- `invoice_head_sequence = 5012`: both lines point to the head row inserted above.
+- `invoice_head_sequence = 5012`: both lines point to the head row inserted above. A search
+  by article number finds a line row, and this value opens the line's invoice.
 - `shared_indexed_text_0 = "ART-0091"` for line 1 and `"ART-0350"` for line 2: in a line
   row, the article number.
 
