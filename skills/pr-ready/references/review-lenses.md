@@ -24,7 +24,10 @@ document checker the same criteria; accepted fixes are not complete until their 
 pass them. When those criteria change, review the
 [acceptance pair](../scripts/testdata/naming-readability/) with one `naming-readability`
 reviewer: `unreadable.md` must fail on its value dump and its `xs00` supplier-column
-claim, and `readable.md` must pass.
+claim. `readable.md` must pass every incident check: its names are readable, the shared
+column is mapped for each row kind, the array entries correspond to line rows, and no
+value is a compact dump. A clean approval of the whole invented example is not required
+(operator decision 2026-10-12, Q15 = 1).
 
 The lead spawns specialists when the operator asks or a finding warrants one. The
 [`design`](../../../prompts/lenses/design.md) lens is required for design changes (specs, new
