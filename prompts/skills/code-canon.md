@@ -5,14 +5,13 @@ Canon the change must follow:
 - Never remove or downgrade a security or architecture boundary as a workaround. A
   boundary is one the spec, threat model or shipped runtime declares; a reviewer concern
   is not one by label alone. Credentials never appear in code, tests, fixtures or logs.
-- Settled operator decisions bind; the writing rules define settled under Claim labels. If
-  the code follows one you think is wrong, reviewers report it under Spec issues with
-  "operator decision needed"; other roles report it in the final message's Open questions
-  section with the same label; do not block on it. That non-blocking path covers
-  disagreement without new evidence. A failed premise check or new evidence against a
-  settled decision is a design finding under the review bar's Cost and design findings.
-  An unratified decision binds no review: judge the choice on its merits, and name the
-  brief test it failed.
+- Settled operator decisions bind; the writing rules name the new evidence that reopens
+  one under Claim labels. If the code follows one you think is wrong, reviewers report it
+  under Spec issues with "operator decision needed"; other roles report it in the final
+  message's Open questions section with the same label; do not block on it. That
+  non-blocking path covers disagreement without new evidence. New evidence against a settled
+  decision, including a failed premise check that shows it, is a design finding under the review bar's Cost and
+  design findings.
 - Simplicity: one mechanism per concept; duplicates are merged; a shared owner is
   extended, never forked into a local copy; every structure has a defensible reason.
 - Delete unreleased dead paths; rebuild pre-release internal formats and current live data, without migrations or legacy readers; product schema migrations may be a feature.
