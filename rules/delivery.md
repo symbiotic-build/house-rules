@@ -53,7 +53,11 @@
 - Keep lane ownership disjoint.
 - Verify lane diffs stay within ownership.
 - Keep shared spine files append-only.
-- Isolate competing performance runs unless contention is the declared study and resource policy permits it.
+- Run one benchmark or measured performance run at a time per machine, across all agents, lanes and sessions.
+- Start no build or test suite of your own while your measured run is active.
+- Record the machine load with each run.
+- Mark a run taken under overlap with another benchmark, measured run, build or test suite invalid, and rerun it.
+- The one exception: contention is the declared study and resource policy permits it.
 - Bound memory-heavy concurrency by verified host capacity and the approved resource envelope.
 - Declare every touched repository in the work item.
 - Flag shared kit or application programming interface impacts on other consumers in the handoff.

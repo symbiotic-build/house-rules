@@ -28,6 +28,15 @@ agent runs.
 Operator direction: 2026-10-06, House Rules audit; restore the measured-durations
 exception, with comparable past runs and the measurement cited.
 
+## rules/delivery.md — Parallel work (one benchmark at a time)
+
+Operator direction: 2026-10-11, issue #105: "Please run just one benchmark at a time (this
+should be a house rule)". The earlier rule only said to isolate competing performance runs.
+One benchmark or measured performance run runs at a time per machine across all agents,
+lanes and sessions. An agent's own builds and test suites do not overlap its measured run.
+Each run records the machine load. A run taken under overlap is invalid and rerun. A
+declared contention study stays the exception.
+
 ## rules/delivery.md — Verification (durable paid runs)
 
 Source incident: a live paid review was interrupted before its stream had been persisted.

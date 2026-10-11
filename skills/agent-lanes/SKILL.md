@@ -37,8 +37,8 @@ explicit goals.
 - Respect global provider concurrency across ALL lanes combined (e.g. "provider A under
   500 total, provider B under 2000 in total") — budgets are fleet-wide, not per-lane.
   ⚒ Make one lane the budget owner when several hit the same provider.
-- Record the intended concurrency and measurement conditions before launch (bounds and
-  isolation: rules/delivery.md §Parallel work).
+- Record the intended concurrency and measurement conditions before launch (bounds,
+  one measured run per machine across all lanes: rules/delivery.md §Parallel work).
 - Builds and targeted tests follow `rust-canon` §Code rules and use the lane's own target
   directory, never a shared tree where a paused run may depend on the existing binary.
 
