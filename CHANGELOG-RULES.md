@@ -2,6 +2,22 @@
 
 Source notes for House Rules invariants and procedures.
 
+## rules/writing.md, rules/core.md, skills/decision-brief — Briefs checked before sending; settled decisions reopen on new evidence
+
+Operator correction: 2026-10-12, issue #107, rejecting the settled/unratified split in the
+entry below: "I don't think this rule is correct, we shouldn't get to decide on unreadable
+evidence... Settled decision can still reopen on new information that is benchmarks, agent
+finding and confirming issues or overcomplication or finding simplified version of the
+mechanisms." The changes:
+
+- Never ask the operator to decide from a brief that fails the reader checks or leaves out
+  a real alternative. The brief's author runs the checks before sending, also on questions
+  a subagent drafted.
+- Any settled decision reopens on new evidence: a benchmark, a confirmed agent finding,
+  demonstrated overcomplication, a simpler mechanism, or a change to the constraint the
+  decision names as its reason. The reopened decision goes back to the operator as a brief.
+- The "unratified decision" category and its uses are removed.
+
 ## rules/writing.md, rules/core.md, prompts/util/premise-check.md — Settled and unratified decisions, premise check
 
 Operator decision: 2026-10-11, issue #103, answer "8. yes" to applying all twelve

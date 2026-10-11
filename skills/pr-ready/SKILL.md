@@ -42,8 +42,8 @@ Verification invariant: rules/delivery.md §Verification. Local work follows
   Includes are recursive whole files; missing files, paths outside the checkout,
   section references and cycles fail the build. `--list` prints included paths.
   Dispatchers generate prompts from these source files; never maintain local copies.
-- In a task part, list as settled only decisions that rules/writing.md §Claim labels calls
-  settled. List each unratified decision separately as open, with the brief test it failed.
+- In a task part, list settled decisions with their source. List a decision that new
+  evidence reopened (rules/writing.md §Claim labels) separately as open, with that evidence.
   Never override the [triage classes](../../prompts/util/triage-classes.md) for findings
   against decisions. Give a design review the measured consumer counts its premise check
   needs, or a first step that collects them.

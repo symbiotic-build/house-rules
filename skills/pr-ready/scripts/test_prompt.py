@@ -717,15 +717,31 @@ class RuleOwnershipTest(unittest.TestCase):
                     result, _ = prompt.expand(source, session=session)
                     self.assertEqual(" ".join(result.split()).count(check), 1)
 
-    def test_only_settled_operator_decisions_bind_review(self):
-        writing = self.text("rules/writing.md")
-        self.assertIn("Any other recorded choice is an unratified decision", writing)
-        self.assertIn("An unratified decision stays open", self.text("rules/core.md"))
+    def test_settled_decisions_reopen_only_on_new_evidence(self):
+        writing = " ".join(self.text("rules/writing.md").split())
+        self.assertIn("Never ask the operator to decide from a brief that fails the checks below",
+                      writing)
+        self.assertIn("also on questions a subagent drafted", writing)
+        evidence = "A settled decision reopens only on new evidence: a benchmark"
+        self.assertIn(evidence, writing)
+        self.assertIn("Reopen a settled decision only on new evidence (rules/writing.md §Claim "
+                      "labels)", self.text("rules/core.md"))
+        brief = self.text("skills/decision-brief/SKILL.md")
+        self.assertIn("## Before sending", brief)
+        self.assertIn("also when a subagent drafted the questions", brief)
+        homes, retired = [], "un" + "ratified"
+        for folder in ("rules", "prompts", "skills"):
+            for path in (ROOT / folder).rglob("*.md"):
+                text = " ".join(path.read_text().split())
+                self.assertNotIn(retired, text.lower(), path)
+                if evidence in text:
+                    homes.append(path)
+        self.assertEqual(homes, [ROOT / "rules/writing.md"])
         false = [line for line in (ROOT / "prompts/util/triage-classes.md").read_text().splitlines()
                  if line.startswith("- FALSE:")]
         self.assertEqual(len(false), 1)
         self.assertIn("settled operator decision", false[0])
-        self.assertIn("A finding against an unratified decision", false[0])
+        self.assertIn("new evidence against a settled decision is never FALSE", false[0])
         canon = self.text("prompts/skills/code-canon.md")
         self.assertIn("That non-blocking path covers disagreement without new evidence", canon)
         self.assertIn("A failed premise check or new evidence against a settled decision is a "

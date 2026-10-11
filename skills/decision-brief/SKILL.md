@@ -60,9 +60,25 @@ Ground every claim in the current spec or code; say where the spec is silent.
      [rules/core.md prime rule 13](../../rules/core.md#prime-rules);
    - recommendation, and why each other option is rejected;
    - next steps if chosen.
-5. **Requests to revisit settled decisions,** kept separate and not adopted by default.
+5. **Reopened settled decisions,** each with the new evidence that reopened it, kept
+   separate and not adopted by default.
 6. **Impact** by component or work package.
 7. **Evidence appendix** (skill `audit-report-authoring` §Evidence).
+
+## Before sending
+
+The brief's author, usually the lead, runs these checks before the operator sees the
+brief, also when a subagent drafted the questions. Fix a brief that fails one; never send
+it.
+
+- The brief passes [rules/writing.md §Checks before sending](../../rules/writing.md#checks-before-sending).
+- The brief defines every term it uses.
+- A concept the brief introduces says why it exists and what happens without it.
+- Each decision lists the real alternatives with their side effects, including the
+  simplest design and, when a dependency limit drives the choice, a change to that
+  dependency.
+- No option takes its shape or counts from code scheduled for removal or replacement
+  ([premise check](../../prompts/util/premise-check.md)).
 
 ## Rules
 
@@ -75,8 +91,8 @@ Ground every claim in the current spec or code; say where the spec is silent.
 - Comparisons and diagrams follow [rules/writing.md §Format](../../rules/writing.md#format).
 - Organize by consequence, not by the order the work happened. No activity logs.
 - After the operator answers, record each choice where it belongs (rules/core.md prime rule
-  11) and stop asking about it. Record a choice as unratified when its brief failed the
-  reader test or left out a real alternative (rules/writing.md §Claim labels), and tell the
-  operator so in the same reply.
+  11) and stop asking about it until new evidence reopens it
+  ([rules/writing.md §Claim labels](../../rules/writing.md#claim-labels)). A reopened
+  decision gets a new brief that states the new evidence.
 - For a foundational choice, every option carries its premise-check counts
   ([premise check](../../prompts/util/premise-check.md)).

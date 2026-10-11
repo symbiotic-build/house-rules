@@ -74,11 +74,13 @@ happened, why it matters and what to do, in that order.
 - Label claims `FACT`, `ASSUMPTION`, `ESTIMATE`, `ASSESSMENT` or `DECISION`. Quote an
   existing decision; never present a settled operator decision as open, or your own choice
   as settled.
-- An operator decision is settled only when the operator chose it from a brief that passed
-  the reader test below and compared the real alternatives, each with its side effects
-  (skill `decision-brief`). Any other recorded choice is an unratified decision.
-- Work may follow an unratified decision. Reviewers and authors treat it as open: they name
-  the test its brief failed and judge the choice on evidence.
+- Never ask the operator to decide from a brief that fails the checks below or leaves out
+  a real alternative with its side effects. The brief's author runs those checks before
+  sending, also on questions a subagent drafted (skill `decision-brief` §Before sending).
+- A settled decision reopens only on new evidence: a benchmark, an agent finding confirmed
+  by a check, demonstrated overcomplication, a simpler mechanism that meets the same
+  needs, or a change to the constraint the decision names as its reason. The reopened
+  decision goes back to the operator as a brief that passes those checks.
 - In evidence narratives, label a paragraph or finding once when its claims have
   the same authority. Keep evidence beside the supported claims. Split the passage or
   mark the changed authority when fact, assessment or uncertainty changes.

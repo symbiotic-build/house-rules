@@ -124,8 +124,7 @@
    Apply rules/outcome.md §Three-occurrence reassessment on the third occurrence.
 10. **Preserve settled decisions.**
    Keep settled decisions and postponed scope settled absent new evidence.
-   An unratified decision stays open (rules/writing.md §Claim labels).
-   A change to the constraint a decision names as its reason is new evidence.
+   Reopen a settled decision only on new evidence (rules/writing.md §Claim labels).
    Reuse valid artifacts.
    Allow justified confirmation or replication.
 11. **Persist lasting decisions through `handoff-continuity` §Filing.**

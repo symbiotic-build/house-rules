@@ -21,5 +21,5 @@ A recorded decision does not exempt a choice from this check.
   cost.
 
 A failed check is a design finding under [Cost and design findings](cost-and-design.md).
-Report the counts, the simpler design, and whether the choice rests on a settled or an
-unratified decision (writing rules, Claim labels).
+Report the counts, the simpler design, and the operator decision the choice rests on, if
+any. A failed check is new evidence against that decision (writing rules, Claim labels).
