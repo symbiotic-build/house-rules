@@ -1033,6 +1033,24 @@ pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\n'
                 self.assertLessEqual(max(counts), int(cap))
                 self.assertEqual((output / ("cap-" + cap) / "summary.txt").read_text().count("verdict=APPROVE"), 4)
 
+    def test_codex_reviewers_ignore_user_configuration(self):
+        """User Codex configuration starts MCP servers, plugins and hooks in every reviewer."""
+        summary, output, env = self.panel_fixture()
+        env["REVIEW_BASE"] = "origin/trunk"
+        argv = self.root / "codex-argv.json"
+        (self.binaries / "codex").write_text("#!" + sys.executable + "\n" + f"""import json, pathlib, sys
+pathlib.Path({str(argv)!r}).write_text(json.dumps(sys.argv[1:]))
+sys.stdin.read()
+pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n')
+""")
+        result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "no-user-config",
+                                 str(self.repo), str(summary), "generalist-a"],
+                                capture_output=True, text=True, timeout=30, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        args = json.loads(argv.read_text())
+        self.assertIn("--ignore-user-config", args)
+        self.assertEqual(args[args.index("--disable") + 1], "shell_snapshot")
+
     def test_panel_refuses_an_invalid_reviewer_cap(self):
         summary, output, env = self.panel_fixture()
         for cap in ("0", "-1", "two"):
@@ -1051,7 +1069,8 @@ pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\n'
         running = self.concurrency_stub()
         peak = self.root / "peak"
         env.update(TEST_RUNNING=str(running), TEST_PEAK=str(peak))
-        lock = Path(env["HOUSE_RULES_LOCK_DIR"]) / "review.lock"
+        env["HOUSE_RULES_REVIEW_SLOTS"] = "1"
+        lock = Path(env["HOUSE_RULES_LOCK_DIR"]) / "review-1.lock"
         lock.parent.mkdir(parents=True)
         lock.touch()
         err = self.root / "panel.err"

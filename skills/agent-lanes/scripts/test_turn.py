@@ -25,7 +25,7 @@ class TurnTest(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
         self.env = dict(os.environ, HOUSE_RULES_LOCK_DIR=str(self.root / "locks"))
-        for key in ("HOUSE_RULES_TURNS", "HOUSE_RULES_JOBS", "CARGO_BUILD_JOBS",
+        for key in ("HOUSE_RULES_TURNS", "HOUSE_RULES_JOBS", "HOUSE_RULES_REVIEW_SLOTS", "CARGO_BUILD_JOBS",
                     "CMAKE_BUILD_PARALLEL_LEVEL", "MAKEFLAGS", "RUST_TEST_THREADS"):
             self.env.pop(key, None)
 
@@ -64,6 +64,10 @@ class TurnTest(unittest.TestCase):
         with open(self.lock("build"), "rb") as held:
             fcntl.flock(held, fcntl.LOCK_EX)
             result = self.turn("review", "--", *self.python("print('ran')"))
+        with open(self.lock("review-1"), "rb") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            self.env["HOUSE_RULES_REVIEW_SLOTS"] = "1"
+            self.assertEqual(self.turn("build", "--", "true").returncode, 0)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "ran\n")
 
@@ -86,10 +90,44 @@ class TurnTest(unittest.TestCase):
         self.assertGreaterEqual(int(niceness), 10)
         self.assertEqual(values, ["5", "5", "5", "-j5", "1", "build"])
 
-    def test_default_job_limit_leaves_two_cores(self):
+    def test_default_job_limit_is_performance_cores_minus_two(self):
         result = self.turn("--jobs")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(int(result.stdout), max(1, os.cpu_count() - 2))
+        performance = os.cpu_count()
+        if sys.platform == "darwin":
+            levels = subprocess.run(["sysctl", "-n", "hw.nperflevels"], capture_output=True, text=True).stdout.strip()
+            if levels not in ("", "1"):
+                performance = int(subprocess.run(["sysctl", "-n", "hw.perflevel0.logicalcpu"],
+                                                 capture_output=True, text=True).stdout)
+        elif Path("/sys/devices/cpu_core/cpus").exists() and Path("/sys/devices/cpu_atom/cpus").exists():
+            self.skipTest("hybrid Linux host: covered by the cpu_atom parser")
+        self.assertEqual(int(result.stdout), max(1, performance - 2))
+
+    def test_review_turns_share_a_counted_set_of_slots(self):
+        self.env["HOUSE_RULES_REVIEW_SLOTS"] = "2"
+        release = self.root / "release"
+        started = self.root / "started"
+        started.mkdir()
+        code = ("import pathlib, sys, time\n"
+                f"pathlib.Path({str(started)!r}, sys.argv[1]).touch()\n"
+                f"while not pathlib.Path({str(release)!r}).exists(): time.sleep(0.05)\n")
+        panels = []
+        for n in ("1", "2"):
+            panels.append(subprocess.Popen([sys.executable, str(SCRIPT), "review", "--", sys.executable, "-c", code, n],
+                                           env=self.env))
+            self.addCleanup(panels[-1].kill)
+        wait_for(lambda: len(list(started.iterdir())) == 2)
+        third_err = self.root / "third.err"
+        with third_err.open("w") as err:
+            third = subprocess.Popen([sys.executable, str(SCRIPT), "review", "--", sys.executable, "-c", code, "3"],
+                                     env=self.env, stderr=err)
+            self.addCleanup(third.kill)
+            wait_for(lambda: "waiting for the review lock" in third_err.read_text())
+            self.assertFalse((started / "3").exists())
+            release.touch()
+            for panel in panels + [third]:
+                self.assertEqual(panel.wait(timeout=10), 0)
+        self.assertTrue((started / "3").exists())
 
     def test_a_process_the_command_leaves_running_does_not_keep_the_lock(self):
         pidfile = self.root / "daemon.pid"
@@ -102,10 +140,14 @@ class TurnTest(unittest.TestCase):
     def test_unknown_lock_names_and_bad_job_limits_are_refused(self):
         self.assertEqual(self.turn("bulid", "--", "true").returncode, 2)
         self.assertFalse((self.root / "locks").exists())
-        self.env["HOUSE_RULES_JOBS"] = "0"
-        result = self.turn("build", "--", "true")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("HOUSE_RULES_JOBS", result.stderr)
+        for name in ("HOUSE_RULES_JOBS", "HOUSE_RULES_REVIEW_SLOTS"):
+            with self.subTest(name=name):
+                env = dict(self.env)
+                self.env[name] = "0"
+                result = self.turn("review", "--", "true")
+                self.env = env
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(name, result.stderr)
 
     def lock(self, name):
         path = self.root / "locks" / (name + ".lock")

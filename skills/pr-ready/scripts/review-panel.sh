@@ -10,16 +10,17 @@
 # Range: ${REVIEW_BASE:-remote default branch}...HEAD; upstream preferred to origin.
 # Output directory: ${REVIEW_PANEL_OUT:-<checkout>/.tmp/review-panel}/<name>/ with <reviewer>.md,
 #   raw logs, and summary.txt (verdict and wall time per reviewer).
-# Turns: one panel at a time per machine, under the review lock of ../../agent-lanes/scripts/turn.py,
-#   with at most ${REVIEW_PANEL_MAX_PARALLEL:-half the online cores, at least 1} reviewers at once.
+# Turns: the panel runs in a free review slot of ../../agent-lanes/scripts/turn.py, with at most
+#   ${REVIEW_PANEL_MAX_PARALLEL:-half the machine's job limit, at least 1} reviewers at once.
+# Codex reviewers ignore the user's Codex configuration, so they start no MCP server, plugin or hook.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
 case " ${HOUSE_RULES_TURNS:-} " in
   *" review "*) ;;
   *) exec python3 -I -B "$here/../../agent-lanes/scripts/turn.py" review -- "$BASH" "$0" "$@" ;;
 esac
-cores=$(getconf _NPROCESSORS_ONLN) || exit 2
-max_parallel=${REVIEW_PANEL_MAX_PARALLEL:-$(( cores / 2 > 1 ? cores / 2 : 1 ))}
+job_limit=${HOUSE_RULES_JOBS:-$(python3 -I -B "$here/../../agent-lanes/scripts/turn.py" --jobs)} || exit 2
+max_parallel=${REVIEW_PANEL_MAX_PARALLEL:-$(( job_limit / 2 > 1 ? job_limit / 2 : 1 ))}
 [[ "$max_parallel" =~ ^[1-9][0-9]{0,3}$ ]] || { echo "REVIEW_PANEL_MAX_PARALLEL must be a whole number from 1 to 9999" >&2; exit 2; }
 rules_repo=${REVIEW_HOUSE_RULES_REPO:-$here/../../..}
 rules_rev=${REVIEW_HOUSE_RULES_REV:-}
@@ -171,7 +172,7 @@ PY
     logs=$out/$r.attempt-$attempt
     cli_status=0
     case $cli in
-      codex) codex exec --json --skip-git-repo-check -m "$model" -c model_reasoning_effort="${effort:-high}" \
+      codex) codex exec --json --skip-git-repo-check --ignore-user-config --disable shell_snapshot -m "$model" -c model_reasoning_effort="${effort:-high}" \
                ${tier:+-c service_tier="\"$tier\""} -s "$sandbox" -C "$dir" -o "$logs.md" - < "$prompt" \
                > "$logs.jsonl" 2> "$logs.err" || cli_status=$? ;;
       # Grok has no read-only sandbox that starts on every host, so the reviewer gets only read tools:
