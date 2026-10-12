@@ -48,7 +48,8 @@ Commands for the turn-taking rules in
 [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work).
 [`scripts/turn.py`](scripts/turn.py) waits for the build lock or a free review slot and for the
 load to allow a new job. It then runs one command at nice 10 with the job limit, and releases
-the lock when the command exits. Cancelling the helper stops the command's whole process group.
+the lock when the command exits. Cancelling the helper stops the command's whole process group
+and keeps the lock until that group has exited.
 
 ```bash
 turn=<House Rules checkout>/skills/agent-lanes/scripts/turn.py

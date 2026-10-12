@@ -63,7 +63,7 @@
 - Builds, test suites, benchmarks and measured performance runs take the `build` lock.
 - Review panels take one of the machine's review slots, three unless the operator sets another number. A panel waits only when every slot is taken.
 - Take a lock or slot for one command and release it when that command exits.
-- Never hold a lock while you edit, read output or wait for CI, a review or the operator.
+- Never hold a lock or slot while you edit, read output or wait for CI, a review you started separately or the operator. A panel keeps its slot until its own reviewers finish.
 - Run locked jobs at nice 10.
 - Limit a locked job's parallelism to the job limit: online cores minus efficiency cores minus 2, at least 1, unless the operator sets another limit for the machine.
 - Run at most half the job limit of reviewers per panel at once, at least 1.

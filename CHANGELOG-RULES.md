@@ -89,7 +89,8 @@ a job limit, `nice` and a limit on reviewers per panel. The rule makes that the 
 practice on a shared machine:
 
 - Builds, test suites, benchmarks and measured runs take the `build` lock; review panels
-  take one of three review slots. A lock covers one command, never edits or waits.
+  take one of three review slots. A lock covers one command, never the agent's edits or
+  waits.
 - Locked jobs run at nice 10 with a job limit of online cores minus efficiency cores
   minus 2.
 - A panel runs at most half the job limit of reviewers at once, on a checkout without
