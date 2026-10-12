@@ -48,14 +48,14 @@ Commands for the turn-taking rules in
 [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work).
 [`scripts/turn.py`](scripts/turn.py) waits for the build lock or a free review slot and for the
 load to allow a new job. It then runs one command at nice 10 with the job limit, and releases
-the lock when the command exits. Cancelling the helper stops the command's whole process group
-and keeps the lock until that group has exited.
+the lock when the command exits. Cancelling the helper signals the command's whole process
+group; the lock is free once the command itself exits.
 
 ```bash
 turn=<House Rules checkout>/skills/agent-lanes/scripts/turn.py
 python3 "$turn" build -- cargo test -p intake        # one build or test command per turn
-python3 "$turn" build -- cmake --build build         # make, cmake and cargo read the job limit from the environment
-python3 "$turn" build -- ninja -j "$(python3 "$turn" --jobs)"   # other tools get it as a flag
+python3 "$turn" build -- cmake --build build         # cmake and cargo read the job limit from the environment
+python3 "$turn" build -- make -j "$(python3 "$turn" --jobs)"    # make, ninja and other tools get it as a flag
 ```
 
 - Wrap each heavy command on its own. Never wrap a shell, an editor, a watcher or a whole
@@ -66,7 +66,8 @@ python3 "$turn" build -- ninja -j "$(python3 "$turn" --jobs)"   # other tools ge
   set `HOUSE_RULES_LOCK_DIR` to one shared directory.
 - `HOUSE_RULES_JOBS` sets the machine's job limit and `HOUSE_RULES_MAX_LOAD` the load above
   which no new job starts. A lower job count the caller set, such as a build queue's core
-  budget, stays in force; a higher one is lowered to the job limit.
+  budget, stays in force; a higher one is lowered to the job limit. The helper never changes
+  the command's own flags or `MAKEFLAGS`.
 - Without the House Rules checkout, `lockf -k <lock file> nice -n 10 <command>` on macOS or
   `flock -o <lock file> nice -n 10 <command>` on Linux takes the same lock. `-k` keeps the
   file; without it `lockf` removes it. These forms set no job limit and skip the load check.

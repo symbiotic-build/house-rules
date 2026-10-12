@@ -6,13 +6,15 @@
   turn.py --jobs                          print the job limit for locked commands
 
 Waits for the build lock or a free review slot, and while the one-minute load average is
-above ${HOUSE_RULES_MAX_LOAD:-the online core count}. Then runs the command at nice 10 in its own process group, with
-the job limit in HOUSE_RULES_JOBS, CARGO_BUILD_JOBS, CMAKE_BUILD_PARALLEL_LEVEL,
-RUST_TEST_THREADS and a final MAKEFLAGS -j; a lower value the caller set stays. Releases
-the lock when the command exits and returns its exit status. SIGHUP, SIGINT and SIGTERM go
-to the whole process group, and the lock is kept until that group has exited. Only this process holds the lock, so a daemon the command
-leaves running does not keep it. A turn started inside a running turn of the same kind runs
-at once.
+above ${HOUSE_RULES_MAX_LOAD:-the online core count}. Then runs the command at nice 10 in
+its own process group, with the job limit in HOUSE_RULES_JOBS, CARGO_BUILD_JOBS,
+CMAKE_BUILD_PARALLEL_LEVEL and RUST_TEST_THREADS; a lower value the caller set stays. The
+helper does not change the command's own flags or MAKEFLAGS: pass -j to make. Releases the
+lock when the command exits and returns its exit status. SIGHUP, SIGINT and SIGTERM go to
+the command's whole process group; the lock is released when the command itself exits, so
+other members may still be finishing their cleanup. Only this process holds the lock, so a
+daemon the command leaves running does not keep it. A turn started inside a running turn of
+the same kind runs at once.
 
 Locks: ${HOUSE_RULES_LOCK_DIR:-~/.local/state/house-rules/locks}/build.lock and
 review-<n>.lock for n = 1..${HOUSE_RULES_REVIEW_SLOTS:-3}: kernel flocks that `lockf -k`
@@ -23,7 +25,6 @@ import fcntl
 import os
 from pathlib import Path
 import platform
-import re
 import signal
 import subprocess
 import sys
@@ -32,7 +33,6 @@ import time
 NICENESS = 10
 POLL_SECONDS = 2
 LOAD_POLL_SECONDS = 30
-STOP_SECONDS = 10
 JOB_VARIABLES = ("CARGO_BUILD_JOBS", "CMAKE_BUILD_PARALLEL_LEVEL", "RUST_TEST_THREADS")
 
 
@@ -164,11 +164,6 @@ def job_environment(limit):
     for key in JOB_VARIABLES:
         value = env.get(key, "")
         env[key] = str(min(int(value), limit)) if value.isdigit() and int(value) > 0 else str(limit)
-    # GNU make uses the last job option, so a final -j<n> decides; a lower caller count stays.
-    flags = env.get("MAKEFLAGS", "")
-    counts = re.findall(r"(?:^|\s)(?:-j\s*|--jobs=)(\d+)", flags)
-    count = min(int(counts[-1]), limit) if counts else limit
-    env["MAKEFLAGS"] = (flags + " -j" + str(count)).strip()
     return env
 
 
@@ -191,37 +186,27 @@ def main(argv):
     take_turn(name)
     env = job_environment(limit)
     env["HOUSE_RULES_TURNS"] = " ".join(turns + [f"{name}:{os.getpid()}"])
-    # The lock descriptor is not inheritable (Python's default), so only this process holds it.
-    try:
-        child = subprocess.Popen(command, env=env, start_new_session=True,
-                                 preexec_fn=lambda: os.nice(max(0, NICENESS - os.nice(0))))
-    except OSError as exc:
-        sys.exit(f"turn: cannot run {command[0]}: {exc}")
-
-    cancelled = []
+    children, pending = [], []
 
     def stop_group(number):
         try:
-            os.killpg(child.pid, number)
-            return True
-        except (ProcessLookupError, PermissionError):
-            return False
-
-    def cancel(number, frame):
-        cancelled.append(number)
-        stop_group(number)
+            os.killpg(children[0].pid, number)
+        except (IndexError, ProcessLookupError, PermissionError):
+            pending.append(number)
     for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, cancel)
-    status = child.wait()
-    if status < 0 or cancelled:
-        # Cancelled or killed: the rest of the group exits before the lock is released.
-        if not cancelled:
-            stop_group(signal.SIGTERM)
-        deadline = time.monotonic() + STOP_SECONDS
-        while stop_group(0):
-            if time.monotonic() > deadline:
-                stop_group(signal.SIGKILL)
-            time.sleep(0.1)
+        signal.signal(sig, lambda number, frame: stop_group(number))
+    # The lock descriptor is not inheritable (Python's default), so only this process holds it.
+    try:
+        children.append(subprocess.Popen(command, env=env, start_new_session=True,
+                                         preexec_fn=lambda: os.nice(max(0, NICENESS - os.nice(0)))))
+    except OSError as exc:
+        sys.exit(f"turn: cannot run {command[0]}: {exc}")
+    if pending:
+        stop_group(pending[0])
+    status = children[0].wait()
+    if status < 0:
+        # The command died from a signal: its background processes go too.
+        stop_group(signal.SIGTERM)
     return 128 - status if status < 0 else status
 
 
