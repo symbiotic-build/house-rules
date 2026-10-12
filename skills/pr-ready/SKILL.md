@@ -105,7 +105,7 @@ Specialist dispatch follows
   ([review template](references/review-prompt.md)). `scripts/review-panel.sh` builds each
   reviewer's prompt with `scripts/prepare.py review`: stable rules and lens first, then the
   task, PR and issue context, requirements (spec sections, linked issues, maintainer
-  comments, PR description) and the change. It waits for the machine's review lock and caps
+  comments, PR description) and the change. It waits for a free review slot on the machine and caps
   concurrent reviewers (skill `agent-lanes` §Shared machine). A reviewer without a verdict, a preparation
   failure or a CLI failure fails the panel. The panel requires `--rev <commit>`
   or `REVIEW_HOUSE_RULES_REV`; `--repo <clone>` or `REVIEW_HOUSE_RULES_REPO`

@@ -89,12 +89,20 @@ a job limit, `nice` and a limit on reviewers per panel. The rule makes that the 
 practice on a shared machine:
 
 - Builds, test suites, benchmarks and measured runs take the `build` lock; review panels
-  take the `review` lock. A lock covers one command, never edits or waits.
-- Locked jobs run at nice 10 with a job limit of online cores minus 2.
-- A panel runs at most one reviewer per two online cores at once, on a checkout without
-  build output. `review-panel.sh` takes the review lock itself.
+  take one of three review slots. A lock covers one command, never edits or waits.
+- Locked jobs run at nice 10 with a job limit of online cores minus efficiency cores
+  minus 2.
+- A panel runs at most half the job limit of reviewers at once, on a checkout without
+  build output. `review-panel.sh` takes a review slot itself.
+- Reviewer tools start without the user's tool configuration. Each reviewer had been
+  starting the user's MCP servers, plugins and hooks.
 - An agent that finds the machine overloaded starts nothing new, stops only its own
   jobs and reports once.
+- Waits use a process ID or a done file with a deadline. Wait loops on a `pgrep -f`
+  pattern had matched their own command line and run for hours.
+
+A single review lock was tried first; panels then queued behind each other while the
+machine was idle, because review panels mostly wait on the network.
 
 ## rules/delivery.md — Parallel work (one benchmark at a time)
 

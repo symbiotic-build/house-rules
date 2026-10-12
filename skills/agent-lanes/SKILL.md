@@ -46,8 +46,8 @@ explicit goals.
 
 Commands for the turn-taking rules in
 [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work).
-[`scripts/turn.py`](scripts/turn.py) waits for a machine-wide lock, runs one command at nice 10
-with the job limit, and releases the lock when the command exits.
+[`scripts/turn.py`](scripts/turn.py) waits for the build lock or a free review slot, runs one
+command at nice 10 with the job limit, and releases the lock when the command exits.
 
 ```bash
 turn=<House Rules checkout>/skills/agent-lanes/scripts/turn.py
@@ -59,13 +59,16 @@ python3 "$turn" build -- ninja -j "$(python3 "$turn" --jobs)"   # other tools ge
 - Wrap each heavy command on its own. Never wrap a shell, an editor, a watcher or a whole
   script of edits and waits.
 - Locks live in `${HOUSE_RULES_LOCK_DIR:-~/.cache/house-rules/locks}` as `build.lock` and
-  `review.lock`. `HOUSE_RULES_JOBS` sets the machine's job limit; a stricter machine-local
-  limit, such as a build queue's core budget, still applies inside the turn.
+  `review-1.lock` to `review-<n>.lock`, with n = `HOUSE_RULES_REVIEW_SLOTS` (default 3).
+  `HOUSE_RULES_JOBS` sets the machine's job limit; a stricter machine-local limit, such as
+  a build queue's core budget, still applies inside the turn.
 - Without the House Rules checkout, `lockf <lock file> nice -n 10 <command>` on macOS or
   `flock -o <lock file> nice -n 10 <command>` on Linux takes the same lock. They set no
   job limit, so pass it as a flag.
-- `skills/pr-ready/scripts/review-panel.sh` takes the review lock itself and runs at most
-  `REVIEW_PANEL_MAX_PARALLEL` reviewers at once (default: one per two online cores).
+- `skills/pr-ready/scripts/review-panel.sh` takes a review slot itself and runs at most
+  `REVIEW_PANEL_MAX_PARALLEL` reviewers at once (default: half the job limit). Its Codex
+  reviewers run with `--ignore-user-config --disable shell_snapshot`, which starts one
+  process per reviewer instead of the user's MCP servers, plugins and hooks.
 - Review from a detached worktree at the reviewed head, so no build output sits beside the
   code: `git worktree add --detach <lane folder>/review <head>`.
   Remove it with the lane (§Lane cleanup).
@@ -81,6 +84,16 @@ lsof -a -d cwd -p <pid>                           # working directory: which lan
 ```
 
 In the report, mark which of the heaviest processes are yours.
+
+**Waiting for a job.** Wait on its process ID or on a file it writes when it ends, with a
+deadline. A `pgrep -f` pattern also matches the waiting shell's own command line.
+
+```bash
+wait "$pid"                                       # a job this shell started
+deadline=$(( $(date +%s) + 3600 ))                # any other job: its PID or a done file
+while kill -0 "$pid" 2>/dev/null && [ "$(date +%s)" -lt "$deadline" ]; do sleep 10; done
+until [ -e "$done_file" ] || [ "$(date +%s)" -ge "$deadline" ]; do sleep 10; done
+```
 
 ## Lane cleanup
 
