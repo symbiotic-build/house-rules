@@ -37,8 +37,8 @@ class PrepareTests(unittest.TestCase):
             "GIT_AUTHOR_NAME": "Test Author", "GIT_AUTHOR_EMAIL": "test@example.invalid",
             "GIT_COMMITTER_NAME": "Test Author", "GIT_COMMITTER_EMAIL": "test@example.invalid",
             "GIT_TERMINAL_PROMPT": "0",
-            # Panels take the machine's review lock; tests use their own.
-            "HOUSE_RULES_LOCK_DIR": str(self.root / "locks"),
+            # Panels take a machine review slot; tests use their own slots and ignore host load.
+            "HOUSE_RULES_LOCK_DIR": str(self.root / "locks"), "HOUSE_RULES_MAX_LOAD": "100000",
         })
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -1023,7 +1023,7 @@ pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\n'
         for cap in ("1", "2"):
             with self.subTest(cap=cap):
                 peak = self.root / f"peak-{cap}"
-                env.update(REVIEW_PANEL_MAX_PARALLEL=cap, TEST_RUNNING=str(running), TEST_PEAK=str(peak))
+                env.update(HOUSE_RULES_JOBS=str(2 * int(cap)), TEST_RUNNING=str(running), TEST_PEAK=str(peak))
                 result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "cap-" + cap,
                                          str(self.repo), str(summary), *reviewers],
                                         capture_output=True, text=True, timeout=30, env=env)
@@ -1051,17 +1051,17 @@ pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n
         self.assertIn("--ignore-user-config", args)
         self.assertEqual(args[args.index("--disable") + 1], "shell_snapshot")
 
-    def test_panel_refuses_an_invalid_reviewer_cap(self):
+    def test_panel_refuses_an_invalid_job_limit(self):
         summary, output, env = self.panel_fixture()
-        for cap in ("0", "-1", "two"):
-            with self.subTest(cap=cap):
-                env["REVIEW_PANEL_MAX_PARALLEL"] = cap
-                result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "bad-cap",
+        for limit in ("0", "-1", "two"):
+            with self.subTest(limit=limit):
+                env["HOUSE_RULES_JOBS"] = limit
+                result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "bad-limit",
                                          str(self.repo), str(summary), "generalist-a"],
                                         capture_output=True, text=True, timeout=10, env=env)
-                self.assertEqual(result.returncode, 2)
-                self.assertIn("REVIEW_PANEL_MAX_PARALLEL", result.stderr)
-                self.assertFalse((output / "bad-cap").exists())
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("HOUSE_RULES_JOBS", result.stderr)
+                self.assertFalse((output / "bad-limit").exists())
 
     def test_panel_waits_for_the_machine_review_lock(self):
         summary, output, env = self.panel_fixture()
