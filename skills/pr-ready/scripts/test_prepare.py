@@ -2,6 +2,7 @@
 """Local integration tests: no network, GitHub writes or model calls."""
 import argparse
 import contextlib
+import fcntl
 import importlib.util
 import io
 import json
@@ -12,6 +13,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import tracemalloc
 import unittest
 from unittest import mock
@@ -35,6 +37,8 @@ class PrepareTests(unittest.TestCase):
             "GIT_AUTHOR_NAME": "Test Author", "GIT_AUTHOR_EMAIL": "test@example.invalid",
             "GIT_COMMITTER_NAME": "Test Author", "GIT_COMMITTER_EMAIL": "test@example.invalid",
             "GIT_TERMINAL_PROMPT": "0",
+            # Panels take the machine's review lock; tests use their own.
+            "HOUSE_RULES_LOCK_DIR": str(self.root / "locks"),
         })
         self.env.start()
         self.addCleanup(self.env.stop)
@@ -994,6 +998,78 @@ sys.exit(99)
                 self.assertIn("pack or manifest changed", (panel / "summary.txt").read_text())
                 self.assertFalse((panel / "generalist-a.attempt-2.md").exists())
 
+    def concurrency_stub(self):
+        """A codex stub that records how many reviewers run at the same time."""
+        running = self.root / "running"
+        running.mkdir()
+        (self.binaries / "codex").write_text("#!" + sys.executable + "\n" + r"""import os, pathlib, sys, time
+running = pathlib.Path(os.environ['TEST_RUNNING'])
+me = running / str(os.getpid())
+me.touch()
+with open(os.environ['TEST_PEAK'], 'a') as peak:
+    peak.write(f"{len(list(running.iterdir()))}\n")
+time.sleep(0.5)
+me.unlink()
+sys.stdin.read()
+pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\n')
+""")
+        return running
+
+    def test_panel_runs_at_most_the_configured_number_of_reviewers_at_once(self):
+        summary, output, env = self.panel_fixture()
+        env["REVIEW_BASE"] = "origin/trunk"
+        running = self.concurrency_stub()
+        reviewers = ["generalist-a", "correctness-security", "design", "performance"]
+        for cap in ("1", "2"):
+            with self.subTest(cap=cap):
+                peak = self.root / f"peak-{cap}"
+                env.update(REVIEW_PANEL_MAX_PARALLEL=cap, TEST_RUNNING=str(running), TEST_PEAK=str(peak))
+                result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "cap-" + cap,
+                                         str(self.repo), str(summary), *reviewers],
+                                        capture_output=True, text=True, timeout=30, env=env)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                counts = [int(n) for n in peak.read_text().split()]
+                self.assertEqual(len(counts), len(reviewers))
+                self.assertLessEqual(max(counts), int(cap))
+                self.assertEqual((output / ("cap-" + cap) / "summary.txt").read_text().count("verdict=APPROVE"), 4)
+
+    def test_panel_refuses_an_invalid_reviewer_cap(self):
+        summary, output, env = self.panel_fixture()
+        for cap in ("0", "-1", "two"):
+            with self.subTest(cap=cap):
+                env["REVIEW_PANEL_MAX_PARALLEL"] = cap
+                result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "bad-cap",
+                                         str(self.repo), str(summary), "generalist-a"],
+                                        capture_output=True, text=True, timeout=10, env=env)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("REVIEW_PANEL_MAX_PARALLEL", result.stderr)
+                self.assertFalse((output / "bad-cap").exists())
+
+    def test_panel_waits_for_the_machine_review_lock(self):
+        summary, output, env = self.panel_fixture()
+        env["REVIEW_BASE"] = "origin/trunk"
+        running = self.concurrency_stub()
+        peak = self.root / "peak"
+        env.update(TEST_RUNNING=str(running), TEST_PEAK=str(peak))
+        lock = Path(env["HOUSE_RULES_LOCK_DIR"]) / "review.lock"
+        lock.parent.mkdir(parents=True)
+        lock.touch()
+        err = self.root / "panel.err"
+        with open(lock, "rb") as held, err.open("w") as stderr:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            panel = subprocess.Popen(["bash", str(SCRIPT.with_name("review-panel.sh")), "locked",
+                                      str(self.repo), str(summary), "generalist-a"],
+                                     stdout=subprocess.DEVNULL, stderr=stderr, env=env)
+            self.addCleanup(panel.kill)
+            deadline = time.monotonic() + 10
+            while "waiting for the review lock" not in err.read_text():
+                self.assertLess(time.monotonic(), deadline, err.read_text())
+                time.sleep(0.05)
+            self.assertFalse((output / "locked").exists())
+            fcntl.flock(held, fcntl.LOCK_UN)
+            self.assertEqual(panel.wait(timeout=30), 0, err.read_text())
+        self.assertIn("verdict=APPROVE", (output / "locked" / "summary.txt").read_text())
+
     def test_panel_reviewer_cli_failure_returns_nonzero(self):
         summary, output, env = self.panel_fixture()
         env["REVIEW_BASE"] = "origin/trunk"
@@ -1334,6 +1410,7 @@ else:
         kit = self.root / "kit"
         scripts = kit / "skills/pr-ready/scripts"
         shutil.copytree(SCRIPT.parent, scripts)
+        shutil.copytree(SCRIPT.parents[2] / "agent-lanes/scripts", kit / "skills/agent-lanes/scripts")
         shutil.copytree(SCRIPT.parents[3] / "prompts", kit / "prompts")
         shutil.copytree(SCRIPT.parents[3] / "rules", kit / "rules")
         (scripts / "review-panel.lenses").write_text("generalist-a b read-only\n")

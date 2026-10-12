@@ -10,8 +10,17 @@
 # Range: ${REVIEW_BASE:-remote default branch}...HEAD; upstream preferred to origin.
 # Output directory: ${REVIEW_PANEL_OUT:-<checkout>/.tmp/review-panel}/<name>/ with <reviewer>.md,
 #   raw logs, and summary.txt (verdict and wall time per reviewer).
+# Turns: one panel at a time per machine, under the review lock of ../../agent-lanes/scripts/turn.py,
+#   with at most ${REVIEW_PANEL_MAX_PARALLEL:-half the online cores, at least 1} reviewers at once.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
+case " ${HOUSE_RULES_TURNS:-} " in
+  *" review "*) ;;
+  *) exec python3 -I -B "$here/../../agent-lanes/scripts/turn.py" review -- "$BASH" "$0" "$@" ;;
+esac
+cores=$(getconf _NPROCESSORS_ONLN) || exit 2
+max_parallel=${REVIEW_PANEL_MAX_PARALLEL:-$(( cores / 2 > 1 ? cores / 2 : 1 ))}
+[[ "$max_parallel" =~ ^[1-9][0-9]{0,3}$ ]] || { echo "REVIEW_PANEL_MAX_PARALLEL must be a whole number from 1 to 9999" >&2; exit 2; }
 rules_repo=${REVIEW_HOUSE_RULES_REPO:-$here/../../..}
 rules_rev=${REVIEW_HOUSE_RULES_REV:-}
 session_mode=0
@@ -225,11 +234,16 @@ sys.exit(subprocess.run(["kimi", "-m", model, "-p", text], cwd=checkout).returnc
 
 python3 -I -B "$here/review-panel-models.py" --check >&2 || true   # notice only: newer models available
 pids=()
+status=0
 for r in "$@"; do
+  # At the cap, wait for the oldest running reviewer (bash 3.2 has no wait -n).
+  if [ "${#pids[@]}" -ge "$max_parallel" ]; then
+    wait "${pids[0]}" || status=1
+    pids=("${pids[@]:1}")
+  fi
   run_one "$r" &
   pids+=("$!")
 done
-status=0
 for pid in "${pids[@]}"; do wait "$pid" || status=1; done
 transient_inputs=("$out/lenses.conf")
 for r in "$@"; do transient_inputs+=("$out/$r.task"); done
