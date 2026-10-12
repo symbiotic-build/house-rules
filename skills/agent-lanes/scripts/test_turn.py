@@ -150,15 +150,17 @@ class TurnTest(unittest.TestCase):
             fcntl.flock(held, fcntl.LOCK_UN)
             self.assertEqual(waiter.wait(timeout=10), 0)
 
-    def test_cancelling_a_turn_stops_the_command_group_before_releasing_the_lock(self):
+    def test_cancelling_a_turn_keeps_the_lock_until_the_command_group_exits(self):
         pidfile = self.root / "worker.pid"
-        holder = self.start("review", "--", "sh", "-c", f"sleep 30 & echo $! > {pidfile}; wait")
+        # The worker cleans up for a second after SIGTERM; its shell parent dies at once.
+        worker_code = "trap 'sleep 1; exit 0' TERM; while :; do sleep 0.1; done"
+        holder = self.start("review", "--", "sh", "-c", f"sh -c \"{worker_code}\" & echo $! > {pidfile}; wait")
         wait_for(lambda: pidfile.exists() and pidfile.read_text().strip())
         worker = int(pidfile.read_text())
         self.addCleanup(lambda: gone(worker) or os.kill(worker, signal.SIGKILL))
         holder.send_signal(signal.SIGTERM)
-        holder.wait(timeout=10)
-        wait_for(lambda: gone(worker))
+        holder.wait(timeout=20)
+        self.assertTrue(gone(worker), "the helper released the lock while its worker still ran")
         self.assertEqual(self.turn("review", "--", "true").returncode, 0)
 
     def test_a_waiter_on_a_removed_lock_file_takes_the_new_one(self):
@@ -198,10 +200,16 @@ class TurnTest(unittest.TestCase):
         self.assertEqual(result.returncode, 3, result.stderr)
         niceness, *values = result.stdout.strip().split("|")
         self.assertGreaterEqual(int(niceness), 10)
-        self.assertEqual(values, ["4", "4", "4", "1", "-k -j4 -s"])
-        self.env.pop("MAKEFLAGS")
-        self.assertEqual(self.turn("build", "--", *self.python("import os; print(os.environ['MAKEFLAGS'])")).stdout,
-                         "-j4\n")
+        self.assertEqual(values, ["4", "4", "4", "1", "-k -j16 -s -j4"])
+        # GNU make uses the last job option.
+        for flags, expected in ((None, "-j4"), ("-j2 -j16", "-j2 -j16 -j4"), ("-j1", "-j1 -j1"),
+                                ("--jobs=3 -k", "--jobs=3 -k -j3")):
+            with self.subTest(flags=flags):
+                self.env.pop("MAKEFLAGS", None)
+                if flags:
+                    self.env["MAKEFLAGS"] = flags
+                result = self.turn("build", "--", *self.python("import os; print(os.environ['MAKEFLAGS'])"))
+                self.assertEqual(result.stdout, expected + "\n", result.stderr)
 
     def test_default_job_limit_is_performance_cores_minus_two(self):
         result = self.turn("--jobs")
@@ -226,6 +234,25 @@ class TurnTest(unittest.TestCase):
         atom.write_text("garbage\n")
         with self.assertRaises(SystemExit):
             turn.linux_efficiency_cores(atom)
+
+    def test_mac_efficiency_core_probe_failures_stop(self):
+        def sysctl(answers):
+            def run(cmd, **kwargs):
+                code, out, err = answers[cmd[-1]]
+                return subprocess.CompletedProcess(cmd, code, out, err)
+            return run
+        unknown = (1, "", "sysctl: unknown oid 'x'")
+        cases = [({"hw.nperflevels": unknown}, 0),
+                 ({"hw.nperflevels": (0, "2\n", ""), "hw.perflevel1.logicalcpu": (0, "2\n", "")}, 2),
+                 ({"hw.nperflevels": (0, "2\n", ""), "hw.perflevel1.logicalcpu": unknown}, SystemExit),
+                 ({"hw.nperflevels": (1, "", "sysctl: permission denied")}, SystemExit)]
+        for answers, expected in cases:
+            with self.subTest(answers=answers), mock.patch.object(turn.subprocess, "run", sysctl(answers)):
+                if expected is SystemExit:
+                    with self.assertRaises(SystemExit):
+                        turn.mac_efficiency_cores()
+                else:
+                    self.assertEqual(turn.mac_efficiency_cores(), expected)
 
     def test_a_process_the_command_leaves_running_does_not_keep_the_lock(self):
         pidfile = self.root / "daemon.pid"

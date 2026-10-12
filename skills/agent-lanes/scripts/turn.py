@@ -8,9 +8,9 @@
 Waits for the build lock or a free review slot, and while the one-minute load average is
 above ${HOUSE_RULES_MAX_LOAD:-the online core count}. Then runs the command at nice 10 in its own process group, with
 the job limit in HOUSE_RULES_JOBS, CARGO_BUILD_JOBS, CMAKE_BUILD_PARALLEL_LEVEL,
-RUST_TEST_THREADS and the MAKEFLAGS -j count; a lower value the caller set stays. Releases
+RUST_TEST_THREADS and a final MAKEFLAGS -j; a lower value the caller set stays. Releases
 the lock when the command exits and returns its exit status. SIGHUP, SIGINT and SIGTERM go
-to the whole process group. Only this process holds the lock, so a daemon the command
+to the whole process group, and the lock is kept until that group has exited. Only this process holds the lock, so a daemon the command
 leaves running does not keep it. A turn started inside a running turn of the same kind runs
 at once.
 
@@ -32,6 +32,7 @@ import time
 NICENESS = 10
 POLL_SECONDS = 2
 LOAD_POLL_SECONDS = 30
+STOP_SECONDS = 10
 JOB_VARIABLES = ("CARGO_BUILD_JOBS", "CMAKE_BUILD_PARALLEL_LEVEL", "RUST_TEST_THREADS")
 
 
@@ -64,13 +65,17 @@ def linux_efficiency_cores(atom=Path("/sys/devices/cpu_atom/cpus")):
 
 
 def mac_efficiency_cores():
-    def sysctl(key):
+    def sysctl(key, unknown_ok=False):
         result = subprocess.run(["sysctl", "-n", key], capture_output=True, text=True)
-        if result.returncode and "unknown oid" not in result.stderr:
-            sys.exit(f"turn: sysctl {key} failed: {result.stderr.strip()}; set HOUSE_RULES_JOBS")
-        return result.stdout.strip()
+        value = result.stdout.strip()
+        if result.returncode and unknown_ok and "unknown oid" in result.stderr:
+            return None
+        if result.returncode or not value.isdigit():
+            sys.exit(f"turn: sysctl {key} failed: {result.stderr.strip() or value!r}; set HOUSE_RULES_JOBS")
+        return int(value)
     # Intel Macs have no performance levels: the oid is unknown and every core counts.
-    return int(sysctl("hw.perflevel1.logicalcpu") or 0) if sysctl("hw.nperflevels") not in ("", "1") else 0
+    levels = sysctl("hw.nperflevels", unknown_ok=True)
+    return sysctl("hw.perflevel1.logicalcpu") if levels and levels > 1 else 0
 
 
 def jobs():
@@ -159,13 +164,11 @@ def job_environment(limit):
     for key in JOB_VARIABLES:
         value = env.get(key, "")
         env[key] = str(min(int(value), limit)) if value.isdigit() and int(value) > 0 else str(limit)
+    # GNU make uses the last job option, so a final -j<n> decides; a lower caller count stays.
     flags = env.get("MAKEFLAGS", "")
-    match = re.search(r"(?:^|\s)-j\s*(\d+)", flags)
-    if match:
-        count = min(int(match.group(1)), limit)
-        env["MAKEFLAGS"] = flags[:match.start(1)] + str(count) + flags[match.end(1):]
-    else:
-        env["MAKEFLAGS"] = (flags + " -j" + str(limit)).strip()
+    counts = re.findall(r"(?:^|\s)(?:-j\s*|--jobs=)(\d+)", flags)
+    count = min(int(counts[-1]), limit) if counts else limit
+    env["MAKEFLAGS"] = (flags + " -j" + str(count)).strip()
     return env
 
 
@@ -195,19 +198,31 @@ def main(argv):
     except OSError as exc:
         sys.exit(f"turn: cannot run {command[0]}: {exc}")
 
+    cancelled = []
+
     def stop_group(number):
         try:
             os.killpg(child.pid, number)
-        except ProcessLookupError:
-            pass
+            return True
+        except (ProcessLookupError, PermissionError):
+            return False
+
+    def cancel(number, frame):
+        cancelled.append(number)
+        stop_group(number)
     for sig in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
-        signal.signal(sig, lambda number, frame: stop_group(number))
+        signal.signal(sig, cancel)
     status = child.wait()
-    if status < 0:
-        # The command died from a signal: its background processes go too, before the lock is released.
-        stop_group(signal.SIGTERM)
-        return 128 - status
-    return status
+    if status < 0 or cancelled:
+        # Cancelled or killed: the rest of the group exits before the lock is released.
+        if not cancelled:
+            stop_group(signal.SIGTERM)
+        deadline = time.monotonic() + STOP_SECONDS
+        while stop_group(0):
+            if time.monotonic() > deadline:
+                stop_group(signal.SIGKILL)
+            time.sleep(0.1)
+    return 128 - status if status < 0 else status
 
 
 if __name__ == "__main__":

@@ -15,11 +15,13 @@
 # Codex reviewers ignore the user's Codex configuration, so they start no MCP server, plugin or hook.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-# turn.py starts this script directly and records its own process ID as the slot holder.
-case " ${HOUSE_RULES_TURNS:-} " in
-  *" review:$PPID "*) ;;
-  *) exec python3 -I -B "$here/../../agent-lanes/scripts/turn.py" review -- "$BASH" "$0" "$@" ;;
-esac
+# Every start goes through turn.py, which takes a slot or, inside a running review turn, none;
+# it then runs this script again with --in-turn.
+if [ "${1:-}" = --in-turn ]; then
+  shift
+else
+  exec python3 -I -B "$here/../../agent-lanes/scripts/turn.py" review -- "$BASH" "$0" --in-turn "$@"
+fi
 max_parallel=$(( HOUSE_RULES_JOBS / 2 > 1 ? HOUSE_RULES_JOBS / 2 : 1 ))
 rules_repo=${REVIEW_HOUSE_RULES_REPO:-$here/../../..}
 rules_rev=${REVIEW_HOUSE_RULES_REV:-}

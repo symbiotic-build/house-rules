@@ -1051,6 +1051,22 @@ pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n
         self.assertIn("--ignore-user-config", args)
         self.assertEqual(args[args.index("--disable") + 1], "shell_snapshot")
 
+    def test_panel_started_inside_a_review_turn_through_a_launcher_runs_once(self):
+        summary, output, env = self.panel_fixture()
+        env.update(REVIEW_BASE="origin/trunk", HOUSE_RULES_REVIEW_SLOTS="1")
+        (self.binaries / "codex").write_text("#!" + sys.executable + "\n" + """import pathlib, sys
+sys.stdin.read()
+pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n')
+""")
+        panel = [ "bash", str(SCRIPT.with_name("review-panel.sh")), "launched", str(self.repo), str(summary), "generalist-a"]
+        launcher = f"import subprocess, sys; sys.exit(subprocess.run({panel!r}).returncode)"
+        turn = SCRIPT.parents[2] / "agent-lanes/scripts/turn.py"
+        # The outer turn holds the only slot, so a second slot request would wait until the timeout.
+        result = subprocess.run([sys.executable, str(turn), "review", "--", sys.executable, "-c", launcher],
+                                capture_output=True, text=True, timeout=30, env=env)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("verdict=APPROVE", (output / "launched" / "summary.txt").read_text())
+
     def test_panel_refuses_an_invalid_job_limit(self):
         summary, output, env = self.panel_fixture()
         for limit in ("0", "-1", "two"):
