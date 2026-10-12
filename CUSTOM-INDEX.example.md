@@ -12,6 +12,15 @@ enrollment material, or copied account configuration in it.
 | House Rules source | `<absolute path>` |
 | Updated | `<YYYY-MM-DD>` |
 
+## Local policies
+
+Operator rules for this computer only. Sessions read them through the managed block
+(INSTALL-AGENTS.md §4). Delete the example row if there are none.
+
+| Policy | Rule | Direction date | Full record |
+|---|---|---|---|
+| Worker model | `<e.g. workers run as <tool> <model> through <absolute wrapper path>; other subagents need operator approval>` | `<YYYY-MM-DD>` | `<custom/<file>.md or decision log path>` |
+
 ## House Rules installation receipts
 
 One receipt per product home, in `custom/installations/`.
