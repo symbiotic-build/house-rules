@@ -22,6 +22,8 @@ jobs:
         run: python3 scripts/test_sync.py
       - name: Test transcript extraction
         run: python3 -B -m unittest discover -s skills/operator-protocol/scripts
+      - name: Test the shared-machine lock helper
+        run: python3 -B -m unittest discover -s skills/agent-lanes/scripts
       - name: Test prompts, preparer and verdict scripts
         run: python3 -B -m unittest discover -s skills/pr-ready/scripts
       - name: Prepare every role and lens as the review service does
