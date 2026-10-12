@@ -261,6 +261,6 @@ Operator direction: 2026-10-12, after a full review round ran three reviewers wi
 model and the same whole-change prompt, each with a one-sentence focus line, and two of them
 reported the same blocker. A full panel now runs one reviewer per target lens, spread over the
 model families; each lens is a checklist with an out-of-scope list naming the owning lens.
-When a family cannot run a target, another family runs it in the same round; the panel is
-incomplete only when no family can run it (operator: "If a model can't run, the second model
-should take its place"). Quick review keeps one generalist.
+When a family cannot run a target, another family runs it in the same round (operator: "If a
+model can't run, the second model should take its place"). The panel is incomplete when no
+family can run a target or a review breaks its report contract. Quick review keeps one generalist.

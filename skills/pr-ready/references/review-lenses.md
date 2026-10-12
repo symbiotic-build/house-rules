@@ -35,8 +35,10 @@ and the report names both families. The review service does this automatically. 
 lane script does not: it reports the failed target, and the lead re-runs that target in
 the same round with a panel config (`REVIEW_PANEL_CONF`) whose line for the failed family
 names another configured family's CLI and model, then names both families in the round
-report. The panel is incomplete only when no family can run a target; the report then
-names the target. Merge eligibility for an incomplete panel
+report. A review that ran but broke a report contract (for example, it left out the
+resolution of its own earlier blocker) gets no substitute. The panel is incomplete when
+no family can run a target or a review breaks its report contract; the report then names
+the target. Merge eligibility for an incomplete panel
 follows [pr-ready §4](../SKILL.md#4-merge-and-cleanup).
 
 **Quick review** keeps one generalist (`generalist-a`, `generalist-b`, `generalist-c`
