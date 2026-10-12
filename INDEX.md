@@ -23,7 +23,7 @@ At session start and after every reset or compaction, read these files in full:
 
 - Artifact paths, naming, or placement: load [STRUCTURE.md](STRUCTURE.md).
 - Project or stack defaults: load [PREFERENCES.md](PREFERENCES.md).
-- Parallel agents, lanes, workflows, or background jobs: load [agent-lanes](skills/agent-lanes/SKILL.md).
+- Parallel agents, lanes, workflows, background jobs, or builds, tests and reviews on a shared machine: load [agent-lanes](skills/agent-lanes/SKILL.md).
 - Evidence-based audit or due-diligence reports: load [audit-report-authoring](skills/audit-report-authoring/SKILL.md).
 - Comparative benchmarks, evaluations, A/B tests, or tuning sweeps: load [bench-discipline](skills/bench-discipline/SKILL.md).
 - CI build time, cost, caching, or scheduling work: load [ci-build-optimization](skills/ci-build-optimization/SKILL.md).

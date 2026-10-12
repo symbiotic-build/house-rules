@@ -1,5 +1,8 @@
 ## Test discipline
 
+On a shared machine, run each build and test command through the machine's build lock:
+`python3 <House Rules checkout>/skills/agent-lanes/scripts/turn.py build -- <command>`.
+
 Single tests finish in seconds and never run long. Remove a known looping or hanging
 test at once, keep its defect tracked, and replace it with a small, explicitly bounded
 test. Stop a command holding the shared build queue after a few minutes without CPU

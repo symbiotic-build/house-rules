@@ -80,6 +80,22 @@ agent runs.
 Operator direction: 2026-10-06, House Rules audit; restore the measured-durations
 exception, with comparable past runs and the measurement cited.
 
+## rules/delivery.md, skills/agent-lanes — Parallel work (heavy local jobs take turns)
+
+Source incident: 2026-10-12, issue #111. The operator was using a machine while several
+agents built the same project at once, and later while several review panels ran at once.
+Each time the machine stopped responding. The lead contained it by hand with lock files,
+a job limit, `nice` and a limit on reviewers per panel. The rule makes that the standing
+practice on a shared machine:
+
+- Builds, test suites, benchmarks and measured runs take the `build` lock; review panels
+  take the `review` lock. A lock covers one command, never edits or waits.
+- Locked jobs run at nice 10 with a job limit of online cores minus 2.
+- A panel runs at most one reviewer per two online cores at once, on a checkout without
+  build output. `review-panel.sh` takes the review lock itself.
+- An agent that finds the machine overloaded starts nothing new, stops only its own
+  jobs and reports once.
+
 ## rules/delivery.md — Parallel work (one benchmark at a time)
 
 Operator direction: 2026-10-11, issue #105: "Please run just one benchmark at a time (this

@@ -58,13 +58,27 @@
 - Record the machine load with each run.
 - Mark a run taken under overlap with another benchmark, measured run, build or test suite invalid, and rerun it.
 - The one exception: contention is the declared study and resource policy permits it.
+- On a shared machine, heavy local jobs take turns through machine-wide locks.
+  A shared machine runs several agents at once, or a person uses it while agents work.
+- Builds, test suites, benchmarks and measured performance runs take the `build` lock.
+- Review panels take the `review` lock, so one panel runs at a time per machine.
+- Take a lock for one command and release it when that command exits.
+- Never hold a lock while you edit, read output or wait for CI, a review or the operator.
+- Run locked jobs at nice 10.
+- Limit a locked job's parallelism to the job limit: online cores minus 2, at least 1, unless the operator sets another limit for the machine.
+- Run at most one reviewer per two online cores at once, at least 1.
+- Point reviewers at a checkout without build output. A reviewer that searches a build tree loads the machine and finds nothing.
+- When the one-minute load average exceeds the online core count, start no new heavy job until it falls below that count.
+- Then stop your own jobs that run outside the locks or above the job limit, and rerun them through the locks.
+- Stop no other session's jobs; rules/core.md §Security limits stopping to processes your work started.
+- Report the load, the core count and the heaviest processes with their working directories to the operator once.
 - Bound memory-heavy concurrency by verified host capacity and the approved resource envelope.
 - Declare every touched repository in the work item.
 - Flag shared kit or application programming interface impacts on other consumers in the handoff.
 - Require one adversarial verification pass per deliverable.
 - Count CI review, including Warden, as that pass when it covers the deliverable.
 - Do not add a separate local pass when CI covers the deliverable.
-- Follow `agent-lanes` for mechanics.
+- Follow `agent-lanes` for mechanics, and `agent-lanes` §Shared machine for the lock commands.
 
 ## Work tracking & continuity
 
