@@ -10,19 +10,8 @@
 # Range: ${REVIEW_BASE:-remote default branch}...HEAD; upstream preferred to origin.
 # Output directory: ${REVIEW_PANEL_OUT:-<checkout>/.tmp/review-panel}/<name>/ with <reviewer>.md,
 #   raw logs, and summary.txt (verdict and wall time per reviewer).
-# Turns: the panel runs in a free review slot of ../../agent-lanes/scripts/turn.py, with at most
-#   half the machine's job limit (HOUSE_RULES_JOBS), at least 1, of reviewers at once.
-# Codex reviewers ignore the user's Codex configuration, so they start no MCP server, plugin or hook.
 set -u
 here=$(cd "$(dirname "$0")" && pwd)
-# Every start goes through turn.py, which takes a slot or, inside a running review turn, none;
-# it then runs this script again with --in-turn.
-if [ "${1:-}" = --in-turn ]; then
-  shift
-else
-  exec python3 -I -B "$here/../../agent-lanes/scripts/turn.py" review -- "$BASH" "$0" --in-turn "$@"
-fi
-max_parallel=$(( HOUSE_RULES_JOBS / 2 > 1 ? HOUSE_RULES_JOBS / 2 : 1 ))
 rules_repo=${REVIEW_HOUSE_RULES_REPO:-$here/../../..}
 rules_rev=${REVIEW_HOUSE_RULES_REV:-}
 session_mode=0
@@ -173,6 +162,7 @@ PY
     logs=$out/$r.attempt-$attempt
     cli_status=0
     case $cli in
+      # The user's Codex configuration would start its MCP servers, plugins and hooks in every reviewer.
       codex) codex exec --json --skip-git-repo-check --ignore-user-config --disable shell_snapshot -m "$model" -c model_reasoning_effort="${effort:-high}" \
                ${tier:+-c service_tier="\"$tier\""} -s "$sandbox" -C "$dir" -o "$logs.md" - < "$prompt" \
                > "$logs.jsonl" 2> "$logs.err" || cli_status=$? ;;
@@ -236,16 +226,11 @@ sys.exit(subprocess.run(["kimi", "-m", model, "-p", text], cwd=checkout).returnc
 
 python3 -I -B "$here/review-panel-models.py" --check >&2 || true   # notice only: newer models available
 pids=()
-status=0
 for r in "$@"; do
-  # At the cap, wait for the oldest running reviewer (bash 3.2 has no wait -n).
-  if [ "${#pids[@]}" -ge "$max_parallel" ]; then
-    wait "${pids[0]}" || status=1
-    pids=("${pids[@]:1}")
-  fi
   run_one "$r" &
   pids+=("$!")
 done
+status=0
 for pid in "${pids[@]}"; do wait "$pid" || status=1; done
 transient_inputs=("$out/lenses.conf")
 for r in "$@"; do transient_inputs+=("$out/$r.task"); done

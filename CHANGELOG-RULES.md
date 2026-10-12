@@ -80,30 +80,29 @@ agent runs.
 Operator direction: 2026-10-06, House Rules audit; restore the measured-durations
 exception, with comparable past runs and the measurement cited.
 
-## rules/delivery.md, skills/agent-lanes — Parallel work (heavy local jobs take turns)
+## rules/delivery.md, skills/agent-lanes — Parallel work (one build queue for every tool)
 
 Source incident: 2026-10-12, issue #111. The operator was using a machine while several
 agents built the same project at once, and later while several review panels ran at once.
-Each time the machine stopped responding. The lead contained it by hand with lock files,
-a job limit, `nice` and a limit on reviewers per panel. The rule makes that the standing
-practice on a shared machine:
+Each time the machine stopped responding. The machine already queued cargo commands one at a
+time with a core budget; other build tools bypassed that queue. Each reviewer also started
+the user's MCP servers, plugins and hooks, and some agents' wait loops matched their own
+command line and never ended.
 
-- Builds, test suites, benchmarks and measured runs take the `build` lock; review panels
-  take one of three review slots. A lock covers one command, never the agent's edits or
-  waits.
-- Locked jobs run at nice 10 with a job limit of online cores minus efficiency cores
-  minus 2.
-- A panel runs at most half the job limit of reviewers at once, on a checkout without
-  build output. `review-panel.sh` takes a review slot itself.
-- Reviewer tools start without the user's tool configuration. Each reviewer had been
-  starting the user's MCP servers, plugins and hooks.
-- An agent that finds the machine overloaded starts nothing new, stops only its own
-  jobs and reports once.
-- Waits for another job use a process ID or a done file with a deadline. Wait loops on a
-  `pgrep -f` pattern had matched their own command line and run for hours.
+Operator direction, 2026-10-13: "we banned nice it doesn't work", "We can run 10-20 read
+agents at the same time without a problem", "The cargo is limited to total_perf_cores - 2 we
+just need to do the same with other builds... One build queue", "And they should share this
+with cargo". The rule:
 
-A single review lock was tried first; panels then queued behind each other while the
-machine was idle, because review panels mostly wait on the network.
+- Every build and test command goes through one machine build queue shared with cargo,
+  with the budget of total cores minus efficiency cores minus 2.
+- Builds and agents run at normal priority; no nice, renice or background classes.
+- Review panels and other read-only agents do not take the queue. Reviewer tools start
+  without the user's tool configuration, on a checkout without build output.
+- An agent that finds the machine overloaded starts nothing new, stops only its own jobs
+  outside the queue and reports once.
+- Waits for another job use a process ID or a done file with a deadline, never a
+  `pgrep -f` pattern the waiter's own command line contains.
 
 ## rules/delivery.md — Parallel work (one benchmark at a time)
 

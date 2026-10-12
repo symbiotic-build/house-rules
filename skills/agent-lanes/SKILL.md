@@ -1,6 +1,6 @@
 ---
 name: agent-lanes
-description: Parallel multi-agent orchestration — lane ownership, non-colliding file sets, worktrees, build output inside worktrees, lane cleanup, shared-machine locks for builds, tests and review panels, GPU serialization, subagent git limits, cross-repo etiquette. Use when fanning out subagents, workflows, teammates, or background jobs, and before builds, test suites or review panels on a shared machine.
+description: Parallel multi-agent orchestration — lane ownership, non-colliding file sets, worktrees, build output inside worktrees, lane cleanup, the shared-machine build queue, GPU serialization, subagent git limits, cross-repo etiquette. Use when fanning out subagents, workflows, teammates, or background jobs, and before builds or test suites on a shared machine.
 license: MIT
 ---
 
@@ -44,40 +44,32 @@ explicit goals.
 
 ## Shared machine
 
-Commands for the turn-taking rules in
-[rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work).
-[`scripts/turn.py`](scripts/turn.py) waits for the build lock or a free review slot and for the
-load to allow a new job. It then runs one command at nice 10 with the job limit, and releases
-the lock when the command exits. Cancelling the helper signals the command's whole process
-group; the lock is free once the command itself exits.
+Commands for the build-queue rules in
+[rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work). The queue is
+machine-local: the machine's build kit installs wrappers named `cargo`, `cmake`, `make`, `ninja`
+and `ctest` ahead of the real tools on `PATH`, plus `build-queue` for anything else. All of
+them share one lock and one budget, with hold limits for hung commands. Record the kit in the
+machine's capability index (`custom/INDEX.md`, from [CUSTOM-INDEX.example.md](../../CUSTOM-INDEX.example.md)).
 
 ```bash
-turn=<House Rules checkout>/skills/agent-lanes/scripts/turn.py
-python3 "$turn" build -- cargo test -p intake        # one build or test command per turn
-python3 "$turn" build -- cmake --build build         # cmake and cargo read the job limit from the environment
-python3 "$turn" build -- make -j "$(python3 "$turn" --jobs)"    # make, ninja and other tools get it as a flag
+cargo test -p intake                      # queued automatically
+cmake --build build --target all          # queued; --parallel above the budget is lowered
+build-queue ./build/bin/collection_test   # a test binary or script: queue it by name
+command -v cmake                          # check: the wrapper, not the real tool
 ```
 
-- Wrap each heavy command on its own. Never wrap a shell, an editor, a watcher or a whole
+- Queue each heavy command on its own. Never queue a shell, an editor, a watcher or a whole
   script of edits and waits.
-- Locks live in `${HOUSE_RULES_LOCK_DIR:-~/.local/state/house-rules/locks}` as `build.lock`
-  and `review-1.lock` to `review-<n>.lock`, with n = `HOUSE_RULES_REVIEW_SLOTS` (default 3).
-  Never remove them while agents run. Agents under different user accounts on one machine
-  set `HOUSE_RULES_LOCK_DIR` to one shared directory.
-- `HOUSE_RULES_JOBS` sets the machine's job limit and `HOUSE_RULES_MAX_LOAD` the load above
-  which no new job starts. A lower job count the caller set, such as a build queue's core
-  budget, stays in force; a higher one is lowered to the job limit. The helper never changes
-  the command's own flags or `MAKEFLAGS`.
-- Without the House Rules checkout, `lockf -k <lock file> nice -n 10 <command>` on macOS or
-  `flock -o <lock file> nice -n 10 <command>` on Linux takes the same lock. `-k` keeps the
-  file; without it `lockf` removes it. These forms set no job limit and skip the load check.
-- `skills/pr-ready/scripts/review-panel.sh` takes a review slot itself and runs at most half
-  the job limit of reviewers at once. Its Codex reviewers run with
-  `--ignore-user-config --disable shell_snapshot`, which starts one process per reviewer
-  instead of the user's MCP servers, plugins and hooks.
+- Call the tools by name. An absolute path such as `/opt/homebrew/bin/cmake` skips the queue.
+- A tool started inside a queued command skips the queue, so a build script that runs cmake
+  does not deadlock.
+- On a machine without the kit, stop and tell the operator; do not start parallel builds.
 - Review from a detached worktree at the reviewed head, so no build output sits beside the
   code: `git worktree add --detach <lane folder>/review <head>`.
   Remove it with the lane (§Lane cleanup).
+- `skills/pr-ready/scripts/review-panel.sh` starts Codex reviewers with
+  `--ignore-user-config --disable shell_snapshot`, so each reviewer is one process instead of
+  the user's MCP servers, plugins and hooks.
 
 **Overloaded machine.** Check the load before a heavy job and whenever commands slow down,
 and apply the overload rules with these commands.

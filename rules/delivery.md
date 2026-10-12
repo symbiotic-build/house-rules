@@ -58,19 +58,17 @@
 - Record the machine load with each run.
 - Mark a run taken under overlap with another benchmark, measured run, build or test suite invalid, and rerun it.
 - The one exception: contention is the declared study and resource policy permits it.
-- On a shared machine, heavy local jobs take turns through machine-wide locks and slots.
+- On a shared machine, every build and test command goes through the machine's one build queue, shared by cargo and every other build tool: one such command at a time.
   A shared machine runs several agents at once, or a person uses it while agents work.
-- Builds, test suites, benchmarks and measured performance runs take the `build` lock.
-- Review panels take one of the machine's review slots, three unless the operator sets another number. A panel waits only when every slot is taken.
-- Take a lock or slot for one command and release it when that command exits.
-- Never hold a lock or slot while you edit, read output or wait for CI, a review you started separately or the operator. A panel keeps its slot until its own reviewers finish.
-- Run locked jobs at nice 10.
-- Limit a locked job's parallelism to the job limit: online cores minus efficiency cores minus 2, at least 1, unless the operator sets another limit for the machine.
-- Run at most half the job limit of reviewers per panel at once, at least 1.
+  The queue covers cargo, cmake builds, make, ninja, ctest, benchmarks, and test binaries or scripts run on their own.
+- The queue gives each command the build budget as its thread limit: total cores minus efficiency cores minus 2, unless the operator sets another budget.
+- Builds and agents run at normal priority. Never use nice, renice or background quality-of-service classes.
+- Queue one command at a time. Never hold the queue while you edit, read output or wait for CI, a review or the operator.
+- Review panels and other read-only agents do not take the build queue.
 - Start reviewer command-line tools without the user's own tool configuration, so a reviewer starts no MCP server, plugin or hook. Reviewers need only read access.
 - Point reviewers at a checkout without build output. A reviewer that searches a build tree loads the machine and finds nothing.
-- When the one-minute load average exceeds the online core count, start no new heavy job until it falls below that count, unless the operator sets another threshold for the machine.
-- At once stop your own jobs that run outside the locks or above the job limit. Rerun them through the locks after the load falls.
+- When the one-minute load average exceeds the online core count, start no new build or test command until it falls below that count.
+- At once stop your own jobs that run outside the queue, and rerun them through it after the load falls.
 - Stop no other session's jobs; rules/core.md §Security limits stopping to processes your work started.
 - Report the load, the core count and the heaviest processes with their working directories to the operator once.
 - Wait for a job your shell did not start by its process ID or by a file the job writes when it ends. Give that wait a deadline, and fail visibly when it passes.
@@ -81,7 +79,7 @@
 - Require one adversarial verification pass per deliverable.
 - Count CI review, including Warden, as that pass when it covers the deliverable.
 - Do not add a separate local pass when CI covers the deliverable.
-- Follow `agent-lanes` for mechanics, and `agent-lanes` §Shared machine for the lock commands.
+- Follow `agent-lanes` for mechanics, and `agent-lanes` §Shared machine for the build queue commands.
 
 ## Work tracking & continuity
 
