@@ -98,8 +98,8 @@ practice on a shared machine:
   starting the user's MCP servers, plugins and hooks.
 - An agent that finds the machine overloaded starts nothing new, stops only its own
   jobs and reports once.
-- Waits use a process ID or a done file with a deadline. Wait loops on a `pgrep -f`
-  pattern had matched their own command line and run for hours.
+- Waits for another job use a process ID or a done file with a deadline. Wait loops on a
+  `pgrep -f` pattern had matched their own command line and run for hours.
 
 A single review lock was tried first; panels then queued behind each other while the
 machine was idle, because review panels mostly wait on the network.

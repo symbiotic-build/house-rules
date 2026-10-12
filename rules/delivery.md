@@ -69,11 +69,11 @@
 - Run at most half the job limit of reviewers per panel at once, at least 1.
 - Start reviewer command-line tools without the user's own tool configuration, so a reviewer starts no MCP server, plugin or hook. Reviewers need only read access.
 - Point reviewers at a checkout without build output. A reviewer that searches a build tree loads the machine and finds nothing.
-- When the one-minute load average exceeds the online core count, start no new heavy job until it falls below that count.
-- Then stop your own jobs that run outside the locks or above the job limit, and rerun them through the locks.
+- When the one-minute load average exceeds the online core count, start no new heavy job until it falls below that count, unless the operator sets another threshold for the machine.
+- At once stop your own jobs that run outside the locks or above the job limit. Rerun them through the locks after the load falls.
 - Stop no other session's jobs; rules/core.md §Security limits stopping to processes your work started.
 - Report the load, the core count and the heaviest processes with their working directories to the operator once.
-- Wait for another job by its process ID or by a file the job writes when it ends, and give every wait a deadline.
+- Wait for a job your shell did not start by its process ID or by a file the job writes when it ends. Give that wait a deadline, and fail visibly when it passes.
 - Never wait with `pgrep -f` on a pattern that your own command line contains. The pattern matches the waiting shell itself, so the wait never ends.
 - Bound memory-heavy concurrency by verified host capacity and the approved resource envelope.
 - Declare every touched repository in the work item.
