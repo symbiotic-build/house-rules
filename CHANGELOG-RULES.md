@@ -254,3 +254,13 @@ The session variant omits the declared shared includes while preserving role ins
 Live session rules remain separate from the named-commit role prompt.
 Warden reviewers remain read-only, contact only the model provider and run no builds or tests.
 The Warden service posts reviews for local lanes to read.
+
+## skills/pr-ready — Targeted review panel
+
+Operator direction: 2026-10-12, after a full review round ran three reviewers with the same
+model and the same whole-change prompt, each with a one-sentence focus line, and two of them
+reported the same blocker. A full panel now runs one reviewer per target lens, spread over the
+model families; each lens is a checklist with an out-of-scope list naming the owning lens.
+When a family cannot run a target, another family runs it in the same round (operator: "If a
+model can't run, the second model should take its place"). The panel is incomplete when no
+family can run a target or a review breaks its report contract. Quick review keeps one generalist.

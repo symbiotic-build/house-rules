@@ -1,6 +1,6 @@
-concurrency-restarts a read-only
+concurrency-restarts b read-only
 correctness-security a read-only
-design-spec b read-only
+design-spec a read-only
 design a read-only
 durability b read-only
 frontend a read-only
@@ -11,6 +11,6 @@ naming-readability b read-only
 performance a read-only
 security a read-only
 spec-waste a read-only
-spec b read-only
+spec a read-only
 ux b read-only
-waste a read-only
+waste b read-only

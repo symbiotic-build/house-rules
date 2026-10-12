@@ -121,8 +121,9 @@ Specialist dispatch follows
   sends the change back to the full panel after the fix. For an eligible change its approval
   completes review under §4; check-backs verify fixes under that section's merge
   exception.
-- Run a panel of one generalist per model family, adding focused lenses where warranted
-  ([review panels](references/review-lenses.md)). Except for eligible quick reviews, the
+- Run the targeted panel: one reviewer per target lens, spread over the model families,
+  adding specialist lenses where warranted ([review panels](references/review-lenses.md)).
+  Except for eligible quick reviews, the
   full panel reviews the first and final heads, and fixes to shared mechanisms or large
   diffs, subject to the own-blocker merge exception in §4; check-backs in between may be
   quick reviews. The project may require two clean rounds for security-critical changes.

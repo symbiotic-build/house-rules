@@ -1,18 +1,60 @@
 # Review panels
 
-**Default panel:** one generalist reviewer per model family, in parallel: family A and
-family B, plus family C when available. Different families miss different defects, so a
-second family finds more than another round from the same one. Reviewer definitions live in
-[`prompts/lenses/`](../../../prompts/lenses/); the machine-local config maps each family to a CLI, model
-and effort (House Rules keeps model choice out of the repository). Lens family and sandbox
-defaults live in `scripts/review-panel.lenses`, one `name family sandbox` per line;
-lens files contain only prompt text.
+**Default panel: targeted lenses spread over model families.** A full review runs one
+reviewer per target lens, in parallel. Several generalists with the same prompt find the
+same defects, so a full panel does not run plain generalists. The code targets are:
+
+1. [`correctness-security`](../../../prompts/lenses/correctness-security.md): wrong
+   results, invariants, error paths, authorization, secrets, input handling.
+2. [`concurrency-restarts`](../../../prompts/lenses/concurrency-restarts.md): concurrent
+   callers, crash and restart at each step, retries, replay, durability, bounds.
+3. [`spec`](../../../prompts/lenses/spec.md): the change against its issue,
+   specification and settled decisions.
+4. [`waste`](../../../prompts/lenses/waste.md): simplicity, dead code, duplication,
+   speculative mechanisms, scope.
+
+Changes to documents, specifications, rules, prompts or skills add
+[`design-spec`](../../../prompts/lenses/design-spec.md), which checks each changed
+rule's premise and the reader requirements. A panel limited to three targets uses
+[`spec-waste`](../../../prompts/lenses/spec-waste.md) in place of `spec` and `waste`.
+
+Each lens file is a checklist plus an out-of-scope list that names the owning lens, and
+includes the [targeted lens](../../../prompts/util/targeted-lens.md) rules: a reviewer
+searches only its lens and reports a blocking defect outside it once, marked "Outside
+lens:". The triager merges near-duplicates and keeps the owning lens's version.
+
+**Families.** Targets take the configured families in a fixed rotation, so each family
+covers different targets: with families A and B, targets 1 and 3 run on one family and
+targets 2 and 4 on the other. In the review service, `design-spec` and other
+path-selected lenses continue the rotation. The lane script places each lens on the fixed
+family in `scripts/review-panel.lenses`, which alternates the four code targets.
+Different families miss different defects, so a second family finds more than another round from
+the same one. When a family cannot run a reviewer (it fails to start, crashes, times out
+or returns malformed output), the next family runs the same target in the same round,
+and the report names both families. The review service does this automatically. The
+lane script does not: it reports the failed target, and the lead re-runs that target in
+the same round with a panel config (`REVIEW_PANEL_CONF`) whose line for the failed family
+names another configured family's CLI and model, then names both families in the round
+report. A review that ran but broke a report contract (for example, it left out the
+resolution of its own earlier blocker) gets no substitute. The panel is incomplete when
+no family can run a target or a review breaks its report contract; the report then names
+the target. Merge eligibility for an incomplete panel
+follows [pr-ready §4](../SKILL.md#4-merge-and-cleanup).
+
+**Quick review** keeps one generalist (`generalist-a`, `generalist-b`, `generalist-c`
+by family), because one reviewer must cover the whole bar.
+
+Reviewer definitions live in [`prompts/lenses/`](../../../prompts/lenses/); the
+machine-local config maps each family to a CLI, model and effort (House Rules keeps model
+choice out of the repository). Lens family and sandbox defaults live in
+`scripts/review-panel.lenses`, one `name family sandbox` per line. Lens files contain
+only prompt text.
 
 ## Optional lenses
 
 Add focused reviewers for changes that warrant them, for example
-security on access-control code or durability on storage code: `security`, `durability`,
-`performance`, `spec` (a requirement-by-requirement traceability pass) and `waste`. Lens focus
+security on access-control code or durability on storage code: `security`, `durability`
+and `performance`. They go deeper than the default targets in one area. Lens focus
 follows the [shared review bar](../../../prompts/util/review-bar.md). Non-backend changes add
 their own reviewers, chosen by the
 paths a change touches: `design-spec` for design documents and specifications, `frontend`
@@ -43,5 +85,7 @@ Requirement removals and spec/code drift follow `design-flow` §Design changes.
 [pr-ready §4](../SKILL.md#4-merge-and-cleanup). Track confirmed findings per family;
 drop pairings that mostly produce noise.
 
-Launch: `scripts/review-panel.sh <name> <checkout> <base-prompt> [reviewer ...]`
-(default reviewers: the generalists of the configured families).
+Launch: `scripts/review-panel.sh <name> <checkout> <base-prompt> [reviewer ...]`.
+For a full panel, name the targets: `correctness-security concurrency-restarts spec
+waste`, plus `design-spec` for document, rule and prompt changes. Without reviewer
+names, the script runs the generalists of the configured families.
