@@ -306,6 +306,11 @@
       "reason": "Shared operating rule owner, not a specification or design document."
     },
     {
+      "path": "rules/specifications.md",
+      "kind": "other",
+      "reason": "Shared operating rule owner, not a specification or design document."
+    },
+    {
       "path": "rules/writing.md",
       "kind": "other",
       "reason": "Shared operating rule owner, not a specification or design document."

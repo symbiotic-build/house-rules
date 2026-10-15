@@ -84,7 +84,7 @@ The remaining mechanisms explain where declarations live, how checking works and
 
 **Expected:** Checking refuses the mismatch; a corrected `1024` passes literal comparison.
 
-**Requirements:** [Literal equality](sources.md#require-literals), [visible refusal](checking.md#require-checking), [mandatory context](context.md#require-context).
+**Requirements:** [Literal equality](sources.md#req-literals), [visible refusal](checking.md#req-checking), [mandatory context](context.md#req-context).
 
 **Tests:** [Literal values](acceptance.md#test-literals), [checker failures](acceptance.md#test-checking), [context selection](acceptance.md#test-context).
 
@@ -106,7 +106,7 @@ Every document supplies a tour, mechanisms, requirements, acceptance, decisions,
 Purpose, audience, scope and non-goals explain the reader's task and prerequisites.
 An inapplicable role says “None” and explains why.
 A draft may expose gaps; approval refuses an unresolved contract that prevents implementation.
-The [role requirement](sources.md#require-roles) makes these declarations checkable.
+The [role requirement](sources.md#req-roles) makes these declarations checkable.
 
 <a id="addressable-section"></a>
 ## Addressable section
@@ -148,7 +148,7 @@ Authors never edit that generated combination.
 Examples, diagrams and summaries illustrate obligations; they do not add obligations.
 Excluded features remain in scope or non-goals text.
 Exclusion alone creates no operational home or generated exclusion file.
-The [home and linking requirement](sources.md#require-homes) preserves one writable authority.
+The [home and linking requirement](sources.md#req-homes) preserves one writable authority.
 
 <!-- spec-docs:navigation document="spec-system" -->
 # Specification and design-document system

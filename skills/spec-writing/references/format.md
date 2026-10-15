@@ -86,6 +86,32 @@ reciprocal links through their Tests and Requirements fields. Failure Authority
 names the recovery actor and authority. `Recovery: none` includes the consequence
 in the field or adjacent explanation. Review checks those meanings.
 
+Requirement anchors use `req-<identity>` and acceptance-test anchors use
+`test-<identity>`. The suffix is nonempty lower-case kebab case: letters or digits
+separated by single hyphens. The complete anchor is the permanent identity under
+[specification identity rules](../../../rules/specifications.md#requirements-tests-and-recovery),
+unique across the repository's specification and design corpus, including retired
+declarations. It is independent of file, heading and wording; never reuse it after
+retirement. Git history carries revisions outside the identity. A heading describes
+the obligation or case; its text need not match the anchor suffix.
+
+The optional acceptance-test `Implementation` field has exactly this grammar:
+one or more Markdown links, separated by a comma and whitespace, with no other prose
+or terminal punctuation. Each plain-text link label is `repository-file::selector`.
+The file is repository-relative and must match the link's resolved destination.
+The destination is a relative path to that file, with no URL scheme, query or fragment.
+The selector is a nonempty whitespace-free test name; it may include `::` for nesting.
+For example, from a document one directory below the repository root:
+
+```markdown
+**Implementation:** [tests/test_x.py::test_rejects_stale](../tests/test_x.py), [tests/test_x.py::Suite::test_accepts_current](../tests/test_x.py)
+```
+
+The checker validates this grammar and resolves every file against the selected
+snapshot. It retains the selector in the parsed field for the later spec-to-code
+pass; it does not establish that the named test exists or passes. Omit the field
+when no executable test is linked; explain planned evidence in ordinary prose.
+
 Literal blocks, signatures, diagrams and code spans use adjacent
 `**Entities in this example:**` direct home links when they contain registered
 symbols or phrases. Each separate literal block before a home needs its own

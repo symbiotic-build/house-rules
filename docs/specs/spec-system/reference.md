@@ -85,7 +85,7 @@ Use a plain grouping space in Markdown; a renderer may substitute a narrow no-br
 Code, identifiers, configuration, data and literal examples retain their language's notation.
 These formatting checks warn and never block.
 
-<a id="require-profile"></a>
+<a id="req-profile"></a>
 ### Requirement: structural procedures and advisory prose checks
 
 **Actor:** [Documentation checker](checking.md#documentation-checker) and readability reviewer.
@@ -309,7 +309,7 @@ Do not merge merely to make the environment load branch rules.
    - Present required continuous integration and real-run evidence before merge.
    - A separate renderer may consume checked output after this pipeline passes.
 
-<a id="require-adoption"></a>
+<a id="req-adoption"></a>
 ### Requirement: faithful conversion and branch use
 
 **Actor:** Repository editor and lead.

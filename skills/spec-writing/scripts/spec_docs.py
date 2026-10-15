@@ -650,6 +650,7 @@ def resolve_links(corpus):
 
 def assemble_declarations(corpus):
     d = corpus.diagnostics
+    trace_identities = {}
     for md in corpus.markdown.values():
         for heading in md.headings:
             prefix = next((name for name in ("Requirement", "Acceptance test", "Failure state", "Scenario") if heading.title.startswith(name + ":")), None)
@@ -659,6 +660,14 @@ def assemble_declarations(corpus):
             if not heading.anchor or not section:
                 d.add("D02", "malformed declaration: declaration needs a stable anchor and manifest section", md.path, heading.start + 1)
                 continue
+            if prefix in ("Requirement", "Acceptance test"):
+                required_prefix = "req-" if prefix == "Requirement" else "test-"
+                if not re.fullmatch(required_prefix + r"[a-z0-9]+(?:-[a-z0-9]+)*", heading.anchor):
+                    d.add("D02", f"malformed declaration: {prefix} anchor must be {required_prefix}<kebab-case identity>", md.path, heading.start + 1)
+                if heading.anchor in trace_identities:
+                    d.add("D03", f"duplicate identity '{heading.anchor}'; first at {trace_identities[heading.anchor]}", md.path, heading.start + 1)
+                else:
+                    trace_identities[heading.anchor] = f"{md.path}:{heading.start + 1}"
             selector = section["document"] + "#" + heading.anchor
             if selector in corpus.declarations:
                 d.add("D03", f"duplicate identity '{selector}'; first at {corpus.declarations[selector]['path']}", md.path, heading.start + 1)
@@ -725,6 +734,47 @@ def declaration_targets(corpus, declaration, field_name):
     destinations = {link.destination for link in declaration["fields"].get(field_name, ("", []))[1]}
     return {key for key, item in corpus.declarations.items()
             if (item["path"], item["heading"].anchor) in destinations}
+
+
+def check_implementation(corpus, declaration, diagnostics):
+    """Validate test-file links while leaving selector existence to the later pass."""
+    md = corpus.markdown[declaration["path"]]
+    heading = declaration["heading"]
+    token = next(t for t in md.tokens if t.type == "inline" and t.map
+                 and heading.start < t.map[0] < heading.intro_end
+                 and re.match(r"^\*\*Implementation:\*\*", t.content))
+    children = token.children
+    start = next(i for i, child in enumerate(children) if child.type == "strong_close") + 1
+    tail = children[start:]
+    while tail and tail[0].type in ("text", "softbreak") and not tail[0].content.strip():
+        tail = tail[1:]
+    valid, count, i = True, 0, 0
+    while i < len(tail):
+        group = tail[i:i + 3]
+        if [t.type for t in group] != ["link_open", "text", "link_close"]:
+            valid = False
+            break
+        file, separator, selector = group[1].content.partition("::")
+        try:
+            target = urlsplit(group[0].attrGet("href") or "")
+        except ValueError:
+            valid = False
+            break
+        path = posixpath.normpath(posixpath.join(posixpath.dirname(md.path), unquote(target.path)))
+        if (not separator or not selector or re.search(r"\s", selector)
+                or not target.path or target.scheme or target.netloc or target.query or target.fragment
+                or not safe_path(path) or file != path):
+            valid = False
+        count += 1
+        i += 3
+        gap = ""
+        while i < len(tail) and tail[i].type in ("text", "softbreak", "hardbreak"):
+            gap += tail[i].content if tail[i].type == "text" else "\n"
+            i += 1
+        if (i < len(tail) and not re.fullmatch(r",\s+", gap)) or (i == len(tail) and gap.strip()):
+            valid = False
+    if not valid or not count:
+        diagnostics.add("D02", f"malformed declaration: '{declaration['id']}' Implementation requires comma-separated [repository-file::selector](relative-file) links", md.path, token.map[0] + 1)
 
 
 def check(corpus, base=None, _freshness=True):
@@ -855,6 +905,8 @@ def check(corpus, base=None, _freshness=True):
                 if identity not in declaration_targets(corpus, corpus.declarations[test], "Requirements"):
                     d.add("D29", f"requirement/test link '{identity}' <-> '{test}' is not reciprocal", declaration["path"], declaration["heading"].start + 1)
         if kind == "Acceptance test":
+            if "Implementation" in fields:
+                check_implementation(corpus, declaration, d)
             requirements = declaration_targets(corpus, declaration, "Requirements")
             requirements = {key for key in requirements if corpus.declarations[key]["kind"] == "Requirement"}
             if not requirements:

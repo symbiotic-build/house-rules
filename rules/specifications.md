@@ -36,6 +36,12 @@ to [design-flow](../skills/design-flow/SKILL.md).
 
 ## Requirements, tests and recovery
 
+- Give each requirement and acceptance test a permanent repository-unique identity,
+  independent of its file, heading and wording. Preserve it when moving or revising
+  the same obligation or case; never reuse a retired identity. New obligations or
+  cases from a split or replacement receive new identities. Keep revision information
+  outside the identity in Git history. Requirement anchors start with `req-` and
+  acceptance-test anchors with `test-`; suffix syntax belongs to the format contract.
 - Link requirements and acceptance tests reciprocally. Changed requirements and directly
   referenced facts expose affected tests for re-review, including relevant base material.
   Removing a requirement needs a resolving decision reference.

@@ -48,7 +48,7 @@ The [document-errors](#checker-document-errors) exit identifies invalid document
 The [invocation-failure](#checker-invocation-failure) exit identifies an invocation or input/output failure.
 The [diagnostic reference](reference.md#diagnostics) assigns codes without adding value types or measurement conversion.
 
-<a id="require-checking"></a>
+<a id="req-checking"></a>
 ### Requirement: deterministic visible checking
 
 **Actor:** [Documentation checker](#documentation-checker).
@@ -103,7 +103,7 @@ Standalone generated files receive GitHub's generated-file attribute.
 Reviewers examine source explanations and whether the generated projection provides useful navigation.
 A renderer remains a separate consumer; repair its defects there instead of editing exports.
 
-<a id="require-navigation"></a>
+<a id="req-navigation"></a>
 ### Requirement: rebuildable navigation
 
 **Actor:** [Documentation checker](#documentation-checker) and generator.
@@ -179,7 +179,7 @@ No additional dependency-approval question is introduced by this settled toolcha
 There is no fallback parser, source build or stale-output fallback.
 No retry loop conceals a setup or output failure.
 
-<a id="require-toolchain"></a>
+<a id="req-toolchain"></a>
 ### Requirement: pinned tool ownership
 
 **Actor:** Tool setup and repository integrator.

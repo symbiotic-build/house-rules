@@ -39,7 +39,9 @@ specifications rules. Add canonical facts and relations using the format contrac
 ### Requirements
 
 [Add requirement declarations from the format contract. Explain operating conditions,
-measurement notation and pass conditions for quality bounds.]
+measurement notation and pass conditions for quality bounds. Allocate permanent,
+repository-unique `req-<identity>` anchors under the specification identity rules;
+do not derive them from the current file or heading.]
 
 ### Failure and recovery
 
@@ -52,7 +54,9 @@ explain why.]
 
 [Add acceptance declarations from the format contract. Identify inputs, method and pass
 conditions; link real implementations when available. Check reciprocal requirement links
-and test adequacy.]
+and test adequacy. Allocate permanent `test-<identity>` anchors. When linking executable
+tests, use the format contract's `Implementation` grammar:
+`[tests/test_x.py::test_name](relative/path/to/tests/test_x.py)`; omit the field otherwise.]
 
 <a id="decisions"></a>
 ## Decisions

@@ -28,7 +28,7 @@ Affected authors receive regenerated inputs and changed declarations.
 They recheck surrounding explanations and complete [scenarios](sources.md#scenario).
 Other assignments require a current-baseline pack or a mechanically verified rebase.
 
-<a id="require-snapshots"></a>
+<a id="req-snapshots"></a>
 ### Requirement: isolated snapshot provenance
 
 **Actor:** Source loader and review preparer.
@@ -114,7 +114,7 @@ It never imports a helper from an unrelated live checkout.
 The review service prepares and checks packs.
 Reviewers remain read-only and run no builds, tests or external writes.
 
-<a id="require-context"></a>
+<a id="req-context"></a>
 ### Requirement: complete bounded assignment input
 
 **Actor:** Documentation selector, [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) and [dispatcher](../../design/75-subagent-profiles.md#dispatcher).
@@ -198,7 +198,7 @@ It cites missing explanations instead of repairing them from code or external so
 Freshness requires a new agent context.
 This may satisfy existing readability coverage without adding a technical review round.
 
-<a id="require-review"></a>
+<a id="req-review"></a>
 ### Requirement: review coverage and fresh understanding
 
 **Actor:** [Dispatcher](../../design/75-subagent-profiles.md#dispatcher), editor and reviewers.

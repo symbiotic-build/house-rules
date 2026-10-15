@@ -37,7 +37,7 @@ Only the fixture runner accepts `fixture` authority.
 Drafts may retain unresolved contracts.
 Approval fails when such a contract prevents implementation.
 
-<a id="require-roles"></a>
+<a id="req-roles"></a>
 ### Requirement: complete document roles
 
 **Actor:** [Documentation checker](checking.md#documentation-checker).
@@ -91,7 +91,7 @@ The checker does not infer bindings inside arbitrary programming languages.
 It recognizes exact symbols and unambiguous registered phrases.
 Reviewers identify unregistered concepts and ordinary words with unstated technical meaning.
 
-<a id="require-homes"></a>
+<a id="req-homes"></a>
 ### Requirement: unique homes and direct links
 
 **Actor:** [Documentation checker](checking.md#documentation-checker).
@@ -157,7 +157,7 @@ Unresolved values retain a resolution path.
 A registered provisional value is not an operating guarantee.
 Shared values use direct links to their one home; no local reference-valued fact, inherited metadata or fallback is created.
 
-<a id="require-literals"></a>
+<a id="req-literals"></a>
 ### Requirement: literal equality
 
 **Actor:** [Documentation checker](checking.md#documentation-checker).
@@ -198,7 +198,7 @@ An acceptance test declares a verification method, inputs, pass condition and re
 
 Execution, inspection, analysis and qualification campaigns are valid methods.
 A design-stage case may exist before executable code.
-An optional Implementation link names the real file and selector.
+The optional Implementation field uses the [format contract](../../../skills/spec-writing/references/format.md) for test-file links and selectors.
 Static checks resolve the file; reviewers confirm that the selector exists and proves the linked [requirement declaration](#requirement-declaration).
 
 Comparing base and candidate snapshots reports new, changed and removed requirements.
@@ -213,7 +213,7 @@ The report is derived from sources and Git snapshots.
 Store no suspect-link stamps, approval hashes or separate traceability ledger.
 Existing review resolution records the disposition.
 
-<a id="require-traceability"></a>
+<a id="req-traceability"></a>
 ### Requirement: reciprocal and changed-test review
 
 **Actor:** [Documentation checker](checking.md#documentation-checker) and review preparer.
@@ -259,7 +259,7 @@ Reviewers trace entry, retained state, restart behavior and exits.
 Public interfaces also receive error-mapping review.
 A declared absence of recovery makes a limitation visible; it does not approve the technical design.
 
-<a id="require-failures"></a>
+<a id="req-failures"></a>
 ### Requirement: visible recovery contract
 
 **Actor:** [Documentation checker](checking.md#documentation-checker) and semantic reviewer.

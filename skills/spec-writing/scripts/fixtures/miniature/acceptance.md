@@ -12,7 +12,7 @@ This tour follows a refusal before explaining its limits.
    - The current revision becomes 8.
 3. **Submit the prepared request.**
    - The [writer](#writer) performs [acceptance](#acceptance).
-   - The [stale-revision requirement](#acceptance-stale-revision)
+   - The [stale-revision requirement](#req-stale-revision)
      defines the refusal.
 
 > **Detail — byte accounting**
@@ -44,7 +44,7 @@ A revision check prevents a prepared request from using stale state.
 | executor | performed-by | [Writer](#writer) | [Fixture](settings.md#fixture-decision) |
 | byte-policy | limited-by | [Log group byte limit](settings.md#log-group-limit) | [Fixture](settings.md#fixture-decision) |
 
-<a id="acceptance-stale-revision"></a>
+<a id="req-stale-revision"></a>
 ### Requirement: stale-revision
 
 **Actor:** [Writer](#writer).
@@ -85,7 +85,7 @@ A revision check prevents a prepared request from using stale state.
 
 **Expected:** `Conflict`, with no number allocated.
 
-**Requirements:** [Stale-revision requirement](#acceptance-stale-revision).
+**Requirements:** [Stale-revision requirement](#req-stale-revision).
 
 **Tests:** [Stale request](#test-stale-revision).
 
@@ -94,13 +94,12 @@ A revision check prevents a prepared request from using stale state.
 
 **Method:** test.
 
-**Requirements:** [Stale-revision requirement](#acceptance-stale-revision).
+**Requirements:** [Stale-revision requirement](#req-stale-revision).
 
 **Inputs:** A request expecting revision 7 and current revision 8.
 
 **Expected:** `Conflict`, unchanged allocation state and no appended write.
 
-**Implementation:** None; this fixture defines the test case.
 
 **Entities in this example:** [Writer](#writer),
 [acceptance](#acceptance).

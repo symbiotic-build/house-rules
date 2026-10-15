@@ -101,6 +101,37 @@ class CorpusTests(unittest.TestCase):
         metadata(self.paths, s.JSON_PATHS[1], lambda v: v["documents"][0]["sections"].append(v["documents"][0]["sections"][0].copy()))
         self.red_green("D03")
 
+    def test_trace_anchors_require_type_prefix_and_nonempty_kebab_identity(self):
+        for old, invalid in (('req-stale-revision', 'stale-revision-rule'),
+                             ('test-stale-revision', 'stale-revision-test'),
+                             ('req-stale-revision', 'req-'),
+                             ('test-stale-revision', 'test-'),
+                             ('req-stale-revision', 'req-Bad_identity')):
+            with self.subTest(anchor=invalid):
+                self.paths = self.clean.copy()
+                edit(self.paths, ACCEPTANCE, old, invalid)
+                self.red_green('D02')
+
+    def test_trace_identities_are_unique_across_documents_and_retired_records(self):
+        for anchor, kind in (('req-stale-revision', 'Requirement'),
+                             ('test-stale-revision', 'Acceptance test')):
+            with self.subTest(kind=kind):
+                self.paths = self.clean.copy()
+                other = 'docs/example/other.md'
+                self.paths[other] = (f'<a id="other"></a>\n# Other\n\nA second document.\n\n'
+                                     f'<a id="{anchor}"></a>\n### {kind}: another title\n\n'
+                                     '**Status:** retired.\n').encode()
+                def add_document(v):
+                    v['inventory'].append({'path': other, 'kind': 'specification'})
+                    v['documents'].append(dict(id='other', title='Other', status='draft',
+                        purpose='Test identities', audience='Test authors', scope='Identity checking',
+                        non_goals='Execution', navigation={'path': 'docs/generated/other.md'},
+                        sections=[dict(id='other', path=other, anchor='other', roles=[],
+                            summary='Duplicate identities', prerequisites=[], explanatory_dependencies=[])],
+                        scenarios=[], gaps=corpus(self.clean).contract['roles']))
+                metadata(self.paths, s.JSON_PATHS[1], add_document)
+                self.red_green('D03')
+
     def test_home_needs_heading_anchor_and_introductory_meaning(self):
         edit(self.paths, ACCEPTANCE, 'The writer processes write requests.', '')
         edit(self.paths, ACCEPTANCE, 'It performs [acceptance](#acceptance) before allocating numbers.', '')
@@ -184,7 +215,7 @@ class CorpusTests(unittest.TestCase):
         self.red_green("D11")
 
     def test_acceptance_test_needs_linked_requirement(self):
-        edit(self.paths, ACCEPTANCE, '**Requirements:** [Stale-revision requirement](#acceptance-stale-revision).', '**Requirements:** None.')
+        edit(self.paths, ACCEPTANCE, '**Requirements:** [Stale-revision requirement](#req-stale-revision).', '**Requirements:** None.')
         self.red_green("D28")
 
     def test_traceability_is_reciprocal(self):
@@ -364,7 +395,7 @@ class CorpusTests(unittest.TestCase):
         edit(self.paths, ACCEPTANCE, '### Requirement: stale-revision', '### Former stale-revision')
         candidate = corpus(self.paths)
         self.assertIn('D22', {d.code for d in s.check(candidate, base).errors})
-        candidate.assignment = {'removal_decisions': {'example-demo#acceptance-stale-revision': 'example-demo#fixture-decision'}, 'required_test_reviews': ['example-demo#test-stale-revision']}
+        candidate.assignment = {'removal_decisions': {'example-demo#req-stale-revision': 'example-demo#fixture-decision'}, 'required_test_reviews': ['example-demo#test-stale-revision']}
         self.assertNotIn('D22', {d.code for d in s.check(candidate, base).errors})
 
     def test_single_file_navigation_region_preserves_authored_source(self):
@@ -438,12 +469,38 @@ class CorpusTests(unittest.TestCase):
         edit(self.paths, SETTINGS, '| Key | Value | Status | Basis |', '| Key | Value | Status | Unknown |')
         self.red_green('D02')
 
+    def implementation(self, value):
+        self.paths[ACCEPTANCE] += ('\n**Implementation:** ' + value + '\n').encode()
+
     def test_implementation_links_resolve_files_and_leave_code_selectors_to_review(self):
-        self.paths['tests/example.py'] = b'def test_refusal(): pass\n'
-        edit(self.paths, ACCEPTANCE, '**Implementation:** None; this fixture defines the test case.', '**Implementation:** [Executable test](../../tests/example.py#test_refusal).')
+        self.paths['tests/example.py'] = b'# Selector existence belongs to the later pass.\n'
+        self.paths['tests/other.py'] = b'# Another test file.\n'
+        self.implementation('[tests/example.py::Suite::test_refusal](../../tests/example.py), '
+                            '[tests/other.py::test_other](../../tests/other.py)')
         self.assertTrue(s.check(refresh(self.paths)).ok)
-        del self.paths['tests/example.py']
+        del self.paths['tests/other.py']
         self.red_green('D06')
+
+    def test_implementation_requires_only_file_and_selector_links(self):
+        invalid = ('None; no executable yet.', '', 'tests/example.py::test_refusal',
+                   '[Executable test](../../tests/example.py)',
+                   '[tests/example.py::](../../tests/example.py)',
+                   '[tests/example.py::test refusal](../../tests/example.py)',
+                   '[tests/example.py::test_refusal](../../tests/example.py#test_refusal)',
+                   '[tests/example.py::test_refusal](../../tests/example.py?test=refusal)',
+                   '[tests/example.py::test_refusal](https://example.com/test.py)',
+                   '[tests/wrong.py::test_refusal](../../tests/example.py)',
+                   '[tests/example.py::test_refusal](../../tests/example.py).',
+                   '[tests/example.py::test_refusal](../../tests/example.py) and more',
+                   '[tests/example.py::test_refusal](../../tests/example.py), prose',
+                   '[tests/example.py::test_refusal](../../tests/example.py) '
+                   '[tests/example.py::test_other](../../tests/example.py)')
+        for value in invalid:
+            with self.subTest(value=value):
+                self.paths = self.clean.copy()
+                self.paths['tests/example.py'] = b'def test_refusal(): pass\n'
+                self.implementation(value)
+                self.red_green('D02')
 
     def test_declared_dependency_requires_reason_and_known_section(self):
         metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0]['sections'][0]['explanatory_dependencies'][0].update(reason=''))

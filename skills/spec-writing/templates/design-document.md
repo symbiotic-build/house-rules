@@ -47,6 +47,9 @@ meaning and problem, then ordinary behavior. Cover applicable refusal, concurren
 failure and recovery. Add canonical facts, relationships and requirements through the
 format contract. Explain operating conditions and pass conditions for quality bounds.]
 
+[Allocate permanent, repository-unique `req-<identity>` anchors under the specification
+identity rules; do not derive them from the current file or heading.]
+
 ### Failure and recovery
 
 [Add applicable declarations through the format contract. Trace retained state, restart,
@@ -86,7 +89,9 @@ closeout when intent becomes maintained specification.]
 
 [Add acceptance declarations through the format contract. Identify method, inputs, pass
 condition and evidence, with reciprocal requirement links. Distinguish planned verification
-from observed results.]
+from observed results. Allocate permanent `test-<identity>` anchors. When linking executable
+tests, use the format contract's `Implementation` grammar:
+`[tests/test_x.py::test_name](relative/path/to/tests/test_x.py)`; omit the field otherwise.]
 
 <a id="reference"></a>
 ## Reference
