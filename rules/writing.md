@@ -22,6 +22,7 @@ happened, why it matters and what to do, in that order.
 
 - One fact per sentence. Prefer short sentences; split one that carries more than one fact.
   Length is never a reason to drop content.
+- Short related sentences stay in one paragraph.
 - Active voice, simple tense. Name who does what.
 - One term per concept. Define it once at first use, then never use a synonym.
 - No unexplained acronyms, internal labels or IDs as a replacement for meaning. An ID may
@@ -53,6 +54,7 @@ happened, why it matters and what to do, in that order.
 
 - Never put long text in a table cell. Use a table only when every cell is a few words.
   Give each option or item its own short section instead.
+- Keep a lookup table when every cell is a few words.
 - Diagrams are Mermaid in files and chat, never ASCII art or indented text trees.
   Orient them vertically, with groups and comparisons stacked rather than side by side.
   Draw unconnected groups as separate diagrams, with text between them; one diagram would
@@ -66,6 +68,34 @@ happened, why it matters and what to do, in that order.
 - Prefer lists of five or fewer items.
 - Group longer lists only when helpful.
 - Preserve sequence, identifiers, and coverage when grouping.
+
+## Sequences and structured detail
+
+- In walkthroughs, procedures, worked examples and test scenarios, put each ordered action
+  or call in its own numbered item. Start with a short bold action. Put the exact call
+  beside it when one is shown.
+- Under each item, use short sub-items for inputs, written or changed values, and the
+  result the caller observes. Include only the parts that apply.
+- Give several rows or values separate labeled items when explaining their meanings.
+  Preserve exact names, values, order and exceptions.
+- A heading or outer list item does not make several actions one step. Writers and
+  reviewers check the action boundaries, not only sentence length.
+- This format does not apply to a single action, an exact signature or schema, or a lookup
+  table.
+
+Before:
+
+`files.create { name: "draft" }` writes the file row and returns its id.
+`files.publish { id }` changes its state and returns a publication receipt.
+
+After:
+
+1. **Create the file:** `files.create { name: "draft" }`.
+   - Writes the file row.
+   - Returns its id.
+2. **Publish the file:** `files.publish { id }`.
+   - Changes the file's state to published.
+   - Returns a publication receipt.
 
 ## Claim labels
 
