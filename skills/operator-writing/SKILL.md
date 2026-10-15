@@ -11,6 +11,7 @@ explanation-first structure and a reader test.
 
 Follow [rules/writing.md](../../rules/writing.md) for general writing rules.
 
+<a id="communication-rules"></a>
 ## Communication rules
 
 - Follow `operator-writing` for every operator-facing text’s structure, language, options, Mermaid diagrams, and reader test.

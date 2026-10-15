@@ -545,7 +545,7 @@
           "roles": [
             "tour"
           ],
-          "summary": "Understand the source model through a mismatched-value repair.",
+          "summary": "Understand the system and follow a mismatched-value repair.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -558,7 +558,19 @@
           "roles": [
             "tour"
           ],
-          "summary": "Create a complete passing corpus from three files."
+          "summary": "Set up a passing specification from three authored files."
+        },
+        {
+          "id": "checking",
+          "path": "docs/specs/spec-system/checking.md",
+          "anchor": "checking",
+          "roles": [
+            "mechanism",
+            "requirements"
+          ],
+          "summary": "Use the pinned tool to check sources and rebuild navigation.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
         },
         {
           "id": "sources",
@@ -573,18 +585,6 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "checking",
-          "path": "docs/specs/spec-system/checking.md",
-          "anchor": "checking",
-          "roles": [
-            "mechanism",
-            "requirements"
-          ],
-          "summary": "Check one source selection and rebuild navigation with visible failures.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
           "id": "context",
           "path": "docs/specs/spec-system/context.md",
           "anchor": "context",
@@ -595,6 +595,17 @@
           "summary": "Prepare complete snapshot-isolated assignments and semantic review.",
           "prerequisites": [],
           "explanatory_dependencies": []
+        },
+        {
+          "prerequisites": [],
+          "explanatory_dependencies": [],
+          "id": "formats",
+          "path": "docs/specs/spec-system/formats.md",
+          "anchor": "source-format",
+          "roles": [
+            "reference"
+          ],
+          "summary": "Look up exact JSON shapes, declarations and callable inputs."
         },
         {
           "id": "reference",
@@ -620,17 +631,6 @@
           "summary": "Prove structural behavior and real authoring and review acceptance.",
           "prerequisites": [],
           "explanatory_dependencies": []
-        },
-        {
-          "prerequisites": [],
-          "explanatory_dependencies": [],
-          "id": "formats",
-          "path": "docs/specs/spec-system/formats.md",
-          "anchor": "source-format",
-          "roles": [
-            "reference"
-          ],
-          "summary": "Look up exact JSON shapes, declarations and callable inputs."
         }
       ],
       "scenarios": [
@@ -675,7 +675,7 @@
           "path": "docs/design/73-instruction-layer-foundation.md",
           "anchor": "terms",
           "roles": [],
-          "summary": "Resolve the defined names and root placeholders used in this design.",
+          "summary": "Resolve the defined names and repository paths used in this design.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -829,7 +829,7 @@
           "path": "docs/design/74-complete-worker-packs.md",
           "anchor": "terms",
           "roles": [],
-          "summary": "Resolve the defined names and root placeholders used in this design.",
+          "summary": "Resolve the defined names and repository paths used in this design.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -982,7 +982,7 @@
           "path": "docs/design/75-subagent-profiles.md",
           "anchor": "terms",
           "roles": [],
-          "summary": "Resolve the defined names and root placeholders used in this design.",
+          "summary": "Resolve the defined names and repository paths used in this design.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -1135,7 +1135,7 @@
           "path": "docs/design/76-review-entry-skill.md",
           "anchor": "terms",
           "roles": [],
-          "summary": "Resolve the defined names and root placeholders used in this design.",
+          "summary": "Resolve the defined names and repository paths used in this design.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -1276,7 +1276,7 @@
           "path": "docs/design/77-one-step-pack-assembly.md",
           "anchor": "terms-and-paths",
           "roles": [],
-          "summary": "Resolve compiler names, input parts and repository path placeholders.",
+          "summary": "Resolve compiler names, input parts and repository paths.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },

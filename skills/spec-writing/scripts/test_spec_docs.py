@@ -308,9 +308,54 @@ class CorpusTests(unittest.TestCase):
         edit(self.paths, ACCEPTANCE, 'defines the refusal.', 'defines the refusal.\n   The writer refuses it.')
         self.red_green("D12")
 
-    def test_each_subsection_resets_first_use(self):
-        edit(self.paths, ACCEPTANCE, '### Relations', '### More\n\nThe writer refuses it.\n\n### Relations')
-        self.red_green("D12")
+    def test_subsections_share_level_two_first_use_scope(self):
+        edit(self.paths, ACCEPTANCE, '### Relations', 'The [writer](#writer) checks it.\n\n### More\n\nThe writer refuses it.\n\n#### Detail\n\nThe writer retains it.\n\n### Relations')
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
+    def test_level_two_sections_restart_first_use(self):
+        self.paths[ACCEPTANCE] += b'\n<a id="another"></a>\n## Another\n\nThe writer refuses it.\n'
+        self.red_green('D12')
+
+    def test_heading_mentions_do_not_license_body_uses(self):
+        edit(self.paths, ACCEPTANCE, '### Relations', '### Writer behavior\n\nThe writer refuses it.\n\n### Relations')
+        errors = s.check(corpus(self.paths)).errors
+        uses = [d for d in errors if d.code == 'D12']
+        self.assertEqual(len(uses), 1)
+        self.assertEqual(uses[0].line, self.paths[ACCEPTANCE].decode().splitlines().index('The writer refuses it.') + 1)
+        edit(self.paths, ACCEPTANCE, 'The writer refuses it.', 'The [writer](#writer) refuses it.')
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
+    def test_links_in_headings_are_refused(self):
+        edit(self.paths, ACCEPTANCE, '### Relations', '### [Writer](#writer) relations')
+        self.red_green('D33')
+
+    def test_heading_text_still_refuses_rejected_names(self):
+        edit(self.paths, ACCEPTANCE, '### Relations', '### Acceptance gate')
+        self.red_green('D13')
+
+    def test_table_links_may_repeat_after_the_home(self):
+        edit(self.paths, ACCEPTANCE, '### Relations', '### Mentions\n\n| Use | Meaning |\n|---|---|\n| [Writer](#writer) | First use here |\n| Writer | Repeated use |\n\n### Relations')
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
+    def test_numbered_headings_are_refused_without_changing_anchors(self):
+        for prefix in ('1. ', '4.1 ', '4.1.2 ', '1\\. ', '§ ', '§4.1 '):
+            with self.subTest(prefix=prefix):
+                self.paths = self.clean.copy()
+                edit(self.paths, ACCEPTANCE, '## Writer', '## ' + prefix + 'Writer')
+                self.assertIn('D32', self.codes())
+                edit(self.paths, ACCEPTANCE, '## ' + prefix + 'Writer', '## Writer')
+                self.assertTrue(s.check(refresh(self.paths)).ok)
+
+    def test_unnumbered_heading_can_start_with_a_quantity(self):
+        edit(self.paths, ACCEPTANCE, '### Relations', '### 4 workers')
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
+    def test_acceptance_case_is_identified_by_its_permanent_anchor(self):
+        edit(self.paths, ACCEPTANCE, '### Acceptance test: stale request', '### Stale request')
+        c = refresh(self.paths)
+        self.assertEqual(c.declarations['example-demo#test-stale-revision']['kind'], 'Acceptance test')
+        edit(self.paths, ACCEPTANCE, '**Requirements:** [Stale-revision requirement](#req-stale-revision).', '**Requirements:** None.')
+        self.assertIn('D28', self.codes())
 
     def test_wrong_target_is_not_a_home_link(self):
         edit(self.paths, ACCEPTANCE, '[writer](#writer)', '[writer](#acceptance-section)')
@@ -355,7 +400,12 @@ class CorpusTests(unittest.TestCase):
 
     def test_operator_decision_options_are_exempt(self):
         edit(self.paths, SETTINGS, 'None for this fixture.', '### 1\\. Which option applies?\n\n1. **First choice.**\n2. Second choice.\n\n**Answer like so:**\n\n```text\n1. 1\n```')
-        self.assertTrue(s.check(refresh(self.paths)).ok)
+        c = corpus(self.paths)
+        diagnostics = s.Diagnostics()
+        s.check_prose(c, c.markdown[SETTINGS], diagnostics)
+        self.assertNotIn('D18', {d.code for d in diagnostics.errors})
+        # Operator questions retain their prose exemption; specs forbid their numbered headings.
+        self.assertIn('D32', self.codes())
 
     def test_unresolved_contract_blocks_approval(self):
         metadata(self.paths, s.JSON_PATHS[1], lambda v: v["documents"][0].update(unresolved_contracts=["example-demo#fixture-decision"]))

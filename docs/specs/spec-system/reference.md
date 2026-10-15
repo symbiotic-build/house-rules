@@ -9,18 +9,18 @@ It contains no product-specific contracts.
 ## Interfaces and encodings
 
 The [exact source formats](formats.md#source-format) define every JSON shape, Markdown declaration, navigation marker and callable input.
-The [machine-readable contract](../../../skills/spec-writing/references/format-contract.json) must agree with that chapter.
+The [skills/spec-writing/references/format-contract.json](../../../skills/spec-writing/references/format-contract.json) must agree with that chapter.
 The [complete minimal corpus](example.md#minimal-example) is checked as a real fixture.
 There is no unit configuration or value-type system.
 
 <a id="writing-profile"></a>
 ## Writing profile
 
-The writing profile is the versioned set of controlled-language practices owned by [writing rules](../../../rules/writing.md).
+The writing profile is the versioned set of controlled-language practices owned by [rules/writing.md](../../../rules/writing.md).
 
 The [documentation checker](checking.md#documentation-checker) reads that owner's machine-readable block from its own House Rules revision.
 The profile supplies advisory prose targets; no second handwritten limits file exists.
-Procedure structure and counting conventions remain in the [writing rules](../../../rules/writing.md).
+Procedure structure and counting conventions remain in the [rules/writing.md](../../../rules/writing.md).
 Readability review establishes whether an explanation preserves its conditions, exceptions and consequences.
 A counter warning alone does not demonstrate a reader problem.
 
@@ -75,6 +75,8 @@ D28 acceptance test '<id>' has no linked requirement
 D29 requirement/test link '<requirement>' <-> '<test>' is not reciprocal
 D30 failure declaration '<id>' lacks '<field>'
 D31 changed requirement '<id>' lacks linked-test review input '<test>'
+D32 heading starts with a section number: use an unnumbered name
+D33 heading contains a link: move it into the section text
 ```
 
 **Entities in this example:** [documentation checker](checking.md#documentation-checker),

@@ -83,10 +83,12 @@ A rule that cannot be a field pattern remains a linked canonical requirement.
 Code-only identifiers stay with their code or reference owner unless specification readers need the concept.
 
 Each [registered entity](overview.md#registered-entity) has one home.
-Link its first use in each section directly to that home.
+Link its first use in each level-2 section's text directly to that home.
+Level-3 and deeper subsections share that scope.
 Link every use while its home remains ahead in reading order.
 Later uses in the same section may remain plain after the home has appeared.
-The defining heading and introductory definition need no self-link.
+The introductory definition needs no self-link.
+Headings contain no links and do not satisfy a first-use link.
 An index, glossary or another use site does not satisfy a home link.
 
 Literal code, signatures and diagrams use adjacent **Entities in this example** links.
@@ -205,6 +207,9 @@ New obligations from a split or replacement receive new identities.
 
 An acceptance test declares a verification method, inputs, pass condition and reciprocal requirement links.
 
+Acceptance-test anchors use `test-` with the same suffix grammar and permanent-identity rules as requirement anchors.
+Retirement never permits reuse of a test identity.
+
 Execution, inspection, analysis and qualification campaigns are valid methods.
 A design-stage case may exist before executable code.
 The optional Implementation field uses the [exact declaration grammar](formats.md#markdown-declarations) for test-file links and selectors.
@@ -252,10 +257,6 @@ Such assignments include every section containing their actions, requirements an
 Ordered steps must not silently serialize concurrent behavior.
 A concurrent example names branches and synchronization points.
 A completed competing action followed by submission is sequential.
-
-Acceptance-test anchors use `test-` with the same suffix grammar and permanent-identity rules.
-Retirement never permits reuse of a test identity.
-The optional `Implementation` grammar and a complete example appear in the [exact formats](formats.md#markdown-declarations).
 
 <a id="failure-declaration"></a>
 ## Failure declaration

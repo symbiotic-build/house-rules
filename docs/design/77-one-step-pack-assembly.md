@@ -32,7 +32,7 @@ Record one-call prompt assembly from a named commit.
   - [Decisions](77-one-step-pack-assembly.md#decisions)
   - [Open points](77-one-step-pack-assembly.md#open-points)
 - [Result](77-one-step-pack-assembly.md#result) — Record one-call prompt assembly from a named commit.
-- [Terms and paths](77-one-step-pack-assembly.md#terms-and-paths) — Resolve compiler names, input parts and repository path placeholders.
+- [Terms and paths](77-one-step-pack-assembly.md#terms-and-paths) — Resolve compiler names, input parts and repository paths.
 - [Pre-flight](77-one-step-pack-assembly.md#pre-flight) — Read supplied work-item decisions and repository rules before implementation.
 - [Current behavior and evidence](77-one-step-pack-assembly.md#current-behavior-and-evidence) — Inspect the cited implementation baseline and the limits of inherited evidence.
 - [Design](77-one-step-pack-assembly.md#design) — Build ordered prompt inputs from Git objects and record exact pack provenance.
@@ -58,7 +58,7 @@ one-step assembly design.
 The repository rules part holds the target repository's own rules or the line
 “Repository rules: this repository has no rules of its own.”
 The task part holds the work item's Decisions and Pre-flight sections.
-- [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: <HOUSE_RULES_ROOT>/INDEX.md, which owns shared loading instructions.
+- [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: INDEX.md, which owns shared loading instructions.
 - [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer) (`instruction-layer-foundation.instruction-pointer`) — Pointer: a tool or repository instruction file that tells the agent to read the shared index.
 - [Include-once](77-one-step-pack-assembly.md#include-once) (`one-step-pack-assembly.include-once`) — Include-once: expansion of a repository path only at its first include within a compilation.
 - [Lane runner](77-one-step-pack-assembly.md#lane-runner) (`one-step-pack-assembly.lane-runner`) — Lane runner: the operator's scripts outside House Rules that launch local workers.
@@ -225,7 +225,7 @@ The compiler compares its running file bytes with `COMMIT:skills/pr-ready/script
 A [dispatcher](75-subagent-profiles.md#dispatcher) can run a matching compiler in any clone containing the pin. A [dispatcher](75-subagent-profiles.md#dispatcher) can also extract `COMMIT:skills/pr-ready/scripts/prompt.py` into the durable run folder using `git --no-replace-objects show COMMIT:skills/pr-ready/scripts/prompt.py` and pass `--repo`. Compiler extraction does not require a separate pinned checkout. The extracted compiler must still pass the self-check.
 
 <a id="pack-layout-and-include-once"></a>
-### Pack layout and [include-once](#include-once)
+### Pack layout and include-once
 
 The pack order is:
 
@@ -240,7 +240,7 @@ Only pack mode writes the revision header. Legacy single-file and standard-input
 
 Each nonempty part ends with a newline. The compiler adds a newline when the source lacks one. The compiler joins parts with one empty line. Task assembly collects the compiled prefix and nonempty task parts, then joins them once (lead decision L7). An empty part adds no separator. Stable rule text precedes run-specific task text.
 
-A repository path expands only at its first include in one compilation. Later includes of the same path produce no text. The manifest records the skipped repeats. The first occurrence determines the file's position. Cycle detection occurs before repeat suppression, so include-once cannot hide a cycle.
+A repository path expands only at its first include in one compilation. Later includes of the same path produce no text. The manifest records the skipped repeats. The first occurrence determines the file's position. Cycle detection occurs before repeat suppression, so [include-once](#include-once) cannot hide a cycle.
 
 A role that repeats an include remains a source error caught by the role test. Expected repeats occur across parts, such as an extra file already included by a role. `--list` prints included paths once in first-include order. Omitted [shared rules](74-complete-worker-packs.md#shared-rule) do not appear as included files.
 
@@ -252,7 +252,7 @@ Task text is inserted literally without expansion or editing, apart from the par
 The [dispatcher](75-subagent-profiles.md#dispatcher) writes the work item's Decisions and Pre-flight sections into the task file. The compiler adds no separate work-item part. A capacity retry for a read-only reviewer restarts the whole review with the unchanged pack and manifest, after checking both hashes. A capacity retry for workers that change files (implementer, fixer) supplies the resume note as a second task file and builds a fresh pack and manifest. Each attempt keeps its own logs and output (lead decision L5).
 
 <a id="target-repository-rules"></a>
-### [Target repository](#target-repository) rules
+### Target repository rules
 
 The compiler reads both target rule files from the selected commit through Git with replacement refs disabled, using the requested-path reader described above. Native Git supplies two exact path lookups and at most two blob requests through the target's batch process. The compiler adds ordered headings and per-file provenance; it does not classify House Rules loaders (lead decision L6).
 
@@ -353,7 +353,7 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(),
 [skills/pr-ready/scripts/prepare.py](../../skills/pr-ready/scripts/prepare.py) keeps its existing interface. The existing `expand()` caller remains supported. Shared-rule ownership changes belong to the role-pack design rather than a second set of copies here.
 
 <a id="changes-in-the-lane-runner"></a>
-### Changes in the [lane runner](#lane-runner)
+### Changes in the lane runner
 
 The lane runner changes are outside this House Rules change:
 

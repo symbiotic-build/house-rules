@@ -1,10 +1,10 @@
 <a id="source-format"></a>
-# Exact source formats, version 1
+# Source formats
 
 This is the declaration and callable interface contract for the shared checker.
 Markdown uses CommonMark with pipe tables. JSON rejects duplicate keys and unknown
-fields. The [machine-readable contract](../../../skills/spec-writing/references/format-contract.json) must agree with these formats;
-the machine-readable profile in [writing rules](../../../rules/writing.md) owns
+fields. The [skills/spec-writing/references/format-contract.json](../../../skills/spec-writing/references/format-contract.json) must agree with these formats;
+the machine-readable profile in [rules/writing.md](../../../rules/writing.md) owns
 prose targets. Facts have literal values, without types or unit conversion.
 
 <a id="sources-and-commands"></a>
@@ -258,8 +258,21 @@ Declaration `Method`, `Status` and `Basis` values are nonempty prose, with links
 An empty `<a id="stable-anchor"></a>` immediately precedes each home heading.
 The first paragraph defines the entity. The home includes its whole heading
 subtree. Heading titles and meanings enter the generated [complete registry](context.md#complete-registry).
-Generated regions cannot provide declarations. Each heading starts a new first-use
-scope, independently of subtree extraction for assignment.
+Generated regions cannot provide declarations.
+First-use linking covers the text of a level-2 section and all its deeper subsections.
+Opening text before the first level-2 heading has its own scope.
+Heading text neither contains links nor counts as a first use.
+Tables may repeat a link but need not do so after the home has appeared.
+Every use before its home in manifest reading order links directly to it.
+Introductory definitions need no self-link.
+Subtree extraction for assignment remains independent of these linking scopes.
+Heading and section-reference conventions follow [rules/specifications.md](../../../rules/specifications.md#section-names).
+
+For links to repository files, use the repository-relative path as the label, for example
+[INDEX.md](../../../INDEX.md) or [rules/core.md](../../../rules/core.md).
+The destination remains relative to the linking file.
+Do not put a checkout-root placeholder in the label.
+An Implementation label additionally carries its test selector, as specified below.
 
 A `Key | Value | Status | Basis` table declares facts in its containing entity
 home. Each Key cell contains exactly one explicit anchor and its key text. Fact
@@ -274,8 +287,10 @@ Qualifications remain adjacent prose referring directly to the fact.
 
 `Key | Predicate | Target | Basis` tables declare relations. Predicates and target
 kinds are listed in the format contract. Target and Basis contain direct links.
-Requirement, test, failure and [scenario](sources.md#scenario) headings start respectively with
-`Requirement:`, `Acceptance test:`, `Failure state:`, and `Scenario:`. They have an
+Requirement, failure and [scenario](sources.md#scenario) headings start respectively with
+`Requirement:`, `Failure state:`, and `Scenario:`.
+An acceptance case is identified by its permanent `test-` anchor; its heading may omit `Acceptance test:`.
+Declarations have an
 explicit anchor and bold field paragraphs, for example `**Actor:** [Writer](#writer)`.
 Required field names are listed in the contract. Tests and requirements declare
 reciprocal links through their Tests and Requirements fields. Failure Authority
@@ -292,7 +307,7 @@ Adjacent **Entities in this example** annotations apply to each literal block an
 Requirement anchors use `req-<identity>` and acceptance-test anchors use
 `test-<identity>`. The suffix is nonempty lower-case kebab case: letters or digits
 separated by single hyphens. The complete anchor is the permanent identity under
-[specification identity rules](../../../rules/specifications.md),
+[rules/specifications.md](../../../rules/specifications.md),
 unique across the repository's specification and design corpus, including retired
 declarations. It is independent of file, heading and wording; never reuse it after
 retirement. Git history carries revisions outside the identity. A heading describes
@@ -319,10 +334,10 @@ Literal blocks, signatures, diagrams and code spans use adjacent
 `**Entities in this example:**` direct home links when they contain registered
 symbols or phrases. Each separate literal block before a home needs its own
 annotation. Literal languages are not parsed for bindings. Definitions and their
-introductory paragraphs need no self-links. Prose first uses and every forward use
+introductory paragraphs need no self-links. Prose first uses in each level-2 scope and every forward use
 link directly to the entity home or one of its facts.
 
-Procedure structure and prose counting follow the [writing rules](../../../rules/writing.md).
+Procedure structure and prose counting follow the [rules/writing.md](../../../rules/writing.md).
 They are not separate format policies.
 
 <a id="navigation"></a>

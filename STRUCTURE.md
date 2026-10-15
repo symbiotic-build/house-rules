@@ -60,6 +60,7 @@ the [exact source formats](docs/specs/spec-system/formats.md#source-format) for 
 The reusable outlines live in [spec-writing templates](skills/spec-writing/templates/):
 `specification.md` and `design-document.md`.
 
+<a id="managed-repository-loader"></a>
 ## Managed repository loader
 
 A managed repository uses exactly this `AGENTS.md`:

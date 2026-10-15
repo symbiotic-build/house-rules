@@ -268,6 +268,10 @@ class Markdown:
     def intro_at(self, line):
         return next((h for h in reversed(self.headings) if h.start <= line < h.intro_end), None)
 
+    def use_section_at(self, line):
+        """Return the level-2 scope, including its deeper subsections and preamble."""
+        return next((h for h in reversed(self.headings) if h.level <= 2 and h.start <= line < h.end), None)
+
     def range_bytes(self, start, end):
         return "".join(self.text.splitlines(keepends=True)[start:end]).encode()
 
@@ -675,6 +679,8 @@ def assemble_declarations(corpus):
     for md in corpus.markdown.values():
         for heading in md.headings:
             prefix = next((name for name in ("Requirement", "Acceptance test", "Failure state", "Scenario") if heading.title.startswith(name + ":")), None)
+            if not prefix and heading.anchor and heading.anchor.startswith("test-"):
+                prefix = "Acceptance test"
             if not prefix:
                 continue
             section = corpus.section_at(md.path, heading.start)
@@ -1012,14 +1018,19 @@ def check_uses(corpus, md, diagnostics):
             continue
         if token.type == "inline" and not visible(token.children).strip():
             continue
-        if token.type == "inline" and token_index and md.tokens[token_index - 1].type == "heading_open" and re.match(r"(?:Requirement|Acceptance test|Failure state|Scenario):", visible(token.children)):
-            continue
+        is_heading = token.type == "inline" and token_index and md.tokens[token_index - 1].type == "heading_open"
+        if is_heading:
+            if md.inline_links.get(id(token)):
+                diagnostics.add("D33", "heading contains a link: move it into the section text", md.path, line + 1)
+            if re.match(r"^(?:§|\d+\.(?:\d+(?:\.\d+)*\.?)?(?=\s|$))", visible(token.children)):
+                diagnostics.add("D32", "heading starts with a section number: use an unnumbered name", md.path, line + 1)
         section = corpus.section_at(md.path, line)
         if not section:
             diagnostics.add("D05", f"source '{md.path}' is outside the declared input set: content is not assigned to a manifest section", md.path, line + 1)
             continue
         heading = md.intro_at(line)
-        local = heading.start if heading else -1
+        use_section = md.use_section_at(line)
+        local = use_section.start if use_section else -1
         # Defining heading and first nonempty paragraph may omit their own link.
         intro = next((t for i, t in enumerate(md.tokens) if t.type == "inline" and t.map and heading and heading.start < t.map[0] < heading.intro_end and i and md.tokens[i - 1].type == "paragraph_open" and visible(t.children).strip()), None)
         literal = token.type in ("fence", "code_block")
@@ -1041,6 +1052,8 @@ def check_uses(corpus, md, diagnostics):
             entity = corpus.entities[identity]
             if section["document"] not in entity["scope"]:
                 diagnostics.add("D07", f"entity '{identity}' is used outside its declared document scope", md.path, line + 1)
+            if is_heading:
+                continue  # Headings name concepts but do not satisfy body first uses.
             if heading and heading.anchor == entity["anchor"] and md.path == entity["path"] and (line == heading.start or token is intro):
                 seen.add((local, identity))
                 continue

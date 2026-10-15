@@ -1,5 +1,5 @@
 <a id="complete-worker-role-packs"></a>
-# Complete worker [role packs](#role-pack)
+# Complete worker role packs
 
 Status: design revised to the operator's decisions of 2026-10-07; implementation pending.
 
@@ -19,28 +19,28 @@ Record complete role prompts and their two shared-rule loading paths.
 ## Document map
 
 - [Complete worker role packs](74-complete-worker-packs.md#complete-worker-role-packs) — Read the historical status and source work item for this design.
-  - [1. Result](74-complete-worker-packs.md#result)
-  - [2. Terms](74-complete-worker-packs.md#terms)
-  - [3. Current behavior verified for this revision](74-complete-worker-packs.md#current-behavior-verified-for-this-revision)
-  - [4. Design](74-complete-worker-packs.md#design)
-  - [5. Rejected alternatives](74-complete-worker-packs.md#rejected-alternatives)
-  - [6. Implementation scope](74-complete-worker-packs.md#implementation-scope)
-  - [7. Verification](74-complete-worker-packs.md#verification)
-  - [8. Rollout and dependencies](74-complete-worker-packs.md#rollout-and-dependencies)
-  - [9. Interfaces with the other designs](74-complete-worker-packs.md#interfaces-with-the-other-designs)
-  - [10. Decisions](74-complete-worker-packs.md#decisions)
-  - [11. Open points](74-complete-worker-packs.md#open-points)
-- [1. Result](74-complete-worker-packs.md#result) — Record complete role prompts and their two shared-rule loading paths.
-- [2. Terms](74-complete-worker-packs.md#terms) — Resolve the defined names and root placeholders used in this design.
-- [3. Current behavior verified for this revision](74-complete-worker-packs.md#current-behavior-verified-for-this-revision) — Inspect the cited implementation baseline and the limits of inherited evidence.
-- [4. Design](74-complete-worker-packs.md#design) — Share rule owners across session and compiled loading paths without copied fragments.
-- [5. Rejected alternatives](74-complete-worker-packs.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
-- [6. Implementation scope](74-complete-worker-packs.md#implementation-scope) — Find the proposed file changes, persistent additions and excluded work.
-- [7. Verification](74-complete-worker-packs.md#verification) — Find the required tests and canaries, with their evidence limits.
-- [8. Rollout and dependencies](74-complete-worker-packs.md#rollout-and-dependencies) — Deploy shared-rule staging, compiler variants and canaries in dependency order.
-- [9. Interfaces with the other designs](74-complete-worker-packs.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
-- [10. Decisions](74-complete-worker-packs.md#decisions) — Read the recorded operator and lead choices with their stated authority.
-- [11. Open points](74-complete-worker-packs.md#open-points) — Find the remaining implementation evidence; no operator choice is open.
+  - [Result](74-complete-worker-packs.md#result)
+  - [Terms](74-complete-worker-packs.md#terms)
+  - [Current behavior verified for this revision](74-complete-worker-packs.md#current-behavior-verified-for-this-revision)
+  - [Design](74-complete-worker-packs.md#design)
+  - [Rejected alternatives](74-complete-worker-packs.md#rejected-alternatives)
+  - [Implementation scope](74-complete-worker-packs.md#implementation-scope)
+  - [Verification](74-complete-worker-packs.md#verification)
+  - [Rollout and dependencies](74-complete-worker-packs.md#rollout-and-dependencies)
+  - [Interfaces with the other designs](74-complete-worker-packs.md#interfaces-with-the-other-designs)
+  - [Decisions](74-complete-worker-packs.md#decisions)
+  - [Open points](74-complete-worker-packs.md#open-points)
+- [Result](74-complete-worker-packs.md#result) — Record complete role prompts and their two shared-rule loading paths.
+- [Terms](74-complete-worker-packs.md#terms) — Resolve the defined names and repository paths used in this design.
+- [Current behavior verified for this revision](74-complete-worker-packs.md#current-behavior-verified-for-this-revision) — Inspect the cited implementation baseline and the limits of inherited evidence.
+- [Design](74-complete-worker-packs.md#design) — Share rule owners across session and compiled loading paths without copied fragments.
+- [Rejected alternatives](74-complete-worker-packs.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
+- [Implementation scope](74-complete-worker-packs.md#implementation-scope) — Find the proposed file changes, persistent additions and excluded work.
+- [Verification](74-complete-worker-packs.md#verification) — Find the required tests and canaries, with their evidence limits.
+- [Rollout and dependencies](74-complete-worker-packs.md#rollout-and-dependencies) — Deploy shared-rule staging, compiler variants and canaries in dependency order.
+- [Interfaces with the other designs](74-complete-worker-packs.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
+- [Decisions](74-complete-worker-packs.md#decisions) — Read the recorded operator and lead choices with their stated authority.
+- [Open points](74-complete-worker-packs.md#open-points) — Find the remaining implementation evidence; no operator choice is open.
 
 ## Entity index
 
@@ -59,8 +59,8 @@ The repository rules part holds the target repository's own rules or the line
 “Repository rules: this repository has no rules of its own.”
 The task part holds the work item's Decisions and Pre-flight sections.
 - [House Rules block](73-instruction-layer-foundation.md#house-rules-block) (`instruction-layer-foundation.house-rules-block`) — House Rules block: the managed pointer between <!-- house-rules:begin --> and <!-- house-rules:end -->.
-<HOUSE_RULES_ROOT>/INSTALL-AGENTS.md §3 defines the block.
-- [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: <HOUSE_RULES_ROOT>/INDEX.md, which owns shared loading instructions.
+Install House Rules instructions and Skills defines the block.
+- [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: INDEX.md, which owns shared loading instructions.
 - [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer) (`instruction-layer-foundation.instruction-pointer`) — Pointer: a tool or repository instruction file that tells the agent to read the shared index.
 - [Lane runner](77-one-step-pack-assembly.md#lane-runner) (`one-step-pack-assembly.lane-runner`) — Lane runner: the operator's scripts outside House Rules that launch local workers.
 - [Target repository](77-one-step-pack-assembly.md#target-repository) (`one-step-pack-assembly.target-repository`) — Target: the repository checkout on which a worker works or performs a review.
@@ -79,7 +79,7 @@ Implementation details below remain proposals where the operator did not specify
 File paths are repository-relative unless a named repository or tool home qualifies them.
 
 <a id="result"></a>
-## 1. Result
+## Result
 
 The five role files serve implementers, fixers, reviewers, triagers and checkers.
 Each role file supports two ways of loading House Rules.
@@ -94,7 +94,7 @@ The checker calls itself CHECKER.
 Tests cover shared-rule ownership, both prompt variants and the checker's identity.
 
 <a id="terms"></a>
-## 2. Terms
+## Terms
 
 <a id="role-pack"></a>
 ### Role pack
@@ -131,7 +131,7 @@ The repository rules part holds the [target repository](77-one-step-pack-assembl
 The task part holds the work item's Decisions and Pre-flight sections.
 
 <a id="current-behavior-verified-for-this-revision"></a>
-## 3. Current behavior verified for this revision
+## Current behavior verified for this revision
 
 The following observations come from the worktree at commit
 `979bc325653c4c2e25367721bd230440d3bd7828`, before this document revision.
@@ -158,10 +158,10 @@ Historical lane-load reports from earlier design revisions are not new runtime e
 `ASSESSMENT` Direct includes from [shared rule](#shared-rule) owners remove the need for copied rule fragments and parity tests.
 
 <a id="design"></a>
-## 4. Design
+## Design
 
 <a id="one-owner-for-shared-rules"></a>
-### 4.1 One owner for [shared rules](#shared-rule)
+### Rule ownership
 
 `DECISION` The operator chose “one place for everything” on 2026-10-07.
 Rules every agent needs become separate, clearly organized files under `rules/`.
@@ -174,7 +174,7 @@ The proposed shared owners are:
   Warden packs include the claim labels rather than omitting them in favor of a review confidence field.
   A confidence field describes a finding's confidence; a claim label describes the evidence behind a statement.
 - The proposed `rules/git.md` owns the Git rules currently in
-  [rules/delivery.md §Git](../../rules/delivery.md).
+  [Git](../../rules/delivery.md#git).
   [rules/delivery.md](../../rules/delivery.md) points to that owner instead of repeating its text.
 - The proposed `rules/priority-labels.md` owns the P0–P3 definitions.
   [prompts/util/issue-form.md](../../prompts/util/issue-form.md) points to that owner.
@@ -199,7 +199,7 @@ and `<codex-home>/AGENTS.md`.
 This design uses those [pointers](73-instruction-layer-foundation.md#instruction-pointer); this design does not define a competing loader.
 
 <a id="one-role-file-two-loading-paths"></a>
-### 4.2 One role file, two loading paths
+### One role file, two loading paths
 
 `DECISION` [Lane workers](75-subagent-profiles.md#lane-worker) run as normal sessions in the operator's Codex home.
 Lane implementers, fixers and reviewers retain the [House Rules block](73-instruction-layer-foundation.md#house-rules-block), skills and guardian escalation path.
@@ -208,14 +208,14 @@ Role prompts do not forbid those normal sessions from loading House Rules.
 
 The proposed compiler option is `--session`.
 The default compile includes shared-rule files for an agent that has no House Rules session loader.
-Each default [role pack](#role-pack) includes all three shared owners from §4.1.
+Each default [role pack](#role-pack) includes all three shared owners from [Rule ownership](#one-owner-for-shared-rules).
 A compile with `--session` omits the shared-rule includes because the session loads their canonical owners.
 Both variants read the same role file.
 The compiler does not infer the loading path from a tool-home name or filesystem search.
 The [dispatcher](75-subagent-profiles.md#dispatcher) explicitly selects the variant.
 The selected loading path is stated in the compiled prompt header.
 
-The option omits only the declared shared-rule includes from §4.1.
+The option omits only the declared shared-rule includes from [Rule ownership](#one-owner-for-shared-rules).
 The option preserves role instructions, review lenses and role-specific utility fragments.
 The compiler rejects a declared shared-rule include whose owner is missing.
 The `--list` output reports the files actually expanded for the selected variant.
@@ -235,7 +235,7 @@ owns reading the named commit from Git objects in any clone.
 The one-step assembly design also removes the need for a separate pinned checkout.
 
 <a id="repository-and-task-rules"></a>
-### 4.3 Repository and task rules
+### Repository and task rules
 
 Role instructions name the [repository rules part](#supplied-rule-parts) and the [task part](#supplied-rule-parts) before work begins.
 The [dispatcher](75-subagent-profiles.md#dispatcher) writes the work item's Decisions and Pre-flight sections into the [task part](#supplied-rule-parts).
@@ -255,7 +255,7 @@ owns recognizing the [pointer](73-instruction-layer-foundation.md#instruction-po
 That design must use the [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape chosen by the smaller-core design, rather than an obsolete loader template.
 
 <a id="role-and-fragment-changes"></a>
-### 4.4 Role and fragment changes
+### Role and fragment changes
 
 [prompts/roles/implementer.md](../../prompts/roles/implementer.md) identifies the loading path and [supplied rule parts](#supplied-rule-parts).
 The implementer role cites the canonical Git owner instead of [rules/delivery.md](../../rules/delivery.md).
@@ -295,7 +295,7 @@ The migration rule itself remains unchanged.
 No rule is copied into [prompts/README.md](../../prompts/README.md) or [CHANGELOG-RULES.md](../../CHANGELOG-RULES.md).
 
 <a id="warden-s-boundary"></a>
-### 4.5 Warden's boundary
+### Warden's boundary
 
 `DECISION` Warden reviewers use a read-only copy of the pull request.
 Warden reviewers have no network access except to the model provider.
@@ -311,7 +311,7 @@ The session variant preserves the lane reviewer's existing allowance.
 The session variant does not turn a Warden reviewer into a [lane worker](75-subagent-profiles.md#lane-worker).
 
 <a id="implementation-tests"></a>
-### 4.6 Implementation tests
+### Implementation tests
 
 The implementation adds targeted regressions to
 [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py):
@@ -344,7 +344,7 @@ The definition test checks that reviewer, triager and checker receive the same c
 The implementation retains requirement-preservation checks and the work-item reading requirement.
 
 <a id="rejected-alternatives"></a>
-## 5. Rejected alternatives
+## Rejected alternatives
 
 - **Verbatim shared-rule copies under `prompts/util/`:** rejected because the operator chose one canonical home under `rules/`.
 - **Shared-rule owners under `prompts/util/`:** rejected because the operator chose shared instruction files under `rules/`.
@@ -353,13 +353,13 @@ The implementation retains requirement-preservation checks and the work-item rea
 - **One blanket loading ban for every worker:** rejected because lane sessions must load House Rules while Warden uses a complete supplied pack.
 
 <a id="implementation-scope"></a>
-## 6. Implementation scope
+## Implementation scope
 
 The proposed new shared-rule files are `rules/git.md` and `rules/priority-labels.md`.
 The proposed session-only writing file is `rules/session-writing.md`.
 The proposed role-specific fragment is `prompts/util/cost-defect.md`.
 The shared writing owner remains [rules/writing.md](../../rules/writing.md).
-The Git split changes [rules/delivery.md](../../rules/delivery.md).
+The Git split changes [Git](../../rules/delivery.md#git).
 The shared-rule split updates index loading and existing rule consumers together.
 The smaller-core design owns the index rename and installed [pointer](73-instruction-layer-foundation.md#instruction-pointer) changes.
 
@@ -381,11 +381,11 @@ Those measurements must distinguish the live [session rules](#session-rule) from
 The design adds no runtime store, index, cache, queue or mirror.
 
 <a id="verification"></a>
-## 7. Verification
+## Verification
 
 These checks are implementation acceptance criteria, not completed results of this document revision.
 
-**Text checks:** run the targeted tests from §4.6 during local implementation.
+**Text checks:** run the targeted tests from [Implementation tests](#implementation-tests) during local implementation.
 Continuous integration runs the complete declared suite on the pushed implementation.
 The local document-revision gate is [scripts/test_sync.py](../../scripts/test_sync.py).
 
@@ -412,12 +412,12 @@ The fixture [pointer](73-instruction-layer-foundation.md#instruction-pointer) at
 **Warden canary:** use the default role variants after Warden deploys staging for `rules/`.
 All required includes must resolve from the qualified commit.
 Tool logs must show no reads from the live House Rules checkout and no builds or tests.
-The reviewer must retain the read-only and network restrictions from §4.5.
+The reviewer must retain the read-only and network restrictions from [Warden's boundary](#warden-s-boundary).
 The Warden service's review must be readable by the Mac lane scripts for a local fix round.
 Self-reports alone do not prove the loading or isolation behavior.
 
 <a id="rollout-and-dependencies"></a>
-## 8. Rollout and dependencies
+## Rollout and dependencies
 
 The prior rollout based on temporary copies is removed.
 Deployment follows these dependencies:
@@ -432,7 +432,7 @@ Deployment follows these dependencies:
 3. **Integrate the two compiler variants** with the one-step assembly design's named-commit builder.
    The [lane runner](77-one-step-pack-assembly.md#lane-runner) selects the session variant.
    Warden selects the default complete variant.
-4. **Run the lane and Warden canaries** from §7 before moving the callers to the new role-prompt commit.
+4. **Run the lane and Warden canaries** from [Verification](#verification) before moving the callers to the new role-prompt commit.
    The live lane-session checkout remains a separate source of session instructions.
 
 The [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77)
@@ -440,7 +440,7 @@ owns drafting its matching Warden compiler change after the [lane-runner](77-one
 This design does not create a second Warden rollout or assume that staging deployment proves compiler deployment.
 
 <a id="interfaces-with-the-other-designs"></a>
-## 9. Interfaces with the other designs
+## Interfaces with the other designs
 
 - **[Smaller always-loaded core](https://github.com/symbiotic-sh/house-rules/issues/73):** owns `house-rules/INDEX.md`,
   the [pointer](73-instruction-layer-foundation.md#instruction-pointer) files and its own canary.
@@ -456,7 +456,7 @@ This design does not create a second Warden rollout or assume that staging deplo
   Lane review panels use that builder rather than scripts taken from the live checkout.
 
 <a id="decisions"></a>
-## 10. Decisions
+## Decisions
 
 Each item records the operator's choice on 2026-10-07.
 
@@ -475,10 +475,10 @@ Each item records the operator's choice on 2026-10-07.
 - **7.** **2026-10-07 — Stage canonical rules:** Warden stages `rules/` from the qualified commit through the change identified as `9f1568b`.
    The House Rules staged-path guard widens to `rules/` once that change is deployed.
 
-Decisions owned by other designs remain the short cross-references in §9.
+Decisions owned by other designs remain the short cross-references in [Interfaces with the other designs](#interfaces-with-the-other-designs).
 
 <a id="open-points"></a>
-## 11. Open points
+## Open points
 
 - **Warden staging deployment:** close this point with deployment evidence for `9f1568b`
   and a canary that resolves the direct shared-rule includes from the qualified commit.

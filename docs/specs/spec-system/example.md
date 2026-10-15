@@ -1,11 +1,14 @@
 <a id="minimal-example"></a>
-# A complete minimal corpus
+# Minimal corpus
 
-This synthetic example shows every authored file needed for a passing specification.
-It declares one component, one literal capacity, one refusal requirement, one acceptance case and one failure state.
+A corpus is the set of Markdown files and metadata checked together.
+This synthetic corpus contains every authored file needed for a passing specification.
+It declares one component and one literal capacity.
+A [requirement declaration](sources.md#requirement-declaration) specifies refusal; an [acceptance test](sources.md#acceptance-test) checks it.
+A [failure declaration](sources.md#failure-declaration) explains retained state and recovery.
 Its approval is teaching evidence only; it approves no production behavior.
 
-Create the following three files in a new repository.
+Create the following three files in a new repository, then run the commands under [Generate and check](#example-checking).
 The JSON keys and Markdown fields use the exact [source format](formats.md#source-format).
 The entry chapter includes generated navigation immediately after its opening paragraph.
 
@@ -210,6 +213,7 @@ None; the teaching contract is complete.
 
 Initialize Git so the checker can capture the repository input set.
 Use the shared helper from the pinned House Rules revision, with its configured Python environment.
+The [setup and use chapter](checking.md#tool-environment) explains that environment.
 The `--fixture` option accepts this synthetic authority only; production documents use `operator` or `delegated`.
 
 ```sh

@@ -30,7 +30,7 @@ Record a review entry skill and the narrowed document-writing trigger.
   - [Decisions](76-review-entry-skill.md#decisions)
   - [Open points](76-review-entry-skill.md#open-points)
 - [Result](76-review-entry-skill.md#result) — Record a review entry skill and the narrowed document-writing trigger.
-- [Terms](76-review-entry-skill.md#terms) — Resolve the defined names and root placeholders used in this design.
+- [Terms](76-review-entry-skill.md#terms) — Resolve the defined names and repository paths used in this design.
 - [Current behavior and prior evidence](76-review-entry-skill.md#current-behavior-and-prior-evidence) — Inspect the cited implementation baseline and the limits of inherited evidence.
 - [Design](76-review-entry-skill.md#design) — Deliver shared review criteria and align review and writing skill triggers.
 - [Rejected alternatives](76-review-entry-skill.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
@@ -47,7 +47,7 @@ formatting operator questions or running lanes.
 Warden role prompts do not include session-rule files.
 - [Shared rule](74-complete-worker-packs.md#shared-rule) (`complete-worker-packs.shared-rule`) — Shared rule: a rule every agent needs, with one owner under rules/.
 Writing rules, claim labels, Git rules and priority labels are shared rules.
-- [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: <HOUSE_RULES_ROOT>/INDEX.md, which owns shared loading instructions.
+- [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: INDEX.md, which owns shared loading instructions.
 - [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer) (`instruction-layer-foundation.instruction-pointer`) — Pointer: a tool or repository instruction file that tells the agent to read the shared index.
 - [Canary run](76-review-entry-skill.md#canary-run-meaning) (`review-entry-skill.canary-run`) — Canary run: a headless session whose tool log shows which files and skills the agent loaded.
 Canary evidence comes from the tool log, never from the agent's own report.
@@ -111,16 +111,16 @@ The pack-assembly design requires the compiler to read Git objects from a named 
 ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
 
 <a id="foundation-in-this-review-design"></a>
-### [Foundation](75-subagent-profiles.md#session-foundation) in this review design
+### Foundation in this review design
 
 **[Foundation](75-subagent-profiles.md#session-foundation):** the always-loaded [session rules](74-complete-worker-packs.md#session-rule) owned by the [foundation](75-subagent-profiles.md#session-foundation) design.
 
 <a id="index-in-this-review-design"></a>
 ### Index in this review design
 
-**[Index](73-instruction-layer-foundation.md#house-rules-index):** the proposed [House Rules index](73-instruction-layer-foundation.md#house-rules-index) at `<HOUSE_RULES_ROOT>/INDEX.md`.
-The [foundation](75-subagent-profiles.md#session-foundation) design makes `<HOUSE_RULES_ROOT>/AGENTS.md` a [pointer](73-instruction-layer-foundation.md#instruction-pointer) to that index and
-`<HOUSE_RULES_ROOT>/.agents/rules.md`.
+**[Index](73-instruction-layer-foundation.md#house-rules-index):** the proposed [House Rules index](73-instruction-layer-foundation.md#house-rules-index) at `INDEX.md`.
+The [foundation](75-subagent-profiles.md#session-foundation) design makes `AGENTS.md` a [pointer](73-instruction-layer-foundation.md#instruction-pointer) to that index and
+`.agents/rules.md`.
 
 <a id="skill-description"></a>
 ### Skill description
@@ -154,9 +154,9 @@ The placeholder `<HOUSE_RULES_COMMIT>` means the named commit selected for the r
 <a id="current-behavior-and-prior-evidence"></a>
 ## Current behavior and prior evidence
 
-`FACT` The current [House Rules index](73-instruction-layer-foundation.md#house-rules-index) at <HOUSE_RULES_ROOT>/INDEX.md ([source](../../INDEX.md))
+`FACT` The current [House Rules index](73-instruction-layer-foundation.md#house-rules-index) at INDEX.md ([INDEX.md](../../INDEX.md))
 loads pr-ready for “Push preparation, review rounds, review fixes, or PR merges.”
-`FACT` The current [House Rules index](73-instruction-layer-foundation.md#house-rules-index) at <HOUSE_RULES_ROOT>/INDEX.md ([source](../../INDEX.md))
+`FACT` The current [House Rules index](73-instruction-layer-foundation.md#house-rules-index) at INDEX.md ([INDEX.md](../../INDEX.md))
 loads operator-writing for “Any operator-facing text.”
 `FACT` The current [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py)
 reads include files from the checkout through `path.open`, rather than from Git objects.
@@ -191,7 +191,7 @@ flowchart TB
 **Entities in this example:** [Session rule](74-complete-worker-packs.md#session-rule).
 
 <a id="new-change-review-skill"></a>
-### 1. New change-review skill
+### New change-review skill
 
 The implementation adds the change-review skill at the complete repository-relative path
 `skills/change-review/SKILL.md`. The operator chose the name `change-review` on 2026-10-07.
@@ -214,7 +214,7 @@ license: MIT
 Review the change yourself against the shared lane and Warden reviewer criteria.
 This skill delivers the reviewer pack and adapts the pack to an interactive session.
 
-## 1. Compile the reviewer pack
+## Compile the reviewer pack
 
 Find the House Rules root from the session's pointer to `<HOUSE_RULES_ROOT>/INDEX.md`.
 Select a named House Rules commit for the review pack.
@@ -233,7 +233,7 @@ The pack-assembly design owns that option and its command syntax.
   Do not substitute live checkout files or an incomplete pack.
 - After compaction, compile the pack again from the same named commit.
 
-## 2. Apply the pack in this session
+## Apply the pack in this session
 
 - The session's already-loaded rules stay in force.
 - Perform a read-only review and run at most one targeted test to resolve a specific suspected finding.
@@ -246,7 +246,7 @@ The pack-assembly design owns that option and its command syntax.
 - A plain review request gets one reviewer.
   Start a panel only when the operator asks for a panel, through pr-ready.
 
-## 3. After the review
+## After the review
 
 Fixing findings, pushing, further dispatched review rounds and merging continue in skill pr-ready.
 A requested specialist hand-off follows the specialist-subagent design and the agent-lanes skill.
@@ -266,11 +266,11 @@ If the [specialist launcher](75-subagent-profiles.md#specialist-launcher-meaning
 The [specialist](75-subagent-profiles.md#specialist)-[subagent](75-subagent-profiles.md#subagent) implementation then adds the hand-off paragraph when its launcher lands.
 
 <a id="house-rules-index-at-index-md"></a>
-### 2. [House Rules index](73-instruction-layer-foundation.md#house-rules-index) at `<HOUSE_RULES_ROOT>/INDEX.md`
+### Index triggers
 
 The [foundation](75-subagent-profiles.md#session-foundation) design owns the index rename and the common [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape for installed and repository loaders
 ([foundation](75-subagent-profiles.md#session-foundation) design (#73) ([source](https://github.com/symbiotic-sh/house-rules/pull/79))).
-This implementation changes the following triggers in `<HOUSE_RULES_ROOT>/INDEX.md`.
+This implementation changes the following triggers in `INDEX.md`.
 The index keeps skill-name order.
 
 Add the review trigger after bench-discipline:
@@ -297,7 +297,7 @@ The proposed triggers retain the index's `: load` link format.
 The implementation applies the trigger changes to the renamed index, not the [pointer](73-instruction-layer-foundation.md#instruction-pointer)-only loader.
 
 <a id="pr-ready-description"></a>
-### 3. Pr-ready description
+### Pr-ready description
 
 The implementation changes the description in [skills/pr-ready/SKILL.md](../../skills/pr-ready/SKILL.md).
 The pr-ready skill keeps orchestration of gates, delivery, dispatched review rounds and fixes.
@@ -307,7 +307,7 @@ description: The change loop for a change you deliver — local fast gate, push,
 ```
 
 <a id="operator-writing-description-and-document-rules"></a>
-### 4. Operator-writing description and document rules
+### Operator-writing description and document rules
 
 The implementation changes the description in
 [skills/operator-writing/SKILL.md](../../skills/operator-writing/SKILL.md):
@@ -325,8 +325,8 @@ Every review question uses that question format, including lane and Warden revie
 The worker-pack design owns delivery of shared question instructions to role prompts
 ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
 
-The implementation deletes the operator-writing §Communication rules self-trigger.
-The implementation moves the general reply rules into [rules/writing.md](../../rules/writing.md), as specified in Design §5.
+The implementation deletes the operator-writing [Communication rules](../../skills/operator-writing/SKILL.md#communication-rules) self-trigger.
+The implementation moves the general reply rules into [rules/writing.md](../../rules/writing.md), as specified in [General communication rules](#general-communication-rules).
 The decision-brief pointer moves to the operator-writing opening paragraph.
 
 Proposed replacement opening in the operator-writing skill:
@@ -340,9 +340,9 @@ The operator-writing document-structure section changes “Lead with the result�
 The operator-writing document-structure section changes “the parts the message needs” to “the parts the document needs.”
 
 <a id="general-communication-rules"></a>
-### 5. General communication rules
+### General communication rules
 
-The implementation appends the following rules to [rules/writing.md](../../rules/writing.md) §Communication rules.
+The implementation appends the following rules to [Communication rules](../../rules/writing.md#communication-rules).
 The existing writing introduction already gives the order: what happened, why it matters and what to do.
 The implementation adds no second ordering rule.
 
@@ -369,9 +369,9 @@ The worker-pack design owns shared writing, Git and priority-label rule files un
 This implementation adds no verbatim writing-rule copy under `prompts/util/`.
 
 <a id="other-references"></a>
-### 6. Other references
+### Other references
 
-- The implementation deletes the operator-writing §Communication rules loading bullet from
+- The implementation deletes the operator-writing [Communication rules](../../skills/operator-writing/SKILL.md#communication-rules) loading bullet from
   [rules/core.md](../../rules/core.md). The core keeps “rules/writing.md governs all text.”
 - The implementation changes the response-style pointer in
   [skills/operator-protocol/SKILL.md](../../skills/operator-protocol/SKILL.md) to the writing-rule owner.
@@ -382,12 +382,12 @@ This implementation adds no verbatim writing-rule copy under `prompts/util/`.
   [skills/reasoning-moves/SKILL.md](../../skills/reasoning-moves/SKILL.md),
   [skills/work-tracking/SKILL.md](../../skills/work-tracking/SKILL.md),
   [skills/upstream-contribution/SKILL.md](../../skills/upstream-contribution/SKILL.md)
-  and [skills/pr-ready/SKILL.md](../../skills/pr-ready/SKILL.md) §2.
+  and [Push and CI](../../skills/pr-ready/SKILL.md#push-and-ci).
 - The implementation adds one provenance entry to [CHANGELOG-RULES.md](../../CHANGELOG-RULES.md).
   The provenance entry cites the operator's 2026-10-07 choice of the change-review skill and narrowed writing trigger.
 
 <a id="implementation-tests"></a>
-### 7. Implementation tests
+### Implementation tests
 
 The implementation updates [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py).
 The following test changes are proposals for the implementation, not results of this design-only revision.
@@ -397,7 +397,7 @@ Updated tests:
 - Rename `test_reset_reloads_skills_and_references_the_writing_rule_owner` to
   `test_reset_reloads_skills_and_writing_rules_name_operator_writing` after the [foundation](75-subagent-profiles.md#session-foundation) change lands.
   The renamed test checks the core writing pointer and the writing-rule pointer to operator-writing.
-- Change `test_each_invariant_sentence_fits_twenty_words` to read the writing-rule §Communication rules.
+- Change `test_each_invariant_sentence_fits_twenty_words` to read the [Communication rules](../../rules/writing.md#communication-rules).
 - Extend `test_moved_sections_have_one_rule_owner` to require each moved sentence only in the writing-rule owner.
 
 New tests:
@@ -405,7 +405,7 @@ New tests:
 - `test_review_entry_compiles_the_reviewer_pack` checks the role entry path, compiler path and named-commit requirement.
   The test rejects copied review criteria and a live-checkout fallback in the change-review skill.
 - `test_review_and_writing_triggers_are_aligned` checks the three index triggers and their matching [skill descriptions](#skill-description).
-  The test reads `<HOUSE_RULES_ROOT>/INDEX.md` after the [foundation](75-subagent-profiles.md#session-foundation) rename.
+  The test reads `INDEX.md` after the [foundation](75-subagent-profiles.md#session-foundation) rename.
   The test checks that the definitions, operator-writing trigger and description classify every chat reply
   as an [everyday reply](#everyday-reply) for skill loading, including review reports and short status reports.
   Markdown files written for the operator, operator questions and GitHub text still load operator-writing.
@@ -445,7 +445,7 @@ The implementation keeps the canonical communication sentences in the writing-ru
 ## Verification
 
 <a id="canary-run"></a>
-### [Canary run](#canary-run-meaning)
+### Canary run
 
 The implementation runs canaries in test homes for Claude and Codex linked to the implementation checkout's skills.
 The canary runner compiles packs from a named implementation commit.
@@ -500,7 +500,7 @@ Different shared-rule delivery modes do not require byte-identical prompt text.
    ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
    This implementation uses the same compiler contract as lane review panels and Warden role compilation.
    This implementation does not require a separate pinned checkout or compile from uncommitted files.
-- **3.** **[Foundation](75-subagent-profiles.md#session-foundation):** the [foundation](75-subagent-profiles.md#session-foundation) design owns the smaller always-loaded core and `<HOUSE_RULES_ROOT>/INDEX.md`
+- **3.** **[Foundation](75-subagent-profiles.md#session-foundation):** the [foundation](75-subagent-profiles.md#session-foundation) design owns the smaller always-loaded core and `INDEX.md`
    ([foundation](75-subagent-profiles.md#session-foundation) design (#73) ([source](https://github.com/symbiotic-sh/house-rules/pull/79))).
    This implementation changes the index's skill triggers and the core's operator-writing pointer after the [foundation](75-subagent-profiles.md#session-foundation) lands.
 - **4.** **[Specialists](75-subagent-profiles.md#specialist):** the [specialist](75-subagent-profiles.md#specialist)-[subagent](75-subagent-profiles.md#subagent) design owns [specialist](75-subagent-profiles.md#specialist) hand-offs and safe-mode skill delivery
@@ -508,7 +508,7 @@ Different shared-rule delivery modes do not require byte-identical prompt text.
    This implementation adds no [specialist launcher](75-subagent-profiles.md#specialist-launcher-meaning), isolated lane-worker home or new [specialist](75-subagent-profiles.md#specialist) policy.
 - **5.** **Installation and pins:** update the operator checkout after merge and run
    [scripts/sync.py](../../scripts/sync.py).
-   Install the new skill links according to [INSTALL-AGENTS.md](../../INSTALL-AGENTS.md) §3.
+   Install the new skill links according to [Install House Rules instructions and Skills](../../INSTALL-AGENTS.md#install-house-rules-instructions-and-skills).
    Qualify lane and Warden prompt revisions through the pack-assembly rollout; this design grants no qualification waiver.
 
 The intended merge order remains worker packs, pack assembly, [foundation](75-subagent-profiles.md#session-foundation), review entry, then [specialist](75-subagent-profiles.md#specialist) [subagents](75-subagent-profiles.md#subagent).
@@ -533,7 +533,7 @@ Dependency implementation must preserve the review-entry acceptance criteria bef
 - **7.** **2026-10-07 — Prompt source.** The operator chose Git objects from a named House Rules commit for every prompt.
    The pack-assembly design owns that compiler contract
    ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
-- **8.** **2026-10-07 — Index name.** The operator chose `<HOUSE_RULES_ROOT>/INDEX.md` as the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
+- **8.** **2026-10-07 — Index name.** The operator chose `INDEX.md` as the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
    The [foundation](75-subagent-profiles.md#session-foundation) design owns the rename and [pointer](73-instruction-layer-foundation.md#instruction-pointer)-only loaders
    ([foundation](75-subagent-profiles.md#session-foundation) design (#73) ([source](https://github.com/symbiotic-sh/house-rules/pull/79))).
 

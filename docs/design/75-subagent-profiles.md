@@ -1,5 +1,5 @@
 <a id="subagent-profiles-general-worker-and-specialist"></a>
-# [Subagent](#subagent) profiles: [general worker](#general-worker) and [specialist](#specialist)
+# Subagent profiles: general worker and specialist
 
 Status: revised design proposal; operator choices and lead decisions recorded on 2026-10-07; implementation not qualified.
 
@@ -19,28 +19,28 @@ Record general-worker and specialist profiles and isolation qualification.
 ## Document map
 
 - [Subagent profiles: general worker and specialist](75-subagent-profiles.md#subagent-profiles-general-worker-and-specialist) — Read the historical status and source work item for this design.
-  - [1. Result](75-subagent-profiles.md#result)
-  - [2. Terms](75-subagent-profiles.md#terms)
-  - [3. Current behavior and evidence limits](75-subagent-profiles.md#current-behavior-and-evidence-limits)
-  - [4. Design](75-subagent-profiles.md#design)
-  - [5. Rejected alternatives](75-subagent-profiles.md#rejected-alternatives)
-  - [6. Implementation scope](75-subagent-profiles.md#implementation-scope)
-  - [7. Verification](75-subagent-profiles.md#verification)
-  - [8. Rollout and pins](75-subagent-profiles.md#rollout-and-pins)
-  - [9. Interfaces with the other designs](75-subagent-profiles.md#interfaces-with-the-other-designs)
-  - [10. Decisions](75-subagent-profiles.md#decisions)
-  - [11. Open points](75-subagent-profiles.md#open-points)
-- [1. Result](75-subagent-profiles.md#result) — Record general-worker and specialist profiles and isolation qualification.
-- [2. Terms](75-subagent-profiles.md#terms) — Resolve the defined names and root placeholders used in this design.
-- [3. Current behavior and evidence limits](75-subagent-profiles.md#current-behavior-and-evidence-limits) — Inspect the cited implementation baseline and the limits of inherited evidence.
-- [4. Design](75-subagent-profiles.md#design) — Choose worker profiles and enforce the proposed specialist launch and isolation checks.
-- [5. Rejected alternatives](75-subagent-profiles.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
-- [6. Implementation scope](75-subagent-profiles.md#implementation-scope) — Find the proposed file changes, persistent additions and excluded work.
-- [7. Verification](75-subagent-profiles.md#verification) — Find the required tests and canaries, with their evidence limits.
-- [8. Rollout and pins](75-subagent-profiles.md#rollout-and-pins) — Follow the dependency and qualification order before adoption.
-- [9. Interfaces with the other designs](75-subagent-profiles.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
-- [10. Decisions](75-subagent-profiles.md#decisions) — Read the recorded operator and lead choices with their stated authority.
-- [11. Open points](75-subagent-profiles.md#open-points) — Find the remaining implementation evidence; no operator choice is open.
+  - [Result](75-subagent-profiles.md#result)
+  - [Terms](75-subagent-profiles.md#terms)
+  - [Current behavior and evidence limits](75-subagent-profiles.md#current-behavior-and-evidence-limits)
+  - [Design](75-subagent-profiles.md#design)
+  - [Rejected alternatives](75-subagent-profiles.md#rejected-alternatives)
+  - [Implementation scope](75-subagent-profiles.md#implementation-scope)
+  - [Verification](75-subagent-profiles.md#verification)
+  - [Rollout and pins](75-subagent-profiles.md#rollout-and-pins)
+  - [Interfaces with the other designs](75-subagent-profiles.md#interfaces-with-the-other-designs)
+  - [Decisions](75-subagent-profiles.md#decisions)
+  - [Open points](75-subagent-profiles.md#open-points)
+- [Result](75-subagent-profiles.md#result) — Record general-worker and specialist profiles and isolation qualification.
+- [Terms](75-subagent-profiles.md#terms) — Resolve the defined names and repository paths used in this design.
+- [Current behavior and evidence limits](75-subagent-profiles.md#current-behavior-and-evidence-limits) — Inspect the cited implementation baseline and the limits of inherited evidence.
+- [Design](75-subagent-profiles.md#design) — Choose worker profiles and enforce the proposed specialist launch and isolation checks.
+- [Rejected alternatives](75-subagent-profiles.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
+- [Implementation scope](75-subagent-profiles.md#implementation-scope) — Find the proposed file changes, persistent additions and excluded work.
+- [Verification](75-subagent-profiles.md#verification) — Find the required tests and canaries, with their evidence limits.
+- [Rollout and pins](75-subagent-profiles.md#rollout-and-pins) — Follow the dependency and qualification order before adoption.
+- [Interfaces with the other designs](75-subagent-profiles.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
+- [Decisions](75-subagent-profiles.md#decisions) — Read the recorded operator and lead choices with their stated authority.
+- [Open points](75-subagent-profiles.md#open-points) — Find the remaining implementation evidence; no operator choice is open.
 
 ## Entity index
 
@@ -52,8 +52,8 @@ Warden role prompts do not include session-rule files.
 - [Shared rule](74-complete-worker-packs.md#shared-rule) (`complete-worker-packs.shared-rule`) — Shared rule: a rule every agent needs, with one owner under rules/.
 Writing rules, claim labels, Git rules and priority labels are shared rules.
 - [House Rules block](73-instruction-layer-foundation.md#house-rules-block) (`instruction-layer-foundation.house-rules-block`) — House Rules block: the managed pointer between <!-- house-rules:begin --> and <!-- house-rules:end -->.
-<HOUSE_RULES_ROOT>/INSTALL-AGENTS.md §3 defines the block.
-- [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: <HOUSE_RULES_ROOT>/INDEX.md, which owns shared loading instructions.
+Install House Rules instructions and Skills defines the block.
+- [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: INDEX.md, which owns shared loading instructions.
 - [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer) (`instruction-layer-foundation.instruction-pointer`) — Pointer: a tool or repository instruction file that tells the agent to read the shared index.
 - [Lane runner](77-one-step-pack-assembly.md#lane-runner) (`one-step-pack-assembly.lane-runner`) — Lane runner: the operator's scripts outside House Rules that launch local workers.
 - [Prompt manifest](77-one-step-pack-assembly.md#prompt-manifest) (`one-step-pack-assembly.prompt-manifest`) — Manifest: a JSON file beside the pack that records the pack's inputs and SHA-256 hash.
@@ -77,7 +77,7 @@ Canary evidence comes from the tool log, never from the agent's own report.
 Issue: [#75](https://github.com/symbiotic-sh/house-rules/issues/75).
 
 <a id="result"></a>
-## 1. Result
+## Result
 
 Every [subagent](#subagent) gets one of two profiles.
 The [dispatcher](#dispatcher) names the profile in the dispatch.
@@ -94,7 +94,7 @@ The compiler contract belongs to the [prompt-building design (#77)](https://gith
 This design adds dispatch guidance, a [specialist launcher](#specialist-launcher-meaning) and [specialist](#specialist)-home verification.
 
 <a id="terms"></a>
-## 2. Terms
+## Terms
 
 <a id="dispatcher"></a>
 ### Dispatcher
@@ -157,11 +157,11 @@ File paths beginning with [`<specialist-home>`](#specialist) name the registered
 Repository-relative links below name files from the House Rules root.
 
 <a id="current-behavior-and-evidence-limits"></a>
-## 3. Current behavior and evidence limits
+## Current behavior and evidence limits
 
-`FACT` [INSTALL-AGENTS.md](../../INSTALL-AGENTS.md) at commit `3b043816284e223ba83d2cb4e60238a646500f84`, lines 105–129, tells sessions to read `<HOUSE_RULES_ROOT>/AGENTS.md` at start and after compaction.
-The index becomes `<HOUSE_RULES_ROOT>/INDEX.md` under the [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73).
-The House Rules repository [pointer](73-instruction-layer-foundation.md#instruction-pointer) becomes `<HOUSE_RULES_ROOT>/AGENTS.md` pointing to that index and `<HOUSE_RULES_ROOT>/.agents/rules.md`.
+`FACT` [INSTALL-AGENTS.md](../../INSTALL-AGENTS.md) at commit `3b043816284e223ba83d2cb4e60238a646500f84`, lines 105–129, tells sessions to read `AGENTS.md` at start and after compaction.
+The index becomes `INDEX.md` under the [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73).
+The House Rules repository [pointer](73-instruction-layer-foundation.md#instruction-pointer) becomes `AGENTS.md` pointing to that index and `.agents/rules.md`.
 
 `FACT` [skills/pr-ready/scripts/review-panel.sh](../../skills/pr-ready/scripts/review-panel.sh) at commit `3b043816284e223ba83d2cb4e60238a646500f84`, lines 91–107 and 142, prepares reviewer prompts and starts Codex and Kimi without a [specialist home](#specialist-home).
 `FACT` [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py) at commit `3b043816284e223ba83d2cb4e60238a646500f84` expands whole-file `@rule house-rules:<path>` includes from the checkout in its `expand()` function.
@@ -170,22 +170,22 @@ Neither source inspection qualifies the proposed [specialist launcher](#speciali
 `ASSUMPTION` The earlier version of this design reports that Claude Agent-tool children inherit user instructions and [skill descriptions](76-review-entry-skill.md#skill-description).
 The earlier design also reports Codex isolation probes and Kimi command-line behavior.
 Those runtime reports were not repeated during this revision.
-Section 7 requires tool logs before the implementation claims isolation.
+[Verification](#verification) requires tool logs before the implementation claims isolation.
 
 `ASSUMPTION` The operator's 2026-10-07 decision record reports that the safe-mode probe's `lanes/main/canary/safemode-test/with.txt` showed no skill loading, including through `--plugin-dir`.
 This revision did not inspect that probe log.
 The safe-mode skill decision is settled even though this revision does not independently qualify the runtime.
 Explicit Model Context Protocol (MCP) server loading through `--mcp-config` remains untested.
-Section 7 includes the MCP test and its fallback.
+[Verification](#verification) includes the MCP test and its fallback.
 
 <a id="design"></a>
-## 4. Design
+## Design
 
 The launcher and text changes in this section are implementation proposals.
-Section 10 records the operator choices and lead decisions that bind those proposals.
+[Decisions](#decisions) records the operator choices and lead decisions that bind those proposals.
 
 <a id="how-the-dispatcher-chooses"></a>
-### 4.1 How the [dispatcher](#dispatcher) chooses
+### Profile selection
 
 ```mermaid
 flowchart TB
@@ -213,10 +213,10 @@ A dispatcher sends a job requiring isolated task rules to the [specialist launch
 Every Claude specialist uses a separate safe-mode process, including a specialist review dispatched through the [change-review design (#76)](https://github.com/symbiotic-sh/house-rules/issues/76).
 
 <a id="dispatch-guidance-in-the-agent-lanes-skill"></a>
-### 4.2 Dispatch guidance in the agent-lanes skill
+### Dispatch guidance in the agent-lanes skill
 
 [skills/agent-lanes/SKILL.md](../../skills/agent-lanes/SKILL.md) gains a “[Subagent](#subagent) profiles” section between “Resource budgets” and “Lane cleanup”.
-The proposed section tells [dispatchers](#dispatcher) to choose the profile using section 4.1.
+The proposed section tells [dispatchers](#dispatcher) to choose the profile using [Profile selection](#how-the-dispatcher-chooses).
 The proposed section tells [dispatchers](#dispatcher) to identify applicable skills from their descriptions before opening skill bodies.
 A [dispatcher](#dispatcher) that already holds [skill descriptions](76-review-entry-skill.md#skill-description) answers a skill-identification question itself.
 
@@ -249,7 +249,7 @@ The launcher runs as an attached background job under [rules/core.md](../../rule
 The proposed agent-lanes description adds “subagent profiles” to its existing orchestration scope.
 
 <a id="pack-contents-and-revision-selection"></a>
-### 4.3 Pack contents and revision selection
+### Pack contents and revision selection
 
 The [dispatcher](#dispatcher) compiles the pack.
 The [specialist](#specialist) never compiles its own pack or follows House Rules source links to load more rules.
@@ -278,7 +278,7 @@ No separate pinned checkout is required.
 Normal [session rules](74-complete-worker-packs.md#session-rule) still follow the live checkout; the prompt revision does not pin those rules.
 
 <a id="specialist-launcher"></a>
-### 4.4 [Specialist launcher](#specialist-launcher-meaning)
+### Launching a separate process
 
 The proposed launcher is [`skills/agent-lanes/scripts/specialist.py`](#specialist).
 The proposed launcher uses Python 3.9 or later and only the standard library, like [scripts/sync.py](../../scripts/sync.py).
@@ -322,7 +322,7 @@ The launcher forwards the configured model.
 Read-only mode adds `--disallowedTools Edit Write NotebookEdit` and `--permission-prompts none`.
 Write mode adds `--permission-mode acceptEdits` and `--permission-prompts none`.
 `ASSUMPTION` The earlier design reports that `--permission-prompts none` denies shell commands requiring approval.
-Those flags alone do not qualify read-only mode; host filesystem permissions or the tool's own read-only sandbox must also deny a write the configuration would otherwise already permit, as tested in section 7.
+Those flags alone do not qualify read-only mode; host filesystem permissions or the tool's own read-only sandbox must also deny a write the configuration would otherwise already permit, as tested in [Verification](#verification).
 The launcher extracts the final result into `--out`.
 The launcher stops the child if its initial event reports any discovered skills or loaded instruction memory containing additional task instructions.
 A skill supplied as pack text is permitted; discovered skills are not permitted.
@@ -330,7 +330,7 @@ A skill supplied as pack text is permitted; discovered skills are not permitted.
 Claude safe mode remains mandatory when a specialist needs a skill or MCP server.
 The launcher never uses `--plugin-dir` to supply specialist skills.
 The [dispatcher](#dispatcher) includes required skill text in the pack instead.
-The launcher forwards an explicit `--mcp-config` only after the section 7 qualification test passes for the installed Claude version.
+The launcher forwards an explicit `--mcp-config` only after the [Verification](#verification) qualification test passes for the installed Claude version.
 If explicit MCP loading fails or cannot preserve isolation, the launcher refuses that Claude specialist with the missing capability named.
 The [dispatcher](#dispatcher) may select a Codex or Kimi specialist only when that tool's required capability and isolation are qualified and its use is authorized.
 The [dispatcher](#dispatcher) reports a blocked task if no qualified authorized specialist can provide the capability.
@@ -347,7 +347,7 @@ If Kimi loads `<checkout>/AGENTS.md`, the launcher starts Kimi in an empty direc
 If Kimi still loads additional global task instructions, project instructions or any discovered skills, the launcher refuses the [specialist](#specialist).
 
 <a id="claude-isolation"></a>
-### 4.5 Claude isolation
+### Claude isolation
 
 The operator chose safe mode for every Claude [specialist](#specialist) on 2026-10-07.
 The safe-mode choice does not apply to normal Claude [general workers](#general-worker).
@@ -357,7 +357,7 @@ An MCP server is a runtime capability, not an alternative rule source.
 The MCP qualification must show that explicit configuration does not enable project instructions, discovered skills or unrelated servers.
 
 <a id="specialist-homes-and-installation-checks"></a>
-### 4.6 [Specialist homes](#specialist-home) and installation checks
+### Installation checks
 
 [INSTALL-AGENTS.md](../../INSTALL-AGENTS.md) gains a “Specialist homes” section.
 Codex and Kimi specialist homes are separate from normal session homes.
@@ -369,7 +369,7 @@ The proposed installation instructions require:
 - **1.** A specialist home outside House Rules and project checkouts, with login state established through the tool's normal login command.
 - **2.** Codex's [`<specialist-home>/config.toml`](#specialist) setting `project_doc_max_bytes = 0` and disabling every discoverable skill from any source through `[[skills.config]]` entries.
 - **3.** No additional global task instructions or installed skills inside a specialist home, regardless of branding or source. Host permission controls and built-in tool instructions remain permitted.
-- **4.** Registration in the machine-local `<HOUSE_RULES_ROOT>/custom/sync.env` through `SPECIALIST_CODEX_HOME` or `SPECIALIST_KIMI_CODE_HOME`, never through the normal-home keys.
+- **4.** Registration in the machine-local `custom/sync.env` through `SPECIALIST_CODEX_HOME` or `SPECIALIST_KIMI_CODE_HOME`, never through the normal-home keys.
 - **5.** A Codex prompt-input check showing no additional global task instructions, project instructions or discovered skills from any source.
 
 The disabled skill list includes `change-review` after the [review-skill design (#76)](https://github.com/symbiotic-sh/house-rules/issues/76) lands.
@@ -381,7 +381,7 @@ A newly discoverable skill from any source must be disabled in every Codex speci
 Both synchronization checks and launcher checks report a missing disable entry.
 
 <a id="lane-panels-and-warden"></a>
-### 4.7 Lane panels and Warden
+### Lane panels and Warden
 
 The [prompt-building design (#77)](https://github.com/symbiotic-sh/house-rules/issues/77) owns building lane review-panel prompts from named commits and testing the [lane runner](77-one-step-pack-assembly.md#lane-runner) before drafting the matching Warden change with operator approval.
 Lane reviewers remain normal sessions with a role prompt on top.
@@ -395,15 +395,15 @@ The Mac lane scripts read the review and start the fixer locally as a normal ses
 The specialist launcher does not change Warden's runtime boundary.
 
 <a id="skill-identification"></a>
-### 4.8 Skill identification
+### Skill identification
 
 The agent-lanes guidance tells [dispatchers](#dispatcher) to select skills from descriptions before loading bodies.
 The [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73) owns normal-session loading and the shared skill-identification instruction.
 This design does not copy the [foundation](#session-foundation) into [specialist packs](#specialist-pack).
-Required [specialist](#specialist) skill text is explicitly included through section 4.3.
+Required [specialist](#specialist) skill text is explicitly included through [Pack contents and revision selection](#pack-contents-and-revision-selection).
 
 <a id="rejected-alternatives"></a>
-## 5. Rejected alternatives
+## Rejected alternatives
 
 - **An in-process “light [specialist](#specialist)”.** Rejected by the 2026-10-07 choice that every Claude [specialist](#specialist) uses a separate safe-mode process.
 - **No Claude specialists.** Rejected because the operator chose safe-mode Claude specialists.
@@ -415,7 +415,7 @@ Required [specialist](#specialist) skill text is explicitly included through sec
 - **Header-less packs accepted for selected callers.** Rejected because every specialist launch requires the same revision and hash checks.
 
 <a id="implementation-scope"></a>
-## 6. Implementation scope
+## Implementation scope
 
 `ESTIMATE` The implementation touches five existing files and adds a launcher and its tests.
 The estimate does not claim a measured line count.
@@ -430,15 +430,15 @@ The existing files are:
 The proposed new files are [`skills/agent-lanes/scripts/specialist.py`](#specialist) and `skills/agent-lanes/scripts/test_specialist.py`.
 Shared-rule extraction, [pointer](73-instruction-layer-foundation.md#instruction-pointer) installation, compiler changes and lane prompt building remain in their owning designs.
 
-The proposed persistent additions are the two registered specialist-home keys and the Codex or Kimi [specialist homes](#specialist-home) described in section 4.6.
+The proposed persistent additions are the two registered specialist-home keys and the Codex or Kimi [specialist homes](#specialist-home) described in [Installation checks](#specialist-homes-and-installation-checks).
 The compiler's pack and manifest artifacts belong to the prompt-building design.
 This design adds no separate qualification cache, lane state or copy of [shared rules](74-complete-worker-packs.md#shared-rule).
 
 <a id="verification"></a>
-## 7. Verification
+## Verification
 
 <a id="qualification-canaries"></a>
-### 7.1 Qualification canaries
+### Qualification canaries
 
 A canary code is a unique marker appended to a synthetic instruction source so logs reveal which text reached a child.
 The qualification setup uses a named House Rules commit with distinct codes in each [shared rule](74-complete-worker-packs.md#shared-rule), role, required skill body and [skill description](76-review-entry-skill.md#skill-description).
@@ -463,11 +463,11 @@ Claude safe mode remains required in these tests.
 The Claude MCP [canary runs](76-review-entry-skill.md#canary-run-meaning) a synthetic local server supplied through `--mcp-config` under `claude -p --safe-mode`.
 The canary invokes one harmless server tool and records its result.
 The canary also checks that project instruction codes, discovered skill codes and unrelated MCP servers remain absent.
-If the server cannot load, the canary records the failure and verifies the refusal and qualified-tool fallback from section 4.4.
+If the server cannot load, the canary records the failure and verifies the refusal and qualified-tool fallback from [Launching a separate process](#specialist-launcher).
 A failed MCP canary must not weaken safe mode or silently remove a required server.
 
 <a id="local-tests"></a>
-### 7.2 Local tests
+### Local tests
 
 The proposed `skills/agent-lanes/scripts/test_specialist.py` uses fake Codex, Claude and Kimi executables.
 The launcher tests cover missing or mismatched headers, mismatched hashes, missing homes, branded and unbranded global task instructions, discovered skills from any source, output extraction and child failure propagation.
@@ -482,7 +482,7 @@ The proposed text test checks the agent-lanes profile heading and skill-identifi
 The prompt-building design owns tests for shared-rule omission and Git-object-only assembly.
 
 <a id="rollout-and-pins"></a>
-## 8. Rollout and pins
+## Rollout and pins
 
 The dependency order remains the [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74), [prompt-building design (#77)](https://github.com/symbiotic-sh/house-rules/issues/77), [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73), [change-review design (#76)](https://github.com/symbiotic-sh/house-rules/issues/76), then this design.
 The [specialist launcher](#specialist-launcher-meaning) qualifies after its compiler inputs and normal-session loading are available.
@@ -497,15 +497,15 @@ Warden shared-rule staging and role includes follow the role-pack design.
 The specialist launcher is local and does not require Warden to stage agent-lanes scripts.
 
 <a id="interfaces-with-the-other-designs"></a>
-## 9. Interfaces with the other designs
+## Interfaces with the other designs
 
-- **Smaller core (#73).** The [smaller-core design](https://github.com/symbiotic-sh/house-rules/issues/73) owns `<HOUSE_RULES_ROOT>/INDEX.md`, the [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape in `<HOUSE_RULES_ROOT>/AGENTS.md` and `<checkout>/AGENTS.md`, normal-session loading and tool-specific installation details.
+- **Smaller core (#73).** The [smaller-core design](https://github.com/symbiotic-sh/house-rules/issues/73) owns `INDEX.md`, the [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape in `AGENTS.md` and `<checkout>/AGENTS.md`, normal-session loading and tool-specific installation details.
 - **[Role packs](74-complete-worker-packs.md#role-pack) (#74).** The [role-pack design](https://github.com/symbiotic-sh/house-rules/issues/74) owns shared writing, Git and priority-label files in `rules/`, role includes and Warden staging.
 - **Review skill (#76).** The [change-review design](https://github.com/symbiotic-sh/house-rules/issues/76) owns the `change-review` name, the fixed review format, one reviewer for plain chat requests and panels only when requested.
 - **Prompt building (#77).** The [prompt-building design](https://github.com/symbiotic-sh/house-rules/issues/77) owns named-commit Git-object reads, pack order, manifests, repository-rule extraction, lane panel building and the approved Warden sequencing.
 
 <a id="decisions"></a>
-## 10. Decisions
+## Decisions
 
 Items 1–7 record operator choices dated 2026-10-07.
 Items 8–9 record lead decisions dated 2026-10-07.
@@ -517,17 +517,17 @@ The numbered design links identify the owner of choices shared with another desi
 - **4.** `DECISION` **2026-10-07 — [Lane workers](#lane-worker).** The operator chose normal Codex sessions with House Rules, skills and guardian escalation for implementers, fixers and lane reviewers; the [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74) owns how shared-rule includes are omitted for those sessions.
 - **5.** `DECISION` **2026-10-07 — [Shared rules](74-complete-worker-packs.md#shared-rule).** The operator chose one home for writing, Git and priority-label rules in `rules/`; the [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74) owns that change.
 - **6.** `DECISION` **2026-10-07 — Named prompt revision.** The operator chose prompt building from a named commit's Git objects in any clone; the [prompt-building design (#77)](https://github.com/symbiotic-sh/house-rules/issues/77) owns that change.
-- **7.** `DECISION` **2026-10-07 — [House Rules index](73-instruction-layer-foundation.md#house-rules-index).** The operator chose `<HOUSE_RULES_ROOT>/INDEX.md` as the index and the same [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape for global, managed-repository and House Rules instruction files; the [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73) owns that change.
+- **7.** `DECISION` **2026-10-07 — [House Rules index](73-instruction-layer-foundation.md#house-rules-index).** The operator chose `INDEX.md` as the index and the same [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape for global, managed-repository and House Rules instruction files; the [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73) owns that change.
 - **8.** `DECISION` **2026-10-07 — Lead decision: capacity retries.** The lead chose reuse of the unchanged pack and manifest after a provider-capacity failure when the existing launch checks pass and the pack hash matches. The caller recompiles only when a compilation input changed.
 - **9.** `DECISION` **2026-10-07 — Lead decision: read-only authority.** The lead required enforced write prevention through host filesystem permissions or the tool's own read-only sandbox. A launch that can only state the restriction in its prompt, including Kimi today, is refused for read-only roles. Qualification for every tool includes a write that the configuration would otherwise already permit. Claude safe mode stays required.
 
 <a id="open-points"></a>
-## 11. Open points
+## Open points
 
 No operator choice remains open for this design.
 The following implementation qualifications need evidence before the launcher is accepted:
 
-- **Claude explicit MCP loading.** Close this point with the synthetic server result, isolation logs and the visible refusal or qualified-tool fallback in section 7.1.
+- **Claude explicit MCP loading.** Close this point with the synthetic server result, isolation logs and the visible refusal or qualified-tool fallback in [Qualification canaries](#qualification-canaries).
 - **Read-only write prevention for every tool.** Close this point with a baseline-permitted synthetic shell write denied by the proposed host filesystem permissions or tool read-only sandbox, a tool log showing the denial, and refusal of prompt-only read-only launches. Claude safe mode remains required.
-- **Kimi project instruction loading.** Close this point with the target-directory and empty-directory canary results in section 7.1; refuse Kimi specialization if neither start preserves isolation.
-- **Normal-session instruction delivery.** Close this point with the general-worker and lane-worker captures in section 7.1 showing exactly one initial [foundation](#session-foundation) delivery and tool logs showing no duplicate startup reads after the smaller-core and role-pack changes land.
+- **Kimi project instruction loading.** Close this point with the target-directory and empty-directory canary results in [Qualification canaries](#qualification-canaries); refuse Kimi specialization if neither start preserves isolation.
+- **Normal-session instruction delivery.** Close this point with the general-worker and lane-worker captures in [Qualification canaries](#qualification-canaries) showing exactly one initial [foundation](#session-foundation) delivery and tool logs showing no duplicate startup reads after the smaller-core and role-pack changes land.

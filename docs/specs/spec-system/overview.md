@@ -23,16 +23,20 @@ Keep technical meaning in Markdown and check declared structure without a second
 
 ## Document map
 
-- [Specification and design-document system](overview.md#overview) — Understand the source model through a mismatched-value repair.
+- [Specification and design-document system](overview.md#overview) — Understand the system and follow a mismatched-value repair.
   - [Tour: repair a mismatched value](overview.md#tour)
   - [Source document](overview.md#source-document)
   - [Addressable section](overview.md#addressable-section)
   - [Registered entity](overview.md#registered-entity)
-- [A complete minimal corpus](example.md#minimal-example) — Create a complete passing corpus from three files.
+- [Minimal corpus](example.md#minimal-example) — Set up a passing specification from three authored files.
   - [docs/DOCUMENTS.json](example.md#example-documents)
   - [docs/ENTITIES.json](example.md#example-entities)
   - [docs/example.md](example.md#example-example)
   - [Generate and check](example.md#example-checking)
+- [Setup and use](checking.md#checking) — Use the pinned tool to check sources and rebuild navigation.
+  - [Tool environment](checking.md#tool-environment)
+  - [Documentation checker](checking.md#documentation-checker)
+  - [Navigation generation](checking.md#navigation-generation)
 - [Sources, homes and declarations](sources.md#sources) — Declare homes, literal values, requirements, tests and recovery.
   - [Document manifest](sources.md#document-manifest)
   - [Entity index](sources.md#entity-index)
@@ -41,15 +45,17 @@ Keep technical meaning in Markdown and check declared structure without a second
   - [Acceptance test](sources.md#acceptance-test)
   - [Scenario](sources.md#scenario)
   - [Failure declaration](sources.md#failure-declaration)
-- [Checking, generation and setup](checking.md#checking) — Check one source selection and rebuild navigation with visible failures.
-  - [Documentation checker](checking.md#documentation-checker)
-  - [Navigation generation](checking.md#navigation-generation)
-  - [Tool environment](checking.md#tool-environment)
 - [Snapshots, agent context and review](context.md#context) — Prepare complete snapshot-isolated assignments and semantic review.
   - [Source snapshot](context.md#source-snapshot)
   - [Complete registry](context.md#complete-registry)
   - [Context pack](context.md#context-pack)
   - [Semantic review](context.md#semantic-review)
+- [Source formats](formats.md#source-format) — Look up exact JSON shapes, declarations and callable inputs.
+  - [Sources and commands](formats.md#sources-and-commands)
+  - [Metadata](formats.md#metadata)
+  - [Markdown declarations](formats.md#markdown-declarations)
+  - [Navigation](formats.md#navigation)
+  - [Callable core and context assignment](formats.md#callable-core-and-context-assignment)
 - [Reference, decisions and adoption](reference.md#reference) — Find exact interfaces, diagnostics, settled decisions and adoption duties.
   - [Interfaces and encodings](reference.md#interfaces)
   - [Writing profile](reference.md#writing-profile)
@@ -58,24 +64,18 @@ Keep technical meaning in Markdown and check declared structure without a second
   - [Open questions](reference.md#open-questions)
   - [Adoption and ownership](reference.md#adoption)
 - [Acceptance evidence](acceptance.md#acceptance) — Prove structural behavior and real authoring and review acceptance.
-  - [Acceptance test: document roles](acceptance.md#test-roles)
-  - [Acceptance test: homes and names](acceptance.md#test-homes)
-  - [Acceptance test: literal values](acceptance.md#test-literals)
-  - [Acceptance test: traceability and change selection](acceptance.md#test-traceability)
-  - [Acceptance test: failure completeness](acceptance.md#test-failures)
-  - [Acceptance test: checker failures](acceptance.md#test-checking)
-  - [Acceptance test: navigation and interrupted output](acceptance.md#test-navigation)
-  - [Acceptance test: toolchain ownership](acceptance.md#test-toolchain)
-  - [Acceptance test: snapshot isolation and invalidation](acceptance.md#test-snapshots)
-  - [Acceptance test: context selection](acceptance.md#test-context)
-  - [Acceptance test: writing profile](acceptance.md#test-profile)
-  - [Acceptance test: real authoring and review](acceptance.md#test-real-use)
-- [Exact source formats, version 1](formats.md#source-format) — Look up exact JSON shapes, declarations and callable inputs.
-  - [Sources and commands](formats.md#sources-and-commands)
-  - [Metadata](formats.md#metadata)
-  - [Markdown declarations](formats.md#markdown-declarations)
-  - [Navigation](formats.md#navigation)
-  - [Callable core and context assignment](formats.md#callable-core-and-context-assignment)
+  - [Document roles](acceptance.md#test-roles)
+  - [Homes and names](acceptance.md#test-homes)
+  - [Literal values](acceptance.md#test-literals)
+  - [Traceability and change selection](acceptance.md#test-traceability)
+  - [Failure completeness](acceptance.md#test-failures)
+  - [Checker failures](acceptance.md#test-checking)
+  - [Navigation and interrupted output](acceptance.md#test-navigation)
+  - [Toolchain ownership](acceptance.md#test-toolchain)
+  - [Snapshot isolation and invalidation](acceptance.md#test-snapshots)
+  - [Context selection](acceptance.md#test-context)
+  - [Writing profile](acceptance.md#test-profile)
+  - [Real authoring and review](acceptance.md#test-real-use)
 
 ## Entity index
 
@@ -99,13 +99,10 @@ The pack-assembly design requires the compiler to read Git objects from a named 
 - [Source document](overview.md#source-document) (`spec-system.source-document`) — A source document declares a technical purpose, audience, scope and reading order across one or more Markdown files.
 - [Source snapshot](context.md#source-snapshot) (`spec-system.source-snapshot`) — A source snapshot is one immutable set of repository paths and bytes selected for checking, generation or assignment.
 - [Tool environment](checking.md#tool-environment) (`spec-system.tool-environment`) — The tool environment is an isolated Python installation using dependencies owned by the shared spec-writing tool.
-- [Writing profile](reference.md#writing-profile) (`spec-system.writing-profile`) — The writing profile is the versioned set of controlled-language practices owned by writing rules.
+- [Writing profile](reference.md#writing-profile) (`spec-system.writing-profile`) — The writing profile is the versioned set of controlled-language practices owned by rules/writing.md.
 - [Dispatcher](../../design/75-subagent-profiles.md#dispatcher) (`subagent-profiles.dispatcher`) — Dispatcher: the session or script that starts a subagent and writes its task.
 <!-- /spec-docs:navigation -->
 
-This specification serves authors, reviewers and tool implementers familiar with Markdown and Git.
-It covers single-file and multi-file specifications and design documents.
-It excludes a publication server, custom renderer, expression evaluator and general prose formatter.
 A separate renderer may consume checked Markdown.
 House Rules owns no HTML publication pipeline.
 
@@ -134,7 +131,8 @@ flowchart TD
 [complete registry](context.md#complete-registry), [context pack](context.md#context-pack),
 [semantic review](context.md#semantic-review).
 
-Start with the [complete minimal corpus](example.md#minimal-example) to create a passing example from these chapters alone.
+Read the walkthrough below, then create a passing specification from the [minimal corpus](example.md#minimal-example).
+Continue with setup and use, declaration rules, context preparation, exact formats, reference and acceptance evidence, in the map's order.
 
 <a id="tour"></a>
 ## Tour: repair a mismatched value
@@ -174,7 +172,7 @@ The [repair walkthrough](#capacity-repair) joins the structural and review paths
 The remaining mechanisms explain where declarations live, how checking works and how agents receive context.
 
 <a id="capacity-repair"></a>
-### [Scenario](sources.md#scenario): capacity repair
+### Scenario: capacity repair
 
 **Purpose:** Follow one incorrect displayed value through refusal and repair.
 
@@ -198,7 +196,7 @@ It needs no private directory, companion glossary or exclusion file.
 A specification explains maintained behavior.
 A design document also supplies current evidence, constraints, alternatives, ownership, integration, rollout, work packages and acceptance evidence.
 When design intent becomes maintained specification, move the current home instead of retaining two contracts.
-Retained pointers follow the existing [design closeout procedure](../../../skills/design-flow/SKILL.md).
+Retained pointers follow the existing [skills/design-flow/SKILL.md](../../../skills/design-flow/SKILL.md).
 
 Every document supplies a tour, mechanisms, requirements, acceptance, decisions, questions and reference.
 Purpose, audience, scope and non-goals explain the reader's task and prerequisites.
@@ -211,9 +209,9 @@ The [role requirement](sources.md#req-roles) makes these declarations checkable.
 
 An addressable section is a stable named part of a [source document](#source-document).
 
-For linking, each heading starts a section whose introductory content ends at the next heading.
-Content before the first heading also forms a section.
-Every subsection resets first-use linking.
+For first-use linking, each level-2 section includes its level-3 and deeper subsections.
+The opening text before the first level-2 heading has its own scope.
+Heading text never contains links and does not count as a first use.
 For assignment and home extraction, a heading instead selects its complete subtree through the next heading of equal or higher level.
 These boundaries serve different operations.
 
@@ -238,8 +236,10 @@ Child introduction.
 ```
 
 A home or assignment at Parent includes Child and stops before Next.
-First-use linking resets at Child; the Parent introduction ends at Child.
-Several child homes may therefore belong to one manifest section, each with its own anchor and definition.
+First-use linking resets at Next, but not at Child.
+The first use in Parent's text links to its home; a later use in Child may be plain after that home has appeared.
+Every use before its home still links, including uses in Child.
+Several child homes may belong to one manifest section, each with its own anchor and definition.
 
 <a id="registered-entity"></a>
 ## Registered entity

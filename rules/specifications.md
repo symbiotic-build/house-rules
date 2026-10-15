@@ -25,14 +25,20 @@ to [design-flow](../skills/design-flow/SKILL.md).
 
 ## Direct links
 
-- Link an entity or fact directly to its home at first use in each heading's introductory
-  section. Each subsection starts a new section for this rule.
+- Link an entity or fact directly to its home at first use in the text of each level-2
+  section. Level-3 and deeper subsections share that scope; tables may repeat links.
 - Link every use before its home in manifest reading order. A home in another document
   counts as ahead. After the home appears, later uses in the same section may be plain.
-  Defining headings and introductory definitions need no self-link.
+  Introductory definitions need no self-link. Never put a link inside a heading.
 - Use adjacent **Entities in this example** links for literal code, signatures and
   diagrams. Repeat them for each literal block before a home. An index, glossary or
   another use site never substitutes for the home.
+
+<a id="section-names"></a>
+## Section names
+
+- Use unnumbered headings in specifications and design documents. Refer to a section or
+  decision by its linked name, never by a hand-typed number.
 
 ## Requirements, tests and recovery
 

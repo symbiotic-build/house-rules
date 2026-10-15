@@ -105,7 +105,7 @@ Narrow the assignment or remove an unjustified dependency to recover.
 The [complete registry](#complete-registry) remains compulsory.
 If it alone cannot fit, the operator must choose a different execution resource.
 
-Extend the existing [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) ([source](../../../skills/pr-ready/scripts/prompt.py)) with one documentation-context call.
+Extend the existing [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) ([skills/pr-ready/scripts/prompt.py](../../../skills/pr-ready/scripts/prompt.py)) with one documentation-context call.
 Reserve its complete output before optional context.
 The launcher and review service use the same selector.
 
