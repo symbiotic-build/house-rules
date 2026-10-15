@@ -67,6 +67,11 @@ class SyncTests(unittest.TestCase):
         patch = mock.patch.object(Path, "home", return_value=self.home)
         patch.start()
         self.addCleanup(patch.stop)
+        original_discovery = sync.discover_skills
+        admin = mock.patch.object(sync, "discover_skills", side_effect=lambda folder, *args, **kwargs:
+                                  set() if folder == Path("/etc/codex/skills") else original_discovery(folder, *args, **kwargs))
+        admin.start()
+        self.addCleanup(admin.stop)
 
     def git(self, root, *args):
         return subprocess.run(["git", "-C", str(root), *args], check=True,
@@ -645,6 +650,152 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(code, 1, err)
         self.assertIn(f"instruction symlink has no regular target: {path}", out)
         self.assertTrue(path.is_symlink())
+
+    def specialist(self, key="SPECIALIST_CODEX_HOME"):
+        path = self.base / key
+        self.write(path / "config.toml", "project_doc_max_bytes = 0\n")
+        self.write(self.root / "custom/sync.env", f'{key}="{path}"\n')
+        return path
+
+    def test_specialist_keys_parse_and_stay_out_of_normal_installation_checks(self):
+        self.install_fixture()
+        codex = self.specialist()
+        kimi = self.base / "specialist-kimi"
+        kimi.mkdir()
+        with (self.root / "custom/sync.env").open("a") as config:
+            config.write(f'SPECIALIST_KIMI_CODE_HOME="{kimi}"\n')
+        # Normal user skills must be explicitly disabled even outside the tool home.
+        with (codex / "config.toml").open("a") as config:
+            config.write(f'[[skills.config]]\npath = "{self.home / ".agents/skills/sample/SKILL.md"}"\nenabled = false\n')
+        selected = sync.homes(self.root, self.home)
+        self.assertIn(("SPECIALIST_CODEX_HOME", codex), selected)
+        self.assertIn(("SPECIALIST_KIMI_CODE_HOME", kimi), selected)
+        self.assertFalse(any(folder.is_relative_to(codex) or folder.is_relative_to(kimi)
+                             for folder, _ in sync.skill_folders(selected, self.home)))
+        findings = []
+        sync.verify(self.root, self.home, findings, [])
+        self.assertEqual(findings, [])
+        self.assertFalse((codex / "AGENTS.md").exists())
+        self.assertFalse((kimi / "skills").exists())
+
+    def test_conflicting_specialist_normal_home_aliases_are_rejected(self):
+        alias = self.base / "codex-alias"
+        alias.symlink_to(self.codex, target_is_directory=True)
+        self.write(self.root / "custom/sync.env", f'SPECIALIST_CODEX_HOME="{alias}"\n')
+        with self.assertRaisesRegex(ValueError, "both specialist and normal"):
+            sync.homes(self.root, self.home)
+
+    def test_specialist_home_inside_checkout_is_rejected(self):
+        path = self.root / "custom/specialist"
+        self.write(path / "config.toml", "project_doc_max_bytes = 0\n")
+        self.write(self.root / "custom/sync.env", f'SPECIALIST_CODEX_HOME="{path}"\n')
+        with self.assertRaisesRegex(ValueError, "outside.*checkout"):
+            sync.homes(self.root, self.home)
+
+    def test_specialist_checks_report_all_instruction_files_regardless_of_brand(self):
+        path = self.specialist()
+        for name, text in (("AGENTS.md", "Unbranded operator instructions"),
+                           ("AGENTS.override.md", "<!-- forge:begin -->rules")):
+            self.write(path / name, text)
+        findings = []
+        sync.specialist_findings(self.root, self.home, "SPECIALIST_CODEX_HOME", path, findings)
+        for name in ("AGENTS.md", "AGENTS.override.md"):
+            self.assertTrue(any(str(path / name) in finding for finding in findings))
+
+    def test_specialist_checks_report_installed_and_enabled_skills_from_any_source(self):
+        path = self.specialist()
+        self.write(path / "skills/third-party/SKILL.md", "third party")
+        self.write(self.home / ".agents/skills/change-review/SKILL.md", "new skill")
+        self.write(path / "skills/.system/builtin/SKILL.md", "built in skill")
+        findings = []
+        sync.specialist_findings(self.root, self.home, "SPECIALIST_CODEX_HOME", path, findings)
+        for name in ("third-party", "change-review", "builtin"):
+            self.assertTrue(any(name in finding for finding in findings), findings)
+        self.assertTrue(any("missing disable entry" in finding for finding in findings))
+
+    def test_specialist_nonzero_project_limit_and_enabled_config_entries_are_reported(self):
+        path = self.specialist()
+        extra = self.base / "external-skill"
+        self.write(extra / "SKILL.md", "external")
+        self.write(path / "config.toml", f'project_doc_max_bytes = 100\n[[skills.config]]\npath = "{extra}"\nenabled = true\n')
+        findings = []
+        sync.specialist_findings(self.root, self.home, "SPECIALIST_CODEX_HOME", path, findings)
+        self.assertTrue(any("project_doc_max_bytes" in finding for finding in findings))
+        self.assertTrue(any(str(extra) in finding for finding in findings))
+
+    def test_specialist_disabled_alias_is_resolved_and_blank_instructions_are_allowed(self):
+        path = self.specialist()
+        skill = self.home / ".agents/skills/third-party"
+        self.write(skill / "SKILL.md", "third party")
+        alias = self.base / "skill-alias"
+        alias.symlink_to(skill, target_is_directory=True)
+        self.write(path / "config.toml", f"project_doc_max_bytes = 0\n[[skills.config]]\npath = '{alias / 'SKILL.md'}'\nenabled = false\n")
+        self.write(path / "AGENTS.md", " \n")
+        findings = []
+        sync.specialist_findings(self.root, self.home, "SPECIALIST_CODEX_HOME", path, findings)
+        self.assertEqual(findings, [])
+
+    def test_specialist_directory_selector_does_not_disable_native_document(self):
+        path = self.specialist()
+        skill = self.home / ".agents/skills/extra"
+        self.write(skill / "SKILL.md", "third party")
+        self.write(path / "config.toml", f'project_doc_max_bytes = 0\n[[skills.config]]\npath = "{skill}"\nenabled = false\n')
+        findings = []
+        sync.specialist_findings(self.root, self.home, "SPECIALIST_CODEX_HOME", path, findings)
+        self.assertTrue(any(str(skill / "SKILL.md") in finding for finding in findings), findings)
+
+    def test_alternate_isolation_table_headers_refuse_visibly(self):
+        path = self.specialist()
+        for header in ('[[ skills.config ]]', '[["skills"."config"]]', "[['skills'.'config']]", '[skills]', '[ "skills" ]', r'[["ski\u006cls"."config"]]'):
+            with self.subTest(header=header):
+                self.write(path / "config.toml", f'project_doc_max_bytes = 0\n{header}\npath = "/synthetic/SKILL.md"\nenabled = true\n')
+                with self.assertRaisesRegex(ValueError, "unsupported skills.config table header"):
+                    sync.codex_specialist_config(path / "config.toml")
+
+    def test_kimi_shared_user_instructions_are_checked_outside_tool_home(self):
+        path = self.specialist("SPECIALIST_KIMI_CODE_HOME")
+        shared = self.home / ".agents/AGENTS.md"
+        self.write(shared, "shared synthetic instructions")
+        findings = []
+        sync.specialist_findings(self.root, self.home, "SPECIALIST_KIMI_CODE_HOME", path, findings)
+        self.assertTrue(any(str(shared) in finding for finding in findings), findings)
+
+    def test_synthetic_specialist_fixture_does_not_scan_administrative_skills(self):
+        path = self.specialist()
+        original = sync.status
+
+        def deny_admin(candidate, **kwargs):
+            if candidate == Path("/etc/codex/skills"):
+                raise PermissionError("synthetic administrative skills must not be read")
+            return original(candidate, **kwargs)
+
+        findings = []
+        with mock.patch.object(sync, "status", side_effect=deny_admin):
+            sync.specialist_findings(self.root, self.home, "SPECIALIST_CODEX_HOME", path, findings)
+        self.assertEqual(findings, [])
+
+    def test_specialist_malformed_disable_entries_fail_visibly(self):
+        path = self.specialist()
+        self.write(path / "config.toml", 'project_doc_max_bytes = 0\n[[skills.config]]\nenabled = false\n')
+        with self.assertRaisesRegex(ValueError, "skills.config"):
+            sync.specialist_findings(self.root, self.home, "SPECIALIST_CODEX_HOME", path, [])
+
+    def test_specialist_config_instruction_sources_are_reported(self):
+        path = self.specialist()
+        for setting in ("developer_instructions", "model_instructions_file"):
+            self.write(path / "config.toml", f'project_doc_max_bytes = 0\n{setting} = "additional instructions"\n')
+            findings = []
+            sync.specialist_findings(self.root, self.home, "SPECIALIST_CODEX_HOME", path, findings)
+            self.assertTrue(any(setting in finding for finding in findings), findings)
+
+    def test_kimi_home_rejects_additional_agent_and_plugin_sources(self):
+        path = self.specialist("SPECIALIST_KIMI_CODE_HOME")
+        self.write(path / "agents/extra.yaml", "task instructions")
+        self.write(path / "plugins/extra/SKILL.md", "plugin skill")
+        findings = []
+        sync.specialist_findings(self.root, self.home, "SPECIALIST_KIMI_CODE_HOME", path, findings)
+        for folder in ("agents", "plugins"):
+            self.assertTrue(any(str(path / folder) in finding for finding in findings), findings)
 
 
 class PointerTemplateTests(unittest.TestCase):

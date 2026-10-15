@@ -20,6 +20,8 @@ jobs:
         run: node --check skills/audit-report-authoring/scripts/lint-report-set.mjs
       - name: Test installation sync
         run: python3 scripts/test_sync.py
+      - name: Test specialist launcher with fake tools
+        run: python3 -B skills/agent-lanes/scripts/test_specialist.py
       - name: Test transcript extraction
         run: python3 -B -m unittest discover -s skills/operator-protocol/scripts
       - name: Test prompts, preparer and verdict scripts

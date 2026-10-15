@@ -347,6 +347,10 @@ The prompt-building design owns tests for shared-rule omission and Git-object-on
 
 The dependency order remains the [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74), [prompt-building design (#77)](https://github.com/symbiotic-sh/house-rules/issues/77), [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73), [change-review design (#76)](https://github.com/symbiotic-sh/house-rules/issues/76), then this design.
 The specialist launcher qualifies after its compiler inputs and normal-session loading are available.
+The lead completes the section 7.1 runs before acceptance, merge or work-item closure, using the operator's normal logins.
+Workers never run model CLIs or touch credential files or real tool homes.
+Synthetic launcher tests establish mechanics only; they do not qualify installed-tool isolation or write prevention.
+The lead retains the complete qualification evidence and records refusal for unavailable capabilities before acceptance.
 Installation follows the specialist-home instructions once per machine that needs Codex or Kimi specialists.
 Claude specialists need no separate home.
 An existing isolated home may be registered only after it passes specialist checks.

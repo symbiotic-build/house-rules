@@ -14,6 +14,7 @@ import time
 
 
 MARKERS = re.compile(r"<!-- (house-rules|forge|groundwork):(begin|end) -->")
+SPECIALIST_KEYS = {"SPECIALIST_CODEX_HOME", "SPECIALIST_KIMI_CODE_HOME"}
 
 
 def status(path, *, follow_symlinks=True):
@@ -114,7 +115,7 @@ def homes(root, home):
             if len(tokens) != 1 or "=" not in tokens[0]:
                 raise ValueError(f"{config}:{number}: expected KEY=path")
             key, value = tokens[0].split("=", 1)
-            if key not in defaults or not value:
+            if key not in defaults.keys() | SPECIALIST_KEYS or not value:
                 raise ValueError(f"{config}:{number}: unknown key or empty home")
             path = Path(value).expanduser()
             if not path.is_absolute() or not is_dir(path):
@@ -123,9 +124,14 @@ def homes(root, home):
     for key, path in selected:
         if not path.is_absolute():
             raise ValueError(f"{key} must be an absolute directory")
-        if key == "CODEX_HOME" and not any(is_file(path / name)
+        if key in ("CODEX_HOME", "SPECIALIST_CODEX_HOME") and not any(is_file(path / name)
                                            for name in ("config.toml", "auth.json")):
             raise ValueError(f"not a Codex home (no config.toml or auth.json): {path}")
+        if key in SPECIALIST_KEYS:
+            outside_checkout(path, root)
+            if any(other_key not in SPECIALIST_KEYS and path.resolve() == other.resolve()
+                   for other_key, other in selected):
+                raise ValueError(f"home registered as both specialist and normal: {path}")
     return list(dict.fromkeys(selected))
 
 
@@ -185,11 +191,179 @@ def skill_folders(selected, home):
     """Check each configured scan location, including aliases with different roles."""
     folders = set()
     for key, product_home in selected:
+        if key in SPECIALIST_KEYS:
+            continue
         if key == "CLAUDE_CONFIG_DIR":
             folders.add((product_home / "skills", True))
         else:
             folders.update(((home / ".agents/skills", True), (product_home / "skills", False)))
     return sorted(folders)
+
+
+def outside_checkout(path, root, target=None):
+    """Specialist configuration must not live in a rules or project checkout."""
+    resolved = path.resolve()
+    if any(resolved == checkout.resolve() or checkout.resolve() in resolved.parents
+           for checkout in (root, target) if checkout is not None):
+        raise ValueError(f"specialist home must be outside the checkout: {path}")
+    if any(present(parent / ".git") for parent in (resolved, *resolved.parents)):
+        raise ValueError(f"specialist home must be outside any project checkout: {path}")
+
+
+def discover_skills(folder, seen=None, *, canonical=True):
+    """Find skill identities or source locations, including links and nested skills."""
+    seen = set() if seen is None else seen
+    if not canonical:
+        # Keep sibling aliases as separate copy locations; stop only ancestor cycles.
+        seen = set(seen)
+    if not present(folder):
+        return set()
+    resolved = folder.resolve()
+    if resolved in seen:
+        return set()  # An already enumerated alias adds no discoverable skill.
+    seen.add(resolved)
+    if not is_dir(folder):
+        raise ValueError(f"skill scan location is not a directory: {folder}")
+    if is_file(folder / "SKILL.md"):
+        path = folder / "SKILL.md"
+        return {path.resolve() if canonical else path}
+    found = set()
+    for entry in children(folder):
+        if is_dir(entry):
+            found.update(discover_skills(entry, seen, canonical=canonical))
+        elif is_link(entry) and not present(entry.resolve()):
+            raise ValueError(f"broken skill link: {entry}")
+    return found
+
+
+def codex_specialist_config(path):
+    """Read the native isolation settings' simple TOML spelling on Python 3.9.
+
+    Other native settings remain opaque. Unsupported spellings of isolation
+    settings fail visibly; this is not a replacement for the tool's TOML parser.
+    """
+    section, limit, entries, entry, instructions = "", None, [], None, []
+    # Strip TOML comments without consuming backslashes inside quoted paths.
+    tokens = re.compile(r'"(?:\\.|[^"\\])*"|\'[^\']*\'|#[^\n]*|[^"\'#]+')
+    for line in path.read_text(encoding="utf-8").splitlines():
+        text = "".join(m.group() for m in tokens.finditer(line) if not m.group().startswith("#")).strip()
+        if not text:
+            continue
+        if text.startswith("["):
+            if text == "[[skills.config]]":
+                entry = {}
+                entries.append(entry)
+                section = "skills.config"
+            else:
+                # Recognize quoted/spaced isolation headers before ignoring opaque tables.
+                header = text.strip("[] ")
+                parts = re.findall(r'"(?:\\.|[^"\\])*"|\'[^\']*\'|[A-Za-z0-9_-]+', header)
+                first = parts[0] if parts else ""
+                if first.startswith('"'):
+                    first = json.loads(first)
+                elif first.startswith("'"):
+                    first = first[1:-1]
+                if first == "skills":
+                    raise ValueError(f"unsupported skills.config table header: {path}")
+                section = text.strip("[] ")
+                entry = None
+            continue
+        if "=" not in text:
+            if section == "skills.config":
+                raise ValueError(f"unsupported skills.config syntax: {path}")
+            continue
+        key, value = (part.strip() for part in text.split("=", 1))
+        if key.strip("\"'") in ("developer_instructions", "user_instructions", "instructions",
+                                 "model_instructions_file", "experimental_instructions_file") and value not in ('""', "''"):
+            instructions.append(key)
+        if key.strip("\"'") == "project_doc_max_bytes":
+            if section or limit is not None or not re.fullmatch(r"[0-9_]+", value):
+                raise ValueError(f"unsupported project_doc_max_bytes setting: {path}")
+            limit = int(value.replace("_", ""))
+        elif section == "skills.config" and entry is not None:
+            if key not in ("path", "enabled") or key in entry:
+                raise ValueError(f"unsupported skills.config setting: {path}")
+            if key == "enabled":
+                if value not in ("true", "false"):
+                    raise ValueError(f"invalid skills.config enabled value: {path}")
+                entry[key] = value == "true"
+            else:
+                try:
+                    name = value[1:-1] if re.fullmatch(r"'[^']*'", value) else json.loads(value)
+                except ValueError as error:
+                    raise ValueError(f"unsupported skills.config path: {path}") from error
+                if not isinstance(name, str) or not Path(name).is_absolute():
+                    raise ValueError(f"skills.config path must be absolute: {path}")
+                entry[key] = Path(name).resolve()
+        elif key.strip("\"'") in ("skills", "skills.config") or key.startswith("skills."):
+            raise ValueError(f"unsupported skills.config syntax: {path}")
+    if any(set(entry) != {"path", "enabled"} for entry in entries):
+        raise ValueError(f"skills.config requires path and enabled: {path}")
+    if len({entry["path"] for entry in entries}) != len(entries):
+        raise ValueError(f"duplicate skills.config path: {path}")
+    return limit, entries, instructions
+
+
+def codex_snapshot_entries(entries, source_home, product_home):
+    """Map disabled source identities to every document location in the copied home."""
+    disabled = {entry["path"] for entry in entries if not entry["enabled"]}
+    mapped = {entry["path"]: entry for entry in entries}
+    source_home = source_home.resolve()
+    for name in ("skills", "plugins"):
+        for path in sorted(discover_skills(source_home / name, canonical=False)):
+            if path.resolve() in disabled:
+                copied = (product_home / path.relative_to(source_home)).resolve()
+                mapped[copied] = {"path": copied, "enabled": False}
+    return list(mapped.values())
+
+
+def specialist_findings(root, home, key, product_home, findings, workdir=None, source_home=None):
+    """Shared filesystem preflight for sync and the specialist launcher."""
+    outside_checkout(product_home, root, workdir)
+    # Check both Codex files even when an override currently masks AGENTS.md.
+    names = ("AGENTS.md", "AGENTS.override.md") if key == "SPECIALIST_CODEX_HOME" else ("AGENTS.md", "SYSTEM.md")
+    paths = [product_home / name for name in names]
+    if key == "SPECIALIST_KIMI_CODE_HOME":
+        paths.append(home / ".agents/AGENTS.md")
+    for path in paths:
+        if present(path):
+            if not is_file(path):
+                findings.append(f"specialist instruction source is not a regular file: {path}")
+            elif path.read_text(encoding="utf-8").strip():
+                findings.append(f"additional global task instructions: {path}")
+    folder = product_home / "skills"
+    if present(folder):
+        for path in children(folder):
+            # Codex-managed built-ins stay in place, but must be disabled below.
+            if path.name != ".system" or key != "SPECIALIST_CODEX_HOME":
+                findings.append(f"installed skill in specialist home: {path}")
+    if key != "SPECIALIST_CODEX_HOME":
+        for name in ("agents", "plugins"):
+            path = product_home / name
+            if present(path) and (not is_dir(path) or children(path)):
+                findings.append(f"additional specialist instruction or skill sources: {path}")
+        return
+    config = product_home / "config.toml"
+    if not is_file(config):
+        findings.append(f"missing specialist config: {config}")
+        return
+    limit, entries, instructions = codex_specialist_config(config)
+    if source_home is not None:
+        entries = codex_snapshot_entries(entries, source_home, product_home)
+    for setting in instructions:
+        findings.append(f"additional global task instructions in {setting}: {config}")
+    if limit != 0:
+        findings.append(f"specialist project_doc_max_bytes must be 0: {config}")
+    disabled = {entry["path"] for entry in entries if not entry["enabled"]}
+    for entry in entries:
+        if entry["enabled"]:
+            findings.append(f"enabled discoverable skill: {entry['path']}")
+    folders = [home / ".agents/skills", product_home / "skills", product_home / "plugins", Path("/etc/codex/skills")]
+    if workdir is not None:
+        folders.extend(parent / ".agents/skills" for parent in (workdir, *workdir.parents))
+    for skill in sorted(set().union(*(discover_skills(folder) for folder in folders))):
+        if skill not in disabled:
+            findings.append(f"missing disable entry for discoverable skill: {skill} ({config})")
 
 
 def verify(root, home, findings, selected):
@@ -201,7 +375,8 @@ def verify(root, home, findings, selected):
               if is_dir(path) and is_file(path / "SKILL.md")}
     if ".system" in skills:
         raise ValueError(".system is reserved; cannot install a House Rules skill there")
-    instructions = {instruction_file(key, product_home) for key, product_home in selected}
+    normal = [(key, path) for key, path in selected if key not in SPECIALIST_KEYS]
+    instructions = {instruction_file(key, product_home) for key, product_home in normal}
     for path in (home / "AGENTS.md", home / "CLAUDE.md"):
         if path not in instructions and present(path) and MARKERS.search(
                 path.read_bytes().decode("utf-8")):
@@ -243,6 +418,9 @@ def verify(root, home, findings, selected):
     for path in always_load(root, findings):
         if not is_file(path):
             findings.append(f"missing rule file: {path}")
+    for key, product_home in selected:
+        if key in SPECIALIST_KEYS:
+            specialist_findings(root, home, key, product_home, findings)
 
 
 def always_load(root, findings):
