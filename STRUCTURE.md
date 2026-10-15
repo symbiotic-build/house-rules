@@ -56,7 +56,7 @@ existing file's navigation region; it needs no private directory or companion gl
 
 The complete registry and selected agent context are transient tool outputs, not maintained
 repository stores. Follow [specifications rules](rules/specifications.md) for authority and
-the [exact source formats](docs/specs/spec-system/formats.md#source-format) for declarations.
+the [exact source formats](docs/specs/spec-system/source-formats.md#source-format) for declarations.
 The reusable outlines live in [spec-writing templates](skills/spec-writing/templates/):
 `specification.md` and `design-document.md`.
 

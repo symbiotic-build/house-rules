@@ -48,22 +48,12 @@ Use this map to choose the next explanation to read.
 
 Use this index to find each registered meaning at its home.
 
-- [Open citation](74-complete-worker-packs.md#open-citation) (`complete-worker-packs.open-citation`) — Open citation: an instruction to read a rule absent from both the compiled prompt and
-the session's declared House Rules loading path.
-- [Role pack](74-complete-worker-packs.md#role-pack) (`complete-worker-packs.role-pack`) — Role pack: the compiled output of skills/pr-ready/scripts/prompt.py
-for a role file under prompts/roles/.
-- [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator,
-formatting operator questions or running lanes.
-Warden role prompts do not include session-rule files.
+- [Open citation](74-complete-worker-packs.md#open-citation) (`complete-worker-packs.open-citation`) — Open citation: an instruction to read a rule absent from both the compiled prompt and the session's declared House Rules loading path.
+- [Role pack](74-complete-worker-packs.md#role-pack) (`complete-worker-packs.role-pack`) — Role pack: the compiled output of skills/pr-ready/scripts/prompt.py for a role file under prompts/roles/.
+- [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator, formatting operator questions or running lanes.
 - [Shared rule](74-complete-worker-packs.md#shared-rule) (`complete-worker-packs.shared-rule`) — Shared rule: a rule every agent needs, with one owner under rules/.
-Writing rules, claim labels, Git rules and priority labels are shared rules.
-- [Supplied rule parts](74-complete-worker-packs.md#supplied-rule-parts) (`complete-worker-packs.supplied-rule-parts`) — Repository rules part and task part: the supplied parts defined by the
-one-step assembly design.
-The repository rules part holds the target repository's own rules or the line
-“Repository rules: this repository has no rules of its own.”
-The task part holds the work item's Decisions and Pre-flight sections.
+- [Supplied rule parts](74-complete-worker-packs.md#supplied-rule-parts) (`complete-worker-packs.supplied-rule-parts`) — Repository rules part and task part: the supplied parts defined by the one-step assembly design.
 - [House Rules block](73-instruction-layer-foundation.md#house-rules-block) (`instruction-layer-foundation.house-rules-block`) — House Rules block: the managed pointer between <!-- house-rules:begin --> and <!-- house-rules:end -->.
-Install House Rules instructions and Skills defines the block.
 - [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: INDEX.md, which owns shared loading instructions.
 - [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer) (`instruction-layer-foundation.instruction-pointer`) — Pointer: a tool or repository instruction file that tells the agent to read the shared index.
 - [Lane runner](77-one-step-pack-assembly.md#lane-runner) (`one-step-pack-assembly.lane-runner`) — Lane runner: the operator's scripts outside House Rules that launch local workers.

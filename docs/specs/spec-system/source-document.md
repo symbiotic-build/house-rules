@@ -21,8 +21,3 @@ An inapplicable role says “None” and explains why.
 A draft may expose gaps; approval refuses an unresolved contract that prevents implementation.
 
 The [role requirement](requirements.md#req-roles) makes these declarations checkable.
-
-
-
-In the bounded-batch example, the single document explains submission, refusal and the evidence for that behavior.
-The exact files are explained later in [Minimal corpus](example.md#minimal-example).

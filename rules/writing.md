@@ -23,7 +23,9 @@ happened, why it matters and what to do, in that order.
 
 - One fact per sentence. Prefer short sentences; split one that carries more than one fact.
   Length is never a reason to drop content.
-- Short related sentences stay in one paragraph.
+- Each paragraph develops one point. Connect its sentences through cause and effect,
+  condition and consequence, or claim and example. Put unrelated assertions in a list,
+  not a paragraph. Short related sentences stay in one paragraph.
 - Active voice, simple tense. Name who does what.
 - One term per concept. Define it once at first use, then never use a synonym.
 - No unexplained acronyms, internal labels or IDs as a replacement for meaning. An ID may
@@ -37,6 +39,7 @@ happened, why it matters and what to do, in that order.
   their use does not permit invented abbreviations in stored names.
 - Concrete over abstract: a real name, number, example or before/after, not "the
   mechanism" or "the invariant".
+- Put the concrete case an abstract rule governs beside that rule.
 - Keep the source's uncertainty and qualifiers. Never add a cause, frequency or number the
   evidence does not show. Never drop a hedge, exception or consequence that changes what a
   statement means for the reader.

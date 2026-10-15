@@ -1,5 +1,5 @@
 <a id="settings-section"></a>
-# Understanding the limits
+# Settings
 
 These settings distinguish byte limits from document-count limits.
 

@@ -9,7 +9,7 @@ The technical contract and implementation validate that bound.
 Documentation checking does not validate a value's range or format.
 Neither a full controlled requirements grammar nor mandatory uppercase keywords are required.
 
-Every declaration links at least one [acceptance test](tests.md#acceptance-test).
+Every declaration links at least one [acceptance test](acceptance-test.md#acceptance-test).
 Both directions must describe the same relationship.
 Missing targets, missing relationships and one-sided links fail checking.
 Passing these checks establishes structural traceability, not proof quality.
@@ -19,7 +19,3 @@ Requirement anchors use `req-` followed by nonempty lower-case letters or digits
 The complete anchor is permanent and unique across the repository's specification and design corpus.
 Preserve it when moving or revising the same obligation; never reuse a retired identity.
 New obligations from a split or replacement receive new identities.
-
-
-In the bounded-batch example, the full-batch requirement specifies a refusal without changing retained items.
-The exact files are explained later in [Minimal corpus](example.md#minimal-example).

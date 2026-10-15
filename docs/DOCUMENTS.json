@@ -67,27 +67,27 @@
       "kind": "design"
     },
     {
-      "path": "docs/specs/spec-system/acceptance.md",
+      "path": "docs/specs/spec-system/acceptance-evidence.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/checking.md",
+      "path": "docs/specs/spec-system/documentation-checker.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/context.md",
+      "path": "docs/specs/spec-system/context-pack.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/overview.md",
+      "path": "docs/specs/spec-system/specification-and-design-document-system.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/reference.md",
+      "path": "docs/specs/spec-system/interfaces-and-encodings.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/sources.md",
+      "path": "docs/specs/spec-system/document-manifest.md",
       "kind": "specification"
     },
     {
@@ -506,11 +506,11 @@
       "reason": "Skill procedure or supporting reference, not a specification or design document."
     },
     {
-      "path": "docs/specs/spec-system/example.md",
+      "path": "docs/specs/spec-system/minimal-corpus.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/formats.md",
+      "path": "docs/specs/spec-system/source-formats.md",
       "kind": "specification"
     },
     {
@@ -524,67 +524,67 @@
       "reason": "Fixture note about shared profile ownership."
     },
     {
-      "path": "docs/specs/spec-system/documents.md",
+      "path": "docs/specs/spec-system/source-document.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/sections.md",
+      "path": "docs/specs/spec-system/addressable-section.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/homes.md",
+      "path": "docs/specs/spec-system/registered-entity.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/entities.md",
+      "path": "docs/specs/spec-system/entity-index.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/facts.md",
+      "path": "docs/specs/spec-system/canonical-fact.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/obligations.md",
+      "path": "docs/specs/spec-system/requirement-declaration.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/tests.md",
+      "path": "docs/specs/spec-system/acceptance-test.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/scenarios.md",
+      "path": "docs/specs/spec-system/scenario.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/failures.md",
+      "path": "docs/specs/spec-system/failure-declaration.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/environment.md",
+      "path": "docs/specs/spec-system/tool-environment.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/navigation.md",
+      "path": "docs/specs/spec-system/navigation-generation.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/snapshots.md",
+      "path": "docs/specs/spec-system/source-snapshot.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/registry.md",
+      "path": "docs/specs/spec-system/complete-registry.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/writing.md",
+      "path": "docs/specs/spec-system/writing-profile.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/review.md",
+      "path": "docs/specs/spec-system/semantic-review.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/adoption.md",
+      "path": "docs/specs/spec-system/adoption-and-ownership.md",
       "kind": "specification"
     },
     {
@@ -606,42 +606,40 @@
       "scope": "Single-file and multi-file specifications, design documents, declarations, navigation and mandatory agent context.",
       "non_goals": "Publication server, custom renderer, expression evaluation, general prose formatting and product-specific contracts.",
       "navigation": {
-        "path": "docs/specs/spec-system/overview.md",
+        "path": "docs/specs/spec-system/specification-and-design-document-system.md",
         "region": "spec-system"
       },
       "sections": [
         {
           "id": "overview",
-          "path": "docs/specs/spec-system/overview.md",
+          "path": "docs/specs/spec-system/specification-and-design-document-system.md",
           "anchor": "overview",
           "roles": [
             "tour"
           ],
-          "summary": "Understand specification and design-document system.",
+          "summary": "Follow a batch refusal from its authored contract to checked agent context.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
           "id": "documents",
-          "path": "docs/specs/spec-system/documents.md",
+          "path": "docs/specs/spec-system/source-document.md",
           "anchor": "source-document",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand source document.",
-          "prerequisites": [
-            "spec-system#overview"
-          ],
+          "summary": "Distinguish authored contracts from generated navigation and context.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
           "id": "sections",
-          "path": "docs/specs/spec-system/sections.md",
+          "path": "docs/specs/spec-system/addressable-section.md",
           "anchor": "addressable-section",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand addressable section.",
+          "summary": "Select complete explanations by stable anchors and heading boundaries.",
           "prerequisites": [
             "spec-system#documents"
           ],
@@ -649,12 +647,12 @@
         },
         {
           "id": "homes",
-          "path": "docs/specs/spec-system/homes.md",
+          "path": "docs/specs/spec-system/registered-entity.md",
           "anchor": "registered-entity",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand registered entity.",
+          "summary": "Locate each technical meaning and its canonical declarations at one home.",
           "prerequisites": [
             "spec-system#sections"
           ],
@@ -662,64 +660,62 @@
         },
         {
           "id": "sources",
-          "path": "docs/specs/spec-system/sources.md",
+          "path": "docs/specs/spec-system/document-manifest.md",
           "anchor": "document-manifest",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand document manifest.",
+          "summary": "Declare document scope, reading order and input classifications.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "entities",
+          "path": "docs/specs/spec-system/entity-index.md",
+          "anchor": "entity-index",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Register accepted names, symbols and their owning explanations.",
           "prerequisites": [
             "spec-system#homes"
           ],
           "explanatory_dependencies": []
         },
         {
-          "id": "entities",
-          "path": "docs/specs/spec-system/entities.md",
-          "anchor": "entity-index",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Understand entity index.",
-          "prerequisites": [
-            "spec-system#sources"
-          ],
-          "explanatory_dependencies": []
-        },
-        {
           "id": "facts",
-          "path": "docs/specs/spec-system/facts.md",
+          "path": "docs/specs/spec-system/canonical-fact.md",
           "anchor": "canonical-fact",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand canonical fact.",
+          "summary": "Declare a literal once and detect conflicting displayed values.",
           "prerequisites": [
-            "spec-system#entities"
+            "spec-system#homes"
           ],
           "explanatory_dependencies": []
         },
         {
           "id": "obligations",
-          "path": "docs/specs/spec-system/obligations.md",
+          "path": "docs/specs/spec-system/requirement-declaration.md",
           "anchor": "requirement-declaration",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand requirement declaration.",
+          "summary": "State observable behavior and link its acceptance evidence.",
           "prerequisites": [
-            "spec-system#facts"
+            "spec-system#homes"
           ],
           "explanatory_dependencies": []
         },
         {
           "id": "tests",
-          "path": "docs/specs/spec-system/tests.md",
+          "path": "docs/specs/spec-system/acceptance-test.md",
           "anchor": "acceptance-test",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand acceptance test.",
+          "summary": "Choose executable selectors or inspection evidence for an obligation.",
           "prerequisites": [
             "spec-system#obligations"
           ],
@@ -727,12 +723,12 @@
         },
         {
           "id": "scenarios",
-          "path": "docs/specs/spec-system/scenarios.md",
+          "path": "docs/specs/spec-system/scenario.md",
           "anchor": "scenario",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand scenario.",
+          "summary": "Trace one behavior through its actions, requirements and evidence.",
           "prerequisites": [
             "spec-system#tests"
           ],
@@ -740,38 +736,36 @@
         },
         {
           "id": "failures",
-          "path": "docs/specs/spec-system/failures.md",
+          "path": "docs/specs/spec-system/failure-declaration.md",
           "anchor": "failure-declaration",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand failure declaration.",
+          "summary": "Explain a refusal, retained state and authorized recovery.",
           "prerequisites": [
-            "spec-system#scenarios"
+            "spec-system#tests"
           ],
           "explanatory_dependencies": []
         },
         {
           "id": "environment",
-          "path": "docs/specs/spec-system/environment.md",
+          "path": "docs/specs/spec-system/tool-environment.md",
           "anchor": "tool-environment",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand tool environment.",
-          "prerequisites": [
-            "spec-system#failures"
-          ],
+          "summary": "Run the shared checker with the pinned interpreter and parser dependencies.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
           "id": "checking",
-          "path": "docs/specs/spec-system/checking.md",
+          "path": "docs/specs/spec-system/documentation-checker.md",
           "anchor": "documentation-checker",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand documentation checker.",
+          "summary": "Find structural contradictions and report every available diagnostic.",
           "prerequisites": [
             "spec-system#environment"
           ],
@@ -779,93 +773,87 @@
         },
         {
           "id": "navigation",
-          "path": "docs/specs/spec-system/navigation.md",
+          "path": "docs/specs/spec-system/navigation-generation.md",
           "anchor": "navigation-generation",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand navigation generation.",
+          "summary": "Project authored metadata into a map without creating another authority.",
           "prerequisites": [
-            "spec-system#checking"
+            "spec-system#sources",
+            "spec-system#entities"
           ],
           "explanatory_dependencies": []
         },
         {
           "id": "snapshots",
-          "path": "docs/specs/spec-system/snapshots.md",
+          "path": "docs/specs/spec-system/source-snapshot.md",
           "anchor": "source-snapshot",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand source snapshot.",
-          "prerequisites": [
-            "spec-system#navigation"
-          ],
+          "summary": "Choose immutable bytes from the working tree, index or commit.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
           "id": "registry",
-          "path": "docs/specs/spec-system/registry.md",
+          "path": "docs/specs/spec-system/complete-registry.md",
           "anchor": "complete-registry",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand complete registry.",
+          "summary": "Build complete reference input from metadata and entity homes.",
           "prerequisites": [
-            "spec-system#snapshots"
+            "spec-system#entities"
           ],
           "explanatory_dependencies": []
         },
         {
           "id": "context",
-          "path": "docs/specs/spec-system/context.md",
+          "path": "docs/specs/spec-system/context-pack.md",
           "anchor": "context-pack",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand context pack.",
+          "summary": "Select mandatory reading material and refuse missing or oversized assignments.",
           "prerequisites": [
-            "spec-system#registry"
+            "spec-system#registry",
+            "spec-system#snapshots"
           ],
           "explanatory_dependencies": []
         },
         {
           "id": "writing",
-          "path": "docs/specs/spec-system/writing.md",
+          "path": "docs/specs/spec-system/writing-profile.md",
           "anchor": "writing-profile",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand writing profile.",
-          "prerequisites": [
-            "spec-system#context"
-          ],
+          "summary": "Distinguish advisory prose counters from demonstrated reader problems.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
           "id": "review",
-          "path": "docs/specs/spec-system/review.md",
+          "path": "docs/specs/spec-system/semantic-review.md",
           "anchor": "semantic-review",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand semantic review.",
-          "prerequisites": [
-            "spec-system#writing"
-          ],
+          "summary": "Assess meaning, readability and evidence beyond structural success.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
           "id": "adoption",
-          "path": "docs/specs/spec-system/adoption.md",
+          "path": "docs/specs/spec-system/adoption-and-ownership.md",
           "anchor": "adoption",
           "roles": [
             "mechanism"
           ],
-          "summary": "Understand adoption and ownership.",
-          "prerequisites": [
-            "spec-system#review"
-          ],
+          "summary": "Share one pinned tool across authoring, checking and context preparation.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
@@ -875,10 +863,8 @@
           "roles": [
             "requirements"
           ],
-          "summary": "Understand requirements.",
-          "prerequisites": [
-            "spec-system#adoption"
-          ],
+          "summary": "Find the observable obligations and their verification links.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
@@ -889,33 +875,32 @@
             "decisions",
             "questions"
           ],
-          "summary": "Understand decisions.",
-          "prerequisites": [
-            "spec-system#requirements"
-          ],
+          "summary": "Read the source, tool and rollout choices with their authority.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
           "id": "formats",
-          "path": "docs/specs/spec-system/formats.md",
+          "path": "docs/specs/spec-system/source-formats.md",
           "anchor": "source-format",
           "roles": [
             "reference"
           ],
-          "summary": "Understand source formats.",
+          "summary": "Construct valid metadata, declarations and callable inputs.",
           "prerequisites": [
-            "spec-system#decisions"
+            "spec-system#sections",
+            "spec-system#entities"
           ],
           "explanatory_dependencies": []
         },
         {
           "id": "example",
-          "path": "docs/specs/spec-system/example.md",
+          "path": "docs/specs/spec-system/minimal-corpus.md",
           "anchor": "minimal-example",
           "roles": [
             "reference"
           ],
-          "summary": "Understand minimal corpus.",
+          "summary": "Build and check a complete batch-refusal contract in an independent repository.",
           "prerequisites": [
             "spec-system#formats"
           ],
@@ -923,28 +908,24 @@
         },
         {
           "id": "reference",
-          "path": "docs/specs/spec-system/reference.md",
+          "path": "docs/specs/spec-system/interfaces-and-encodings.md",
           "anchor": "interfaces",
           "roles": [
             "reference"
           ],
-          "summary": "Understand interfaces and encodings.",
-          "prerequisites": [
-            "spec-system#example"
-          ],
+          "summary": "Look up exact diagnostic codes and executable-selector behavior.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
           "id": "acceptance",
-          "path": "docs/specs/spec-system/acceptance.md",
+          "path": "docs/specs/spec-system/acceptance-evidence.md",
           "anchor": "acceptance",
           "roles": [
             "acceptance"
           ],
-          "summary": "Understand acceptance evidence.",
-          "prerequisites": [
-            "spec-system#reference"
-          ],
+          "summary": "Run the evidence linked to each system obligation.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         }
       ],

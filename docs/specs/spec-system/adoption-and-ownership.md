@@ -50,14 +50,14 @@ Preserve provisional, observed, required and unresolved meanings.
 
 Writing rules own profile and procedure invariants.
 Specifications rules own authority, homes, linking and context invariants.
-The [exact source formats](formats.md#source-format) own syntax and literal comparison.
+The [exact source formats](source-formats.md#source-format) own syntax and literal comparison.
 The authoring skill owns authoring and reader procedures.
 Design lifecycle skills own outline, approval and closeout.
 
 The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) and review preparer own context integration.
-Review lenses own meaning and whole-[scenario](scenarios.md#scenario) examination.
+Review lenses own meaning and whole-[scenario](scenario.md#scenario) examination.
 The structure reference owns paths; the index and changelog own loading and adoption rationale.
-The generated [entity index](entities.md#entity-index) replaces a separate hand-maintained glossary.
+The generated [entity index](entity-index.md#entity-index) replaces a separate hand-maintained glossary.
 
 Branch validation uses ordinary authoring and review entry points with the exact branch revision.
 Do not merge merely to make the environment load branch rules.

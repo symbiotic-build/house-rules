@@ -1,5 +1,5 @@
 <a id="acceptance-section"></a>
-# Checking a prepared write
+# Acceptance
 
 A prepared request can become stale before submission.
 This tour follows a refusal before explaining its limits.

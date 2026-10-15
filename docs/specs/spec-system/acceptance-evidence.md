@@ -5,7 +5,7 @@ These cases define how the system's obligations are proved.
 They require behavior, successful repairs and visible failures, rather than one assertion per diagnostic code.
 An executable implementation link is evidence only after the named test is inspected and run.
 No case below claims a completed run merely by existing.
-Each section below is an [acceptance test](tests.md#acceptance-test).
+Each section below is an [acceptance test](acceptance-test.md#acceptance-test).
 
 Use small synthetic fixtures.
 Every single test must be explicitly bounded and finish in seconds.
@@ -59,7 +59,7 @@ This case checks literal values against the linked obligations.
 
 **Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_literal_values_allow_grouping_and_markdown_formatting](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_mismatched_literal_and_equivalent_measurement_are_refused](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_fact_anchor_belongs_inside_its_key_cell](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_two_anchors_in_one_fact_row_are_refused](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_fact_key_and_owner_name_are_descriptive_links](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::MinimalExampleTests::test_published_example_is_the_checked_fixture_in_an_independent_repository](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
-The [capacity-repair walkthrough](overview.md#capacity-repair) supplies a complete author-facing example.
+The [capacity-repair walkthrough](specification-and-design-document-system.md#capacity-repair) supplies a complete author-facing example.
 It proves no product-specific capacity guarantee.
 
 <a id="test-traceability"></a>
@@ -71,7 +71,7 @@ This case checks traceability and change selection against the linked obligation
 
 **Requirements:** [Reciprocal and changed-test review](requirements.md#req-traceability).
 
-**Inputs:** Comma-separated implementation links with file paths and test selectors; invalid implementation syntax and missing files; two [source snapshots](snapshots.md#source-snapshot) with added, changed and removed requirements; reciprocal and one-sided links; missing targets; changed literal values, Status, Basis and adjacent qualifications; unchanged linked tests; resolving removal decisions.
+**Inputs:** Comma-separated implementation links with file paths and test selectors; invalid implementation syntax and missing files; two [source snapshots](source-snapshot.md#source-snapshot) with added, changed and removed requirements; reciprocal and one-sided links; missing targets; changed literal values, Status, Basis and adjacent qualifications; unchanged linked tests; resolving removal decisions.
 
 **Expected:** Missing and one-sided links fail. Change reports contain declarations and tests from both snapshots, relationship changes and directly referenced changed facts. Review input includes affected tests even when their text is unchanged. Removal without a resolving decision fails. No persistent suspect-link state is added.
 
@@ -92,7 +92,7 @@ This case checks failure completeness against the linked obligations.
 
 **Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_failure_declaration_requires_each_field](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_missing_recovery_can_be_explicit_and_explained](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_failure_verification_requires_a_resolving_link](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
-Checker fixtures prove structure and [semantic review](review.md#semantic-review) proves recovery meaning.
+Checker fixtures prove structure and [semantic review](semantic-review.md#semantic-review) proves recovery meaning.
 
 <a id="test-checking"></a>
 ## Checker failures
@@ -163,16 +163,16 @@ This case checks context selection against the linked obligations.
 
 **Requirements:** [Complete bounded assignment input](requirements.md#req-context).
 
-**Inputs:** Explicit section and [scenario](scenarios.md#scenario) selectors; unknown or missing scope; [complete registry](registry.md#complete-registry); relevant home uses; ordinary links inside homes; declared transitive dependencies and cycles; overlapping source ranges; omitted mandatory identities; exact and insufficient byte budgets.
+**Inputs:** Explicit section and [scenario](scenario.md#scenario) selectors; unknown or missing scope; [complete registry](complete-registry.md#complete-registry); relevant home uses; ordinary links inside homes; declared transitive dependencies and cycles; overlapping source ranges; omitted mandatory identities; exact and insufficient byte budgets.
 
-**Expected:** Mandatory registry, selected ranges, dependencies, homes, decisions, profile and provenance appear exactly once per source range. Cycles deduplicate. Ordinary home links do not expand selection; declared dependencies do. Whole [scenarios](scenarios.md#scenario) contain actions, requirements and tests. Missing, stale or excessive input refuses dispatch without truncation. The exact UTF-8 size is reported.
+**Expected:** Mandatory registry, selected ranges, dependencies, homes, decisions, profile and provenance appear exactly once per source range. Cycles deduplicate. Ordinary home links do not expand selection; declared dependencies do. Whole [scenarios](scenario.md#scenario) contain actions, requirements and tests. Missing, stale or excessive input refuses dispatch without truncation. The exact UTF-8 size is reported.
 
 **Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_dependencies_expand_transitively_and_deduplicate_cycles](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_refuses_omission_stale_baseline_budget_and_missing_review_coverage](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_contains_entire_registry_exact_bytes_and_unique_ranges](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_rejects_unknown_selector_and_missing_scope](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_applies_whole_scenario_and_changed_test_selectors](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_ordinary_links_in_added_home_do_not_expand_context](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_review_plan_is_checked_without_spawning_reviewers](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
 <a id="test-profile"></a>
 ## Writing profile
 
-This case checks the [writing profile](writing.md#writing-profile) against the linked obligations.
+This case checks the [writing profile](writing-profile.md#writing-profile) against the linked obligations.
 
 **Method:** test.
 

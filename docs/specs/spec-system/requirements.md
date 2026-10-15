@@ -17,7 +17,7 @@ This obligation makes faithful conversion and branch use observable to callers.
 
 **Verification:** Compare source inventory with resulting homes and inspect real branch-run evidence.
 
-**Tests:** [Real authoring and review](acceptance.md#test-real-use).
+**Tests:** [Real authoring and review](acceptance-evidence.md#test-real-use).
 
 **Status:** specified.
 
@@ -27,7 +27,7 @@ This obligation makes faithful conversion and branch use observable to callers.
 
 This obligation makes structural procedures and advisory prose checks observable to callers.
 
-**Actor:** [Documentation checker](checking.md#documentation-checker) and readability reviewer.
+**Actor:** [Documentation checker](documentation-checker.md#documentation-checker) and readability reviewer.
 
 **Condition:** Authored prose or numbered actions are checked.
 
@@ -35,7 +35,7 @@ This obligation makes structural procedures and advisory prose checks observable
 
 **Verification:** Check valid procedures, single-item lists, the operator-question boundary and warning-only prose.
 
-**Tests:** [Prose checks](acceptance.md#test-profile).
+**Tests:** [Prose checks](acceptance-evidence.md#test-profile).
 
 **Status:** specified.
 
@@ -54,7 +54,7 @@ This obligation makes review coverage and fresh understanding observable to call
 
 **Verification:** Inspect prepared assignments and reader responses through normal entry points.
 
-**Tests:** [Real authoring and review](acceptance.md#test-real-use).
+**Tests:** [Real authoring and review](acceptance-evidence.md#test-real-use).
 
 **Status:** specified.
 
@@ -71,9 +71,9 @@ This obligation makes complete bounded assignment input observable to callers.
 
 **Result:** Include every mandatory source range from one snapshot exactly once. Expand declared dependencies, not ordinary home links. Refuse unknown selectors, omitted context, stale baselines and excessive input before dispatch.
 
-**Verification:** Exercise explicit selectors, dependencies, cycles, overlapping ranges, [scenarios](scenarios.md#scenario) and model budgets.
+**Verification:** Exercise explicit selectors, dependencies, cycles, overlapping ranges, [scenarios](scenario.md#scenario) and model budgets.
 
-**Tests:** [Context selection](acceptance.md#test-context).
+**Tests:** [Context selection](acceptance-evidence.md#test-context).
 
 **Status:** specified.
 
@@ -92,7 +92,7 @@ This obligation makes isolated snapshot provenance observable to callers.
 
 **Verification:** Compare staged and commit outputs while unrelated working-tree bytes change.
 
-**Tests:** [Snapshot isolation and invalidation](acceptance.md#test-snapshots).
+**Tests:** [Snapshot isolation and invalidation](acceptance-evidence.md#test-snapshots).
 
 **Status:** specified.
 
@@ -103,15 +103,15 @@ This obligation makes isolated snapshot provenance observable to callers.
 
 This obligation makes visible recovery contract observable to callers.
 
-**Actor:** [Documentation checker](checking.md#documentation-checker) and semantic reviewer.
+**Actor:** [Documentation checker](documentation-checker.md#documentation-checker) and semantic reviewer.
 
 **Condition:** A mechanism can stop, refuse or remain blocked.
 
-**Result:** Require a complete [failure declaration](failures.md#failure-declaration). Review whether the named actor can repair retained state without invoking the failing operation again.
+**Result:** Require a complete [failure declaration](failure-declaration.md#failure-declaration). Review whether the named actor can repair retained state without invoking the failing operation again.
 
 **Verification:** Inspect complete and incomplete failure fields and trace the documented recovery.
 
-**Tests:** [Failure completeness](acceptance.md#test-failures).
+**Tests:** [Failure completeness](acceptance-evidence.md#test-failures).
 
 **Status:** specified.
 
@@ -121,7 +121,7 @@ This obligation makes visible recovery contract observable to callers.
 
 This obligation makes reciprocal and changed-test review observable to callers.
 
-**Actor:** [Documentation checker](checking.md#documentation-checker) and review preparer.
+**Actor:** [Documentation checker](documentation-checker.md#documentation-checker) and review preparer.
 
 **Condition:** Requirements and tests are checked against an optional base snapshot.
 
@@ -129,7 +129,7 @@ This obligation makes reciprocal and changed-test review observable to callers.
 
 **Verification:** Mutate declarations, relationships, fact qualifications and requirement presence across two snapshots.
 
-**Tests:** [Traceability and change selection](acceptance.md#test-traceability).
+**Tests:** [Traceability and change selection](acceptance-evidence.md#test-traceability).
 
 **Status:** specified.
 
@@ -140,7 +140,7 @@ This obligation makes reciprocal and changed-test review observable to callers.
 
 This obligation makes literal equality observable to callers.
 
-**Actor:** [Documentation checker](checking.md#documentation-checker).
+**Actor:** [Documentation checker](documentation-checker.md#documentation-checker).
 
 **Condition:** A value is declared or a link targets its fact anchor.
 
@@ -148,7 +148,7 @@ This obligation makes literal equality observable to callers.
 
 **Verification:** Exercise descriptive labels, equal and unequal literals, punctuation, grouping and equivalent measurements.
 
-**Tests:** [Literal values](acceptance.md#test-literals).
+**Tests:** [Literal values](acceptance-evidence.md#test-literals).
 
 **Status:** specified.
 
@@ -159,7 +159,7 @@ This obligation makes literal equality observable to callers.
 
 This obligation makes unique homes and direct links observable to callers.
 
-**Actor:** [Documentation checker](checking.md#documentation-checker).
+**Actor:** [Documentation checker](documentation-checker.md#documentation-checker).
 
 **Condition:** Registered names, symbols, home declarations or their uses appear in the selected corpus.
 
@@ -167,7 +167,7 @@ This obligation makes unique homes and direct links observable to callers.
 
 **Verification:** Check valid uses and mutations of home identity, scope, name, target and reading order.
 
-**Tests:** [Homes and names](acceptance.md#test-homes).
+**Tests:** [Homes and names](acceptance-evidence.md#test-homes).
 
 **Status:** specified.
 
@@ -178,7 +178,7 @@ This obligation makes unique homes and direct links observable to callers.
 
 This obligation makes complete document roles observable to callers.
 
-**Actor:** [Documentation checker](checking.md#documentation-checker).
+**Actor:** [Documentation checker](documentation-checker.md#documentation-checker).
 
 **Condition:** A document is checked or submitted for approval.
 
@@ -186,7 +186,7 @@ This obligation makes complete document roles observable to callers.
 
 **Verification:** Check complete, incomplete, draft and approval-blocked declarations.
 
-**Tests:** [Document roles](acceptance.md#test-roles).
+**Tests:** [Document roles](acceptance-evidence.md#test-roles).
 
 **Status:** specified.
 
@@ -197,7 +197,7 @@ This obligation makes complete document roles observable to callers.
 
 This obligation makes rebuildable navigation observable to callers.
 
-**Actor:** [Documentation checker](checking.md#documentation-checker) and generator.
+**Actor:** [Documentation checker](documentation-checker.md#documentation-checker) and generator.
 
 **Condition:** Navigation is generated or checked for freshness.
 
@@ -205,7 +205,7 @@ This obligation makes rebuildable navigation observable to callers.
 
 **Verification:** Generate twice, change an authored summary and edit generated output directly.
 
-**Tests:** [Navigation and interrupted output](acceptance.md#test-navigation).
+**Tests:** [Navigation and interrupted output](acceptance-evidence.md#test-navigation).
 
 **Status:** specified.
 
@@ -216,7 +216,7 @@ This obligation makes rebuildable navigation observable to callers.
 
 This obligation makes deterministic visible checking observable to callers.
 
-**Actor:** [Documentation checker](checking.md#documentation-checker).
+**Actor:** [Documentation checker](documentation-checker.md#documentation-checker).
 
 **Condition:** The caller selects a corpus and operation.
 
@@ -224,7 +224,7 @@ This obligation makes deterministic visible checking observable to callers.
 
 **Verification:** Check malformed inputs, path boundaries, diagnostic order, invocation conflicts and warning-only input.
 
-**Tests:** [Checker failures](acceptance.md#test-checking).
+**Tests:** [Checker failures](acceptance-evidence.md#test-checking).
 
 **Status:** specified.
 
@@ -243,7 +243,7 @@ This obligation makes pinned tool ownership observable to callers.
 
 **Verification:** Inspect pins and extraction inputs; run supported and mismatched environment cases.
 
-**Tests:** [Toolchain ownership](acceptance.md#test-toolchain).
+**Tests:** [Toolchain ownership](acceptance-evidence.md#test-toolchain).
 
 **Status:** specified.
 

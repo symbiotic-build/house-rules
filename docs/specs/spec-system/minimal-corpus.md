@@ -4,19 +4,18 @@
 A corpus is the set of Markdown files and metadata checked together.
 This synthetic corpus contains every authored file needed for a passing specification.
 It declares one component and one literal capacity.
-A [requirement declaration](obligations.md#requirement-declaration) specifies refusal; an [acceptance test](tests.md#acceptance-test) checks it.
-A [failure declaration](failures.md#failure-declaration) explains retained state and recovery.
+A [requirement declaration](requirement-declaration.md#requirement-declaration) specifies refusal; an [acceptance test](acceptance-test.md#acceptance-test) checks it.
+A [failure declaration](failure-declaration.md#failure-declaration) explains retained state and recovery.
 Its approval is teaching evidence only; it approves no production behavior.
 
 Create the following three files in a new repository, then run the commands under [Generate and check](#example-checking).
-The JSON keys and Markdown fields use the exact [source format](formats.md#source-format).
+The JSON keys and Markdown fields use the exact [source format](source-formats.md#source-format).
 The entry chapter includes generated navigation immediately after its opening paragraph.
 
 <a id="example-documents"></a>
 ## docs/DOCUMENTS.json
 
 This manifest identifies the bounded-batch document and its reading order.
-The exact field rules are explained in [Source formats](formats.md#source-format).
 
 ```json
 {
@@ -69,13 +68,12 @@ The exact field rules are explained in [Source formats](formats.md#source-format
 }
 ```
 
-**Entities in this example:** [Scenario](scenarios.md#scenario).
+**Entities in this example:** [Scenario](scenario.md#scenario).
 
 <a id="example-entities"></a>
 ## docs/ENTITIES.json
 
 This index binds the batcher name to its complete home.
-The exact field rules are explained in [Source formats](formats.md#source-format).
 
 ```json
 {
@@ -105,7 +103,7 @@ The exact field rules are explained in [Source formats](formats.md#source-format
 ## docs/example.md
 
 This source gives the batcher its capacity, refusal, recovery and inspection evidence.
-The exact field rules are explained in [Source formats](formats.md#source-format).
+The exact field rules are explained in [Source formats](source-formats.md#source-format).
 
 ```markdown
 <a id="example"></a>
@@ -230,14 +228,14 @@ This inspection checks that refusal preserves the existing items.
 Evidence: [retained-state inspection](#failure-full).
 ```
 
-**Entities in this example:** [Acceptance test](tests.md#acceptance-test), [Entity index](entities.md#entity-index).
+**Entities in this example:** [Acceptance test](acceptance-test.md#acceptance-test), [Entity index](entity-index.md#entity-index).
 
 <a id="example-checking"></a>
 ## Generate and check
 
 Initialize Git so the checker can capture the repository input set.
 Use the shared helper from the pinned House Rules revision, with its configured Python environment.
-The [setup and use chapter](environment.md#tool-environment) explains that environment.
+The [setup and use chapter](tool-environment.md#tool-environment) explains that environment.
 The `--fixture` option accepts this synthetic authority only; production documents use `operator` or `delegated`.
 
 ```sh

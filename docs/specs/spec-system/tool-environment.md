@@ -18,7 +18,7 @@ Select wheels only, without extras or source distributions.
 | <a id="parser-hash"></a>parser-wheel-sha256 | 9f7ebbcd14fe59494226453aed97c1070d83f8d24b6fc3a3bcf9a38092641c4a | specified | [Toolchain decision](decisions.md#toolchain-decision) |
 | <a id="url-hash"></a>url-wheel-sha256 | 84008a41e51615a49fc9966191ff91509e3c40b939176e643fd50a5c2196b8f8 | specified | [Toolchain decision](decisions.md#toolchain-decision) |
 
-The supported [requires_python](environment.md#runtime-python) range is an implementation support commitment, not completed compatibility evidence.
+The supported [requires_python](tool-environment.md#runtime-python) range is an implementation support commitment, not completed compatibility evidence.
 The wheel hashes identify the selected locked distributions.
 Setup checks the interpreter range and installed package versions.
 It neither hashes the interpreter or package installer nor keeps interpreter allowlists.
@@ -66,8 +66,4 @@ This refusal explains unsupported tool environment and the actor who can recover
 
 **Authority:** The installer needs the package-manager and filesystem authority already required by the environment.
 
-**Verification:** [Toolchain ownership](acceptance.md#test-toolchain).
-
-
-In the bounded-batch example, the same pinned parser checks the files when they live in an independent repository.
-The exact files are explained later in [Minimal corpus](example.md#minimal-example).
+**Verification:** [Toolchain ownership](acceptance-evidence.md#test-toolchain).

@@ -190,6 +190,7 @@ class Snapshot:
                         problems[path] = "symlink or path escape"
                     elif not target.exists():
                         problems[path] = "missing input"
+                        tracked.discard(path)  # Deleted paths are absent from this candidate snapshot.
                     elif not target.is_file():
                         problems[path] = "input is not a regular file"
                     elif cls.needs_content(path):
@@ -602,7 +603,8 @@ def load_corpus(source, format_contract=None, *, comparison=False):
         meaning = ""
         if heading:
             paragraphs = [t for i, t in enumerate(md.tokens) if t.type == "inline" and t.map and not any(a <= t.map[0] < b for a, b in md.generated) and heading.start < t.map[0] < heading.intro_end and i > 0 and md.tokens[i - 1].type == "paragraph_open" and visible(t.children).strip()]
-            meaning = visible(paragraphs[0].children).strip() if paragraphs else ""
+            definition = sentences(paragraphs[0].children) if paragraphs else []
+            meaning = definition[0] if definition else ""
         if not heading or not meaning or len(md.anchors.get(home["anchor"], [])) != 1:
             diagnostics.add("D04", f"entity '{identity}' has no complete, unique home", ep)
             continue
@@ -871,6 +873,12 @@ def check(corpus, base=None, _freshness=True):
             if isinstance(dep, dict) and isinstance(dep.get("section"), str) and dep["section"] not in corpus.sections:
                 d.add("D06", f"target '{dep['section']}' does not resolve")
         md = corpus.markdown[section["path"]]
+        title_words = re.findall(r"\w+", section["heading"].title.casefold())
+        summary = re.sub(r"^(?:understand|learn about|read about|overview of)\s+", "",
+                         section["summary"].strip().casefold())
+        if not set(re.findall(r"\w+", summary)) - set(title_words):
+            d.add("D36", "summary only restates the title: say what the reader learns or can do",
+                  section["path"], section["heading"].start + 1)
         for prerequisite in section["prerequisites"]:
             target = corpus.sections.get(prerequisite)
             if not target:
@@ -880,6 +888,7 @@ def check(corpus, base=None, _freshness=True):
                     d.add("D16", f"prerequisite '{prerequisite}' appears later without a direct forward link", section["path"], section["heading"].start + 1)
     for document in corpus.documents.values():
         sections = [s for s in corpus.sections.values() if s["document"] == document["id"]]
+        check_chapters(corpus, sections, d)
         roles = {role for s in sections if corpus.markdown[s["path"]].range_bytes(s["heading"].start + 1, s["heading"].end).strip() for role in s["roles"]}
         required = corpus.contract["roles"][:]
         if any(kind == "design" and path in {s["path"] for s in sections} for path, kind in corpus.inventory.items()):
@@ -1166,11 +1175,76 @@ def check_uses(corpus, md, diagnostics):
 
 
 def sentences(children):
-    # Protect code punctuation without changing its word count.
-    text = "".join(re.sub(r"[.?!]", "·", t.content) if t.type == "code_inline" else
-                   t.content if t.type == "text" else " " if t.type in ("softbreak", "hardbreak") else ""
+    # Protect code punctuation while preserving the original sentence for projections.
+    text = "".join(t.content if t.type in ("code_inline", "text") else
+                   " " if t.type in ("softbreak", "hardbreak") else
+                   visible(t.children) if t.type == "image" else "" for t in children or [])
+    masked = "".join(re.sub(r"[.?!]", "·", t.content) if t.type == "code_inline" else
+                   t.content if t.type == "text" else " " if t.type in ("softbreak", "hardbreak") else
+                   visible(t.children) if t.type == "image" else ""
                    for t in children or [])
-    return [s.strip() for s in re.split(r"[.?!](?=\s|$)|:(?=\s*$)", text) if s.strip()]
+    ends = [match.end() for match in re.finditer(r"[.?!](?=\s|$)|:(?=\s*$)", masked)] + [len(text)]
+    starts = [0] + ends[:-1]
+    return [text[start:end].strip() for start, end in zip(starts, ends) if text[start:end].strip()]
+
+
+def chapter_slug(title):
+    """Use lowercase words joined by hyphens, without punctuation or short names."""
+    return "-".join(re.findall(r"\w+", title.casefold())).replace("_", "-")
+
+
+def attributed_quote(tokens, index):
+    nesting, parts = 1, []
+    for following in tokens[index + 1:]:
+        if following.type == "blockquote_open":
+            nesting += 1
+        elif following.type == "blockquote_close":
+            nesting -= 1
+            if not nesting:
+                break
+        if following.type == "inline":
+            parts.append(visible(following.children))
+    return any(re.match(r"^(?:—|--|–)\s+\S|^(?:Source|Attribution):", text) for text in parts)
+
+
+def check_chapters(corpus, sections, diagnostics):
+    paths = sorted({section["path"] for section in sections})
+    # A single-file document keeps its existing document name, rather than a chapter name.
+    if len(paths) > 1:
+        for path in paths:
+            md = corpus.markdown[path]
+            if md.headings and PurePosixPath(path).name != chapter_slug(md.headings[0].title) + ".md":
+                diagnostics.add("D34", "chapter filename differs from its first heading slug: rename the file",
+                                path, md.headings[0].start + 1)
+    if len(sections) > 5 and not sections[0]["prerequisites"] and all(
+            section["prerequisites"] == [previous["selector"]]
+            for previous, section in zip(sections, sections[1:])):
+        diagnostics.add("W06", "every section requires only its predecessor: review actual conceptual prerequisites",
+                        sections[0]["path"], sections[0]["heading"].start + 1)
+    occurrences = defaultdict(list)
+    for path in paths:
+        md, excluded_quotes = corpus.markdown[path], []
+        for i, token in enumerate(md.tokens):
+            if token.type == "blockquote_open":
+                excluded_quotes.append(attributed_quote(md.tokens, i) or any(excluded_quotes))
+            elif token.type == "blockquote_close":
+                excluded_quotes.pop()
+            if (token.type != "inline" or not token.map or i == 0 or
+                    md.tokens[i - 1].type != "paragraph_open" or any(excluded_quotes) or
+                    any(a <= token.map[0] < b for a, b in md.generated) or
+                    re.match(r"^\*\*[^*]+:\*\*", token.content) or
+                    not any(s["path"] == path and s["heading"].start < token.map[0] < s["heading"].end
+                            for s in sections)):
+                continue
+            for sentence in sentences(token.children):
+                normalized = " ".join(sentence.split())
+                if len(normalized.split()) >= 8:
+                    occurrences[normalized].append((path, token.map[0] + 1))
+    for sentence, locations in occurrences.items():
+        if len(locations) >= 3:
+            path, line = locations[0]
+            diagnostics.add("D35", f"sentence repeats {len(locations)} times in this document: {sentence!r}; develop the example where introduced",
+                            path, line)
 
 
 def check_prose(corpus, md, diagnostics):
@@ -1187,17 +1261,7 @@ def check_prose(corpus, md, diagnostics):
     excluded_quotes, ordered_depth, cell_depth = [], 0, 0
     for i, token in enumerate(md.tokens):
         if token.type == "blockquote_open":
-            nesting, quote_parts = 1, []
-            for following in md.tokens[i + 1:]:
-                if following.type == "blockquote_open":
-                    nesting += 1
-                elif following.type == "blockquote_close":
-                    nesting -= 1
-                    if not nesting:
-                        break
-                if following.type == "inline":
-                    quote_parts.append(visible(following.children))
-            attributed = any(re.match(r"^(?:—|--|–)\s+\S|^(?:Source|Attribution):", text) for text in quote_parts)
+            attributed = attributed_quote(md.tokens, i)
             excluded_quotes.append(attributed or any(excluded_quotes))
         elif token.type == "blockquote_close":
             excluded_quotes.pop()

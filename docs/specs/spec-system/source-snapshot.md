@@ -19,12 +19,7 @@ Explicit uses, recognized uses and dependencies identify affected assignments.
 Changed requirements also select their linked tests.
 
 Affected authors receive regenerated inputs and changed declarations.
-They recheck surrounding explanations and complete [scenarios](scenarios.md#scenario).
+They recheck surrounding explanations and complete [scenarios](scenario.md#scenario).
 Other assignments receive a newly selected current-baseline pack.
 
 No documentation rebase verifier is implemented; regeneration is the supported path.
-
-
-
-In the bounded-batch example, a staged wrong capacity label still fails even if an unstaged edit repairs it.
-The exact files are explained later in [Minimal corpus](example.md#minimal-example).

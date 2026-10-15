@@ -7,7 +7,7 @@ Its home path is [docs/ENTITIES.json](../../ENTITIES.json).
 Each entry contains `kind`, `home`, `scope`, `forms`, `symbols` and `rejected_forms`.
 The `home` object identifies a manifest section and explicit anchor.
 The home heading supplies the display name.
-Its first paragraph supplies the meaning.
+Its definition sentence supplies the generated meaning under the [entity-definition rule](../../../rules/specifications.md#reader-progression).
 Neither is copied into this authored metadata.
 
 | Key | Value | Status | Basis |
@@ -29,12 +29,8 @@ Code-only identifiers stay with their code or reference owner unless specificati
 
 Direct-link policy belongs to [rules/specifications.md](../../../rules/specifications.md#direct-links).
 For the batcher, linking a glossary entry would hide its refusal contract; the link instead targets the Batcher home.
-Literal annotations use the syntax explained later in [Markdown declarations](formats.md#markdown-declarations).
+Literal annotations use the syntax explained later in [Markdown declarations](source-formats.md#markdown-declarations).
 
 The checker does not infer bindings inside arbitrary programming languages.
 It recognizes exact symbols and unambiguous registered phrases.
 Reviewers identify unregistered concepts and ordinary words with unstated technical meaning.
-
-
-In the bounded-batch example, the index binds the accepted name `batcher` to its Batcher home.
-The exact files are explained later in [Minimal corpus](example.md#minimal-example).

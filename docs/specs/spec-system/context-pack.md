@@ -4,9 +4,9 @@
 
 A context pack gives an assigned agent the complete mandatory explanations from one selected source version.
 
-Every writer and reviewer receives the [complete registry](registry.md#complete-registry), assigned sections, relevant complete homes, declared dependencies, applicable profile, decisions and provenance.
+Every writer and reviewer receives the [complete registry](complete-registry.md#complete-registry), assigned sections, relevant complete homes, declared dependencies, applicable profile, decisions and provenance.
 A home includes its entire heading subtree.
-The [document manifest](sources.md#document-manifest) declares explanatory dependencies on sections and gives each a reason.
+The [document manifest](document-manifest.md#document-manifest) declares explanatory dependencies on sections and gives each a reason.
 A home uses its containing section's dependencies.
 
 **Procedure: assemble mandatory context**
@@ -15,13 +15,13 @@ A home uses its containing section's dependencies.
 
    > **Detail — selection**
    >
-   > Use one immutable [source snapshot](snapshots.md#source-snapshot).
-   > Assemble the [complete registry](registry.md#complete-registry).
+   > Use one immutable [source snapshot](source-snapshot.md#source-snapshot).
+   > Assemble the [complete registry](complete-registry.md#complete-registry).
 2. **Resolve explicit selectors.**
 
    > **Detail — selection**
    >
-   > Select assigned sections or a whole [scenario](scenarios.md#scenario).
+   > Select assigned sections or a whole [scenario](scenario.md#scenario).
    > Unknown selectors fail preparation.
    > Missing scope never silently selects all homes.
 3. **Expand declared dependencies.**
@@ -43,9 +43,9 @@ A home uses its containing section's dependencies.
    >
    > Include each source range once.
    > Record identities, exact UTF-8 byte counts and inclusion reasons.
-   > Include applicable decisions and the [writing profile](writing.md#writing-profile).
+   > Include applicable decisions and the [writing profile](writing-profile.md#writing-profile).
 
-A whole-[scenario](scenarios.md#scenario) assignment includes every section containing its actions, requirements and linked tests.
+A whole-[scenario](scenario.md#scenario) assignment includes every section containing its actions, requirements and linked tests.
 Further home expansion requires a declared dependency with a reason.
 An ordinary link cannot turn into an unbounded traversal.
 
@@ -55,7 +55,7 @@ The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) applies its co
 Mandatory input is never truncated.
 An excessive pack stops before dispatch.
 Narrow the assignment or remove an unjustified dependency to recover.
-The [complete registry](registry.md#complete-registry) remains compulsory.
+The [complete registry](complete-registry.md#complete-registry) remains compulsory.
 If it alone cannot fit, the operator must choose a different execution resource.
 
 Extend the existing [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) ([skills/pr-ready/scripts/prompt.py](../../../skills/pr-ready/scripts/prompt.py)) with one documentation-context call.
@@ -82,10 +82,6 @@ This refusal explains invalid or excessive assignment and the actor who can reco
 
 **Authority:** The editor may narrow assignments inside scope. The operator authorizes a changed execution resource when required.
 
-**Verification:** [Context selection](acceptance.md#test-context), [snapshot isolation](acceptance.md#test-snapshots).
+**Verification:** [Context selection](acceptance-evidence.md#test-context), [snapshot isolation](acceptance-evidence.md#test-snapshots).
 
-
-In the bounded-batch example, assigning `example#main` includes the complete batcher home, refusal and inspection evidence.
-The exact files are explained later in [Minimal corpus](example.md#minimal-example).
-
-The assignment schema is explained later in [Callable core and context assignment](formats.md#callable-core-and-context-assignment).
+The assignment schema is explained later in [Callable core and context assignment](source-formats.md#callable-core-and-context-assignment).

@@ -17,7 +17,7 @@ These responsibilities set no agent count and authorize no larger panel.
 
 The [authoring procedure](../../../skills/spec-writing/SKILL.md#author-the-document) coordinates the outline, home owners, authors and fixer.
 
-The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) validates technical, readability, design/cost, failure/recovery and whole-[scenario](scenarios.md#scenario) coverage.
+The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) validates technical, readability, design/cost, failure/recovery and whole-[scenario](scenario.md#scenario) coverage.
 One generalist may cover several responsibilities.
 Coverage validation launches no additional reviewers.
 
@@ -40,7 +40,4 @@ This refusal explains incomplete review assignment and the actor who can recover
 
 **Authority:** The lead assigns responsibilities inside the existing review resource envelope.
 
-**Verification:** [Real authoring and review](acceptance.md#test-real-use).
-
-In the bounded-batch example, reviewers check that `Full` preserves the existing items, rather than trusting a resolving test link.
-The exact files are explained later in [Minimal corpus](example.md#minimal-example).
+**Verification:** [Real authoring and review](acceptance-evidence.md#test-real-use).

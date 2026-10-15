@@ -12,7 +12,3 @@ The checker requires fields and resolving links.
 Reviewers trace entry, retained state, restart behavior and exits.
 Public interfaces also receive error-mapping review.
 A declared absence of recovery makes a limitation visible; it does not approve the technical design.
-
-
-In the bounded-batch example, the caller can submit the refused item in a new batch; the old batch remains intact.
-The exact files are explained later in [Minimal corpus](example.md#minimal-example).

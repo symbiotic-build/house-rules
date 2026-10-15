@@ -3,11 +3,11 @@
 
 Navigation generation helps readers find explanations by projecting authored metadata and homes into deterministic Markdown.
 
-The output contains an overview, document map and [entity index](entities.md#entity-index).
+The output contains an overview, document map and [entity index](entity-index.md#entity-index).
 Section titles link directly to their destinations.
 Generation invents no explanatory claims.
 Authored chapters remain the reading source.
-The [document manifest](sources.md#document-manifest) selects a standalone file or one region in an existing document.
+The [document manifest](document-manifest.md#document-manifest) selects a standalone file or one region in an existing document.
 
 Validate proposed output before replacing designated files.
 Preserve prior output wherever replacement has not occurred if generation fails.
@@ -36,7 +36,4 @@ This refusal explains stale or unwritable navigation and the actor who can recov
 
 **Authority:** The editor needs ordinary write authority for the declared output locations.
 
-**Verification:** [Navigation and interrupted output](acceptance.md#test-navigation).
-
-In the bounded-batch example, the generated map links Batcher, its decision, reference and acceptance sections.
-The exact files are explained later in [Minimal corpus](example.md#minimal-example).
+**Verification:** [Navigation and interrupted output](acceptance-evidence.md#test-navigation).

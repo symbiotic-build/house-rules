@@ -48,12 +48,9 @@ Use this map to choose the next explanation to read.
 
 Use this index to find each registered meaning at its home.
 
-- [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator,
-formatting operator questions or running lanes.
-Warden role prompts do not include session-rule files.
+- [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator, formatting operator questions or running lanes.
 - [Always-loaded files](73-instruction-layer-foundation.md#always-loaded-files) (`instruction-layer-foundation.always-loaded-files`) — Always-loaded files: every rule file under the index's “Always load” heading.
 - [House Rules block](73-instruction-layer-foundation.md#house-rules-block) (`instruction-layer-foundation.house-rules-block`) — House Rules block: the managed pointer between <!-- house-rules:begin --> and <!-- house-rules:end -->.
-Install House Rules instructions and Skills defines the block.
 - [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: INDEX.md, which owns shared loading instructions.
 - [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer) (`instruction-layer-foundation.instruction-pointer`) — Pointer: a tool or repository instruction file that tells the agent to read the shared index.
 - [Repository loader](77-one-step-pack-assembly.md#repository-loader) (`one-step-pack-assembly.repository-loader`) — Loader: the target's pointer file, which directs a session to the House Rules index and the target's own rules.

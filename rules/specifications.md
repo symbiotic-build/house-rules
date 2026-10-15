@@ -2,7 +2,7 @@
 
 Apply these rules to every specification and design document, including single-file
 documents. Declaration syntax and literal comparison belong to the
-[exact source formats](../docs/specs/spec-system/formats.md#source-format). Authoring procedure
+[exact source formats](../docs/specs/spec-system/source-formats.md#source-format). Authoring procedure
 belongs to [spec-writing](../skills/spec-writing/SKILL.md); approval and closeout belong
 to [design-flow](../skills/design-flow/SKILL.md).
 
@@ -16,12 +16,19 @@ to [design-flow](../skills/design-flow/SKILL.md).
 - Start with the map: an opening paragraph, one diagram with its question stated before
   it, then generated overview, chapter map and term index. Continue with a tour in plain
   steps, mechanisms, and exact reference in lookup form. Readers can stop after each part.
-- Carry one real example from the tour through each mechanism to the reference and acceptance.
-  Give each mechanism its own chapter. Build on earlier chapters; when explanation is
-  deferred, state what comes later in one line and link to its home.
-- Open every section with its purpose before rules, encodings or fields. An entity home
-  opens with one concise sentence giving its meaning and the problem it solves; that
-  paragraph becomes its generated definition. Declaration records also explain their purpose.
+- Carry one real example from the tour through mechanisms to the reference and acceptance.
+  Show its relevant snippet or values where each concept is introduced. Never append the
+  example as a repeated closing formula. When explanation is deferred, name and link it.
+- A mechanism chapter covers one coherent part of how the system works that a reader can
+  understand on its own, usually several related concepts and their homes. Never split
+  chapters by term. Several entity homes may share a chapter, each in its own section.
+  A chapter's filename is the slug of its title under the exact source formats.
+- Open every section with its purpose before rules, encodings or fields. Within an entity
+  home, put a concise definition sentence first: say what the thing is. Explain its purpose
+  in the next sentence or paragraph. For example: "A canonical fact is a named literal
+  value declared once, in a table at its owner's home." Then explain how it prevents
+  conflicting values. The generated entity index uses only that definition sentence.
+  Declaration records also explain their purpose.
 - In tours and procedures, keep each step's action and caller-visible result in plain
   words. Put exact rows, values and counts in a labelled detail block beneath that step,
   following [rules/writing.md](writing.md#sequences-and-structured-detail).

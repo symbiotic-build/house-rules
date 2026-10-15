@@ -10,8 +10,8 @@ The reader should understand the system and a mid-level engineer should be able 
 implement it without unanswered contract questions. Apply the
 [specifications rules](../../rules/specifications.md) for document authority and context,
 and the [writing rules](../../rules/writing.md#house-technical-english) for prose.
-Declaration syntax belongs to the specification’s [exact source formats](../../docs/specs/spec-system/formats.md#source-format).
-Start with the checked [minimal corpus](../../docs/specs/spec-system/example.md#minimal-example).
+Declaration syntax belongs to the specification’s [exact source formats](../../docs/specs/spec-system/source-formats.md#source-format).
+Start with the checked [minimal corpus](../../docs/specs/spec-system/minimal-corpus.md#minimal-example).
 Lifecycle and approval follow [design-flow](../design-flow/SKILL.md);
 placement follows [STRUCTURE.md](../../STRUCTURE.md).
 
@@ -40,6 +40,18 @@ unsettled questions, without reopening a settled choice merely because it is unf
 1. **Review the outline.**
    - Establish the reader, outcome, scope, non-goals and prerequisites.
    - Sketch section purposes and a complete end-to-end scenario.
+   - Group concepts by the reader's task and the system behavior they explain together.
+     Good split: "Batch admission" contains capacity, validation and refusal homes;
+     "Submission and recovery" explains accepted work and restart behavior.
+     Bad split: "Capacity", "Validation", "Refusal", "Submission", "Recovery", one
+     chapter per term. Test each proposed chapter by explaining its coherent behavior
+     without sending the reader to another chapter for every sentence.
+   - Name chapter files from their title slugs using the format contract.
+   - Write each summary as what the reader learns or can do: for "Batch admission",
+     use "Determine whether a batch fits and what a refusal retains", not "Understand
+     batch admission". List only prerequisites whose concepts the section cannot be read
+     without; never fill the field mechanically with the previous chapter. The format
+     contract defines the title-restatement error and predecessor-chain warning.
    - Register a valid draft skeleton: anchored sections with opening prose, explicit role
      gaps, an empty entity index, no incomplete declarations and no dangling scenario selectors.
    - Register each chapter's title anchor so its opening text belongs to the selected subtree.
@@ -81,12 +93,16 @@ readability warnings have different authority under the specifications and writi
 
 Build the reading path under [rules/specifications.md](../../rules/specifications.md#reader-progression):
 write the opening and diagram question, generate the map, then write one real tour.
-Choose its example before assigning chapters. Extend that same example in each mechanism
-chapter and revisit it in the reference and acceptance. Draft one mechanism per chapter.
+Choose its example before assigning chapters. Show its relevant values or snippet at each
+concept's introduction and revisit it in reference and acceptance. For batch admission,
+show `capacity = 4` and a fifth item's refusal beside the capacity definition; never append
+"In the batch example, capacity applies" as a chapter-ending formula.
 Read only the map, then only map and tour, to check that each stopping point makes sense.
 
-Write a purpose paragraph before every section's rules or fields, including declarations.
-Keep entity-home opening definitions concise because generation copies the whole paragraph.
+Write section openings under the purpose and entity-definition rule in
+[reader progression](../../rules/specifications.md#reader-progression).
+For each entity home, draft the definition sentence separately from its purpose and check
+that the generated index contains the definition alone.
 When touching an explanation owned elsewhere, add a one-line linked handoff naming what is
 explained later. Check each first-use gloss against what a reader needs at that point.
 
@@ -142,10 +158,14 @@ neither an explanation nor adequate evidence for a value or acceptance test.
      must have zero errors; retain that run's output as evidence.
    - Ask it to explain a refusal and its recovery, or the declared absence of either.
    - Require citations for ambiguity, hidden assumptions and places understanding fails.
+   - Have each reader rate every chapter "followed on first read: yes / with effort / no".
+     Require a quote of every choppy, abstract, formulaic or repeated passage.
 3. **Assess the answers against the document.**
    - Do not repair missing explanations through code, external sources or author coaching.
    - Distinguish a concrete reader problem from a stylistic preference or counter warning.
    - Check that reference registry material did not conceal a missing explanation.
+   - Pass only when every chapter is rated "yes" by every reader and no quoted passage
+     remains unaddressed. After repairs, obtain fresh ratings for affected chapters.
 4. **Refresh the affected document and context.**
    - Integrate accepted findings through the editor and home owners.
    - Regenerate navigation and affected packs, then recheck the changed scenarios.

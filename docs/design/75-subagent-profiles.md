@@ -48,15 +48,10 @@ Use this map to choose the next explanation to read.
 
 Use this index to find each registered meaning at its home.
 
-- [Role pack](74-complete-worker-packs.md#role-pack) (`complete-worker-packs.role-pack`) — Role pack: the compiled output of skills/pr-ready/scripts/prompt.py
-for a role file under prompts/roles/.
-- [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator,
-formatting operator questions or running lanes.
-Warden role prompts do not include session-rule files.
+- [Role pack](74-complete-worker-packs.md#role-pack) (`complete-worker-packs.role-pack`) — Role pack: the compiled output of skills/pr-ready/scripts/prompt.py for a role file under prompts/roles/.
+- [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator, formatting operator questions or running lanes.
 - [Shared rule](74-complete-worker-packs.md#shared-rule) (`complete-worker-packs.shared-rule`) — Shared rule: a rule every agent needs, with one owner under rules/.
-Writing rules, claim labels, Git rules and priority labels are shared rules.
 - [House Rules block](73-instruction-layer-foundation.md#house-rules-block) (`instruction-layer-foundation.house-rules-block`) — House Rules block: the managed pointer between <!-- house-rules:begin --> and <!-- house-rules:end -->.
-Install House Rules instructions and Skills defines the block.
 - [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: INDEX.md, which owns shared loading instructions.
 - [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer) (`instruction-layer-foundation.instruction-pointer`) — Pointer: a tool or repository instruction file that tells the agent to read the shared index.
 - [Lane runner](77-one-step-pack-assembly.md#lane-runner) (`one-step-pack-assembly.lane-runner`) — Lane runner: the operator's scripts outside House Rules that launch local workers.
@@ -64,7 +59,6 @@ Install House Rules instructions and Skills defines the block.
 - [Prompt revision pin](77-one-step-pack-assembly.md#prompt-revision-pin) (`one-step-pack-assembly.prompt-revision-pin`) — Pin: the named House Rules commit used to build a role prompt.
 - [Target repository](77-one-step-pack-assembly.md#target-repository) (`one-step-pack-assembly.target-repository`) — Target: the repository checkout on which a worker works or performs a review.
 - [Canary run](76-review-entry-skill.md#canary-run-meaning) (`review-entry-skill.canary-run`) — Canary run: a headless session whose tool log shows which files and skills the agent loaded.
-Canary evidence comes from the tool log, never from the agent's own report.
 - [Skill description](76-review-entry-skill.md#skill-description) (`review-entry-skill.skill-description`) — Description: the frontmatter description that each host shows when matching a task to a skill.
 - [Dispatcher](75-subagent-profiles.md#dispatcher) (`subagent-profiles.dispatcher`) — Dispatcher: the session or script that starts a subagent and writes its task.
 - [General worker](75-subagent-profiles.md#general-worker) (`subagent-profiles.general-worker`) — General worker: a subagent that loads House Rules as a normal session does.

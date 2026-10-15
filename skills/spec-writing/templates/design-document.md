@@ -7,7 +7,7 @@ status: draft
 Use this outline through [design-flow](../../design-flow/SKILL.md) and the
 [authoring procedure](../SKILL.md#author-the-document). Replace this guidance and bracketed
 prompts before approval. Adjust links when copying. Register the document and its sections
-through the [exact source formats](../../../docs/specs/spec-system/formats.md#source-format), which owns declaration syntax.
+through the [exact source formats](../../../docs/specs/spec-system/source-formats.md#source-format), which owns declaration syntax.
 Apply the [specifications rules](../../../rules/specifications.md) and
 [writing profile](../../../rules/writing.md#house-technical-english).
 
@@ -44,11 +44,18 @@ the format contract.]
 <a id="mechanism"></a>
 ## Proposed mechanism
 
-[Give this mechanism its own chapter. Open every section, including declaration records,
-with its purpose. Define a home in one concise sentence before expanding its behavior.]
+[Choose a coherent part of how the system works, grouping related concepts and homes.
+Use "Batch admission" with capacity, validation and refusal sections, not a chapter per
+term. Name each chapter file from its title slug. Write a useful reader-outcome summary
+and only conceptual prerequisites; follow the outline procedure for examples and checks.
+Show the continuing example's relevant snippet or values where each concept is introduced,
+not as a closing formula. Apply the reader-progression rule to section openings.]
 
-[Replace this heading and anchor with the entity's name and stable identity. Start with its
-meaning and problem, then ordinary behavior. Cover applicable refusal, concurrency,
+<a id="entity-home"></a>
+### Entity home
+
+[Replace this subsection heading and anchor with the entity's name and stable identity.
+Start with its definition sentence, then its purpose and ordinary behavior. Cover applicable refusal, concurrency,
 failure and recovery. Add canonical facts, relationships and requirements through the
 format contract. Explain operating conditions and pass conditions for quality bounds.]
 
@@ -117,3 +124,7 @@ and omit Implementation. Distinguish planned verification
 from observed results. Allocate permanent `test-<identity>` anchors. When linking executable
 tests, use the format contract's `Implementation` grammar:
 `[tests/test_x.py::test_name](relative/path/to/tests/test_x.py)`; omit the field otherwise.]
+
+[Run the fresh-reader procedure before acceptance: every reader rates every chapter
+"followed on first read: yes / with effort / no" and quotes every choppy, abstract, formulaic
+or repeated passage. Pass only with every chapter "yes" and no quote unaddressed.]

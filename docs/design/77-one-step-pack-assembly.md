@@ -50,18 +50,10 @@ Use this map to choose the next explanation to read.
 
 Use this index to find each registered meaning at its home.
 
-- [Role pack](74-complete-worker-packs.md#role-pack) (`complete-worker-packs.role-pack`) — Role pack: the compiled output of skills/pr-ready/scripts/prompt.py
-for a role file under prompts/roles/.
-- [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator,
-formatting operator questions or running lanes.
-Warden role prompts do not include session-rule files.
+- [Role pack](74-complete-worker-packs.md#role-pack) (`complete-worker-packs.role-pack`) — Role pack: the compiled output of skills/pr-ready/scripts/prompt.py for a role file under prompts/roles/.
+- [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator, formatting operator questions or running lanes.
 - [Shared rule](74-complete-worker-packs.md#shared-rule) (`complete-worker-packs.shared-rule`) — Shared rule: a rule every agent needs, with one owner under rules/.
-Writing rules, claim labels, Git rules and priority labels are shared rules.
-- [Supplied rule parts](74-complete-worker-packs.md#supplied-rule-parts) (`complete-worker-packs.supplied-rule-parts`) — Repository rules part and task part: the supplied parts defined by the
-one-step assembly design.
-The repository rules part holds the target repository's own rules or the line
-“Repository rules: this repository has no rules of its own.”
-The task part holds the work item's Decisions and Pre-flight sections.
+- [Supplied rule parts](74-complete-worker-packs.md#supplied-rule-parts) (`complete-worker-packs.supplied-rule-parts`) — Repository rules part and task part: the supplied parts defined by the one-step assembly design.
 - [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: INDEX.md, which owns shared loading instructions.
 - [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer) (`instruction-layer-foundation.instruction-pointer`) — Pointer: a tool or repository instruction file that tells the agent to read the shared index.
 - [Include-once](77-one-step-pack-assembly.md#include-once) (`one-step-pack-assembly.include-once`) — Include-once: expansion of a repository path only at its first include within a compilation.
@@ -73,10 +65,7 @@ The task part holds the work item's Decisions and Pre-flight sections.
 - [Target repository](77-one-step-pack-assembly.md#target-repository) (`one-step-pack-assembly.target-repository`) — Target: the repository checkout on which a worker works or performs a review.
 - [Worker prompt pack](77-one-step-pack-assembly.md#worker-prompt-pack) (`one-step-pack-assembly.worker-prompt-pack`) — Pack: the complete prompt text the dispatcher sends to a worker.
 - [Prompt compiler](76-review-entry-skill.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — The prompt compiler assembles complete worker instructions from a named House Rules commit.
-- [Reviewer pack](76-review-entry-skill.md#reviewer-pack) (`review-entry-skill.reviewer-pack`) — Reviewer pack: the criteria and report format compiled from
-prompts/roles/reviewer.md and its recursive @rule includes.
-Interactive, lane and Warden reviewers apply the same criteria and report format.
-Normal House Rules sessions already load shared rules; Warden reviewers receive those rules through role includes.
+- [Reviewer pack](76-review-entry-skill.md#reviewer-pack) (`review-entry-skill.reviewer-pack`) — Reviewer pack: the criteria and report format compiled from prompts/roles/reviewer.md and its recursive @rule includes.
 - [Dispatcher](75-subagent-profiles.md#dispatcher) (`subagent-profiles.dispatcher`) — Dispatcher: the session or script that starts a subagent and writes its task.
 - [Lane worker](75-subagent-profiles.md#lane-worker) (`subagent-profiles.lane-worker`) — Lane worker: an implementer, fixer or lane reviewer running as a normal session with a role prompt on top.
 - [Session foundation](75-subagent-profiles.md#session-foundation) (`subagent-profiles.session-foundation`) — Foundation: the normal session instructions defined by the smaller-core design (#73).

@@ -74,6 +74,61 @@ class CorpusTests(unittest.TestCase):
         self.assertIn(code, {d.code for d in caught.exception.diagnostics.errors})
         self.assertGreater(self.context().size_bytes, 0)
 
+    def test_chapter_filename_matches_first_heading_slug(self):
+        edit(self.paths, SETTINGS, '# Settings', '# Unrelated title')
+        self.red_green('D34')
+
+    def test_summary_explains_more_than_title_or_generic_verb(self):
+        for summary in ('Acceptance.', 'Understand Acceptance.',
+                        'Learn about acceptance', 'Read about acceptance',
+                        'Overview of acceptance', 'Acceptance acceptance'):
+            with self.subTest(summary=summary):
+                self.paths = self.clean.copy()
+                metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0]['sections'][0].update(summary=summary))
+                self.red_green('D36')
+
+    def test_three_repeated_sentences_fail_with_whitespace_normalization(self):
+        sentence = 'The displayed capacity comes from the single declared batch value.'
+        self.paths[SETTINGS] += ('\n' + sentence + '\n\n' + sentence.replace(' ', '\n') + '\n').encode()
+        self.assertNotIn('D35', self.codes())
+        self.paths[ACCEPTANCE] += ('\n' + sentence + '\n').encode()
+        self.red_green('D35')
+
+    def test_repetition_ignores_generated_regions_literals_and_attributed_quotes(self):
+        sentence = 'The displayed capacity comes from the single declared batch value.'
+        self.paths[SETTINGS] += ('\n' + sentence + '\n\n```text\n' + sentence + '\n' + sentence +
+                                 '\n```\n\n> ' + sentence + '\n>\n> — Example author\n').encode()
+        self.assertNotIn('D35', self.codes())
+        refresh(self.paths)
+        self.assertTrue(s.check(corpus(self.paths)).ok)
+
+    def test_predecessor_only_prerequisites_warn_above_five_sections(self):
+        def extend(v):
+            doc = v['documents'][0]
+            for i in range(4):
+                previous = doc['sections'][-1]['id']
+                doc['sections'].append(dict(id=f'extra-{i}', path=SETTINGS, anchor=f'extra-{i}',
+                    roles=[], summary=f'Explain case {i} and its result.',
+                    prerequisites=['example-demo#' + previous], explanatory_dependencies=[]))
+        metadata(self.paths, s.JSON_PATHS[1], extend)
+        for i in range(4):
+            self.paths[SETTINGS] += f'\n<a id="extra-{i}"></a>\n## Extra {i}\n\nCase {i} returns its result.\n'.encode()
+        self.assertIn('W06', {d.code for d in s.check(corpus(self.paths)).warnings})
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+        six_sections = self.paths[s.JSON_PATHS[1]]
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0]['sections'].pop())
+        self.assertNotIn('W06', {d.code for d in s.check(corpus(self.paths)).warnings})
+        self.paths[s.JSON_PATHS[1]] = six_sections
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0]['sections'][-1].update(prerequisites=[]))
+        self.assertNotIn('W06', {d.code for d in s.check(corpus(self.paths)).warnings})
+
+    def test_entity_index_uses_definition_sentence_without_following_purpose(self):
+        edit(self.paths, SETTINGS, 'Commit capacity bounds documents in one commit.',
+             'Commit capacity is the maximum document count in one commit.\nIt prevents oversized submissions.')
+        output = s.generate_navigation(corpus(self.paths))['docs/generated/example-demo.md'].decode()
+        self.assertIn('Commit capacity is the maximum document count in one commit.', output)
+        self.assertNotIn('It prevents oversized submissions.', output)
+
     def test_map_places_diagram_before_generated_overview(self):
         metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0].update(navigation={'path': ACCEPTANCE, 'region': 'example-demo'}))
         self.paths.pop('docs/generated/example-demo.md')
@@ -155,12 +210,12 @@ class CorpusTests(unittest.TestCase):
         text = self.paths[ACCEPTANCE].decode()
         first = text.index('<a id="test-stale-revision">')
         test = text[first:]
-        self.paths[ACCEPTANCE] = text[:first].replace('**Tests:** [Stale request](#test-stale-revision).', '**Tests:** [Stale request](test.md#test-stale-revision).', 1).replace('**Tests:** [Stale request](#test-stale-revision).', '').replace('](#test-stale-revision)', '](test.md#test-stale-revision)').encode()
-        self.paths['docs/example/test.md'] = test.replace('](#req-stale-revision)', '](acceptance.md#req-stale-revision)').replace('](#writer)', '](acceptance.md#writer)').replace('](#acceptance)', '](acceptance.md#acceptance)').replace('](#acceptance-stale-failure)', '](acceptance.md#acceptance-stale-failure)').encode()
+        self.paths[ACCEPTANCE] = text[:first].replace('**Tests:** [Stale request](#test-stale-revision).', '**Tests:** [Stale request](acceptance-test-stale-request.md#test-stale-revision).', 1).replace('**Tests:** [Stale request](#test-stale-revision).', '').replace('](#test-stale-revision)', '](acceptance-test-stale-request.md#test-stale-revision)').encode()
+        self.paths['docs/example/acceptance-test-stale-request.md'] = test.replace('](#req-stale-revision)', '](acceptance.md#req-stale-revision)').replace('](#writer)', '](acceptance.md#writer)').replace('](#acceptance)', '](acceptance.md#acceptance)').replace('](#acceptance-stale-failure)', '](acceptance.md#acceptance-stale-failure)').encode()
         def update(v):
-            v['inventory'].append({'path': 'docs/example/test.md', 'kind': 'specification'})
+            v['inventory'].append({'path': 'docs/example/acceptance-test-stale-request.md', 'kind': 'specification'})
             v['documents'][0]['sections'][0]['explanatory_dependencies'] = []
-            v['documents'][0]['sections'].append(dict(id='test', path='docs/example/test.md', anchor='test-stale-revision', roles=[], summary='Acceptance evidence.', prerequisites=[], explanatory_dependencies=[]))
+            v['documents'][0]['sections'].append(dict(id='test', path='docs/example/acceptance-test-stale-request.md', anchor='test-stale-revision', roles=[], summary='Acceptance evidence.', prerequisites=[], explanatory_dependencies=[]))
         metadata(self.paths, s.JSON_PATHS[1], update)
         c = refresh(self.paths)
         ctx = s.select_context(c, {'version': 1, 'sections': ['example-demo#settings'], 'scenarios': ['example-demo#stale-revision']})
@@ -198,7 +253,7 @@ class CorpusTests(unittest.TestCase):
         c = refresh(self.paths)
         text = self.paths[ACCEPTANCE].decode()
         self.assertLess(text.index(s.START.format(document='example-demo')), text.index('**Procedure:'))
-        self.assertEqual(text.count('# Checking a prepared write'), 1)
+        self.assertEqual(text.splitlines().count('# Acceptance'), 1)
         self.assertFalse(text.endswith('\n\n'))
         self.assertTrue(s.check(c).ok)
 
@@ -776,6 +831,28 @@ class CorpusTests(unittest.TestCase):
 
 
 class MinimalExampleTests(unittest.TestCase):
+    def test_unstaged_chapter_rename_checks_candidate_paths_and_missing_declarations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = miniature()
+            for path, content in paths.items():
+                target = root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content)
+            subprocess.run(['git', 'init', '-q', directory], check=True)
+            subprocess.run(['git', '-C', directory, 'add', '.'], check=True)
+            old = 'docs/example/settings.md'
+            new = 'docs/example/batch-limits.md'
+            (root / old).rename(root / new)
+            for path, content in paths.items():
+                target = root / (new if path == old else path)
+                target.write_text(content.decode().replace('settings.md', 'batch-limits.md').replace('# Settings\n', '# Batch limits\n'))
+            c = s.load_corpus(s.Snapshot.from_git(root, fixture=True))
+            self.assertTrue(s.check(c, _freshness=False).ok, s.check(c, _freshness=False).errors)
+            (root / new).unlink()
+            broken = s.check(s.load_corpus(s.Snapshot.from_git(root, fixture=True)), _freshness=False)
+            self.assertIn('D27', {d.code for d in broken.errors})
+
     def test_checker_parses_under_the_minimum_supported_python_grammar(self):
         import ast
         ast.parse(Path(s.__file__).read_text(), feature_version=(3, 11))
@@ -796,7 +873,7 @@ class MinimalExampleTests(unittest.TestCase):
     def test_published_example_is_the_checked_fixture_in_an_independent_repository(self):
         fixture = Path(__file__).parent / 'fixtures/minimal'
         paths = {p.relative_to(fixture).as_posix(): p.read_bytes() for p in fixture.rglob('*') if p.is_file()}
-        chapter = (Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/example.md').read_text()
+        chapter = (Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/minimal-corpus.md').read_text()
         tokens = s.MarkdownIt('commonmark').parse(chapter)
         fenced = [t.content.encode() for t in tokens if t.type == 'fence' and t.info in ('json', 'markdown')]
         self.assertEqual(sorted(paths.values()), sorted(fenced))
@@ -824,7 +901,7 @@ class MinimalExampleTests(unittest.TestCase):
         self.assertEqual([c['kind'] for c in s.requirement_changes(base, candidate).changes], ['new'])
 
     def test_documented_vocabulary_agrees_with_the_machine_contract(self):
-        path = Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/formats.md'
+        path = Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/source-formats.md'
         tokens = s.MarkdownIt('commonmark').parse(path.read_text())
         blocks = [json.loads(t.content) for t in tokens if t.type == 'fence' and t.info == 'json format-contract']
         self.assertEqual(blocks, [json.loads(s.REFERENCE.read_text())])
@@ -1010,7 +1087,7 @@ class DiagnosticCoverageSuite(unittest.TestSuite):
             return original(diagnostics, code, *args, **kwargs)
         with patch.object(s.Diagnostics, 'add', record):
             super().run(result, debug)
-        reference = Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/reference.md'
+        reference = Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/interfaces-and-encodings.md'
         expected = set(re.findall(r'^\| ([DW]\d{2}) \|', reference.read_text(), re.M))
         def verify():
             unittest.TestCase().assertEqual(emitted, expected)

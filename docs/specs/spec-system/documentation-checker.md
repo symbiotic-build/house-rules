@@ -10,7 +10,7 @@ Parse each input once per invocation.
 One in-memory model supports checking, navigation and context selection.
 No persistent database, cache or search index is required.
 
-The source supplies paths and bytes from one [source snapshot](snapshots.md#source-snapshot).
+The source supplies paths and bytes from one [source snapshot](source-snapshot.md#source-snapshot).
 Local inputs are regular UTF-8 files within the declared repository input set.
 Reject path escapes, symlinks and invalid encoding.
 Reject duplicate JSON keys, unknown fields, unsupported versions, duplicate identities and malformed declarations.
@@ -38,10 +38,10 @@ Neither continuous integration nor context generation promotes warning counts to
 | <a id="checker-document-errors"></a>document-errors | 1 | specified | [Source decision](decisions.md#source-decision) |
 | <a id="checker-invocation-failure"></a>invocation-failure | 2 | specified | [Source decision](decisions.md#source-decision) |
 
-The [success](checking.md#checker-success) exit means no structural errors.
-The [document-errors](checking.md#checker-document-errors) exit identifies invalid documentation.
-The [invocation-failure](checking.md#checker-invocation-failure) exit identifies an invocation or input/output failure.
-The [diagnostic reference](reference.md#diagnostics) assigns codes without adding value types or measurement conversion.
+The [success](documentation-checker.md#checker-success) exit means no structural errors.
+The [document-errors](documentation-checker.md#checker-document-errors) exit identifies invalid documentation.
+The [invocation-failure](documentation-checker.md#checker-invocation-failure) exit identifies an invocation or input/output failure.
+The [diagnostic reference](interfaces-and-encodings.md#diagnostics) assigns codes without adding value types or measurement conversion.
 
 <a id="failure-invalid-source"></a>
 ### Failure state: invalid source or invocation
@@ -58,8 +58,4 @@ This refusal explains invalid source or invocation and the actor who can recover
 
 **Authority:** The source owner edits authored files; the caller chooses valid invocation inputs.
 
-**Verification:** [Checker failures](acceptance.md#test-checking), [homes](acceptance.md#test-homes), [literal values](acceptance.md#test-literals).
-
-
-In the bounded-batch example, a wrong capacity label triggers `D10`; the corrected source proceeds to review.
-The exact files are explained later in [Minimal corpus](example.md#minimal-example).
+**Verification:** [Checker failures](acceptance-evidence.md#test-checking), [homes](acceptance-evidence.md#test-homes), [literal values](acceptance-evidence.md#test-literals).

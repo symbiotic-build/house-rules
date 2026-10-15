@@ -28,8 +28,8 @@ regular repository-relative UTF-8 file.
 Symlinks and path escapes are refused.
 
 No network access occurs.
-Exit codes are [success](checking.md#checker-success), [document-errors](checking.md#checker-document-errors),
-and [invocation-failure](checking.md#checker-invocation-failure).
+Exit codes are [success](documentation-checker.md#checker-success), [document-errors](documentation-checker.md#checker-document-errors),
+and [invocation-failure](documentation-checker.md#checker-invocation-failure).
 Warnings never fail a command.
 
 
@@ -65,7 +65,7 @@ Text fields are nonempty strings.
 Arrays may be empty unless stated otherwise.
 Paths are repository-relative regular UTF-8 inputs without `.` or `..` components.
 
-The complete [minimal corpus](example.md#minimal-example) instantiates the required shapes.
+The complete [minimal corpus](minimal-corpus.md#minimal-example) instantiates the required shapes.
 
 
 The JSON envelopes are:
@@ -87,6 +87,29 @@ The contract block's ordered `roles` array defines the reading sequence checked 
 Section roles may share a position only when adjacent roles are combined in one section.
 The section array places the tour before mechanisms, and acceptance after reference.
 Every authored heading and paragraph belongs to a registered section subtree, including each chapter's opening.
+
+For a multi-file document, each chapter filename is the slug of its first heading plus
+`.md`.
+A slug uses lowercase words separated by hyphens, with punctuation removed and underscores
+replaced by hyphens. For example, "Batch admission" becomes `batch-admission.md`.
+There is no short-name mapping. Single-file documents retain their document filename.
+A mismatch is error `D34`.
+
+A section summary states what the reader learns or can do there.
+"Batch admission" might use "Determine whether a batch fits and what a refusal retains".
+Error `D36` rejects summaries with no word beyond the title.
+Comparison ignores case and punctuation and removes a leading "Understand", "Learn about",
+"Read about" or "Overview of".
+
+Prerequisites list only chapters whose concepts the section cannot be read without.
+For more than five sections, warning `W06` flags an empty first prerequisite list followed
+entirely by single-predecessor lists. Review actual conceptual dependencies.
+
+Error `D35` rejects any sentence of at least eight whitespace-separated words that occurs
+three or more times within a document's chapters, after whitespace normalization.
+It checks authored paragraph prose, including lists and ordinary detail blocks, but excludes
+generated regions, literal blocks, attributed quotations, table cells and declaration fields.
+Reuse the continuing example at each concept's introduction instead of a closing formula.
 
 Register a chapter's title anchor to include that opening; registering only its later level-2 sections leaves the opening unassigned.
 Reader progression follows [rules/specifications.md](../../../rules/specifications.md#reader-progression).
@@ -114,7 +137,7 @@ Each document has this shape (the last three keys are optional):
 }
 ```
 
-**Entities in this example:** [Scenario](scenarios.md#scenario).
+**Entities in this example:** [Scenario](scenario.md#scenario).
 
 This shape illustrates optional fields; its reference and decision targets must be supplied in a real corpus.
 `navigation.region` is optional; omit it only for a whole file under `docs/generated/`.
@@ -126,9 +149,9 @@ Fixture authority approves the example contract only and confers no production a
 
 The `sections`, `scenarios`, `prerequisites`, `scope`, `forms`, and `symbols` values are arrays.
 Sections are ordered; prerequisites and dependencies use `document#section` selectors.
-[Scenario](scenarios.md#scenario), decision and unresolved-contract selectors use `document#anchor`.
+[Scenario](scenario.md#scenario), decision and unresolved-contract selectors use `document#anchor`.
 
-**Entities in this example:** [Scenario](scenarios.md#scenario).
+**Entities in this example:** [Scenario](scenario.md#scenario).
 
 
 Each identity-keyed entity has exactly this shape:
@@ -273,7 +296,7 @@ The declaration rules below identify required links.
 }
 ```
 
-**Entities in this example:** [Scenario](scenarios.md#scenario).
+**Entities in this example:** [Scenario](scenario.md#scenario).
 
 <a id="markdown-declarations"></a>
 ## Markdown declarations
@@ -281,11 +304,11 @@ The declaration rules below identify required links.
 These encodings make the batcher's homes, facts and evidence addressable by the checker.
 
 An empty `<a id="stable-anchor"></a>` immediately precedes each home heading.
-The first paragraph defines the entity.
+The opening follows the [entity-definition rule](../../../rules/specifications.md#reader-progression).
 The home includes its whole heading
 subtree.
 
-Heading titles and meanings enter the generated [complete registry](registry.md#complete-registry).
+Heading titles and meanings enter the generated [complete registry](complete-registry.md#complete-registry).
 Generated regions cannot provide declarations.
 Linking and heading policy belongs to [rules/specifications.md](../../../rules/specifications.md#direct-links).
 
@@ -326,7 +349,7 @@ Predicates and target
 kinds are listed in the format contract.
 Target and Basis contain direct links.
 
-Requirement, failure and [scenario](scenarios.md#scenario) headings start respectively with
+Requirement, failure and [scenario](scenario.md#scenario) headings start respectively with
 `Requirement:`, `Failure state:`, and `Scenario:`.
 An acceptance case is identified by its permanent `test-` anchor; its heading may omit `Acceptance test:`.
 A bold field label appears once per declaration or decision heading.
@@ -334,13 +357,13 @@ One Rejected alternatives field contains all options and their reasons.
 Declarations have an
 explicit anchor and bold field paragraphs, for example `**Actor:** [Batcher](#batcher)`.
 
-**Entities in this example:** [Scenario](scenarios.md#scenario), [Acceptance test](tests.md#acceptance-test).
+**Entities in this example:** [Scenario](scenario.md#scenario), [Acceptance test](acceptance-test.md#acceptance-test).
 
 A scenario uses `### Scenario: capacity repair` and an immediately preceding explicit anchor.
 Its Purpose, Inputs and Expected fields describe the story; Requirements and Tests link its evidence.
 Required field names are listed in the contract.
 
-**Entities in this example:** [Scenario](scenarios.md#scenario).
+**Entities in this example:** [Scenario](scenario.md#scenario).
 
 Tests and requirements declare
 reciprocal links through their Tests and Requirements fields.
@@ -352,10 +375,10 @@ in the field or adjacent explanation.
 Review checks those meanings.
 
 
-**Entities in this example:** [Acceptance test](tests.md#acceptance-test), [Scenario](scenarios.md#scenario).
+**Entities in this example:** [Acceptance test](acceptance-test.md#acceptance-test), [Scenario](scenario.md#scenario).
 
-Only acceptance cases may add `Implementation`; [failure declarations](failures.md#failure-declaration) may add `Actor`.
-[Scenarios](scenarios.md#scenario) may add `Requirements` and `Tests` links.
+Only acceptance cases may add `Implementation`; [failure declarations](failure-declaration.md#failure-declaration) may add `Actor`.
+[Scenarios](scenario.md#scenario) may add `Requirements` and `Tests` links.
 No other declaration field is allowed.
 Adjacent **Entities in this example** annotations apply to each literal block and are not declaration fields.
 
@@ -396,7 +419,7 @@ They are not separate format policies.
 These markers identify the exact output region that readers can rebuild from the example.
 
 Each document gets one output containing its overview, ordered document map, and
-[entity index](entities.md#entity-index).
+[entity index](entity-index.md#entity-index).
 A region follows the entry opening and its overview diagram with adjacent home annotations.
 Without an introductory diagram, it follows the opening paragraph.
 The map lists every chapter and links each level-2 heading in its registered subtree.
@@ -453,7 +476,7 @@ Context selection requires a checked snapshot.
 
 
 Assignment JSON has `version: 1` and nonempty `sections` (explicit selectors).
-Optional fields are `scenarios` (whole-[scenario](scenarios.md#scenario) selectors), `decisions` (anchor
+Optional fields are `scenarios` (whole-[scenario](scenario.md#scenario) selectors), `decisions` (anchor
 selectors), `baseline` (snapshot digest or commit revision), `budget_bytes`,
 `review_plan`, `required_test_reviews`, `removal_decisions`,
 and `label` (`base` or `candidate`). Every removal decision maps a removed
@@ -462,7 +485,7 @@ requirement selector to a resolving decision selector. Review-plan entries have
 cover several responsibilities. `required_test_reviews` lists selected test
 selectors from change reporting; their complete ranges are mandatory.
 
-**Entities in this example:** [Scenario](scenarios.md#scenario).
+**Entities in this example:** [Scenario](scenario.md#scenario).
 
 The single `budget_bytes` field bounds documentation context bytes.
 The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) separately bounds the complete pack, including rules and task text.
@@ -476,7 +499,7 @@ It derives required test selectors from the base/candidate change report.
 Removal decisions remain explicit assignment input from the work item.
 
 
-The output contains the [complete registry](registry.md#complete-registry), unique assigned ranges, transitive
+The output contains the [complete registry](complete-registry.md#complete-registry), unique assigned ranges, transitive
 explanatory dependencies, relevant complete homes, metadata, profile, decisions,
 and provenance.
 Ranges overlap by source lines and are merged, with all inclusion

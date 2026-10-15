@@ -7,6 +7,15 @@ For each finding, show the concrete passage and what the reader cannot explain. 
 
 Fresh-reader packages follow the [canonical reader procedure](../../skills/spec-writing/SKILL.md#fresh-reader-review).
 Identify what this reader cannot explain about the tour, refusal or recovery from the supplied document.
+In addition to the questions and reader-built corpus, rate every chapter "followed on first
+read: yes / with effort / no". Quote every choppy, abstract, formulaic or repeated passage.
+The pass bar is every chapter "yes" from every reader, with no quoted passage unaddressed.
+
+Check that each paragraph develops one point through connected sentences and that each
+abstract rule has its concrete case. Before: "Examples add no obligations. Summaries are
+illustrative. Links resolve to homes." After: "The fifth item exceeds the batch capacity
+of four. The example shows its refusal. That refusal illustrates the capacity requirement;
+it adds no new obligation." Unrelated assertions belong in a list.
 
 Apply the writing profile's warning severity. A long sentence, long paragraph or other
 heuristic warning alone is not a defect. Identify the demonstrated reader problem and its
@@ -19,9 +28,12 @@ successful literal-value link check does not establish those meanings.
 @rule house-rules:rules/specifications.md
 
 Check the concrete reading path in rules/specifications.md: map with a stated diagram
-question, plain tour, one mechanism per chapter, then lookup reference. Follow the same
+question, plain tour, coherent mechanism chapters, then lookup reference. Reject a split
+into one chapter per term; check title-slug filenames and useful summaries. Check actual
+conceptual prerequisites rather than a predecessor chain. Follow the same
 example through all four parts and acceptance. Check skippable labelled detail blocks,
-purpose-first openings (including declaration records), explicit linked deferrals and
+purpose-first section openings (including declaration records), definition-first entity
+homes with purpose following, explicit linked deferrals and
 first-use glosses. Check role order against the manifest and templates. Require the
 fresh-reader and normal authoring/conversion run evidence from the canonical procedure;
 a fixed published fixture does not establish reader construction or pipeline quality.

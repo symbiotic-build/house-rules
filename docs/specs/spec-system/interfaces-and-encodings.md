@@ -2,15 +2,15 @@
 <a id="interfaces"></a>
 # Interfaces and encodings
 
-The [exact source formats](formats.md#source-format) define every JSON shape, Markdown declaration, navigation marker and callable input.
+The [exact source formats](source-formats.md#source-format) define every JSON shape, Markdown declaration, navigation marker and callable input.
 The [skills/spec-writing/references/format-contract.json](../../../skills/spec-writing/references/format-contract.json) must agree with that chapter.
-The [complete minimal corpus](example.md#minimal-example) is checked as a real fixture.
+The [complete minimal corpus](minimal-corpus.md#minimal-example) is checked as a real fixture.
 There is no unit configuration or value-type system.
 
 <a id="diagnostics"></a>
 ## Diagnostic reference
 
-The [documentation checker](checking.md#documentation-checker) reports structural failures through these templates.
+The [documentation checker](documentation-checker.md#documentation-checker) reports structural failures through these templates.
 Diagnostic codes identify failure classes; they do not certify technical validity.
 
 | Code | Meaning | Fix |
@@ -44,11 +44,14 @@ Diagnostic codes identify failure classes; they do not certify technical validit
 | D31 | Missing changed-test input | Select every affected test |
 | D32 | Numbered heading | Use an unnumbered title |
 | D33 | Linked heading | Move links into prose |
+| D34 | Chapter filename mismatch | Use the title slug |
+| D35 | Repeated sentence | Explain at concept introduction |
+| D36 | Title-only summary | State the reader outcome |
 
-**Entities in this example:** [documentation checker](checking.md#documentation-checker),
-[acceptance test](tests.md#acceptance-test), [context pack](context.md#context-pack),
-[requirement declaration](obligations.md#requirement-declaration),
-[failure declaration](failures.md#failure-declaration).
+**Entities in this example:** [documentation checker](documentation-checker.md#documentation-checker),
+[acceptance test](acceptance-test.md#acceptance-test), [context pack](context-pack.md#context-pack),
+[requirement declaration](requirement-declaration.md#requirement-declaration),
+[failure declaration](failure-declaration.md#failure-declaration).
 
 Codes `D09`, `D19`, `D20` and `D23` are retired.
 Warning `W03` is retired.
@@ -67,9 +70,10 @@ Procedure checks inspect structure, not action meaning inferred from punctuation
 | W02 | Long paragraph | Split or explain retention |
 | W04 | Ambiguous technical use | Review the intended meaning |
 | W05 | Possible profile violation | Inspect; retain exact literals |
+| W06 | Predecessor-only prerequisites | Review conceptual dependencies |
 
 
-Unlinked value restatements require [semantic review](review.md#semantic-review).
+Unlinked value restatements require [semantic review](semantic-review.md#semantic-review).
 Warnings accompany readability assignments.
 A demonstrated contradiction or missing explanation is a review finding; a warning alone is not.
 
@@ -102,11 +106,11 @@ This lookup reconnects each part of the tour to its exact reference.
 
 | Need | Reference |
 |---|---|
-| Authored files | [Minimal corpus](example.md#minimal-example) |
-| Capacity declaration | [Markdown declarations](formats.md#markdown-declarations) |
+| Authored files | [Minimal corpus](minimal-corpus.md#minimal-example) |
+| Capacity declaration | [Markdown declarations](source-formats.md#markdown-declarations) |
 | Wrong label | [D10](#diagnostics) |
-| Assigned input | [Callable assignment](formats.md#callable-core-and-context-assignment) |
-| Executable evidence | [Literal values](acceptance.md#test-literals) |
+| Assigned input | [Callable assignment](source-formats.md#callable-core-and-context-assignment) |
+| Executable evidence | [Literal values](acceptance-evidence.md#test-literals) |
 
 The full-batch inspection in the minimal corpus is intentionally non-executable.
-Its evidence names the retained-state refusal; the independent-repository regression executes the [documentation checker](checking.md#documentation-checker) against those exact files.
+Its evidence names the retained-state refusal; the independent-repository regression executes the [documentation checker](documentation-checker.md#documentation-checker) against those exact files.
