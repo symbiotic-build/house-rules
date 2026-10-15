@@ -1,0 +1,197 @@
+<a id="overview"></a>
+# Specification and design-document system
+
+This system keeps technical meaning in ordinary Markdown and checks its declared structure.
+Readers follow direct links to definitions and literal values.
+Authors maintain shared metadata for identity and reading order.
+One Python tool checks those sources and generates navigation and agent context.
+Human and agent review establish meaning, readability and test adequacy.
+
+This specification serves authors, reviewers and tool implementers familiar with Markdown and Git.
+It covers single-file and multi-file specifications and design documents.
+It excludes a publication server, custom renderer, expression evaluator and general prose formatter.
+A separate renderer may consume checked Markdown.
+House Rules owns no HTML publication pipeline.
+
+The [document manifest](sources.md#document-manifest) declares purpose and reading order.
+The [entity index](sources.md#entity-index) assigns identities and homes.
+The [documentation checker](checking.md#documentation-checker) derives navigation and complete agent inputs from those sources.
+
+```mermaid
+flowchart TD
+    M["Authored metadata: identity and reading order"]
+    H["Markdown: meaning and declarations"]
+    C["Shared Python tool"]
+    N["Generated navigation"]
+    P["Complete registry and selected context"]
+    R["Structural checks and semantic review"]
+    M --> C
+    H --> C
+    C --> N
+    C --> P
+    N --> R
+    P --> R
+```
+
+**Entities in this example:** [document manifest](sources.md#document-manifest),
+[entity index](sources.md#entity-index), [documentation checker](checking.md#documentation-checker),
+[complete registry](context.md#complete-registry), [context pack](context.md#context-pack),
+[semantic review](context.md#semantic-review).
+
+<a id="tour"></a>
+## Tour: repair a mismatched value
+
+A small synthetic specification declares a batch capacity.
+Its [canonical fact](sources.md#canonical-fact) has the literal value `1 024`.
+A [requirement declaration](sources.md#requirement-declaration) uses that value through a direct link.
+An [acceptance test](sources.md#acceptance-test) links back to the requirement.
+This story follows a value mismatch through checking, repair and review.
+It adds no product contract.
+
+**Procedure: follow a capacity correction**
+
+1. **Declare the capacity.**
+   - Put an empty `id` anchor in the Key cell of a value table.
+   - Store `1 024` in its Value cell.
+   - Set Status to `specified` and Basis to the approving decision link.
+   - The capacity counts items in one synthetic batch.
+2. **Write a linked use.**
+   - Display `2048` in a link targeting the capacity's anchor.
+   - The link resolves, but its text differs from the [canonical fact](sources.md#canonical-fact).
+3. **Check the selected bytes.**
+   - The [documentation checker](checking.md#documentation-checker) reports `D10` at the use.
+   - The process returns [1](checking.md#checker-document-errors), identifying document errors.
+   - The sources and previous generated output remain available for repair.
+4. **Correct the use.**
+   - Change the link label to `1024`.
+   - Grouping normalization makes it equal to the [canonical fact](sources.md#canonical-fact).
+   - No conversion, expression evaluation or independent default is introduced.
+5. **Review the checked result.**
+   - Regenerate navigation and a [context pack](context.md#context-pack) from the same selected bytes.
+   - Reviewers confirm that the capacity means items per batch.
+   - Reviewers check whether the [acceptance test](sources.md#acceptance-test) proves the linked [requirement declaration](sources.md#requirement-declaration).
+
+The [literal-value acceptance case](acceptance.md#test-literals) proves the comparison in this story.
+The [repair walkthrough](#capacity-repair) joins the structural and review paths.
+The remaining mechanisms explain where declarations live, how checking works and how agents receive context.
+
+<a id="capacity-repair"></a>
+### [Scenario](sources.md#scenario): capacity repair
+
+**Purpose:** Follow one incorrect displayed value through refusal and repair.
+
+**Inputs:** A literal capacity of `1 024`; a linked use displaying `2048`.
+
+**Expected:** Checking refuses the mismatch; a corrected `1024` passes literal comparison.
+
+**Requirements:** [Literal equality](sources.md#require-literals), [visible refusal](checking.md#require-checking), [mandatory context](context.md#require-context).
+
+**Tests:** [Literal values](acceptance.md#test-literals), [checker failures](acceptance.md#test-checking), [context selection](acceptance.md#test-context).
+
+<a id="source-document"></a>
+## Source document
+
+A source document declares a technical purpose, audience, scope and reading order across one or more Markdown files.
+
+A single-file design stays in its normal location.
+It uses the repository's shared metadata and one generated navigation region.
+It needs no private directory, companion glossary or exclusion file.
+
+A specification explains maintained behavior.
+A design document also supplies current evidence, constraints, alternatives, ownership, integration, rollout, work packages and acceptance evidence.
+When design intent becomes maintained specification, move the current home instead of retaining two contracts.
+Retained pointers follow the existing [design closeout procedure](../../../skills/design-flow/SKILL.md).
+
+Every document supplies a tour, mechanisms, requirements, acceptance, decisions, questions and reference.
+Purpose, audience, scope and non-goals explain the reader's task and prerequisites.
+An inapplicable role says “None” and explains why.
+A draft may expose gaps; approval refuses an unresolved contract that prevents implementation.
+The [role requirement](sources.md#require-roles) makes these declarations checkable.
+
+<a id="addressable-section"></a>
+## Addressable section
+
+An addressable section is a stable named part of a [source document](#source-document).
+
+For linking, each heading starts a section whose introductory content ends at the next heading.
+Content before the first heading also forms a section.
+Every subsection resets first-use linking.
+For assignment and home extraction, a heading instead selects its complete subtree through the next heading of equal or higher level.
+These boundaries serve different operations.
+
+The [document manifest](sources.md#document-manifest) sets reading order.
+Source order sets position within each selected section.
+A home in another document always counts as ahead of the reader.
+Documents have no shared reading order.
+
+Document, section, entity, fact and test identities survive title changes and reordering.
+Local destinations use explicit empty `id` anchors.
+Unreleased material requires no permanent redirects.
+Moving a home changes its index entry and incoming links together.
+
+<a id="registered-entity"></a>
+## Registered entity
+
+A registered entity is a concept whose identity and names resolve to one Markdown home containing its meaning.
+
+Several entities may share an [addressable section](#addressable-section).
+Each still has a distinct home anchor and complete entry.
+The home anchor immediately precedes its heading.
+The first paragraph defines meaning.
+The home includes nested declarations and examples through the next heading of equal or higher level.
+
+The [entity index](sources.md#entity-index) owns identity, classification, accepted forms, rejected forms and home location.
+The Markdown home owns meaning, facts and operational explanation.
+The generated [complete registry](context.md#complete-registry) combines both sources.
+Authors never edit that generated combination.
+
+Examples, diagrams and summaries illustrate obligations; they do not add obligations.
+Excluded features remain in scope or non-goals text.
+Exclusion alone creates no operational home or generated exclusion file.
+The [home and linking requirement](sources.md#require-homes) preserves one writable authority.
+
+<!-- spec-docs:navigation document="spec-system" -->
+# Specification and design-document system
+
+<!-- Generated by spec-docs; edit authored declarations. -->
+
+## Overview
+
+Keep technical meaning in Markdown and check declared structure without a second writable contract.
+
+**Audience:** Authors, reviewers and tool implementers familiar with Markdown and Git.
+
+**Scope:** Single-file and multi-file specifications, design documents, declarations, navigation and mandatory agent context.
+
+**Non-goals:** Publication server, custom renderer, expression evaluation, general prose formatting and product-specific contracts.
+
+## Document map
+
+- [Specification and design-document system](overview.md#overview) — Understand the source model through a mismatched-value repair.
+- [Sources, homes and declarations](sources.md#sources) — Declare homes, literal values, requirements, tests and recovery.
+- [Checking, generation and setup](checking.md#checking) — Check one source selection and rebuild navigation with visible failures.
+- [Snapshots, agent context and review](context.md#context) — Prepare complete snapshot-isolated assignments and semantic review.
+- [Reference, decisions and adoption](reference.md#reference) — Find exact interfaces, diagnostics, settled decisions and adoption duties.
+- [Acceptance evidence](acceptance.md#acceptance) — Prove structural behavior and real authoring and review acceptance.
+
+## Entity index
+
+- [Acceptance test](sources.md#acceptance-test) (`spec-system.acceptance-test`) — An acceptance test declares a verification method, inputs, pass condition and reciprocal requirement links.
+- [Addressable section](overview.md#addressable-section) (`spec-system.addressable-section`) — An addressable section is a stable named part of a source document.
+- [Canonical fact](sources.md#canonical-fact) (`spec-system.canonical-fact`) — A canonical fact is a named literal value declared in a table cell at its owning entity's home.
+- [Complete registry](context.md#complete-registry) (`spec-system.complete-registry`) — The complete registry is a generated combination of every entity's identity, names, meaning, literal facts and home.
+- [Context pack](context.md#context-pack) (`spec-system.context-pack`) — A context pack contains the complete mandatory documentation input for an explicit authoring or review assignment.
+- [Document manifest](sources.md#document-manifest) (`spec-system.document-manifest`) — The document manifest is the repository's JSON declaration of document inventory, purpose, audience, scope and section reading order.
+- [Documentation checker](checking.md#documentation-checker) (`spec-system.documentation-checker`) — The documentation checker is the shared Python parser and validator for selected Markdown and metadata bytes.
+- [Entity index](sources.md#entity-index) (`spec-system.entity-index`) — The entity index is the repository's JSON authority for concept identities, classification, applicability, names and home locations.
+- [Failure declaration](sources.md#failure-declaration) (`spec-system.failure-declaration`) — A failure declaration states how a stopping mechanism affects its caller and what recovery requires.
+- [Navigation generation](checking.md#navigation-generation) (`spec-system.navigation-generation`) — Navigation generation projects authored purpose, audience, summaries, reading order and entity homes into deterministic Markdown.
+- [Registered entity](overview.md#registered-entity) (`spec-system.registered-entity`) — A registered entity is a concept whose identity and names resolve to one Markdown home containing its meaning.
+- [Requirement declaration](sources.md#requirement-declaration) (`spec-system.requirement-declaration`) — A requirement declaration states an actor, condition, observable result, verification, linked tests, Status and Basis.
+- [Scenario](sources.md#scenario) (`spec-system.scenario`) — A scenario follows concrete inputs, actions and expected results across sections.
+- [Semantic review](context.md#semantic-review) (`spec-system.semantic-review`) — Semantic review establishes whether checked documents explain correct behavior and provide adequate evidence.
+- [Source document](overview.md#source-document) (`spec-system.source-document`) — A source document declares a technical purpose, audience, scope and reading order across one or more Markdown files.
+- [Source snapshot](context.md#source-snapshot) (`spec-system.source-snapshot`) — A source snapshot is one immutable set of repository paths and bytes selected for checking, generation or assignment.
+- [Tool environment](checking.md#tool-environment) (`spec-system.tool-environment`) — The tool environment is an isolated Python installation using dependencies owned by the shared spec-writing tool.
+- [Writing profile](reference.md#writing-profile) (`spec-system.writing-profile`) — The writing profile is the versioned set of controlled-language practices owned by writing rules.
+<!-- /spec-docs:navigation -->
