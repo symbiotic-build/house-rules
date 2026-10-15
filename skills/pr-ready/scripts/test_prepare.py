@@ -636,7 +636,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         self.git(source, "init", "-b", "main")
         for folder in ("prompts", "rules"):
             shutil.copytree(SCRIPT.parents[3] / folder, source / folder)
-        for name in ("prompt.py", "review-panel.lenses"):
+        for name in ("prompt.py", "prepare.py", "review-panel.lenses"):
             dest = source / "skills/pr-ready/scripts" / name
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(SCRIPT.with_name(name), dest)
@@ -681,16 +681,14 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         self.write(self.repo, "src/core.py", "first_change = 2\n")
         self.commit(self.repo, "First title\n\nDesign: docs/spec.md")
         first = self.git(self.repo, "rev-parse", "HEAD")
-        real_python = shutil.which("python3")
         real_git = shutil.which("git")
-        # The panel invokes the preparer only after target-rule compilation.
-        # Move HEAD at that boundary without sleeps or concurrent timing.
-        wrapper = self.binaries / "python3"
+        # Metadata selection starts after target-rule compilation. Move HEAD at
+        # that boundary without sleeps or concurrent timing.
+        wrapper = self.binaries / "git"
         wrapper.write_text("#!" + sys.executable + "\n" +
                           "import os, pathlib, subprocess, sys\n" +
-                          f"preparer = {str(SCRIPT)!r}\n" +
                           "args = sys.argv[1:]\n" +
-                          "if preparer in args and args[args.index(preparer) + 1] == 'review':\n" +
+                          "if args[-1:] == [':(literal)docs/ENTITIES.json']:\n" +
                           f"    repo = pathlib.Path({str(self.repo)!r})\n" +
                           "    for path, body in [('AGENTS.md', 'SECOND RULES\\n'), " +
                           "('docs/spec.md', 'SECOND SPEC\\n'), ('src/core.py', 'second_change = 3\\n')]:\n" +
@@ -700,7 +698,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
                           f"    subprocess.run([{real_git!r}, '-C', str(repo), 'commit', '-m', " +
                           "'Second title\\n\\nDesign: docs/spec.md'], check=True, timeout=5, " +
                           "stdout=subprocess.DEVNULL)\n" +
-                          f"os.execv({real_python!r}, [{real_python!r}, *args])\n")
+                          f"os.execv({real_git!r}, [{real_git!r}, *args])\n")
         wrapper.chmod(0o755)
         stub = self.binaries / "codex"
         stub.write_text("#!/bin/sh\n"
@@ -827,7 +825,8 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
                    if "ls-tree" in c and c[-1].startswith(":(literal)")]
         expected = {(env["REVIEW_HOUSE_RULES_REPO"], ":(literal)" + p)
                     for p in ["skills/pr-ready/scripts/prompt.py", *[e["path"] for e in manifest["files"]]]}
-        expected |= {(str(self.repo), ":(literal)" + p) for p in ("AGENTS.md", ".agents/rules.md")}
+        expected |= {(str(self.repo), ":(literal)" + p) for p in
+                     ("AGENTS.md", ".agents/rules.md", "docs/ENTITIES.json", "docs/DOCUMENTS.json")}
         self.assertEqual(len(lookups), len(expected), lookups)
         self.assertEqual(set(lookups), expected)
         self.assertEqual(sum("--batch" in c for c in calls), 1, calls)

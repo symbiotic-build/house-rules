@@ -221,7 +221,8 @@ class CompleteWorkerPackTest(unittest.TestCase):
                     args = ("--session",) if session else ()
                     result = self.run_prompt(*args, text=source)
                     # A lens may include another lens; compare its expanded text.
-                    body, _ = prompt.expand(file=lens.relative_to(ROOT).as_posix(), session=session)
+                    expansion = prompt.Expansion(prompt.WorkingTree(ROOT), session=session)
+                    body = expansion.visit(lens.relative_to(ROOT).as_posix())
                     self.assertEqual(result.stdout.count(body), 1)
                     for owner in self.shared:
                         self.assertEqual(result.stdout.count((ROOT / owner).read_text()),
@@ -1406,6 +1407,7 @@ class RuleIndexTest(unittest.TestCase):
         targets = re.findall(r"\[[^]]+\]\(([^)]+)\)", index)
         required = {"rules/core.md", "rules/outcome.md", "rules/delivery.md", "rules/writing.md",
                     "rules/git.md", "rules/priority-labels.md", "rules/session-writing.md",
+                    "rules/specifications.md",
                     "STRUCTURE.md", "PREFERENCES.md"}
         required.update(str(path.relative_to(ROOT))
                         for path in (ROOT / "skills").glob("*/SKILL.md"))
@@ -2267,7 +2269,8 @@ class CommitPackTest(unittest.TestCase):
     def test_retry_instructions_distinguish_read_only_reviews_from_workers(self):
         design = (ROOT / "docs/design/77-one-step-pack-assembly.md").read_text()
         task_text = design.split("### Task text is data\n", 1)[1].split("### Target repository rules", 1)[0]
-        step = design.split("### Changes in the lane runner\n", 1)[1].split("8. ", 1)[1].split("\n\n", 1)[0]
+        runner = design.split('<a id="changes-in-the-lane-runner"></a>', 1)[1].split('<a id="warden-adoption">', 1)[0]
+        step = next(line for line in runner.splitlines() if "A capacity retry for a read-only reviewer" in line)
         for section in (task_text, step):
             with self.subTest(section=section):
                 self.assertIn("read-only reviewer", section)
@@ -2384,7 +2387,8 @@ class CommitPackTest(unittest.TestCase):
         self.assertEqual(set(lookups),
                          {(str(self.repo), p) for p in ("skills/pr-ready/scripts/prompt.py",
                            "prompts/roles/reviewer.md", "prompts/lenses/security.md", "common.md", "rules/writing.md")} |
-                         {(str(self.target), "AGENTS.md"), (str(self.target), ".agents/rules.md")})
+                         {(str(self.target), p) for p in ("AGENTS.md", ".agents/rules.md",
+                                                         "docs/ENTITIES.json", "docs/DOCUMENTS.json")})
         self.assertFalse(any("unrelated.md" in r for r in requests))
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}:[^\n]+\n", r) for r in requests))
 

@@ -25,6 +25,15 @@ class ReviewStagingTest(unittest.TestCase):
             failures = check_review_staging.check(root)
             self.assertTrue(any(f.startswith("role triager:") for f in failures), failures)
 
+    def test_missing_matching_checker_fails_documentation_staging(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for folder in check_review_staging.STAGED:
+                shutil.copytree(REPO / folder, root / folder)
+            (root / "skills/spec-writing/scripts/spec_docs.py").unlink()
+            failures = check_review_staging.check(root)
+            self.assertTrue(any(f.startswith("documentation staging:") for f in failures), failures)
+
 
 if __name__ == "__main__":
     unittest.main()

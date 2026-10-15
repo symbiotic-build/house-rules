@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Prepare every role and lens the way the review service does, and fail on any error.
 
-The review service copies only prompts/, rules/ and skills/pr-ready/ from a House Rules commit,
-then builds each role prompt and each lens review from that copy. This check copies the same
-three folders into an empty directory, compiles every role with prompt.py, and runs
-`prepare.py review` for every lens against a small fixture repository. Stdlib and git only.
+The staged tool set includes the shared specification checker from the same House Rules
+revision. Compile every role and prepare every lens, then exercise registered-document
+preparation and a commit-built documentation pack without a live checkout fallback.
+Registered specifications require the spec-writing tool's pinned Python environment.
 Usage: check_review_staging.py [--root <house-rules checkout>]
 """
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -15,7 +16,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-STAGED = ("prompts", "rules", "skills/pr-ready")
+STAGED = ("prompts", "rules", "skills/pr-ready", "skills/spec-writing")
 SECTIONS = ("# 1. Review pack", "# 2. Instructions", "# 3. Pull request and issue",
             "# 4. Requirements", "# 5. Change")
 GIT_ENV = {"GIT_AUTHOR_NAME": "check", "GIT_AUTHOR_EMAIL": "check@example.invalid",
@@ -41,6 +42,34 @@ def fixture(path):
             raise RuntimeError(f"fixture: {' '.join(args)}: {result.stderr.strip()}")
 
 
+def documentation_fixture(repo, stage):
+    """Add a real, checked miniature and its explicit assignment to the Git fixture."""
+    fixtures = stage / "skills/spec-writing/scripts/fixtures/miniature"
+    for name in ("ENTITIES.json", "DOCUMENTS.json", "acceptance.md", "settings.md"):
+        destination = repo / "docs" / (name if name.endswith(".json") else "example/" + name)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(fixtures / name, destination)
+    manifest_path = repo / "docs/DOCUMENTS.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["documents"][0]["status"] = "draft"
+    manifest["documents"][0].pop("approval")
+    manifest_path.write_text(json.dumps(manifest))
+    (repo / "rules").mkdir()
+    shutil.copyfile(stage / "rules/writing.md", repo / "rules/writing.md")
+    generated = run([sys.executable, "-B", str(stage / "skills/spec-writing/scripts/spec_docs.py"),
+                     "generate", "--root", str(repo)], repo)
+    if generated.returncode:
+        raise RuntimeError("documentation fixture: " + generated.stderr.strip())
+    for args in (["git", "add", "docs", "rules", ".gitattributes"],
+                 ["git", "commit", "-qm", "Documentation fixture"]):
+        result = run(args, repo)
+        if result.returncode:
+            raise RuntimeError("documentation fixture: " + result.stderr.strip())
+    assignment = repo.parent / "assignment.json"
+    assignment.write_text(json.dumps({"version": 1, "sections": ["example-demo#acceptance"]}))
+    return assignment
+
+
 def check(root):
     failures = []
     with tempfile.TemporaryDirectory() as tmp:
@@ -63,6 +92,27 @@ def check(root):
             if result.returncode or missing:
                 detail = result.stderr.strip().splitlines()[-1:] or [f"missing {', '.join(missing)}"]
                 failures.append(f"lens {lens}: {detail[0]}")
+        try:
+            assignment = documentation_fixture(repo, stage)
+            result = run([sys.executable, "-B", str(scripts / "prepare.py"), "review", str(repo),
+                          "--base", "main", "--no-fetch", "--context-only", "--assignment", str(assignment)], stage)
+            if result.returncode or "# Complete registry" not in result.stdout or "UTF-8 bytes" not in result.stdout:
+                failures.append("documentation preparation: " + (result.stderr.strip() or "missing context/size report"))
+            # Pin the copied tool set; the pack compiler must fetch its helper from it.
+            for args in (["git", "init", "-q", "-b", "main"], ["git", "add", *STAGED],
+                         ["git", "commit", "-qm", "Staged tool fixture"]):
+                result = run(args, stage)
+                if result.returncode:
+                    raise RuntimeError("tool fixture: " + result.stderr.strip())
+            extracted = Path(tmp) / "compiler.py"
+            shutil.copyfile(scripts / "prompt.py", extracted)
+            result = run([sys.executable, "-I", "-B", str(extracted), "--repo", str(stage), "--rev", "HEAD",
+                          "--role", "reviewer", "--lens", "design-spec", "--target", str(repo),
+                          "--assignment", str(assignment)], stage)
+            if result.returncode or "# Complete registry" not in result.stdout or "UTF-8 bytes" not in result.stdout:
+                failures.append("documentation compilation: " + (result.stderr.strip() or "missing context/size report"))
+        except (OSError, ValueError, RuntimeError) as exc:
+            failures.append("documentation staging: " + str(exc))
     return failures
 
 

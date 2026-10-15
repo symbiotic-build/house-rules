@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run a read-only review panel in parallel.
-# Usage: review-panel.sh [--rev COMMIT] [--repo DIR] [--session] <name> <checkout> <base-prompt> [reviewer ...]
+# Usage: review-panel.sh [--rev COMMIT] [--repo DIR] [--session] [--assignment JSON] <name> <checkout> <base-prompt> [reviewer ...]
 # Pin: --rev or REVIEW_HOUSE_RULES_REV is required; --repo or REVIEW_HOUSE_RULES_REPO names the clone.
 #   name: [A-Za-z0-9][A-Za-z0-9._-]*, a single directory name
 #   reviewer: a file stem in ../../../prompts/lenses/ (default: generalist-<family> for each configured family)
@@ -15,11 +15,13 @@ here=$(cd "$(dirname "$0")" && pwd)
 rules_repo=${REVIEW_HOUSE_RULES_REPO:-$here/../../..}
 rules_rev=${REVIEW_HOUSE_RULES_REV:-}
 session_mode=0
+assignment=${REVIEW_SPEC_ASSIGNMENT:-}
+review_python=${REVIEW_PYTHON:-python3}
 while [ $# -gt 0 ]; do
   case $1 in
-    --rev|--repo)
+    --rev|--repo|--assignment)
       [ $# -ge 2 ] || { echo "$1 requires a value" >&2; exit 2; }
-      if [ "$1" = --rev ]; then rules_rev=$2; else rules_repo=$2; fi
+      case $1 in --rev) rules_rev=$2 ;; --repo) rules_repo=$2 ;; --assignment) assignment=$2 ;; esac
       shift 2 ;;
     --session) session_mode=1; shift ;;
     *) break ;;
@@ -84,6 +86,7 @@ mkdir "$out" || { echo "review panel requires a fresh panel directory: $out" >&2
 
 : > "$out/summary.txt" || exit 1
 git --no-replace-objects -C "$rules_repo" show "$rules_rev:skills/pr-ready/scripts/prompt.py" > "$out/compiler.py" || exit 2
+git --no-replace-objects -C "$rules_repo" show "$rules_rev:skills/pr-ready/scripts/prepare.py" > "$out/preparer.py" || exit 2
 git --no-replace-objects -C "$rules_repo" show "$rules_rev:skills/pr-ready/scripts/review-panel.lenses" > "$out/lenses.conf" || exit 2
 
 base_args=(base "$dir")
@@ -106,27 +109,30 @@ run_one() {
   read -r cli model tier effort <<<"$cfg"; [ "$tier" = - ] && tier=
   local prepare_args=(review "$dir" --rev "$review_rev" --context-only --lens "$r" --cli "$cli" --summary "$base" --base "$resolved_base" --no-fetch)
   # Keep one compilation in memory for both task budgeting and final publication.
-  if ! /usr/bin/python3 -I -B - "$out" "$rules_repo" "$rules_rev" "$dir" "$review_rev" "$r" "$session_mode" "$cli" \
-      "$here/prepare.py" "${prepare_args[@]}" 2> "$out/$r.prepare.err" <<'PY'
+  if ! "$review_python" -I -B - "$out" "$rules_repo" "$rules_rev" "$dir" "$review_rev" "$r" "$session_mode" "$cli" \
+      "$assignment" "${prepare_args[@]}" 2> "$out/$r.prepare.err" <<'PY'
+from contextlib import redirect_stdout
 from pathlib import Path
-import subprocess
 import sys
+import subprocess
 
-out, repo, rev, checkout, review_rev, reviewer, session, cli, preparer, *args = sys.argv[1:]
+out, repo, rev, checkout, review_rev, reviewer, session, cli, assignment, *args = sys.argv[1:]
 sys.path.insert(0, out)
 from compiler import Commit, PromptError, append_tasks, build_pack, publish
+from preparer import main as prepare_main
 
 try:
     with Commit(repo, rev) as source, Commit(checkout, review_rev) as target:
         pack, manifest = build_pack(source, role="reviewer", lens=reviewer, target=target,
-                                    omit_shared_rules=session == "1")
+                                    omit_shared_rules=session == "1",
+                                    assignment=Path(assignment).read_bytes() if assignment else None)
     # Check Git readers before preparing context or publishing any artifacts.
     if cli == "codex":
         args += ["--compiled-chars", str(len(pack.decode("utf-8")) + 1)]
     task = Path(out) / (reviewer + ".task")
-    with task.open("wb") as stream:
-        result = subprocess.run(["python3", "-I", "-B", preparer, *args], stdout=stream)
-    if result.returncode:
+    with task.open("w", encoding="utf-8") as stream, redirect_stdout(stream):
+        status = prepare_main(args, documentation_prepared="documentation" in manifest)
+    if status:
         sys.exit(2)
     pack, manifest = append_tasks(pack, manifest, [(task, "review-panel-" + reviewer)])
     publish(Path(out) / (reviewer + ".pack"), pack, manifest)
@@ -231,7 +237,7 @@ for r in "$@"; do
 done
 status=0
 for pid in "${pids[@]}"; do wait "$pid" || status=1; done
-transient_inputs=("$out/lenses.conf")
+transient_inputs=("$out/lenses.conf" "$out/preparer.py")
 for r in "$@"; do transient_inputs+=("$out/$r.task"); done
 if ! rm -f -- "${transient_inputs[@]}"; then
   echo "panel failed: removing temporary compilation inputs" >> "$out/summary.txt"

@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-"""Compile whole-file @rule includes and ordered packs using only the stdlib."""
+"""Compile @rule includes and ordered packs; registered specs use the shared checker."""
 import argparse
 from contextlib import ExitStack
 import hashlib
+import importlib.util
 import json
 from pathlib import Path, PurePosixPath
 import re
@@ -13,6 +14,11 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent.parent.parent
 COMPILER = "skills/pr-ready/scripts/prompt.py"
+DOC_TOOL = "skills/spec-writing/scripts/spec_docs.py"
+DOC_INPUTS = (DOC_TOOL, "skills/spec-writing/scripts/runtime.json",
+              "skills/spec-writing/scripts/requirements.lock",
+              "skills/spec-writing/references/format-contract.json", "rules/writing.md")
+DOC_METADATA = ("docs/ENTITIES.json", "docs/DOCUMENTS.json")
 INCLUDE = re.compile(r"@rule house-rules:(.*)")
 NAME = re.compile(r"[a-z0-9-]+")
 
@@ -242,7 +248,74 @@ def logical_source(name):
     return name
 
 
-def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=None, omit_shared_rules=False):
+def documentation_context(source, target, assignment=None):
+    """Use the matching shared selector on captured target bytes, never a live helper."""
+    metadata = [target.read(path, optional=True) for path in DOC_METADATA]
+    if not any(item is not None for item in metadata):
+        if assignment is not None:
+            raise PromptError("documentation assignment requires docs/ENTITIES.json and docs/DOCUMENTS.json")
+        return None
+    if not all(item is not None for item in metadata):
+        raise PromptError("mandatory documentation context needs both docs/ENTITIES.json and docs/DOCUMENTS.json")
+    if assignment is None:
+        raise PromptError("mandatory documentation context needs an explicit --assignment JSON file")
+    # Native cost: one tree inventory, then the existing exact-path/blob reader per
+    # regular file. Capturing the whole snapshot also resolves links to code/assets.
+    # One in-memory corpus serves checking and selection; no persistent index is added.
+    tracked, paths, problems = set(), {}, {}
+    for entry in target.git("ls-tree", "-rz", target.revision).split(b"\0"):
+        if not entry:
+            continue
+        metadata, raw_path = entry.split(b"\t", 1)
+        path = raw_path.decode("utf-8")
+        tracked.add(path)
+        if metadata.split()[0] in (b"100644", b"100755"):
+            paths[path] = target.read(path)[0]
+        else:
+            problems[path] = "input is not a regular file"
+    tools = []
+    with tempfile.TemporaryDirectory(prefix="spec-docs-tool-") as directory:
+        root = Path(directory)
+        for path in DOC_INPUTS:
+            data, entry = source.read(path)
+            tools.append(entry)
+            destination = root / path
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(data)
+        # The profile belongs to this House Rules pin, even for another repository.
+        paths["rules/writing.md"] = (root / "rules/writing.md").read_bytes()
+        name = "_pack_spec_docs_" + fingerprint((root / DOC_TOOL).read_bytes())["sha256"]
+        spec = importlib.util.spec_from_file_location(name, root / DOC_TOOL)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        try:
+            spec.loader.exec_module(module)
+            if isinstance(assignment, (str, bytes)):
+                diagnostics = module.Diagnostics()
+                assignment = module.load_json(assignment, "assignment", diagnostics)
+                if diagnostics.errors:
+                    raise module.SpecDocsError(diagnostics)
+            snapshot = module.Snapshot(paths, tracked, problems, revision=target.revision)
+            corpus = module.load_corpus(snapshot)
+            context = module.select_context(corpus, assignment)
+            warnings = [str(w) for w in module.check(corpus).warnings]
+        except module.SpecDocsError as exc:
+            raise PromptError(str(exc)) from exc
+        finally:
+            sys.modules.pop(name, None)
+    return {"content": context.content, "manifest": context.manifest,
+            "size_bytes": context.size_bytes, "tools": tools, "warnings": warnings}
+
+
+def documentation_part(context):
+    """Report the selector's exact byte size beside its complete mandatory output."""
+    heading = f"# Mandatory documentation context ({context['size_bytes']} UTF-8 bytes)\n\n"
+    warnings = "\n".join(context["warnings"])
+    return heading.encode() + context["content"] + ("\n" + warnings + "\n").encode()
+
+
+def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=None, omit_shared_rules=False,
+               assignment=None, budget_bytes=None):
     """Assemble revision, role, lens, extras, repository rules and literal tasks in order."""
     if target is not None and target.repo.resolve() == source.repo.resolve():
         # Different revisions in one repository still use one batch process.
@@ -266,19 +339,34 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
         data = expansion.visit(path).encode("utf-8")
         if data:
             parts.append(data)
-    if expansion.shared_declared or role is not None:
-        # Loading metadata belongs to the role's text, not a separate pack part.
-        if len(parts) > 1:
-            parts[1] = expansion.loading().encode() + parts[1]
-        else:
-            parts.append(expansion.loading().encode().rstrip(b"\n") + b"\n")
     if target is not None:
         data, manifest["target"] = target_rules(target)
         parts.append(data)
         manifest["parts"].append({"kind": "target"})
+        context = documentation_context(source, target, assignment)
+        if context is not None:
+            rule = "rules/specifications.md"
+            if rule not in expansion.seen:
+                parts.append(expansion.visit(rule).encode("utf-8"))
+                manifest["parts"].append({"kind": "include", "path": rule})
+            parts.append(documentation_part(context))
+            manifest["documentation"] = {k: v for k, v in context.items() if k != "content"}
+            manifest["parts"].append({"kind": "documentation"})
+    elif assignment is not None:
+        raise PromptError("documentation assignment requires --target")
+    if expansion.shared_declared or role is not None:
+        # Loading metadata belongs to the first text part, not a separate pack part.
+        if len(parts) > 1:
+            parts[1] = expansion.loading().encode() + parts[1]
+        else:
+            parts.append(expansion.loading().encode().rstrip(b"\n") + b"\n")
     pack = b"\n".join(ending(p) for p in parts if p)
     manifest.update(files=expansion.files, skipped_repeats=expansion.repeats,
                     omitted_shared_rules=expansion.omitted)
+    if budget_bytes is not None:
+        if type(budget_bytes) is not int or budget_bytes < 0:
+            raise PromptError("pack byte budget must be a nonnegative integer")
+        manifest["budget_bytes"] = budget_bytes
     return append_tasks(pack, manifest, tasks)
 
 
@@ -292,6 +380,8 @@ def append_tasks(pack, manifest, tasks):
         if data:
             parts.append(data)
     pack = b"\n".join(parts)
+    if "budget_bytes" in manifest and len(pack) > manifest["budget_bytes"]:
+        raise PromptError(f"D25 complete pack requires {len(pack)} UTF-8 bytes; available budget is {manifest['budget_bytes']}")
     manifest["pack"] = fingerprint(pack)
     return pack, manifest
 
@@ -343,8 +433,9 @@ def main(argv=None):
     parser.add_argument("file", nargs="?")
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--session", action="store_true")
-    for option in ("rev", "repo", "role", "lens", "target", "target-rev", "out", "manifest"):
+    for option in ("rev", "repo", "role", "lens", "target", "target-rev", "out", "manifest", "assignment"):
         parser.add_argument("--" + option)
+    parser.add_argument("--budget-bytes", type=int)
     parser.add_argument("--include", action="append", default=[])
     parser.add_argument("--task", dest="tasks", action=TaskOption)
     parser.add_argument("--task-source", dest="tasks", action=TaskOption)
@@ -359,11 +450,12 @@ def main(argv=None):
                 if not preceding_task:
                     raise PromptError("--task-source requires an immediately preceding --task")
         args = parser.parse_args(argv)
-        for option in ("rev", "repo", "target", "target_rev", "out", "manifest"):
+        for option in ("rev", "repo", "target", "target_rev", "out", "manifest", "assignment"):
             if getattr(args, option) == "":
                 raise PromptError("--" + option.replace("_", "-") + " must not be empty")
         pack_mode = bool(args.role is not None or args.lens is not None or args.include or args.tasks or
-                         args.target is not None or args.no_target or args.out is not None)
+                         args.target is not None or args.no_target or args.out is not None or
+                         args.assignment is not None or args.budget_bytes is not None)
         if (pack_mode or args.manifest is not None or args.target_rev is not None or args.repo is not None) and args.rev is None:
             raise PromptError("--rev is required for pack mode and manifest output")
         if args.out is not None and args.manifest is not None:
@@ -383,7 +475,9 @@ def main(argv=None):
                 target = (stack.enter_context(Commit(args.target, args.target_rev if args.target_rev is not None else "HEAD"))
                           if args.target is not None else None)
                 output, manifest = build_pack(source, role=args.role, lens=args.lens, includes=args.include,
-                                              tasks=args.tasks or (), target=target, omit_shared_rules=args.session)
+                                              tasks=args.tasks or (), target=target, omit_shared_rules=args.session,
+                                              assignment=Path(args.assignment).read_bytes() if args.assignment else None,
+                                              budget_bytes=args.budget_bytes)
                 used = [e["path"] for e in manifest["files"]]
             else:
                 compiler = source.compiler() if args.rev is not None else None
