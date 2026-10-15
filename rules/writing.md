@@ -80,8 +80,11 @@ happened, why it matters and what to do, in that order.
   Preserve exact names, values, order and exceptions.
 - A heading or outer list item does not make several actions one step. Writers and
   reviewers check the action boundaries, not only sentence length.
-- This format does not apply to a single action, an exact signature or schema, or a lookup
-  table.
+- Number only steps someone performs in order. A rule, a set of conditions, properties,
+  alternatives or independent checks is not a sequence, even when it names several actions;
+  use bullets or a paragraph.
+- A single action is a sentence, never a one-item list.
+- This format does not apply to an exact signature or schema, or a lookup table.
 
 Before:
 

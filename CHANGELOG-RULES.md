@@ -2,6 +2,15 @@
 
 Source notes for House Rules invariants and procedures.
 
+## rules/writing.md — Sequences: number only ordered steps
+
+Operator direction: 2026-10-16, after a readability pass under the new sequences rule turned a
+specification's 44 numbered items into about 1,045, including 39 one-item lists, and reviewers
+blocked plain rules that named two actions until told the rule's scope. The operator
+confirmed two lines: number only steps someone performs in order, since a rule, conditions,
+properties, alternatives or independent checks are not a sequence; and a single action is a
+sentence, never a one-item list.
+
 ## rules/writing.md — Sequences and structured detail
 
 Operator direction: 2026-10-15, while reviewing a specification. One walkthrough paragraph
