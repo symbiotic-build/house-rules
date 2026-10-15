@@ -54,13 +54,11 @@ def documentation_fixture(repo, stage):
     manifest["documents"][0]["status"] = "draft"
     manifest["documents"][0].pop("approval")
     manifest_path.write_text(json.dumps(manifest))
-    (repo / "rules").mkdir()
-    shutil.copyfile(stage / "rules/writing.md", repo / "rules/writing.md")
     generated = run([sys.executable, "-B", str(stage / "skills/spec-writing/scripts/spec_docs.py"),
                      "generate", "--root", str(repo)], repo)
     if generated.returncode:
         raise RuntimeError("documentation fixture: " + generated.stderr.strip())
-    for args in (["git", "add", "docs", "rules", ".gitattributes"],
+    for args in (["git", "add", "docs", ".gitattributes"],
                  ["git", "commit", "-qm", "Documentation fixture"]):
         result = run(args, repo)
         if result.returncode:
@@ -107,7 +105,7 @@ def check(root):
             extracted = Path(tmp) / "compiler.py"
             shutil.copyfile(scripts / "prompt.py", extracted)
             result = run([sys.executable, "-I", "-B", str(extracted), "--repo", str(stage), "--rev", "HEAD",
-                          "--role", "reviewer", "--lens", "design-spec", "--target", str(repo),
+                          "--role", "reviewer", "--lens", "design-spec", "--target", str(repo), "--target-base", "main",
                           "--assignment", str(assignment)], stage)
             if result.returncode or "# Complete registry" not in result.stdout or "UTF-8 bytes" not in result.stdout:
                 failures.append("documentation compilation: " + (result.stderr.strip() or "missing context/size report"))

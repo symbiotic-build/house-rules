@@ -2,7 +2,7 @@
 
 Apply these rules to every specification and design document, including single-file
 documents. Declaration syntax and literal comparison belong to the
-[format contract](../skills/spec-writing/references/format.md). Authoring procedure
+[exact source formats](../docs/specs/spec-system/formats.md#source-format). Authoring procedure
 belongs to [spec-writing](../skills/spec-writing/SKILL.md); approval and closeout belong
 to [design-flow](../skills/design-flow/SKILL.md).
 
@@ -84,8 +84,8 @@ to [design-flow](../skills/design-flow/SKILL.md).
 ## Checks and review
 
 - Block structural errors with the shared checker over the complete candidate corpus.
-  Prose heuristics and warning counts never block checks or pack generation; their
-  profile and severity belong to [writing rules](writing.md#house-technical-english).
+  Follow [writing rules](writing.md#house-technical-english) for prose-check policy,
+  profile and severity.
 - Review meaning, technical correctness, readability, design and cost, failure and
   recovery, and complete scenarios. Reviewers establish that explanations and tests prove
   the contract; structural success alone does not establish either.

@@ -8,82 +8,21 @@ It contains no product-specific contracts.
 <a id="interfaces"></a>
 ## Interfaces and encodings
 
-The [source format](../../../skills/spec-writing/references/format.md) owns JSON fields, Markdown declaration syntax and callable input shapes.
-Its [versioned contract](../../../skills/spec-writing/references/format-contract.json) owns field vocabularies, entity kinds, relationship targets and review responsibilities.
-Templates reference those contracts instead of becoming another authority.
+The [exact source formats](formats.md#source-format) define every JSON shape, Markdown declaration, navigation marker and callable input.
+The [machine-readable contract](../../../skills/spec-writing/references/format-contract.json) must agree with that chapter.
+The [complete minimal corpus](example.md#minimal-example) is checked as a real fixture.
 There is no unit configuration or value-type system.
-
-The [documentation checker](checking.md#documentation-checker) provides this callable core:
-
-```python
-load_corpus(source, format_contract) -> Corpus
-check(corpus, base=None) -> Diagnostics
-generate_navigation(corpus) -> dict[str, bytes]
-select_context(corpus, assignment) -> Context
-requirement_changes(base, candidate) -> ChangeReport
-```
-
-**Entities in this example:** [documentation checker](checking.md#documentation-checker),
-[source snapshot](context.md#source-snapshot), [context pack](context.md#context-pack).
-
-The source argument supplies paths and bytes from one [source snapshot](context.md#source-snapshot).
-The base argument is an optional separate selection for change review.
-Navigation returns proposed path-to-byte outputs.
-Context selection returns complete content and provenance.
-Requirement comparison returns a derived change report.
-No call adds persistent state.
-
-Relationship tables use Key, Predicate, Target and Basis columns.
-Initial predicates are `performed-by`, `protected-by`, `limited-by` and `precedes`.
-The [versioned contract](../../../skills/spec-writing/references/format-contract.json) defines supported target kinds.
-The order relation states required sequence; it establishes neither concurrency nor synchronization.
-There is no separate value-assertion table.
 
 <a id="writing-profile"></a>
 ## Writing profile
 
 The writing profile is the versioned set of controlled-language practices owned by [writing rules](../../../rules/writing.md).
 
-The checker reads the machine-readable block in that owner.
-There is no second handwritten limits file.
-The profile claims no full controlled-English standard conformance.
-It excludes a full specialist dictionary, universal part-of-speech checks, full verb restrictions and industry-specific safety notices.
-
-Use one approved name per technical concept.
-Explain the problem and ordinary behavior before refusal, concurrency, failure and recovery.
-Preserve conditions, exceptions, uncertainty and consequences.
-Never shorten an explanation only to clear a counter.
-Simultaneous actions may share an instruction when separating them would change behavior.
-
-Visible prose supplies word counts.
-Whitespace separates words; identifiers and hyphenated tokens each count as one.
-Separate numbers and measurement words count separately.
-Markup and link destinations do not count.
-Parenthetical prose counts normally.
-
-Sentence endings are `.`, `?` or `!` followed by whitespace or block end.
-Decimals and code-span punctuation do not split sentences.
-A colon introducing a vertical list ends its introduction.
-
-Exclude code blocks, exact signatures, declaration encodings and attributed quotations from prose counts.
-Keep surrounding explanations in scope.
-Sentence and paragraph targets produce warnings only.
-Long cells, approximate voice checks and suspected multi-action sentences also produce warnings.
-Reviewers establish whether instructions contain independent, ordered or simultaneous actions.
-
-Numbered actions need a preceding **Procedure: descriptive label** and at least two direct actions.
-A single action is a sentence.
-Descriptive enumerations use bullets or compact tables.
-Operator decision options follow the House Rules question format and are exempt.
-Detail blocks use ordinary blockquotes for information.
-Required instructions stay beside the action that needs them.
-
-Prose numbers follow ISO 80000-1 grouping with spaces and a decimal dot.
-Dates and times follow ISO 8601 with a zone and the 24-hour clock.
-A space separates quantities from unit symbols.
-Use a plain grouping space in Markdown; a renderer may substitute a narrow no-break space.
-Code, identifiers, configuration, data and literal examples retain their language's notation.
-These formatting checks warn and never block.
+The [documentation checker](checking.md#documentation-checker) reads that owner's machine-readable block from its own House Rules revision.
+The profile supplies advisory prose targets; no second handwritten limits file exists.
+Procedure structure and counting conventions remain in the [writing rules](../../../rules/writing.md).
+Readability review establishes whether an explanation preserves its conditions, exceptions and consequences.
+A counter warning alone does not demonstrate a reader problem.
 
 <a id="req-profile"></a>
 ### Requirement: structural procedures and advisory prose checks
@@ -92,7 +31,7 @@ These formatting checks warn and never block.
 
 **Condition:** Authored prose or numbered actions are checked.
 
-**Result:** Read the shared machine-readable profile. Enforce procedure structure; keep approximate language, length and numeral checks advisory. Preserve qualifications during review.
+**Result:** Read the shared machine-readable profile. Enforce procedure structure; keep approximate language and length checks advisory. Preserve qualifications during review.
 
 **Verification:** Check valid procedures, single-item lists, operator options and warning-only prose.
 
@@ -128,7 +67,6 @@ D17 generated navigation differs: regenerate '<output>'
 D18 numbered list requires a labelled procedure with at least two actions
 D21 approval is blocked by unresolved contract '<id>'
 D22 removed requirement '<id>' needs a resolving decision reference
-D23 pack omits mandatory context '<id>'
 D24 pack baseline differs from assignment baseline
 D25 mandatory pack requires <size>; available budget is <limit>
 D26 review plan lacks required coverage '<responsibility>'
@@ -144,7 +82,7 @@ D31 changed requirement '<id>' lacks linked-test review input '<test>'
 [requirement declaration](sources.md#requirement-declaration),
 [failure declaration](sources.md#failure-declaration).
 
-Codes `D09`, `D19` and `D20` are retired.
+Codes `D09`, `D19`, `D20` and `D23` are retired. Warning `W03` is retired.
 There is no value-reference evaluator or typed-value diagnostic.
 Malformed declaration checks cover duplicate JSON keys and invalid naming patterns, not value content.
 Exact symbols and unambiguous registered phrases receive blocking terminology checks.
@@ -155,13 +93,10 @@ Procedure checks inspect structure, not action meaning inferred from punctuation
 |---|---|
 | W01 | Sentence exceeds target |
 | W02 | Paragraph exceeds target |
-| W03 | Possible fact restatement |
 | W04 | Possible technical use |
 | W05 | Possible profile violation |
 
-A prose numeral warning is only a cheap scan.
-It neither identifies an intended fact nor proves disagreement.
-Unlinked textual restatements can remain undetected mechanically.
+Unlinked value restatements require [semantic review](context.md#semantic-review).
 Warnings accompany readability assignments.
 A demonstrated contradiction or missing explanation is a review finding; a warning alone is not.
 
@@ -281,7 +216,7 @@ Preserve provisional, observed, required and unresolved meanings.
 
 Writing rules own profile and procedure invariants.
 Specifications rules own authority, homes, linking and context invariants.
-The format reference owns syntax and literal comparison.
+The [exact source formats](formats.md#source-format) own syntax and literal comparison.
 The authoring skill owns authoring and reader procedures.
 Design lifecycle skills own outline, approval and closeout.
 

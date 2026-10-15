@@ -26,6 +26,7 @@ except ModuleNotFoundError:
 TOOL_VERSION = "1"
 REFERENCE = Path(__file__).resolve().parent.parent / "references" / "format-contract.json"
 PROFILE_PATH = "rules/writing.md"
+PROFILE = Path(__file__).resolve().parents[3] / PROFILE_PATH
 JSON_PATHS = ("docs/ENTITIES.json", "docs/DOCUMENTS.json")
 START = '<!-- spec-docs:navigation document="{document}" -->'
 END = '<!-- /spec-docs:navigation -->'
@@ -101,7 +102,7 @@ def safe_path(path):
 
 
 def git(root, *args):
-    proc = subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+    proc = subprocess.run(["git", "--no-replace-objects", "-C", str(root), *args], capture_output=True)
     if proc.returncode:
         fail("D27", f"cannot read Git snapshot '{root}': {proc.stderr.decode(errors='replace').strip()}",
              str(root), 2)
@@ -122,6 +123,15 @@ class Snapshot:
     def from_mapping(cls, paths, fixture=False):
         return cls({k: v.encode() if isinstance(v, str) else v for k, v in paths.items()},
                    set(paths), fixture=fixture)
+
+    @staticmethod
+    def needs_content(path):
+        """Only Markdown, metadata and mixed generated attributes need blob bytes.
+
+        The native tree inventory suffices for existence and regular-file checks
+        on code and asset links. No unrelated binary is read or retained.
+        """
+        return path.lower().endswith('.md') or path in (*JSON_PATHS, '.gitattributes')
 
     @classmethod
     def from_git(cls, root, staged=False, rev=None, fixture=False):
@@ -149,12 +159,12 @@ class Snapshot:
                         header, raw_path = entry.split(b"\t", 1)
                         mode, _kind, oid = header.split()
                         entries.append((raw_path.decode("utf-8"), mode, oid))
-            regular = [(path, oid) for path, mode, oid in entries if mode in (b"100644", b"100755")]
+            regular = [(path, oid) for path, mode, oid in entries if mode in (b"100644", b"100755") and cls.needs_content(path)]
             for path, mode, _oid in entries:
                 if mode not in (b"100644", b"100755"):
                     problems[path] = "input is not a regular file"
             if regular:
-                proc = subprocess.run(["git", "-C", str(root), "cat-file", "--batch"],
+                proc = subprocess.run(["git", "--no-replace-objects", "-C", str(root), "cat-file", "--batch"],
                                       input=b"\n".join(oid for _, oid in regular) + b"\n",
                                       capture_output=True)
                 if proc.returncode:
@@ -172,6 +182,7 @@ class Snapshot:
         else:
             tracked = {p.decode() for p in git(root, "ls-files", "-z").split(b"\0") if p}
             paths = tracked | {p.decode() for p in git(root, "ls-files", "--others", "--exclude-standard", "-z").split(b"\0") if p}
+            tracked |= paths
             for path in sorted(paths):
                 target = root / path
                 try:
@@ -181,7 +192,7 @@ class Snapshot:
                         problems[path] = "missing input"
                     elif not target.is_file():
                         problems[path] = "input is not a regular file"
-                    else:
+                    elif cls.needs_content(path):
                         files[path] = target.read_bytes()
                 except OSError as exc:
                     problems[path] = str(exc)
@@ -339,6 +350,8 @@ def parse_markdown(path, text, diagnostics):
                 match = re.match(r"^\*\*([^*]+?):\*\*\s*(.*)", token.content, re.S)
                 if match:
                     key = match[1]
+                    if key == "Entities in this example":
+                        continue  # Adjacent links annotate each block; they are not declaration fields.
                     if key in heading.fields:
                         diagnostics.add("D02", f"malformed declaration: duplicate field '{key}'", path, token.map[0] + 1)
                     heading.fields[key] = (visible(token.children).split(":", 1)[-1].strip(), inline_links.get(id(token), []))
@@ -449,7 +462,7 @@ def read_text(source, path, diagnostics):
         return None
 
 
-def load_corpus(source, format_contract=None):
+def load_corpus(source, format_contract=None, *, comparison=False):
     """Load metadata, parse each authored source once, and assemble the registry."""
     validate_runtime()
     if MarkdownIt is None:
@@ -475,6 +488,10 @@ def load_corpus(source, format_contract=None):
     if diagnostics.errors:
         raise SpecDocsError(diagnostics, 2)
     corpus = Corpus(source, contract, diagnostics)
+    if comparison and not any(path in source.files or path in source.tracked for path in JSON_PATHS):
+        # Before adoption, there are no declared requirements to compare. Partial
+        # metadata still follows normal validation and fails visibly.
+        return corpus
     if type(contract.get("version")) is not int or contract["version"] != 1:
         diagnostics.add("D02", "unsupported version: format contract")
     for path, attribute in zip(JSON_PATHS, ("index", "manifest")):
@@ -595,7 +612,11 @@ def load_corpus(source, format_contract=None):
         corpus.entities[identity] = dict(entity, id=identity, path=md.path, anchor=heading.anchor,
                                         title=heading.title, meaning=meaning, start=heading.start - 1,
                                         end=heading.end, facts={})
-    profile_text = read_text(source, PROFILE_PATH, diagnostics)
+    try:
+        profile_text = PROFILE.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        diagnostics.add("D27", f"cannot read tool writing profile: {exc}", PROFILE_PATH)
+        profile_text = None
     if profile_text is not None:
         # The shared owner marks one JSON profile; no second limits file exists.
         profile_blocks = []
@@ -640,7 +661,7 @@ def resolve_links(corpus):
                         targets[path] = parse_markdown(path, text, corpus.diagnostics)
                 if not safe_path(path) or path in corpus.source.problems:
                     corpus.diagnostics.add("D05", f"source '{path}' is outside the declared input set: link escape or nonregular input", md.path, link.line + 1)
-                elif path not in corpus.source.files or (anchor and path.lower().endswith(".md") and (path not in targets or len(targets[path].anchors.get(anchor, [])) != 1)):
+                elif (path not in corpus.source.files and path not in corpus.source.tracked) or (anchor and path.lower().endswith(".md") and (path not in targets or len(targets[path].anchors.get(anchor, [])) != 1)):
                     raise ValueError("missing local target")
                 else:
                     link.destination = path, anchor
@@ -929,7 +950,7 @@ def check(corpus, base=None, _freshness=True):
     # Freshness is computed only after structural validation; invalid sources cannot generate.
     if _freshness and not d.errors:
         try:
-            for path, expected in generate_navigation(corpus).items():
+            for path, expected in project_navigation(corpus).items():
                 if corpus.source.files.get(path) != expected:
                     d.add("D17", f"generated navigation differs: regenerate '{path}'", path)
         except SpecDocsError as exc:
@@ -1130,8 +1151,6 @@ def check_prose(corpus, md, diagnostics):
             words = len(sentence.split())
             if words > limit:
                 diagnostics.add("W01", f"Sentence exceeds profile target: sentence has {words} words; profile target is {limit}", md.path, token.map[0] + 1)
-            if re.search(r"\b\d+(?:[.,]\d+)?\b", numeric_prose):
-                diagnostics.add("W03", "Prose numeral may restate a fact", md.path, token.map[0] + 1)
             if (ordered_depth and (re.search(r"\b(?:is|are|be)\s+\w+ed\b", sentence) or re.search(r"\b(?:and then|then)\b", sentence))) or re.search(r"\b\d{1,3},\d{3}\b|\b\d+(?:ms|MiB|s|min)\b", numeric_prose):
                 diagnostics.add("W05", "Passage may violate writing profile: voice, multiple actions or number format", md.path, token.map[0] + 1)
         if len(parts) > paragraph_sentences and not cell_depth:
@@ -1158,6 +1177,11 @@ def generate_navigation(corpus):
     diagnostics = check(corpus, _freshness=False)
     if diagnostics.errors:
         raise SpecDocsError(diagnostics)
+    return project_navigation(corpus)
+
+
+def project_navigation(corpus):
+    """Project an already validated corpus without another validation traversal."""
     outputs, wholly_generated = {}, []
     for document in corpus.documents.values():
         nav = document["navigation"]
@@ -1165,7 +1189,7 @@ def generate_navigation(corpus):
         if path in outputs and not nav.get("region"):
             fail("D02", "malformed declaration: two documents own one generated file", path)
         sections = sorted((s for s in corpus.sections.values() if s["document"] == document["id"]), key=lambda s: s["order"])
-        lines = [f"# {document['title']}", "", "<!-- Generated by spec-docs; edit authored declarations. -->", "",
+        lines = ([] if nav.get("region") else [f"# {document['title']}", ""]) + ["<!-- Generated by spec-docs; edit authored declarations. -->", "",
                  "## Overview", "", document["purpose"], "", f"**Audience:** {document['audience']}", "",
                  f"**Scope:** {document['scope']}", "", f"**Non-goals:** {document['non_goals']}", ""]
         if document.get("gaps"):
@@ -1174,6 +1198,14 @@ def generate_navigation(corpus):
         for section in sections:
             target = relative_link(path, section["path"], section["anchor"])
             lines.extend([f"- [{section['heading'].title}]({target}) — {section['summary']}"])
+            md = corpus.markdown[section["path"]]
+            for heading in md.headings:
+                if (heading.level == 2 and heading.anchor != section["anchor"]
+                        and section["heading"].start <= heading.start < section["heading"].end
+                        and not any(a <= heading.start < b for a, b in md.generated)):
+                    if not heading.anchor:
+                        fail("D02", "malformed declaration: mapped level-2 heading needs an explicit anchor", md.path)
+                    lines.append(f"  - [{heading.title}]({relative_link(path, md.path, heading.anchor)})")
             if section["prerequisites"]:
                 prereqs = [corpus.sections[key] for key in section["prerequisites"]]
                 lines.append("  Prerequisites: " + ", ".join(f"[{s['heading'].title}]({relative_link(path, s['path'], s['anchor'])})" for s in prereqs) + ".")
@@ -1184,7 +1216,28 @@ def generate_navigation(corpus):
         body = "\n".join(lines) + "\n"
         if nav.get("region"):
             current = outputs.get(path, corpus.source.files.get(path, b"")).decode()
-            outputs[path] = replace_region(current, START.format(document=nav["region"]), END, body, path)
+            start = START.format(document=nav["region"])
+            rendered = replace_region(current, start, END, body, path).decode()
+            # Place the region from the parsed source, immediately after the entry
+            # title's opening paragraph. Generated headings never select that paragraph.
+            md = corpus.markdown[path]
+            title = next((h for h in md.headings if h.level == 1 and
+                          not any(a <= h.start < b for a, b in md.generated)), None)
+            opening = next((token for token in md.tokens if token.type == "paragraph_open"
+                            and token.map and title and title.start < token.map[0] < title.intro_end
+                            and not any(a <= token.map[0] < b for a, b in md.generated)), None)
+            if opening is None:
+                fail("D02", "malformed declaration: navigation entry needs a title and opening paragraph", path)
+            insertion = sum(len(line) for line in md.text.splitlines(keepends=True)[:opening.map[1]])
+            first, last = current.index(start), current.index(END) + len(END)
+            region = rendered[rendered.index(start):rendered.index(END) + len(END)]
+            outside = current[:first] + current[last:]
+            if last <= insertion:
+                insertion -= last - first
+            elif first < insertion:
+                fail("D02", "malformed declaration: navigation overlaps opening paragraph", path)
+            text = outside[:insertion].rstrip("\n") + "\n\n" + region + "\n\n" + outside[insertion:].lstrip("\n")
+            outputs[path] = (text.rstrip("\n") + "\n").encode()
         else:
             outputs[path] = body.encode()
             wholly_generated.append(path)
@@ -1211,12 +1264,15 @@ class ChangeReport:
 def requirement_changes(base, candidate):
     """Select tests from both snapshots when a requirement or linked fact changes."""
     changes = []
-    identities = {k for c in (base, candidate) for k, v in c.declarations.items() if v["kind"] == "Requirement"}
-    for identity in sorted(identities):
-        old = base.declarations.get(identity)
-        new = candidate.declarations.get(identity)
+    requirements = [{v["heading"].anchor: v for v in c.declarations.values()
+                     if v["kind"] == "Requirement"} for c in (base, candidate)]
+    for anchor in sorted(requirements[0].keys() | requirements[1].keys()):
+        old, new = (items.get(anchor) for items in requirements)
+        identity = (new or old)["id"]
         old_tests = declaration_targets(base, old, "Tests") if old else set()
         new_tests = declaration_targets(candidate, new, "Tests") if new else set()
+        old_test_ids = {base.declarations[key]["heading"].anchor: key for key in old_tests}
+        new_test_ids = {candidate.declarations[key]["heading"].anchor: key for key in new_tests}
         facts = set()
         for corpus, declaration in ((base, old), (candidate, new)):
             if declaration:
@@ -1232,8 +1288,9 @@ def requirement_changes(base, candidate):
         if not old or not new or old["text"] != new["text"] or changed_facts:
             changes.append(dict(id=identity, kind="new" if not old else "removed" if not new else "changed",
                                 base=old["text"] if old else None, candidate=new["text"] if new else None,
-                                tests=sorted(old_tests | new_tests), added_tests=sorted(new_tests - old_tests),
-                                removed_tests=sorted(old_tests - new_tests), changed_facts=changed_facts))
+                                tests=sorted(old_tests | new_tests),
+                                added_tests=sorted(new_test_ids[key] for key in new_test_ids.keys() - old_test_ids.keys()),
+                                removed_tests=sorted(old_test_ids[key] for key in old_test_ids.keys() - new_test_ids.keys()), changed_facts=changed_facts))
     return ChangeReport(changes)
 
 
@@ -1243,6 +1300,7 @@ class Context:
     content: bytes
     size_bytes: int
     manifest: dict
+    diagnostics: Diagnostics
 
     def to_dict(self):
         return {"content": self.content.decode(), "size_bytes": self.size_bytes, "manifest": self.manifest}
@@ -1251,7 +1309,7 @@ class Context:
 def select_context(corpus, assignment):
     """Select the entire registry and deduplicated required ranges; never truncate."""
     d = Diagnostics()
-    if not shape(assignment, ["version", "sections"], ["scenarios", "decisions", "baseline", "budget_bytes", "available_bytes", "review_plan", "required_test_reviews", "removal_decisions", "pack", "label"], d, "assignment", "assignment"):
+    if not shape(assignment, ["version", "sections"], ["scenarios", "decisions", "baseline", "budget_bytes", "review_plan", "required_test_reviews", "removal_decisions", "label"], d, "assignment", "assignment"):
         raise SpecDocsError(d)
     if type(assignment["version"]) is not int or assignment["version"] != 1 or not strings(assignment["sections"]) or not assignment["sections"]:
         fail("D02", "malformed declaration: assignment needs version 1 and nonempty explicit sections", "assignment")
@@ -1323,7 +1381,11 @@ def select_context(corpus, assignment):
             d.add("D06", f"target '{selector}' does not resolve", "assignment")
             continue
         targets = {selector} | declaration_targets(corpus, scenario, "Requirements") | declaration_targets(corpus, scenario, "Tests")
-        for target in targets:
+        for target in list(targets):
+            declaration = corpus.declarations[target]
+            if declaration["kind"] == "Requirement":
+                targets.update(declaration_targets(corpus, declaration, "Tests"))
+        for target in sorted(targets):
             declaration = corpus.declarations[target]
             s = corpus.section_at(declaration["path"], declaration["heading"].start)
             if s:
@@ -1399,42 +1461,30 @@ def select_context(corpus, assignment):
     manifest = dict(version=1, tool_version=TOOL_VERSION, format_version=corpus.contract["version"],
                     profile_version=corpus.profile["version"], label=assignment.get("label", "candidate"),
                     baseline=baseline, source_digest=corpus.source.digest, registry_digest=corpus.registry_digest,
-                    input_fingerprints={p: digest(corpus.source.files[p]) for p in sorted({*JSON_PATHS, PROFILE_PATH, *corpus.markdown})},
+                    input_fingerprints={p: digest(corpus.source.files[p]) for p in sorted({*JSON_PATHS, *corpus.markdown})},
                     assignment=assignment, included=mandatory, inclusion_reasons={k: sorted(set(v)) for k, v in sorted(included.items())},
                     ranges=merged, registry_size_bytes=len(registry_bytes), metadata_size_bytes=len(metadata_bytes),
-                    profile_size_bytes=len(corpus.profile_bytes), size_bytes=0)
+                    profile_size_bytes=len(corpus.profile_bytes), profile_digest=digest(corpus.profile_bytes), size_bytes=0)
     if corpus.base is not None:
         manifest["base_provenance"] = dict(baseline=corpus.base.source.revision or corpus.base.source.digest,
                                            registry_digest=corpus.base.registry_digest,
                                            input_fingerprints={p: digest(b) for p, b in sorted(corpus.base.source.files.items())
-                                                               if p in {*JSON_PATHS, PROFILE_PATH, *corpus.base.markdown}})
-    if "pack" in assignment:
-        pack = assignment["pack"]
-        if shape(pack, ["baseline", "registry_digest", "included"], [], d, "assignment", "pack"):
-            if pack["baseline"] != baseline or pack["registry_digest"] != corpus.registry_digest:
-                d.add("D24", "pack baseline differs from assignment baseline", "assignment")
-            if not strings(pack["included"]):
-                d.add("D02", "malformed declaration: pack included", "assignment")
-            else:
-                for identity in mandatory:
-                    if identity not in pack["included"]:
-                        d.add("D23", f"pack omits mandatory context '{identity}'", "assignment")
+                                                               if p in {*JSON_PATHS, *corpus.base.markdown}})
     # Size includes its own manifest. Decimal length reaches a fixed point.
     while True:
         content = b"# Context manifest\n\n" + canonical(manifest) + b"\n" + b"\n".join(parts)
         if len(content) == manifest["size_bytes"]:
             break
         manifest["size_bytes"] = len(content)
-    for key in ("budget_bytes", "available_bytes"):
-        if key in assignment:
-            limit = assignment[key]
-            if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
-                d.add("D02", f"malformed declaration: {key} must be nonnegative integer", "assignment")
-            elif len(content) > limit:
-                d.add("D25", f"mandatory pack requires {len(content)}; available budget is {limit}", "assignment")
+    if "budget_bytes" in assignment:
+        limit = assignment["budget_bytes"]
+        if type(limit) is not int or limit < 0:
+            d.add("D02", "malformed declaration: budget_bytes must be nonnegative integer", "assignment")
+        elif len(content) > limit:
+            d.add("D25", f"mandatory pack requires {len(content)}; available budget is {limit}", "assignment")
     if d.errors:
         raise SpecDocsError(d)
-    return Context(content, len(content), manifest)
+    return Context(content, len(content), manifest, d)
 
 
 def validate_runtime():
@@ -1479,8 +1529,9 @@ def write_outputs(corpus, outputs):
             # Recheck destination components; a symlink cannot redirect a write.
             if any(p.is_symlink() for p in [target, *target.parents] if p != corpus.source.root):
                 fail("D05", f"source '{path}' is outside the declared input set: symlink destination", path)
-            if any(doc["navigation"].get("region") and doc["navigation"]["path"] == path for doc in corpus.documents.values()):
-                if not target.exists() or target.read_bytes() != corpus.source.files.get(path):
+            if path == ".gitattributes" or any(doc["navigation"].get("region") and doc["navigation"]["path"] == path for doc in corpus.documents.values()):
+                current = target.read_bytes() if target.exists() else None
+                if current != corpus.source.files.get(path):
                     fail("D27", f"cannot replace '{path}': authored destination differs from selected snapshot", path, 2)
             target.parent.mkdir(parents=True, exist_ok=True)
             import tempfile
@@ -1520,7 +1571,7 @@ def main(argv=None):
             if assignment_diagnostics.errors:
                 raise SpecDocsError(assignment_diagnostics, 2)
             corpus.assignment = assignment
-        base = load_corpus(Snapshot.from_git(args.root, rev=args.base, fixture=args.fixture), args.format_contract) if args.base else None
+        base = load_corpus(Snapshot.from_git(args.root, rev=args.base, fixture=args.fixture), args.format_contract, comparison=True) if args.base else None
         corpus.base = base
         if args.command == "context":
             if assignment is None:

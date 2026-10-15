@@ -10,7 +10,8 @@ The reader should understand the system and a mid-level engineer should be able 
 implement it without unanswered contract questions. Apply the
 [specifications rules](../../rules/specifications.md) for document authority and context,
 and the [writing rules](../../rules/writing.md#house-technical-english) for prose.
-Declaration syntax belongs to the [format contract](references/format.md).
+Declaration syntax belongs to the specification’s [exact source formats](../../docs/specs/spec-system/formats.md#source-format).
+Start with the checked [minimal corpus](../../docs/specs/spec-system/example.md#minimal-example).
 Lifecycle and approval follow [design-flow](../design-flow/SKILL.md);
 placement follows [STRUCTURE.md](../../STRUCTURE.md).
 
@@ -31,6 +32,7 @@ Check proposed names against existing names before introducing them. Review the
 writing and before approval. Use [finding-unknowns](../finding-unknowns/SKILL.md) for
 unsettled questions, without reopening a settled choice merely because it is unfamiliar.
 
+<a id="author-the-document"></a>
 ## Author the document
 
 **Procedure: produce an implementable document**
@@ -38,7 +40,10 @@ unsettled questions, without reopening a settled choice merely because it is unf
 1. **Review the outline.**
    - Establish the reader, outcome, scope, non-goals and prerequisites.
    - Sketch section purposes and a complete end-to-end scenario.
-   - Register the outline using the format contract and generate navigation.
+   - Register a valid draft skeleton: anchored sections with opening prose, explicit role
+     gaps, an empty entity index, no incomplete declarations and no dangling scenario selectors.
+   - Leave homes unregistered until their headings and definitions exist.
+   - Generate navigation from that valid skeleton; no permissive generation mode is needed.
    - Read that navigation before assigning sections.
 2. **Establish entity homes.**
    - Inventory concepts and canonical facts against the primary sources.
@@ -48,8 +53,8 @@ unsettled questions, without reopening a settled choice merely because it is unf
 3. **Write the assigned sections.**
    - Use disjoint source assignments and generated context when several authors work.
    - Explain each mechanism's problem and ordinary behavior before its exceptional paths.
-   - Add the applicable requirements, acceptance cases and failure declarations through
-     the format contract.
+   - Add reciprocal requirements and acceptance cases together using the exact source formats.
+   - Complete each failure declaration before registering scenarios that refer to it.
    - Propose changes to another owner's facts instead of introducing replacement definitions.
 4. **Review the assembled document.**
    - Run the pinned shared tool's structural check and regenerate navigation.
@@ -91,6 +96,7 @@ Preserve provisional qualifications, observed conditions, exceptions and resolut
 beside their homes. Check unlinked value restatements manually. A passing link check proves
 neither an explanation nor adequate evidence for a value or acceptance test.
 
+<a id="fresh-reader-review"></a>
 ## Fresh-reader review
 
 **Procedure: test understanding in a fresh context**

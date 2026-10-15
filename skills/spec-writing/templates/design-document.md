@@ -7,7 +7,7 @@ status: draft
 Use this outline through [design-flow](../../design-flow/SKILL.md) and the
 [authoring procedure](../SKILL.md#author-the-document). Replace this guidance and bracketed
 prompts before approval. Adjust links when copying. Register the document and its sections
-through the [format contract](../references/format.md), which owns declaration syntax.
+through the [exact source formats](../../../docs/specs/spec-system/formats.md#source-format), which owns declaration syntax.
 Apply the [specifications rules](../../../rules/specifications.md) and
 [writing profile](../../../rules/writing.md#house-technical-english).
 

@@ -33,7 +33,9 @@ Navigation belongs under generated documentation or in the declared region of an
 It never creates a competing system map.
 
 Production approval uses `operator` or `delegated` authority and a resolving decision reference.
-Only the fixture runner accepts `fixture` authority.
+Only `--fixture` accepts `fixture` authority for synthetic teaching and test corpora.
+It approves only the teaching contract, never production behavior.
+The [complete example](example.md#minimal-example) demonstrates this distinction.
 Drafts may retain unresolved contracts.
 Approval fails when such a contract prevents implementation.
 
@@ -72,7 +74,9 @@ Neither is copied into this authored metadata.
 | <a id="index-path"></a>path | docs/ENTITIES.json | specified | [Source decision](reference.md#source-decision) |
 
 The `scope` array lists every document where an entry applies.
-Accepted names and exact symbols support recognition.
+Accepted names and home heading names match whole phrases without regard to case.
+Symbols match exactly; matches have word boundaries and no automatic pluralization.
+List plural forms explicitly when accepted.
 Rejected forms name a replacement and a reason.
 Naming rules target structured fields through patterns; they never guess identifiers from prose.
 A rule that cannot be a field pattern remains a linked canonical requirement.
@@ -191,6 +195,11 @@ Missing targets, missing relationships and one-sided links fail checking.
 Passing these checks establishes structural traceability, not proof quality.
 Implementation unit tests do not each require a documentation requirement.
 
+Requirement anchors use `req-` followed by nonempty lower-case letters or digits separated by single hyphens.
+The complete anchor is permanent and unique across the repository's specification and design corpus.
+Preserve it when moving or revising the same obligation; never reuse a retired identity.
+New obligations from a split or replacement receive new identities.
+
 <a id="acceptance-test"></a>
 ## Acceptance test
 
@@ -198,7 +207,7 @@ An acceptance test declares a verification method, inputs, pass condition and re
 
 Execution, inspection, analysis and qualification campaigns are valid methods.
 A design-stage case may exist before executable code.
-The optional Implementation field uses the [format contract](../../../skills/spec-writing/references/format.md) for test-file links and selectors.
+The optional Implementation field uses the [exact declaration grammar](formats.md#markdown-declarations) for test-file links and selectors.
 Static checks resolve the file; reviewers confirm that the selector exists and proves the linked [requirement declaration](#requirement-declaration).
 
 Comparing base and candidate snapshots reports new, changed and removed requirements.
@@ -243,6 +252,10 @@ Such assignments include every section containing their actions, requirements an
 Ordered steps must not silently serialize concurrent behavior.
 A concurrent example names branches and synchronization points.
 A completed competing action followed by submission is sequential.
+
+Acceptance-test anchors use `test-` with the same suffix grammar and permanent-identity rules.
+Retirement never permits reuse of a test identity.
+The optional `Implementation` grammar and a complete example appear in the [exact formats](formats.md#markdown-declarations).
 
 <a id="failure-declaration"></a>
 ## Failure declaration

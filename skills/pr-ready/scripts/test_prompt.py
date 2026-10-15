@@ -753,11 +753,12 @@ class RuleOwnershipTest(unittest.TestCase):
         for path in (ROOT / "prompts/lenses").glob("*.md"):
             with self.subTest(path=path.name):
                 self.assertNotRegex(path.read_text(), r"skill `")
-                self.assertNotIn("spec-writing", path.read_text())
+                self.assertNotIn("@rule house-rules:skills/spec-writing/", path.read_text())
         design = self.text("prompts/lenses/design-spec.md")
         self.assertIn("@rule house-rules:prompts/lenses/naming-readability.md", design)
         self.assertNotIn("non-blocking unless they hide or garble a rule", design)
         reader = self.text("prompts/lenses/naming-readability.md")
+        self.assertIn("../../skills/spec-writing/SKILL.md#fresh-reader-review", reader)
         self.assertIn("missing why, example or term definition", reader)
         self.assertIn("Report violations of these requirements as document requirement defects", reader)
         self.assertIn("Do not accept a glossary elsewhere as closure", reader)

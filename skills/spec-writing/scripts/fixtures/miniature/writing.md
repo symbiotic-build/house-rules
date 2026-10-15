@@ -1,5 +1,3 @@
-# Writing rules
+# Shared profile ownership
 
-```json
-{"version": 1, "name": "house-technical-english", "procedure_sentence_words": 20, "descriptive_sentence_words": 25, "descriptive_paragraph_sentences": 6, "severity": "warning"}
-```
+The checker reads the writing profile from its own House Rules revision.

@@ -2,7 +2,7 @@
 
 Use this outline through the [authoring procedure](../SKILL.md#author-the-document).
 Replace this guidance and bracketed prompts before approval. Adjust links when copying.
-Register the document and its sections through the [format contract](../references/format.md);
+Register the document and its sections through the [exact source formats](../../../docs/specs/spec-system/formats.md#source-format);
 that contract owns all declaration syntax. Apply the
 [specifications rules](../../../rules/specifications.md) and
 [writing profile](../../../rules/writing.md#house-technical-english).

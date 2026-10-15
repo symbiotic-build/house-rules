@@ -5,18 +5,8 @@ Review every worked example and schema naming family. For each stored value an e
 Check newly added explanations against the schema or protocol, including their qualifications and exceptions. A passing link, heading or content-preservation check is not a passing reader test.
 For each finding, show the concrete passage and what the reader cannot explain. Report violations of these requirements as document requirement defects. Cosmetic preferences that pass the reader test remain non-blocking. Do not accept a glossary elsewhere as closure.
 
-For a fresh-reader assignment, use a new context containing the document package: source
-chapters, generated navigation, complete registry reference, relevant homes, decisions,
-profile and provenance. Exclude authoring conversation, earlier findings, coaching and
-unpublished explanations. Treat registry entries outside the reading dependencies as
-reference material; they cannot excuse a missing explanation in the document.
-
-Explain the system from that package alone. Follow the tour and answer representative
-questions about its inputs, state changes and caller-visible results. Explain a refusal
-and its recovery, including a declared absence of recovery. If no refusal applies, check
-the document's explanation of why. Cite where understanding fails; do not fill gaps from
-code or external sources. A fresh-reader pass may satisfy the existing readability
-responsibility and does not require an additional technical review round.
+Fresh-reader packages follow the [canonical reader procedure](../../skills/spec-writing/SKILL.md#fresh-reader-review).
+Identify what this reader cannot explain about the tour, refusal or recovery from the supplied document.
 
 Apply the writing profile's warning severity. A long sentence, long paragraph or other
 heuristic warning alone is not a defect. Identify the demonstrated reader problem and its

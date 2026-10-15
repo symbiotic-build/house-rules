@@ -486,11 +486,6 @@
       "reason": "Synthetic test input, not a maintained technical contract."
     },
     {
-      "path": "skills/spec-writing/scripts/fixtures/miniature/writing.md",
-      "kind": "other",
-      "reason": "Synthetic test input, not a maintained technical contract."
-    },
-    {
       "path": "skills/spec-writing/templates/design-document.md",
       "kind": "other",
       "reason": "Authoring template with placeholders; not an instantiated document."
@@ -509,6 +504,24 @@
       "path": "skills/work-tracking/SKILL.md",
       "kind": "other",
       "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "docs/specs/spec-system/example.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/formats.md",
+      "kind": "specification"
+    },
+    {
+      "path": "skills/spec-writing/scripts/fixtures/minimal/docs/example.md",
+      "kind": "other",
+      "reason": "Synthetic checker fixture, not a repository contract."
+    },
+    {
+      "path": "skills/spec-writing/scripts/fixtures/miniature/writing.md",
+      "kind": "other",
+      "reason": "Fixture note about shared profile ownership."
     }
   ],
   "documents": [
@@ -535,6 +548,17 @@
           "summary": "Understand the source model through a mismatched-value repair.",
           "prerequisites": [],
           "explanatory_dependencies": []
+        },
+        {
+          "prerequisites": [],
+          "explanatory_dependencies": [],
+          "id": "example",
+          "path": "docs/specs/spec-system/example.md",
+          "anchor": "minimal-example",
+          "roles": [
+            "tour"
+          ],
+          "summary": "Create a complete passing corpus from three files."
         },
         {
           "id": "sources",
@@ -596,6 +620,17 @@
           "summary": "Prove structural behavior and real authoring and review acceptance.",
           "prerequisites": [],
           "explanatory_dependencies": []
+        },
+        {
+          "prerequisites": [],
+          "explanatory_dependencies": [],
+          "id": "formats",
+          "path": "docs/specs/spec-system/formats.md",
+          "anchor": "source-format",
+          "roles": [
+            "reference"
+          ],
+          "summary": "Look up exact JSON shapes, declarations and callable inputs."
         }
       ],
       "scenarios": [

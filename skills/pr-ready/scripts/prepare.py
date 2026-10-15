@@ -532,11 +532,11 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
                          for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json"))
         assignment_path = getattr(args, "assignment", None)
         if registered or assignment_path:
-            from prompt import Commit, WorkingTree, documentation_context, PromptError
+            from prompt import Commit, WorkingTree, documentation_context, review_plan, PromptError
             try:
                 assignment = Path(assignment_path).read_bytes() if assignment_path else None
                 with Commit(repo, head) as target:
-                    context = documentation_context(WorkingTree(HERE.parents[2]), target, assignment)
+                    context = documentation_context(WorkingTree(HERE.parents[2]), target, assignment, base=base, plan=review_plan([lens]))
             except (PromptError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
                 raise PrepareError(str(exc)) from exc
     common, instructions = "", ""

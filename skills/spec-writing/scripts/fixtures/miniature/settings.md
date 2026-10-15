@@ -50,10 +50,12 @@ This home declares no independent default.
 
 **Rejected alternative:** Maintain independent copies of a shared default.
 
+<a id="open-questions"></a>
 ## Open questions
 
 None for this fixture.
 
+<a id="reference"></a>
 ## Reference
 
 The [stale-request scenario](acceptance.md#stale-revision)

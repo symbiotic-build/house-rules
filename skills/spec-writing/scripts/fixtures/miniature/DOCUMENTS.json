@@ -8,11 +8,6 @@
     {
       "path": "docs/example/settings.md",
       "kind": "specification"
-    },
-    {
-      "path": "rules/writing.md",
-      "kind": "other",
-      "reason": "Shared prose profile, not a specification."
     }
   ],
   "documents": [

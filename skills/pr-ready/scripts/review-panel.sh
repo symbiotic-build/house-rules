@@ -96,6 +96,8 @@ resolved_base=$(python3 -I -B "$here/prepare.py" "${base_args[@]}") || {
   exit 1
 }
 
+panel_reviewers="$*"
+
 run_one() {
   local r=$1
   local fam sandbox settings cfg cli model tier effort prompt=$out/$r.prompt t0 cli_status=0 verdict
@@ -110,22 +112,23 @@ run_one() {
   local prepare_args=(review "$dir" --rev "$review_rev" --context-only --lens "$r" --cli "$cli" --summary "$base" --base "$resolved_base" --no-fetch)
   # Keep one compilation in memory for both task budgeting and final publication.
   if ! "$review_python" -I -B - "$out" "$rules_repo" "$rules_rev" "$dir" "$review_rev" "$r" "$session_mode" "$cli" \
-      "$assignment" "${prepare_args[@]}" 2> "$out/$r.prepare.err" <<'PY'
+      "$assignment" "$resolved_base" "$panel_reviewers" "${prepare_args[@]}" 2> "$out/$r.prepare.err" <<'PY'
 from contextlib import redirect_stdout
 from pathlib import Path
 import sys
 import subprocess
 
-out, repo, rev, checkout, review_rev, reviewer, session, cli, assignment, *args = sys.argv[1:]
+out, repo, rev, checkout, review_rev, reviewer, session, cli, assignment, resolved_base, panel_reviewers, *args = sys.argv[1:]
 sys.path.insert(0, out)
-from compiler import Commit, PromptError, append_tasks, build_pack, publish
+from compiler import Commit, PromptError, append_tasks, build_pack, publish, review_plan
 from preparer import main as prepare_main
 
 try:
     with Commit(repo, rev) as source, Commit(checkout, review_rev) as target:
         pack, manifest = build_pack(source, role="reviewer", lens=reviewer, target=target,
                                     omit_shared_rules=session == "1",
-                                    assignment=Path(assignment).read_bytes() if assignment else None)
+                                    assignment=Path(assignment).read_bytes() if assignment else None,
+                                    target_base=resolved_base, plan=review_plan(panel_reviewers.split()))
     # Check Git readers before preparing context or publishing any artifacts.
     if cli == "codex":
         args += ["--compiled-chars", str(len(pack.decode("utf-8")) + 1)]

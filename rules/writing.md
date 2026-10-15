@@ -112,8 +112,9 @@ ASD-STE100 conformance. The checker reads this block; do not maintain a second l
 
 - Use ISO 80000-1 number formatting in prose: a plain space separates groups of three
   digits, and a dot is the decimal marker. Examples: 2 048; 4 194 304; 0.1; 1 234.5.
-- Use ISO 8601 dates and times. Write dates as 2026-10-16. Use a 24-hour time with a zone,
-  such as 14:05 UTC. Write a combined date and time as 2026-10-16 14:05 UTC.
+- Use ISO 8601 date-only values such as 2026-10-16 without a time zone.
+- Use a 24-hour time with a zone, such as 14:05 UTC.
+  A timestamp combines date, time and zone: 2026-10-16 14:05 UTC.
 - Put a space before unit symbols: 10 min, 1 s, 4 MiB.
 - Code, identifiers, configuration, data and literal examples retain their required format.
   A renderer may replace grouping spaces with narrow no-break spaces.

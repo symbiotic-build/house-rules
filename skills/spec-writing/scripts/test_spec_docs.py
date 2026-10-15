@@ -19,7 +19,6 @@ SETTINGS = "docs/example/settings.md"
 def miniature():
     paths = {"docs/" + name: (FIXTURES / name).read_bytes() for name in ("ENTITIES.json", "DOCUMENTS.json")}
     paths.update({"docs/example/" + name: (FIXTURES / name).read_bytes() for name in ("acceptance.md", "settings.md")})
-    paths[s.PROFILE_PATH] = (FIXTURES / "writing.md").read_bytes()
     corpus = s.load_corpus(s.Snapshot.from_mapping(paths, fixture=True))
     paths.update(s.generate_navigation(corpus))
     return paths
@@ -74,6 +73,81 @@ class CorpusTests(unittest.TestCase):
             self.context(assignment)
         self.assertIn(code, {d.code for d in caught.exception.diagnostics.errors})
         self.assertGreater(self.context().size_bytes, 0)
+
+    def test_repeated_example_annotations_are_not_duplicate_declaration_fields(self):
+        self.paths[SETTINGS] += b'\n```text\nwriter\n```\n\n**Entities in this example:** [Writer](acceptance.md#writer).\n\n```text\nwriter\n```\n\n**Entities in this example:** [Writer](acceptance.md#writer).\n'
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
+    def test_repository_without_writing_rules_uses_the_tool_profile(self):
+        self.paths.pop(s.PROFILE_PATH, None)
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+        self.assertEqual(corpus(self.paths).profile['name'], 'house-technical-english')
+
+    def test_prose_dates_do_not_claim_to_detect_fact_restatements(self):
+        self.paths[SETTINGS] += b'\nRecorded on 2026-10-16 with 7 examples.\n'
+        self.assertNotIn('W03', {d.code for d in s.check(refresh(self.paths)).warnings})
+
+    def test_selection_validates_each_corpus_only_once(self):
+        c = corpus(self.paths)
+        with patch.object(s, 'check', wraps=s.check) as checker:
+            s.select_context(c, {'version': 1, 'sections': ['example-demo#acceptance']})
+        self.assertEqual(checker.call_count, 1)
+
+    def test_scenario_follows_requirement_tests_without_a_tests_field(self):
+        # Put the test in a distinct manifest section and remove incidental dependencies.
+        text = self.paths[ACCEPTANCE].decode()
+        first = text.index('<a id="test-stale-revision">')
+        test = text[first:]
+        self.paths[ACCEPTANCE] = text[:first].replace('**Tests:** [Stale request](#test-stale-revision).', '**Tests:** [Stale request](test.md#test-stale-revision).', 1).replace('**Tests:** [Stale request](#test-stale-revision).', '').replace('](#test-stale-revision)', '](test.md#test-stale-revision)').encode()
+        self.paths['docs/example/test.md'] = test.replace('](#req-stale-revision)', '](acceptance.md#req-stale-revision)').replace('](#writer)', '](acceptance.md#writer)').replace('](#acceptance)', '](acceptance.md#acceptance)').encode()
+        def update(v):
+            v['inventory'].append({'path': 'docs/example/test.md', 'kind': 'specification'})
+            v['documents'][0]['sections'][0]['explanatory_dependencies'] = []
+            v['documents'][0]['sections'].append(dict(id='test', path='docs/example/test.md', anchor='test-stale-revision', roles=[], summary='Acceptance evidence.', prerequisites=[], explanatory_dependencies=[]))
+        metadata(self.paths, s.JSON_PATHS[1], update)
+        c = refresh(self.paths)
+        ctx = s.select_context(c, {'version': 1, 'sections': ['example-demo#settings'], 'scenarios': ['example-demo#stale-revision']})
+        self.assertIn('example-demo#test', ctx.manifest['included'])
+
+    def test_moving_requirement_between_documents_preserves_identity(self):
+        base = corpus(self.paths)
+        def move(v):
+            document = v['documents'][0]
+            document['id'] = 'moved-demo'
+            document['approval']['decision'] = 'moved-demo#fixture-decision'
+            document['scenarios'] = ['moved-demo#stale-revision']
+            for section in document['sections']:
+                section['prerequisites'] = [x.replace('example-demo#', 'moved-demo#') for x in section['prerequisites']]
+                for dep in section['explanatory_dependencies']:
+                    dep['section'] = dep['section'].replace('example-demo#', 'moved-demo#')
+        metadata(self.paths, s.JSON_PATHS[1], move)
+        def homes(v):
+            for e in v['entities'].values():
+                e['scope'] = ['moved-demo']
+                e['home']['section'] = e['home']['section'].replace('example-demo#', 'moved-demo#')
+        metadata(self.paths, s.JSON_PATHS[0], homes)
+        candidate = refresh(self.paths)
+        self.assertEqual(s.requirement_changes(base, candidate).changes, [])
+        edit(self.paths, ACCEPTANCE, '**Result:** Return', '**Result:** Report')
+        change = s.requirement_changes(base, corpus(self.paths)).changes
+        self.assertEqual([item['kind'] for item in change], ['changed'])
+        self.assertEqual(change[0]['added_tests'], [])
+        self.assertEqual(change[0]['removed_tests'], [])
+
+    def test_navigation_region_follows_title_and_opening_paragraph(self):
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0].update(navigation={'path': ACCEPTANCE, 'region': 'example-demo'}))
+        del self.paths['docs/generated/example-demo.md']
+        self.paths[ACCEPTANCE] += ('\n' + s.START.format(document='example-demo') + '\nold\n' + s.END + '\n').encode()
+        c = refresh(self.paths)
+        text = self.paths[ACCEPTANCE].decode()
+        self.assertLess(text.index(s.START.format(document='example-demo')), text.index('**Procedure:'))
+        self.assertEqual(text.count('# Checking a prepared write'), 1)
+        self.assertFalse(text.endswith('\n\n'))
+        self.assertTrue(s.check(c).ok)
+
+    def test_navigation_lists_second_level_sections(self):
+        output = self.paths['docs/generated/example-demo.md'].decode()
+        self.assertIn('[Writer](../example/acceptance.md#writer)', output.split('## Entity index')[0])
 
     def test_miniature_retains_multirow_table_and_complete_registry(self):
         c = corpus(self.paths)
@@ -315,7 +389,7 @@ class CorpusTests(unittest.TestCase):
         c = refresh(self.paths)
         d = s.check(c)
         self.assertTrue(d.ok)
-        self.assertTrue({'W01', 'W02', 'W03'} <= {item.code for item in d.warnings})
+        self.assertTrue({'W01', 'W02'} <= {item.code for item in d.warnings})
         self.assertEqual(d.to_dict(), s.check(c).to_dict())
 
     def test_ambiguous_registered_phrase_warns_instead_of_guessing(self):
@@ -360,11 +434,18 @@ class CorpusTests(unittest.TestCase):
 
     def test_context_refuses_omission_stale_baseline_budget_and_missing_review_coverage(self):
         assignment = {'version': 1, 'sections': ['example-demo#acceptance']}
-        ctx = self.context(assignment)
-        self.context_error('D23', dict(assignment, pack=dict(baseline=ctx.manifest['baseline'], registry_digest=ctx.manifest['registry_digest'], included=[])))
         self.context_error('D24', dict(assignment, baseline='wrong'))
         self.context_error('D25', dict(assignment, budget_bytes=1))
         self.context_error('D26', dict(assignment, review_plan=[{'responsibilities': ['technical']}]))
+
+    def test_assignment_rejects_removed_documentation_budget_alias(self):
+        self.context_error('D02', {'version': 1, 'sections': ['example-demo#acceptance'], 'available_bytes': 100})
+
+    def test_assignment_rejects_removed_caller_pack_inventory(self):
+        assignment = {'version': 1, 'sections': ['example-demo#acceptance']}
+        ctx = self.context(assignment)
+        pack = dict(baseline=ctx.manifest['baseline'], registry_digest=ctx.manifest['registry_digest'], included=[])
+        self.context_error('D02', dict(assignment, pack=pack))
 
     def test_one_generalist_can_cover_all_review_responsibilities(self):
         ctx = self.context({'version': 1, 'sections': ['example-demo#acceptance'], 'review_plan': [{'id': 'generalist', 'responsibilities': corpus(self.paths).contract['review_responsibilities']}]})
@@ -510,8 +591,12 @@ class CorpusTests(unittest.TestCase):
         self.red_green('D06')
 
     def test_absent_profile_is_not_replaced_by_local_limits(self):
-        self.paths[s.PROFILE_PATH] = b'# No machine-readable profile\n'
-        self.red_green('D02')
+        with tempfile.TemporaryDirectory() as directory:
+            profile = Path(directory) / 'writing.md'
+            profile.write_text('# No machine-readable profile\n')
+            with patch.object(s, 'PROFILE', profile):
+                self.assertIn('D02', self.codes())
+        self.assertTrue(s.check(corpus(self.paths)).ok)
 
     def test_context_review_plan_is_checked_without_spawning_reviewers(self):
         assignment = {'version': 1, 'sections': ['example-demo#acceptance'], 'review_plan': []}
@@ -578,6 +663,51 @@ class CorpusTests(unittest.TestCase):
         self.red_green('D15')
 
 
+class MinimalExampleTests(unittest.TestCase):
+    def test_published_example_is_the_checked_fixture_in_an_independent_repository(self):
+        fixture = Path(__file__).parent / 'fixtures/minimal'
+        paths = {p.relative_to(fixture).as_posix(): p.read_bytes() for p in fixture.rglob('*') if p.is_file()}
+        chapter = (Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/example.md').read_text()
+        tokens = s.MarkdownIt('commonmark').parse(chapter)
+        fenced = [t.content.encode() for t in tokens if t.type == 'fence' and t.info in ('json', 'markdown')]
+        self.assertEqual(sorted(paths.values()), sorted(fenced))
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name, data in paths.items():
+                destination = root / name
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                destination.write_bytes(data)
+            subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
+            result = subprocess.run([__import__('sys').executable, '-B', s.__file__, 'check', '--root', str(root), '--fixture'], capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn(b'0 errors', result.stdout)
+            self.assertFalse((root / 'rules/writing.md').exists())
+
+    def test_pre_adoption_base_has_no_requirements_but_normal_missing_metadata_fails(self):
+        source = s.Snapshot.from_mapping({'README.md': '# Existing project\n'})
+        base = s.load_corpus(source, comparison=True)
+        self.assertEqual(base.declarations, {})
+        self.assertTrue(s.check(base).ok)
+        self.assertFalse(s.check(s.load_corpus(source)).ok)
+        fixture = Path(__file__).parent / 'fixtures/minimal'
+        paths = {p.relative_to(fixture).as_posix(): p.read_bytes() for p in fixture.rglob('*') if p.is_file()}
+        candidate = s.load_corpus(s.Snapshot.from_mapping(paths, fixture=True))
+        self.assertEqual([c['kind'] for c in s.requirement_changes(base, candidate).changes], ['new'])
+
+    def test_documented_vocabulary_agrees_with_the_machine_contract(self):
+        path = Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/formats.md'
+        tokens = s.MarkdownIt('commonmark').parse(path.read_text())
+        blocks = [json.loads(t.content) for t in tokens if t.type == 'fence' and t.info == 'json format-contract']
+        self.assertEqual(blocks, [json.loads(s.REFERENCE.read_text())])
+
+    def test_valid_draft_skeleton_generates_before_registering_homes(self):
+        paths = {'docs/ENTITIES.json': s.canonical(dict(version=1, entities={}, naming_rules=[])),
+                 'docs/outline.md': b'<a id="outline"></a>\n# Draft outline\n\nA pending outline.\n'}
+        paths['docs/DOCUMENTS.json'] = s.canonical(dict(version=1, inventory=[dict(path='docs/outline.md', kind='specification')], documents=[dict(id='outline', title='Outline', status='draft', purpose='Sketch the contract.', audience='Authors.', scope='Outline only.', non_goals='Implementation.', gaps=json.loads(s.REFERENCE.read_text())['roles'], navigation=dict(path='docs/generated/outline.md'), sections=[dict(id='main', path='docs/outline.md', anchor='outline', roles=[], summary='The draft skeleton.', prerequisites=[], explanatory_dependencies=[])], scenarios=[])]))
+        paths.update(s.generate_navigation(s.load_corpus(paths)))
+        self.assertTrue(s.check(s.load_corpus(paths)).ok)
+
+
 class SnapshotTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -599,6 +729,25 @@ class SnapshotTests(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(['git', '-C', str(self.root), *args], capture_output=True, check=True).stdout
+
+    def test_snapshot_does_not_load_unrelated_binary_bytes(self):
+        (self.root / 'asset.bin').write_bytes(b'large unrelated asset')
+        self.git('add', 'asset.bin')
+        self.git('commit', '-qm', 'fixture: asset')
+        for args in ({}, {'staged': True}, {'rev': 'HEAD'}):
+            snapshot = s.Snapshot.from_git(self.root, fixture=True, **args)
+            self.assertIn('asset.bin', snapshot.tracked)
+            self.assertNotIn('asset.bin', snapshot.files)
+            self.assertTrue(s.check(s.load_corpus(snapshot)).ok)
+
+    def test_generation_refuses_concurrent_attributes_edits(self):
+        c = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        output = s.generate_navigation(c)
+        target = self.root / '.gitattributes'
+        target.write_text(target.read_text() + 'authored text eol=lf\n')
+        with self.assertRaisesRegex(s.SpecDocsError, 'authored destination differs'):
+            s.write_outputs(c, output)
+        self.assertIn('authored text', target.read_text())
 
     def test_unstaged_repair_cannot_hide_broken_index(self):
         target = self.root / ACCEPTANCE

@@ -163,40 +163,15 @@ They do not introduce local replacement definitions.
 One fixer integrates accepted findings and refreshes affected assignments.
 These responsibilities set no agent count and authorize no larger panel.
 
-**Procedure: produce an implementable document**
-
-1. **Review the outline.**
-   - Establish audience, scope, section purposes and prerequisites.
-   - Define the complete [scenario](sources.md#scenario).
-   - Generate and read navigation before assigning sections.
-2. **Establish homes.**
-   - Inventory concepts and values.
-   - Assign one owner per home.
-   - Keep unresolved contracts visible.
-3. **Write assigned sections.**
-   - Give authors disjoint assignments and generated input.
-   - Preserve qualifications and declared ownership.
-4. **Review the assembled result.**
-   - Run structural checks.
-   - Review individual sections and whole [scenarios](sources.md#scenario).
-   - Use a new context for the fresh-reader responsibility.
-5. **Integrate accepted resolutions.**
-   - Refresh affected assignments.
-   - Recheck reading order and changed contracts.
-   - Apply the existing operator approval boundary.
+The [authoring procedure](../../../skills/spec-writing/SKILL.md#author-the-document) coordinates the outline, home owners, authors and fixer.
 
 The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) validates technical, readability, design/cost, failure/recovery and whole-[scenario](sources.md#scenario) coverage.
 One generalist may cover several responsibilities.
 Coverage validation launches no additional reviewers.
 
-A fresh reader receives source chapters, generated navigation, registry reference and linked homes.
-The package excludes authoring conversation, prior findings, coaching and unpublished explanations.
-The reader explains the system, follows its tour and answers representative questions.
-
-It must explain a refusal and recovery from the document alone.
-It cites missing explanations instead of repairing them from code or external sources.
-Freshness requires a new agent context.
-This may satisfy existing readability coverage without adding a technical review round.
+Use the [fresh-reader procedure](../../../skills/spec-writing/SKILL.md#fresh-reader-review) for the readability responsibility.
+Its reader must explain this document's tour, refusal and recovery without author coaching.
+Registry reference material cannot replace a missing explanation.
 
 <a id="req-review"></a>
 ### Requirement: review coverage and fresh understanding

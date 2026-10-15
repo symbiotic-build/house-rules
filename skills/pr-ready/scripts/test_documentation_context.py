@@ -51,7 +51,7 @@ class DocumentationContextTests(unittest.TestCase):
         paths = {"docs/" + name: (fixtures / name).read_bytes() for name in ("ENTITIES.json", "DOCUMENTS.json")}
         paths.update({"docs/example/" + name: (fixtures / name).read_bytes()
                       for name in ("acceptance.md", "settings.md")})
-        paths["rules/writing.md"] = (ROOT / "rules/writing.md").read_bytes()
+        paths["docs/example/settings.md"] += ("\n" + " ".join(["word"] * 30) + ".\n").encode()
         manifest = json.loads(paths["docs/DOCUMENTS.json"])
         manifest["documents"][0].pop("approval")
         manifest["documents"][0]["status"] = "draft"
@@ -81,14 +81,62 @@ class DocumentationContextTests(unittest.TestCase):
         with prompt.Commit(self.rules, self.rule_revision) as source, prompt.Commit(self.repo, self.revision) as target:
             return prompt.build_pack(source, target=target, assignment=assignment, **kwargs)
 
-    def review(self, **kwargs):
+    def review(self, *, base=None, **kwargs):
         values = dict(pr=None, issue=[], spec=None, tests=None, test_prefix="PT", lens="generalist-a",
                       summary=None, format="diff", cli="codex", context_only=True,
                       assignment=self.assignment_file)
         values.update(kwargs)
         with patch.object(prepare, "HERE", self.rules / "skills/pr-ready/scripts"), \
                 patch.object(prepare, "pr_context", return_value=({}, [], [], "(none)", [], [], [])):
-            return prepare.review(self.repo, argparse.Namespace(**values), self.revision, None, self.revision)
+            return prepare.review(self.repo, argparse.Namespace(**values), base or self.revision, None, self.revision)
+
+    def test_review_preparer_compares_base_and_selects_unchanged_tests(self):
+        base = self.revision
+        path = self.repo / 'docs/example/acceptance.md'
+        path.write_text(path.read_text().replace('**Result:** Return', '**Result:** Report'))
+        self.revision = self.commit(self.repo)
+        output = self.review(base=base)
+        self.assertIn('# Requirement changes', output)
+        self.assertIn('base:example-demo#test-stale-revision', output)
+        self.assertIn('**Result:** Return', output)
+        self.assertIn('**Result:** Report', output)
+        path.write_text(path.read_text().replace('### Requirement: stale-revision', '### Former stale-revision'))
+        self.revision = self.commit(self.repo)
+        with self.assertRaisesRegex(prepare.PrepareError, 'D22'):
+            self.review(base=base)
+
+    def test_review_entry_requires_actual_coverage_even_without_assignment_plan(self):
+        with self.assertRaisesRegex(prepare.PrepareError, 'D26'):
+            self.review(lens='security')
+        self.assertIn('# Complete registry', self.review())
+        self.assertIn('# Complete registry', self.review(lens='design-spec'))
+        with prompt.Commit(self.rules, self.rule_revision) as source, prompt.Commit(self.repo, self.revision) as target:
+            with self.assertRaisesRegex(prompt.PromptError, 'D26'):
+                prompt.documentation_context(source, target, ASSIGNMENT, base=self.revision, plan=prompt.review_plan(['security']))
+
+    def test_review_comparison_rejects_malformed_assignment_before_deriving_tests(self):
+        with prompt.Commit(self.rules, self.rule_revision) as source, prompt.Commit(self.repo, self.revision) as target:
+            for assignment in (b'[]', {'version': 1, 'sections': ['example-demo#acceptance'], 'required_test_reviews': [{}]}):
+                with self.subTest(assignment=assignment), self.assertRaisesRegex(prompt.PromptError, 'D02'):
+                    prompt.documentation_context(source, target, assignment, base=self.revision, plan=prompt.review_plan(['generalist-a']))
+
+    def test_direct_review_compiler_requires_a_comparison_base(self):
+        with self.assertRaisesRegex(prompt.PromptError, '--target-base'):
+            with prompt.Commit(self.rules, self.rule_revision) as source, prompt.Commit(self.repo, self.revision) as target:
+                prompt.documentation_context(source, target, ASSIGNMENT, plan=prompt.review_plan(['generalist-a']))
+
+    def test_compiler_never_acquires_unrelated_binary_blobs(self):
+        self.write(self.repo, 'asset.bin', b'UNRELATED BLOB CANARY')
+        self.revision = self.commit(self.repo)
+        with patch.object(subprocess, 'run', wraps=subprocess.run) as run:
+            pack, _ = self.pack()
+        asset_oid = self.git(self.repo, 'rev-parse', 'HEAD:asset.bin').encode()
+        batches = [call.kwargs.get('input', b'') for call in run.call_args_list if 'cat-file' in call.args[0]]
+        self.assertTrue(batches)
+        self.assertFalse(any(asset_oid in batch for batch in batches))
+        lookups = [call.args[0] for call in run.call_args_list if 'ls-tree' in call.args[0] and '-rz' not in call.args[0]]
+        self.assertLess(len(lookups), 12, lookups)
+        self.assertNotIn(b'UNRELATED BLOB CANARY', pack)
 
     def test_compiler_includes_registry_relevant_homes_provenance_and_exact_size(self):
         pack, manifest = self.pack()
@@ -118,7 +166,7 @@ class DocumentationContextTests(unittest.TestCase):
         with self.assertRaisesRegex(prompt.PromptError, "D06"):
             self.pack({"version": 1, "sections": ["example-demo#absent"]})
         with self.assertRaisesRegex(prompt.PromptError, "D25"):
-            self.pack({**ASSIGNMENT, "available_bytes": 100})
+            self.pack({**ASSIGNMENT, "budget_bytes": 100})
         pack, _ = self.pack()
         self.assertIn(b"Call capacity bounds documents in one native call.", pack)
 

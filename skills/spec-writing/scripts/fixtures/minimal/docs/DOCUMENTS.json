@@ -1,0 +1,48 @@
+{
+  "documents": [
+    {
+      "approval": {
+        "authority": "fixture",
+        "decision": "example#decision"
+      },
+      "audience": "Authors familiar with Markdown.",
+      "id": "example",
+      "navigation": {
+        "path": "docs/example.md",
+        "region": "example"
+      },
+      "non_goals": "A production service.",
+      "purpose": "Show bounded submission and refusal.",
+      "scenarios": [],
+      "scope": "One synthetic submission rule.",
+      "sections": [
+        {
+          "anchor": "example",
+          "explanatory_dependencies": [],
+          "id": "main",
+          "path": "docs/example.md",
+          "prerequisites": [],
+          "roles": [
+            "tour",
+            "mechanism",
+            "requirements",
+            "acceptance",
+            "decisions",
+            "questions",
+            "reference"
+          ],
+          "summary": "Follow submission and inspect its evidence."
+        }
+      ],
+      "status": "approved",
+      "title": "Bounded batches"
+    }
+  ],
+  "inventory": [
+    {
+      "kind": "specification",
+      "path": "docs/example.md"
+    }
+  ],
+  "version": 1
+}
