@@ -4,3 +4,26 @@ Apply the reader test to each section: read it alone, as if the rest of the docu
 Review every worked example and schema naming family. For each stored value an example shows, the text explains what it represents, any unit or code meaning, why the step writes, changes or keeps it, and what the caller observes. For arrays, it states the element meanings and which entries correspond. For shared slots, it names the record type and the mapped field. A compact dump fails when the reader must decode it from a glossary or another section.
 Check newly added explanations against the schema or protocol, including their qualifications and exceptions. A passing link, heading or content-preservation check is not a passing reader test.
 For each finding, show the concrete passage and what the reader cannot explain. Report violations of these requirements as document requirement defects. Cosmetic preferences that pass the reader test remain non-blocking. Do not accept a glossary elsewhere as closure.
+
+For a fresh-reader assignment, use a new context containing the document package: source
+chapters, generated navigation, complete registry reference, relevant homes, decisions,
+profile and provenance. Exclude authoring conversation, earlier findings, coaching and
+unpublished explanations. Treat registry entries outside the reading dependencies as
+reference material; they cannot excuse a missing explanation in the document.
+
+Explain the system from that package alone. Follow the tour and answer representative
+questions about its inputs, state changes and caller-visible results. Explain a refusal
+and its recovery, including a declared absence of recovery. If no refusal applies, check
+the document's explanation of why. Cite where understanding fails; do not fill gaps from
+code or external sources. A fresh-reader pass may satisfy the existing readability
+responsibility and does not require an additional technical review round.
+
+Apply the writing profile's warning severity. A long sentence, long paragraph or other
+heuristic warning alone is not a defect. Identify the demonstrated reader problem and its
+consequence. Preserve conditions, exceptions, uncertainty and consequences when suggesting
+shorter wording. Check that provisional facts retain qualifications, observed facts retain
+evidence and operating conditions, and unresolved facts retain their resolution paths.
+Check unlinked restatements and ordinary words given unstated technical meanings; a
+successful literal-value link check does not establish those meanings.
+
+@rule house-rules:rules/specifications.md

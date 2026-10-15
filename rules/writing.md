@@ -69,11 +69,62 @@ happened, why it matters and what to do, in that order.
 - Group longer lists only when helpful.
 - Preserve sequence, identifiers, and coverage when grouping.
 
+## House technical English
+
+Use this versioned profile of selected controlled-language practices. It does not claim
+ASD-STE100 conformance. The checker reads this block; do not maintain a second limits file.
+
+<!-- spec-docs:profile -->
+```json
+{
+  "version": 1,
+  "name": "house-technical-english",
+  "procedure_sentence_words": 20,
+  "descriptive_sentence_words": 25,
+  "descriptive_paragraph_sentences": 6,
+  "severity": "warning"
+}
+```
+<!-- /spec-docs:profile -->
+
+- Give each instruction one independent action. Put a condition before its action.
+  Use active imperative voice in procedures. Simultaneous actions may share an instruction
+  when separating them changes behavior.
+- Treat sentence and paragraph targets as warnings. Never fail continuous integration or
+  pack generation because of prose heuristics or warning counts.
+- Preserve conditions, exceptions, uncertainty and consequences when shortening text.
+  A warning alone does not demonstrate a reader problem or require a rewrite.
+- Exclude the full STE dictionary, universal part-of-speech checks, full verb restrictions
+  and aerospace safety-notice conventions from this profile.
+
+### Counting visible prose
+
+- Count whitespace-separated words. Identifiers and hyphenated tokens count as one word;
+  separate numbers and measurement words count separately. Count parenthetical prose.
+  Do not count markup or link destinations.
+- End a counting sentence at `.`, `?` or `!` followed by whitespace or block end.
+  Decimal points and code-span punctuation do not split sentences. A colon introducing
+  a vertical list ends its introduction.
+- Exclude code blocks, exact signatures, declaration encodings and attributed quotations.
+  Their surrounding explanations remain in scope.
+
+## Numbers, dates and times
+
+- Use ISO 80000-1 number formatting in prose: a plain space separates groups of three
+  digits, and a dot is the decimal marker. Examples: 2 048; 4 194 304; 0.1; 1 234.5.
+- Use ISO 8601 dates and times. Write dates as 2026-10-16. Use a 24-hour time with a zone,
+  such as 14:05 UTC. Write a combined date and time as 2026-10-16 14:05 UTC.
+- Put a space before unit symbols: 10 min, 1 s, 4 MiB.
+- Code, identifiers, configuration, data and literal examples retain their required format.
+  A renderer may replace grouping spaces with narrow no-break spaces.
+- Format deviations produce writing warnings, never blocking failures.
+
 ## Sequences and structured detail
 
 - In walkthroughs, procedures, worked examples and test scenarios, put each ordered action
-  or call in its own numbered item. Start with a short bold action. Put the exact call
-  beside it when one is shown.
+  or call in its own numbered item under **Procedure: descriptive label**. Use at least
+  two ordered actions. Start each item with a short bold action. Put the exact call beside
+  it when one is shown. A single action is a sentence.
 - Under each item, use short sub-items for inputs, written or changed values, and the
   result the caller observes. Include only the parts that apply.
 - Give several rows or values separate labeled items when explaining their meanings.
@@ -81,7 +132,10 @@ happened, why it matters and what to do, in that order.
 - A heading or outer list item does not make several actions one step. Writers and
   reviewers check the action boundaries, not only sentence length.
 - This format does not apply to a single action, an exact signature or schema, or a lookup
-  table.
+  table. Descriptive enumerations use bullets or compact tables. Operator decision options
+  are exempt.
+- Keep required instructions beside the action that needs them. Put informational detail
+  in an ordinary blockquote labelled **Detail — descriptive label**.
 
 Before:
 
@@ -89,6 +143,8 @@ Before:
 `files.publish { id }` changes its state and returns a publication receipt.
 
 After:
+
+**Procedure: create and publish a file**
 
 1. **Create the file:** `files.create { name: "draft" }`.
    - Writes the file row.

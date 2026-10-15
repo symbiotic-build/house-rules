@@ -2,6 +2,21 @@
 
 Source notes for House Rules invariants and procedures.
 
+## Specification and design-document system — Profile, authoring and review
+
+Operator-approved design: 2026-10-16. Technical documents need canonical homes and useful
+reading order while preserving ordinary Markdown as both source and reading format.
+The writing rules now own a versioned technical-English profile and prose warning severity.
+They also own the general number, date, time and quantity notation selected by the operator.
+Code and literal examples retain their required notation.
+
+The spec-writing procedure and reusable specification and design-document outlines refer
+to shared authority and declaration owners. The generated entity index replaces the
+separate hand-maintained glossary requirement. The structure reference adds shared document
+and entity metadata, generated navigation and single-file navigation regions. Existing
+review lenses add fresh-reader, whole-scenario, reciprocal traceability and failure/recovery
+checks. These changes add no review panel or publication pipeline.
+
 ## rules/writing.md — Sequences and structured detail
 
 Operator direction: 2026-10-15, while reviewing a specification. One walkthrough paragraph

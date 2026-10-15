@@ -15,6 +15,9 @@ repo/
 ├── CLAUDE.md                      # pointer to AGENTS.md; preserve tool-manager-owned content
 ├── .claude/rules/<name>.md        # optional, Claude-only: path-scoped rules (frontmatter paths:)
 ├── docs/
+│   ├── DOCUMENTS.json             # shared document manifest and tracked Markdown inventory
+│   ├── ENTITIES.json              # shared entity identities, names, scope and home locations
+│   ├── generated/                 # rebuildable Markdown navigation, never canonical facts
 │   ├── SYSTEM-MAP.md              # ONE high-level system map (skill design-canon §Docs)
 │   ├── design/                    # INTENT — approved future design
 │   │   └── <issue>-feature-name.md #  owning issue number; statuses: see below
@@ -42,6 +45,20 @@ repo/
 ├── .debug-session/                # gitignored: logs, screenshots, debug reports
 └── .tmp/                          # gitignored: scratch; lane targets only without a worktree
 ```
+
+## Specification and design-document artifacts
+
+Use the shared metadata paths shown above for both single-file and multi-file documents.
+Keep authored chapters in their normal specification or design locations. Generated
+navigation belongs under `docs/generated/` or in one declared region of an existing
+document, including the repository's single system map. A single-file design uses its
+existing file's navigation region; it needs no private directory or companion glossary.
+
+The complete registry and selected agent context are transient tool outputs, not maintained
+repository stores. Follow [specifications rules](rules/specifications.md) for authority and
+the [format contract](skills/spec-writing/references/format.md) for declarations.
+The reusable outlines live in [spec-writing templates](skills/spec-writing/templates/):
+`specification.md` and `design-document.md`.
 
 ## Managed repository loader
 
