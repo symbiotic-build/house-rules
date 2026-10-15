@@ -12,6 +12,14 @@ jobs:
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install pinned documentation tooling
+        run: |
+          python -m venv .tmp/spec-docs-env
+          .tmp/spec-docs-env/bin/python -m pip install --require-hashes --only-binary=:all: --no-deps -r skills/spec-writing/scripts/requirements.lock
+          .tmp/spec-docs-env/bin/python -m pip check
       - uses: actions/setup-node@v7
         with:
           node-version: 22
@@ -19,10 +27,10 @@ jobs:
       - name: Check report helper syntax
         run: node --check skills/audit-report-authoring/scripts/lint-report-set.mjs
       - name: Test installation sync
-        run: python3 scripts/test_sync.py
+        run: .tmp/spec-docs-env/bin/python scripts/test_sync.py
       - name: Test transcript extraction
-        run: python3 -B -m unittest discover -s skills/operator-protocol/scripts
+        run: .tmp/spec-docs-env/bin/python -B -m unittest discover -s skills/operator-protocol/scripts
       - name: Test prompts, preparer and verdict scripts
-        run: python3 -B -m unittest discover -s skills/pr-ready/scripts
+        run: .tmp/spec-docs-env/bin/python -B -m unittest discover -s skills/pr-ready/scripts
       - name: Prepare every role and lens as the review service does
-        run: python3 -B scripts/check_review_staging.py && python3 -B -m unittest discover -s scripts -p 'test_check_review_staging.py'
+        run: .tmp/spec-docs-env/bin/python -B scripts/check_review_staging.py && .tmp/spec-docs-env/bin/python -B -m unittest discover -s scripts -p 'test_check_review_staging.py'

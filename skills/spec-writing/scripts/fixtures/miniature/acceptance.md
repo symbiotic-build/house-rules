@@ -92,7 +92,7 @@ A revision check prevents a prepared request from using stale state.
 <a id="test-stale-revision"></a>
 ### Acceptance test: stale request
 
-**Method:** test.
+**Method:** analysis.
 
 **Requirements:** [Stale-revision requirement](#req-stale-revision).
 
@@ -103,3 +103,5 @@ A revision check prevents a prepared request from using stale state.
 
 **Entities in this example:** [Writer](#writer),
 [acceptance](#acceptance).
+
+Evidence: [retained-state analysis](#acceptance-stale-failure).

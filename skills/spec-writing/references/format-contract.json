@@ -26,10 +26,10 @@
     "tour",
     "mechanism",
     "requirements",
-    "acceptance",
     "decisions",
     "questions",
-    "reference"
+    "reference",
+    "acceptance"
   ],
   "design_roles": [
     "evidence",

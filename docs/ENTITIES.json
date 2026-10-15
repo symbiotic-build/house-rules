@@ -4,7 +4,7 @@
     "spec-system.source-document": {
       "kind": "concept",
       "home": {
-        "section": "spec-system#overview",
+        "section": "spec-system#documents",
         "anchor": "source-document"
       },
       "scope": [
@@ -20,7 +20,7 @@
     "spec-system.addressable-section": {
       "kind": "concept",
       "home": {
-        "section": "spec-system#overview",
+        "section": "spec-system#sections",
         "anchor": "addressable-section"
       },
       "scope": [
@@ -36,7 +36,7 @@
     "spec-system.registered-entity": {
       "kind": "concept",
       "home": {
-        "section": "spec-system#overview",
+        "section": "spec-system#homes",
         "anchor": "registered-entity"
       },
       "scope": [
@@ -67,7 +67,7 @@
     "spec-system.entity-index": {
       "kind": "data",
       "home": {
-        "section": "spec-system#sources",
+        "section": "spec-system#entities",
         "anchor": "entity-index"
       },
       "scope": [
@@ -82,7 +82,7 @@
     "spec-system.canonical-fact": {
       "kind": "concept",
       "home": {
-        "section": "spec-system#sources",
+        "section": "spec-system#facts",
         "anchor": "canonical-fact"
       },
       "scope": [
@@ -98,7 +98,7 @@
     "spec-system.requirement-declaration": {
       "kind": "concept",
       "home": {
-        "section": "spec-system#sources",
+        "section": "spec-system#obligations",
         "anchor": "requirement-declaration"
       },
       "scope": [
@@ -114,7 +114,7 @@
     "spec-system.acceptance-test": {
       "kind": "concept",
       "home": {
-        "section": "spec-system#sources",
+        "section": "spec-system#tests",
         "anchor": "acceptance-test"
       },
       "scope": [
@@ -130,7 +130,7 @@
     "spec-system.scenario": {
       "kind": "concept",
       "home": {
-        "section": "spec-system#sources",
+        "section": "spec-system#scenarios",
         "anchor": "scenario"
       },
       "scope": [
@@ -146,7 +146,7 @@
     "spec-system.failure-declaration": {
       "kind": "concept",
       "home": {
-        "section": "spec-system#sources",
+        "section": "spec-system#failures",
         "anchor": "failure-declaration"
       },
       "scope": [
@@ -177,7 +177,7 @@
     "spec-system.navigation-generation": {
       "kind": "mechanism",
       "home": {
-        "section": "spec-system#checking",
+        "section": "spec-system#navigation",
         "anchor": "navigation-generation"
       },
       "scope": [
@@ -192,7 +192,7 @@
     "spec-system.tool-environment": {
       "kind": "component",
       "home": {
-        "section": "spec-system#checking",
+        "section": "spec-system#environment",
         "anchor": "tool-environment"
       },
       "scope": [
@@ -207,7 +207,7 @@
     "spec-system.source-snapshot": {
       "kind": "data",
       "home": {
-        "section": "spec-system#context",
+        "section": "spec-system#snapshots",
         "anchor": "source-snapshot"
       },
       "scope": [
@@ -223,7 +223,7 @@
     "spec-system.complete-registry": {
       "kind": "data",
       "home": {
-        "section": "spec-system#context",
+        "section": "spec-system#registry",
         "anchor": "complete-registry"
       },
       "scope": [
@@ -254,7 +254,7 @@
     "spec-system.semantic-review": {
       "kind": "mechanism",
       "home": {
-        "section": "spec-system#context",
+        "section": "spec-system#review",
         "anchor": "semantic-review"
       },
       "scope": [
@@ -269,7 +269,7 @@
     "spec-system.writing-profile": {
       "kind": "concept",
       "home": {
-        "section": "spec-system#reference",
+        "section": "spec-system#writing",
         "anchor": "writing-profile"
       },
       "scope": [

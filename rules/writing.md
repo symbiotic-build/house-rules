@@ -57,6 +57,8 @@ happened, why it matters and what to do, in that order.
   Give each option or item its own short section instead.
 - Keep a lookup table when every cell is a few words.
 - Diagrams are Mermaid in files and chat, never ASCII art or indented text trees.
+  State the single question each diagram answers before the diagram. Give adjacent term-home
+  links and explain its answer. Separate diagrams with explanatory text.
   Orient them vertically, with groups and comparisons stacked rather than side by side.
   Draw unconnected groups as separate diagrams, with text between them; one diagram would
   place them side by side.
@@ -127,10 +129,9 @@ ASD-STE100 conformance. The checker reads this block; do not maintain a second l
   or call in its own numbered item under **Procedure: descriptive label**. Use at least
   two ordered actions. Start each item with a short bold action. Put the exact call beside
   it when one is shown. A single action is a sentence.
-- Under each item, use short sub-items for inputs, written or changed values, and the
-  result the caller observes. Include only the parts that apply.
-- Give several rows or values separate labeled items when explaining their meanings.
-  Preserve exact names, values, order and exceptions.
+- Keep each step's action and caller-visible result in one or two plain lines.
+  Put exact rows, values, counts and encodings in a labelled detail block beneath its step.
+  Preserve exact names, values, order and exceptions there.
 - A heading or outer list item does not make several actions one step. Writers and
   reviewers check the action boundaries, not only sentence length.
 - This format does not apply to a single action, an exact signature or schema, or a lookup

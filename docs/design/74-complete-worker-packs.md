@@ -18,6 +18,8 @@ Record complete role prompts and their two shared-rule loading paths.
 
 ## Document map
 
+Use this map to choose the next explanation to read.
+
 - [Complete worker role packs](74-complete-worker-packs.md#complete-worker-role-packs) — Read the historical status and source work item for this design.
   - [Result](74-complete-worker-packs.md#result)
   - [Terms](74-complete-worker-packs.md#terms)
@@ -25,24 +27,26 @@ Record complete role prompts and their two shared-rule loading paths.
   - [Design](74-complete-worker-packs.md#design)
   - [Rejected alternatives](74-complete-worker-packs.md#rejected-alternatives)
   - [Implementation scope](74-complete-worker-packs.md#implementation-scope)
-  - [Verification](74-complete-worker-packs.md#verification)
   - [Rollout and dependencies](74-complete-worker-packs.md#rollout-and-dependencies)
-  - [Interfaces with the other designs](74-complete-worker-packs.md#interfaces-with-the-other-designs)
   - [Decisions](74-complete-worker-packs.md#decisions)
   - [Open points](74-complete-worker-packs.md#open-points)
+  - [Interfaces with the other designs](74-complete-worker-packs.md#interfaces-with-the-other-designs)
+  - [Verification](74-complete-worker-packs.md#verification)
 - [Result](74-complete-worker-packs.md#result) — Record complete role prompts and their two shared-rule loading paths.
 - [Terms](74-complete-worker-packs.md#terms) — Resolve the defined names and repository paths used in this design.
 - [Current behavior verified for this revision](74-complete-worker-packs.md#current-behavior-verified-for-this-revision) — Inspect the cited implementation baseline and the limits of inherited evidence.
 - [Design](74-complete-worker-packs.md#design) — Share rule owners across session and compiled loading paths without copied fragments.
 - [Rejected alternatives](74-complete-worker-packs.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
 - [Implementation scope](74-complete-worker-packs.md#implementation-scope) — Find the proposed file changes, persistent additions and excluded work.
-- [Verification](74-complete-worker-packs.md#verification) — Find the required tests and canaries, with their evidence limits.
 - [Rollout and dependencies](74-complete-worker-packs.md#rollout-and-dependencies) — Deploy shared-rule staging, compiler variants and canaries in dependency order.
-- [Interfaces with the other designs](74-complete-worker-packs.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
 - [Decisions](74-complete-worker-packs.md#decisions) — Read the recorded operator and lead choices with their stated authority.
 - [Open points](74-complete-worker-packs.md#open-points) — Find the remaining implementation evidence; no operator choice is open.
+- [Interfaces with the other designs](74-complete-worker-packs.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
+- [Verification](74-complete-worker-packs.md#verification) — Find the required tests and canaries, with their evidence limits.
 
 ## Entity index
+
+Use this index to find each registered meaning at its home.
 
 - [Open citation](74-complete-worker-packs.md#open-citation) (`complete-worker-packs.open-citation`) — Open citation: an instruction to read a rule absent from both the compiled prompt and
 the session's declared House Rules loading path.
@@ -380,6 +384,75 @@ The implementation also reports the [shared rules](#shared-rule) loaded by norma
 Those measurements must distinguish the live [session rules](#session-rule) from the named-commit role prompt.
 The design adds no runtime store, index, cache, queue or mirror.
 
+<a id="rollout-and-dependencies"></a>
+## Rollout and dependencies
+
+The prior rollout based on temporary copies is removed.
+Deployment follows these dependencies:
+
+**Procedure: deploy shared-rule loading**
+
+1. **Confirm that Warden** has deployed the staging change for `rules/` before enabling direct shared-rule includes there.
+   Widen the staged-path guard only with that deployment evidence.
+2. **Land the shared-rule owners** and update their consumers together.
+   Coordinate the shared-rule loading list with the smaller-core design's index changes.
+   Do not introduce a temporary copied-rule path.
+3. **Integrate the two compiler variants** with the one-step assembly design's named-commit builder.
+   The [lane runner](77-one-step-pack-assembly.md#lane-runner) selects the session variant.
+   Warden selects the default complete variant.
+4. **Run the lane and Warden canaries** from [Verification](#verification) before moving the callers to the new role-prompt commit.
+   The live lane-session checkout remains a separate source of session instructions.
+
+The [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77)
+owns drafting its matching Warden compiler change after the [lane-runner](77-one-step-pack-assembly.md#lane-runner) test passes and with operator approval.
+This design does not create a second Warden rollout or assume that staging deployment proves compiler deployment.
+
+<a id="decisions"></a>
+## Decisions
+
+Each item records the operator's choice on 2026-10-07.
+
+- **1.** **2026-10-07 — One shared home:** writing rules with claim labels, Git rules and priority labels live in separate files under `rules/`.
+   Rule text is not copied under `prompts/util/`.
+- **2.** **2026-10-07 — Load [shared rules](#shared-rule) for every agent:** sessions and [subagents](75-subagent-profiles.md#subagent) load [shared rules](#shared-rule) through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
+   Warden role prompts include the canonical files with `@rule house-rules:rules/<file>.md` lines.
+- **3.** **2026-10-07 — Keep [session rules](#session-rule) separate:** instructions for talking to the operator, formatting questions and running lanes stay in their own files.
+   Warden role prompts do not include those files.
+- **4.** **2026-10-07 — Normal lane sessions:** [lane workers](75-subagent-profiles.md#lane-worker) use the operator's normal Codex home with the [House Rules block](73-instruction-layer-foundation.md#house-rules-block), skills and guardian escalation path.
+   One role file serves lane sessions and Warden; lane prompts omit shared-rule includes already supplied by the session.
+- **5.** **2026-10-07 — State the pin limit:** lane-session rules come from the live House Rules checkout.
+   Only the role prompt is built from a named commit, as defined by the one-step assembly design.
+- **6.** **2026-10-07 — Keep Warden read-only:** Warden reviewers use a read-only pull-request copy, contact only the model provider and run no builds or tests.
+   Continuous integration runs builds and tests; Warden posts reviews for the Mac lane scripts to read and fix locally.
+- **7.** **2026-10-07 — Stage canonical rules:** Warden stages `rules/` from the qualified commit through the change identified as `9f1568b`.
+   The House Rules staged-path guard widens to `rules/` once that change is deployed.
+
+Decisions owned by other designs remain the short cross-references in [Interfaces with the other designs](#interfaces-with-the-other-designs).
+
+<a id="open-points"></a>
+## Open points
+
+- **Warden staging deployment:** close this point with deployment evidence for `9f1568b`
+  and a canary that resolves the direct shared-rule includes from the qualified commit.
+  The recorded merge alone does not establish deployment.
+
+The recorded operator answers leave no unanswered operator choice for this design.
+<a id="interfaces-with-the-other-designs"></a>
+## Interfaces with the other designs
+
+- **[Smaller always-loaded core](https://github.com/symbiotic-sh/house-rules/issues/73):** owns `house-rules/INDEX.md`,
+  the [pointer](73-instruction-layer-foundation.md#instruction-pointer) files and its own canary.
+  This design supplies the shared-rule owners that its index loads.
+- **[Specialist](75-subagent-profiles.md#specialist) [subagents](75-subagent-profiles.md#subagent) ([source](https://github.com/symbiotic-sh/house-rules/issues/75)):** owns [specialist](75-subagent-profiles.md#specialist) execution,
+  including separate Claude safe-mode processes, skill-text injection and its Model Context Protocol test and fallback.
+  [Specialist packs](75-subagent-profiles.md#specialist-pack) use the shared owners without assuming that safe mode loads session skills.
+- **[Review skill](https://github.com/symbiotic-sh/house-rules/issues/76):** owns the `change-review` skill,
+  the fixed review format, the operator question format and one reviewer by default.
+  This design supplies the reviewer role's shared writing rules and claim labels.
+- **[One-step assembly](https://github.com/symbiotic-sh/house-rules/issues/77):** owns Git-object prompt building from a named commit,
+  revision headers, repository rules assembly and caller integration for the two loading paths.
+  Lane review panels use that builder rather than scripts taken from the live checkout.
+
 <a id="verification"></a>
 ## Verification
 
@@ -415,73 +488,3 @@ Tool logs must show no reads from the live House Rules checkout and no builds or
 The reviewer must retain the read-only and network restrictions from [Warden's boundary](#warden-s-boundary).
 The Warden service's review must be readable by the Mac lane scripts for a local fix round.
 Self-reports alone do not prove the loading or isolation behavior.
-
-<a id="rollout-and-dependencies"></a>
-## Rollout and dependencies
-
-The prior rollout based on temporary copies is removed.
-Deployment follows these dependencies:
-
-**Procedure: deploy shared-rule loading**
-
-1. **Confirm that Warden** has deployed the staging change for `rules/` before enabling direct shared-rule includes there.
-   Widen the staged-path guard only with that deployment evidence.
-2. **Land the shared-rule owners** and update their consumers together.
-   Coordinate the shared-rule loading list with the smaller-core design's index changes.
-   Do not introduce a temporary copied-rule path.
-3. **Integrate the two compiler variants** with the one-step assembly design's named-commit builder.
-   The [lane runner](77-one-step-pack-assembly.md#lane-runner) selects the session variant.
-   Warden selects the default complete variant.
-4. **Run the lane and Warden canaries** from [Verification](#verification) before moving the callers to the new role-prompt commit.
-   The live lane-session checkout remains a separate source of session instructions.
-
-The [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77)
-owns drafting its matching Warden compiler change after the [lane-runner](77-one-step-pack-assembly.md#lane-runner) test passes and with operator approval.
-This design does not create a second Warden rollout or assume that staging deployment proves compiler deployment.
-
-<a id="interfaces-with-the-other-designs"></a>
-## Interfaces with the other designs
-
-- **[Smaller always-loaded core](https://github.com/symbiotic-sh/house-rules/issues/73):** owns `house-rules/INDEX.md`,
-  the [pointer](73-instruction-layer-foundation.md#instruction-pointer) files and its own canary.
-  This design supplies the shared-rule owners that its index loads.
-- **[Specialist](75-subagent-profiles.md#specialist) [subagents](75-subagent-profiles.md#subagent) ([source](https://github.com/symbiotic-sh/house-rules/issues/75)):** owns [specialist](75-subagent-profiles.md#specialist) execution,
-  including separate Claude safe-mode processes, skill-text injection and its Model Context Protocol test and fallback.
-  [Specialist packs](75-subagent-profiles.md#specialist-pack) use the shared owners without assuming that safe mode loads session skills.
-- **[Review skill](https://github.com/symbiotic-sh/house-rules/issues/76):** owns the `change-review` skill,
-  the fixed review format, the operator question format and one reviewer by default.
-  This design supplies the reviewer role's shared writing rules and claim labels.
-- **[One-step assembly](https://github.com/symbiotic-sh/house-rules/issues/77):** owns Git-object prompt building from a named commit,
-  revision headers, repository rules assembly and caller integration for the two loading paths.
-  Lane review panels use that builder rather than scripts taken from the live checkout.
-
-<a id="decisions"></a>
-## Decisions
-
-Each item records the operator's choice on 2026-10-07.
-
-- **1.** **2026-10-07 — One shared home:** writing rules with claim labels, Git rules and priority labels live in separate files under `rules/`.
-   Rule text is not copied under `prompts/util/`.
-- **2.** **2026-10-07 — Load [shared rules](#shared-rule) for every agent:** sessions and [subagents](75-subagent-profiles.md#subagent) load [shared rules](#shared-rule) through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
-   Warden role prompts include the canonical files with `@rule house-rules:rules/<file>.md` lines.
-- **3.** **2026-10-07 — Keep [session rules](#session-rule) separate:** instructions for talking to the operator, formatting questions and running lanes stay in their own files.
-   Warden role prompts do not include those files.
-- **4.** **2026-10-07 — Normal lane sessions:** [lane workers](75-subagent-profiles.md#lane-worker) use the operator's normal Codex home with the [House Rules block](73-instruction-layer-foundation.md#house-rules-block), skills and guardian escalation path.
-   One role file serves lane sessions and Warden; lane prompts omit shared-rule includes already supplied by the session.
-- **5.** **2026-10-07 — State the pin limit:** lane-session rules come from the live House Rules checkout.
-   Only the role prompt is built from a named commit, as defined by the one-step assembly design.
-- **6.** **2026-10-07 — Keep Warden read-only:** Warden reviewers use a read-only pull-request copy, contact only the model provider and run no builds or tests.
-   Continuous integration runs builds and tests; Warden posts reviews for the Mac lane scripts to read and fix locally.
-- **7.** **2026-10-07 — Stage canonical rules:** Warden stages `rules/` from the qualified commit through the change identified as `9f1568b`.
-   The House Rules staged-path guard widens to `rules/` once that change is deployed.
-
-Decisions owned by other designs remain the short cross-references in [Interfaces with the other designs](#interfaces-with-the-other-designs).
-
-<a id="open-points"></a>
-## Open points
-
-- **Warden staging deployment:** close this point with deployment evidence for `9f1568b`
-  and a canary that resolves the direct shared-rule includes from the qualified commit.
-  The recorded merge alone does not establish deployment.
-
-The recorded operator answers leave no unanswered operator choice for this design.

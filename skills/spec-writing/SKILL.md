@@ -42,8 +42,11 @@ unsettled questions, without reopening a settled choice merely because it is unf
    - Sketch section purposes and a complete end-to-end scenario.
    - Register a valid draft skeleton: anchored sections with opening prose, explicit role
      gaps, an empty entity index, no incomplete declarations and no dangling scenario selectors.
+   - Register each chapter's title anchor so its opening text belongs to the selected subtree.
+   - Inventory preserved Markdown inputs and evidence as well as the authored chapters.
    - Leave homes unregistered until their headings and definitions exist.
    - Generate navigation from that valid skeleton; no permissive generation mode is needed.
+   - Require successful generation and checking before assigning body sections.
    - Read that navigation before assigning sections.
 2. **Establish entity homes.**
    - Inventory concepts and canonical facts against the primary sources.
@@ -54,6 +57,8 @@ unsettled questions, without reopening a settled choice merely because it is unf
    - Use disjoint source assignments and generated context when several authors work.
    - Explain each mechanism's problem and ordinary behavior before its exceptional paths.
    - Add reciprocal requirements and acceptance cases together using the exact source formats.
+   - Use one decision heading per choice. Put alternatives in one Rejected alternatives field;
+     do not repeat the same bold field label within a declaration or decision.
    - Complete each failure declaration before registering scenarios that refer to it.
    - Propose changes to another owner's facts instead of introducing replacement definitions.
 4. **Review the assembled document.**
@@ -74,10 +79,30 @@ readability warnings have different authority under the specifications and writi
 
 ## Explain behavior to readers
 
-Open with the outcome and an ordinary example. Keep exact schemas and signatures in
-reference material after the tour and mechanisms. Apply
-[writing rules §Sequences and structured detail](../../rules/writing.md#sequences-and-structured-detail)
-to walkthroughs, including inputs, changed or retained state and caller-visible results.
+Build the reading path under [rules/specifications.md](../../rules/specifications.md#reader-progression):
+write the opening and diagram question, generate the map, then write one real tour.
+Choose its example before assigning chapters. Extend that same example in each mechanism
+chapter and revisit it in the reference and acceptance. Draft one mechanism per chapter.
+Read only the map, then only map and tour, to check that each stopping point makes sense.
+
+Write a purpose paragraph before every section's rules or fields, including declarations.
+Keep entity-home opening definitions concise because generation copies the whole paragraph.
+When touching an explanation owned elsewhere, add a one-line linked handoff naming what is
+explained later. Check each first-use gloss against what a reader needs at that point.
+
+For each tour or procedure step, write the action and caller-visible result first.
+Move exact payloads beneath that step, for example:
+
+> **Detail — capacity comparison**
+>
+> The displayed value differs from the table's value; comparison reports `D10`.
+
+Use [rules/writing.md](../../rules/writing.md#sequences-and-structured-detail) for step structure.
+Keep schemas and signatures in lookup reference after the mechanisms. Use the executable
+fixtures inside this skill when the specification chapters are unavailable; their JSON and
+Markdown form a complete checked corpus. Read each fixture file, including adjacent
+qualification and literal-example annotations, rather than inventing declaration syntax.
+The format reference links the canonical grammar; do not duplicate its policy here.
 
 For every shown stored value, explain what it represents, its unit or code meaning, and
 why the action writes, changes or retains it. For arrays, explain element meanings and
@@ -109,7 +134,12 @@ neither an explanation nor adequate evidence for a value or acceptance test.
    - Exclude authoring conversation, prior findings, coaching and unpublished explanations.
 2. **Give a new reader a generic task.**
    - Ask it to explain the system and follow the tour.
-   - Ask representative questions about inputs, state changes and observable results.
+   - Use two fresh readers using different models for system acceptance.
+   - Ask ten questions: purpose, inputs, authority, reading order, identity, literal equality,
+     ordinary result, refusal, recovery, and context selection. Require citations for each.
+   - Require zero unanswered questions, guesses or stuck points.
+   - Have each reader build a small corpus from the chapters alone. Its first checker run
+     must have zero errors; retain that run's output as evidence.
    - Ask it to explain a refusal and its recovery, or the declared absence of either.
    - Require citations for ambiguity, hidden assumptions and places understanding fails.
 3. **Assess the answers against the document.**
@@ -122,6 +152,18 @@ neither an explanation nor adequate evidence for a value or acceptance test.
 
 Use a new agent context for this pass when review is authorized. This procedure may fill
 the existing readability responsibility; it does not authorize another review panel.
+
+## Qualify the authoring pipeline
+
+Use normal branch-pinned loaders for a fresh author run from a short feature brief.
+Check the new multi-chapter specification against the reader-progression rules, structural
+gate and fresh-reader procedure. Separately convert an existing unconverted design and a
+deliberately messy document through the conversion procedure. Require the same checks.
+Bind run records to the source revision and candidate digest. Inspect every approved design
+and operator decision for implemented behavior or an explicit reasoned change. A renderer
+has its own specification and linked display tests in its repository; do not claim its
+acceptance from the House Rules check. Repair defects in their rule, template, lens or
+checker owner and repeat the normal run; never repair generated output by hand.
 
 ## Convert existing material
 

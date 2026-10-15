@@ -18,6 +18,8 @@ Record one-call prompt assembly from a named commit.
 
 ## Document map
 
+Use this map to choose the next explanation to read.
+
 - [One-step pack assembly from a named commit](77-one-step-pack-assembly.md#one-step-pack-assembly-from-a-named-commit) — Read the historical status and source work item for this design.
   - [Result](77-one-step-pack-assembly.md#result)
   - [Terms and paths](77-one-step-pack-assembly.md#terms-and-paths)
@@ -26,11 +28,11 @@ Record one-call prompt assembly from a named commit.
   - [Design](77-one-step-pack-assembly.md#design)
   - [Rejected alternatives](77-one-step-pack-assembly.md#rejected-alternatives)
   - [Size](77-one-step-pack-assembly.md#size)
-  - [Verification](77-one-step-pack-assembly.md#verification)
   - [Rollout and pins](77-one-step-pack-assembly.md#rollout-and-pins)
-  - [Interfaces with the other designs](77-one-step-pack-assembly.md#interfaces-with-the-other-designs)
   - [Decisions](77-one-step-pack-assembly.md#decisions)
   - [Open points](77-one-step-pack-assembly.md#open-points)
+  - [Interfaces with the other designs](77-one-step-pack-assembly.md#interfaces-with-the-other-designs)
+  - [Verification](77-one-step-pack-assembly.md#verification)
 - [Result](77-one-step-pack-assembly.md#result) — Record one-call prompt assembly from a named commit.
 - [Terms and paths](77-one-step-pack-assembly.md#terms-and-paths) — Resolve compiler names, input parts and repository paths.
 - [Pre-flight](77-one-step-pack-assembly.md#pre-flight) — Read supplied work-item decisions and repository rules before implementation.
@@ -38,13 +40,15 @@ Record one-call prompt assembly from a named commit.
 - [Design](77-one-step-pack-assembly.md#design) — Build ordered prompt inputs from Git objects and record exact pack provenance.
 - [Rejected alternatives](77-one-step-pack-assembly.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
 - [Size](77-one-step-pack-assembly.md#size) — Read the implementation estimate and the limits on claimed prompt savings.
-- [Verification](77-one-step-pack-assembly.md#verification) — Find the required tests and canaries, with their evidence limits.
 - [Rollout and pins](77-one-step-pack-assembly.md#rollout-and-pins) — Follow the dependency and qualification order before adoption.
-- [Interfaces with the other designs](77-one-step-pack-assembly.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
 - [Decisions](77-one-step-pack-assembly.md#decisions) — Read the recorded operator and lead choices with their stated authority.
 - [Open points](77-one-step-pack-assembly.md#open-points) — Find the remaining implementation evidence; no operator choice is open.
+- [Interfaces with the other designs](77-one-step-pack-assembly.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
+- [Verification](77-one-step-pack-assembly.md#verification) — Find the required tests and canaries, with their evidence limits.
 
 ## Entity index
+
+Use this index to find each registered meaning at its home.
 
 - [Role pack](74-complete-worker-packs.md#role-pack) (`complete-worker-packs.role-pack`) — Role pack: the compiled output of skills/pr-ready/scripts/prompt.py
 for a role file under prompts/roles/.
@@ -68,9 +72,7 @@ The task part holds the work item's Decisions and Pre-flight sections.
 - [Repository loader](77-one-step-pack-assembly.md#repository-loader) (`one-step-pack-assembly.repository-loader`) — Loader: the target's pointer file, which directs a session to the House Rules index and the target's own rules.
 - [Target repository](77-one-step-pack-assembly.md#target-repository) (`one-step-pack-assembly.target-repository`) — Target: the repository checkout on which a worker works or performs a review.
 - [Worker prompt pack](77-one-step-pack-assembly.md#worker-prompt-pack) (`one-step-pack-assembly.worker-prompt-pack`) — Pack: the complete prompt text the dispatcher sends to a worker.
-- [Prompt compiler](76-review-entry-skill.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — Prompt compiler: skills/pr-ready/scripts/prompt.py.
-The pack-assembly design requires the compiler to read Git objects from a named House Rules commit
-(pack-assembly design (#77)).
+- [Prompt compiler](76-review-entry-skill.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — The prompt compiler assembles complete worker instructions from a named House Rules commit.
 - [Reviewer pack](76-review-entry-skill.md#reviewer-pack) (`review-entry-skill.reviewer-pack`) — Reviewer pack: the criteria and report format compiled from
 prompts/roles/reviewer.md and its recursive @rule includes.
 Interactive, lane and Warden reviewers apply the same criteria and report format.
@@ -163,6 +165,9 @@ The [role-pack design, issue #74](https://github.com/symbiotic-sh/house-rules/is
 
 <a id="design"></a>
 ## Design
+
+This design makes one compiler invocation responsible for complete worker input.
+How does the named revision become the dispatched pack?
 
 ```mermaid
 flowchart TB
@@ -400,31 +405,6 @@ Warden reviewers remain read-only. Warden supplies a read-only PR copy. Reviewer
 
 Pack size depends on the selected role, extra files, target rules and task text. Shared-rule omission reduces normal lane role prompts by the omitted files' bytes. The live session still loads those rules. [Include-once](#include-once) removes repeated included text across parts. No numerical token saving is claimed without a measured pack comparison.
 
-<a id="verification"></a>
-## Verification
-
-Implementation tests belong in [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py). Each test uses a small local Git fixture with a compiler copy. Each subprocess has a fixed short timeout.
-
-- **1.** Commit-built output stays identical after an included working-tree file changes or the clone checks out another branch. A file present only as an untracked file fails as missing at the pin.
-- **2.** The manifest records the resolved House Rules commit. Each included blob matches `git --no-replace-objects rev-parse <commit>:<path>`. The pack hash matches the output bytes.
-- **3.** [Include-once](#include-once) preserves first-include order across role, lens and extra-file parts. The manifest records repeats. Include cycles still fail.
-- **4.** Every role compiles with no repeated includes in both shared-rule modes. Normal-session mode omits `rules/` includes and records the omissions. Default mode includes the [shared rules](74-complete-worker-packs.md#shared-rule) once. An invalid omitted-rule path still fails.
-- **5.** A symlink entry, a mismatched compiler, a missing commit, a manifest without `--rev`, or pack mode without `--rev` returns exit 2 with one error line and no outputs.
-- **6.** [Pack parts](#pack-part) and separators match the declared order. Legacy single-file and standard-input output has no revision header. Task bytes and manifest hashes agree with the part-ending newline rule. A standalone include line in a task remains literal and does not read the named rule. Task sources cover an issue reference, a caller-chosen name and the `inline` default; no machine input path reaches the manifest. A bounded regression with nonempty and empty tasks rejects repeated concatenation of the accumulated prefix while preserving bytes and hashes (lead decision L7). Task-file and [lane-runner](#lane-runner) retry instructions distinguish unchanged read-only reviewer inputs from fresh packs for workers that change files (lead decision L5).
-- **7.** Target fixtures cover both `.agents/rules.md` and `AGENTS.md` present (included unchanged, in that order), either file alone, neither file, and uncommitted edits to both files. Loader wording, local requirements beside a loader, and a [pointer](73-instruction-layer-foundation.md#instruction-pointer) to an absent rules file do not cause refusals or dropped content. Invalid file entries, invalid UTF-8 and read errors fail even when the other file exists. The no-rules result occurs only when both files are absent. The target manifest records the selected commit and each included file's blob, byte count and hash in order. House Rules' own [pointer](73-instruction-layer-foundation.md#instruction-pointer) is included alongside its bible without reading `house-rules/INDEX.md`.
-- **8.** Pack mode without exactly one target choice fails with exit 2. The compiler tests run under `/usr/bin/python3` with Python 3.9.
-- **9.** One bounded replacement-ref case uses small House Rules and target fixtures. Install replacement commits, trees and blobs in turn, including the compiler blob and one selected rule blob in each repository. Extract the compiler with replacements disabled. Compile before and after each replacement; pack bytes, resolved revisions, blob ids and manifest hashes must stay identical. Record Git invocations and check that every revision, tree and blob read, including compiler extraction, uses native replacement protection. Each subprocess has a fixed short timeout.
-- **10.** Requested-path reads use one long-lived batch process per source repository and no whole-tree enumeration. A fixture with an unrelated file records Git requests and confirms that only requested paths are read.
-- **11.** A compilation failure produces no output. File-output failures while writing either artifact or renaming the directory leave no published destination. Success publishes both files together. An existing destination fails without overwriting it. A standard-output write failure returns nonzero; the caller discards all output from that run.
-
-The lane runner's canary test runs after switching assembly:
-
-- **Dirty edit and branch independence:** edit [prompts/roles/reviewer.md](../../prompts/roles/reviewer.md) without committing in the clone used by the runner. Run a lane review round from the named commit. Every reviewer manifest must name the pinned role blob. The canary text must appear in no pack or worker log. Repeat from another checked-out branch with a matching extracted compiler.
-- **Normal session and supplied target rules:** run a worker with the operator's normal Codex home. Confirm that shared-rule paths are omitted from the role prompt. Confirm that the target rules part and every included target blob are recorded. Confirm that the worker retains the live [foundation](75-subagent-profiles.md#session-foundation), skills and guardian path. A read of the live [House Rules index](73-instruction-layer-foundation.md#house-rules-index) is expected session behavior rather than a failure.
-- **Hash identity and panels:** record the exact bytes sent to each implementer, reviewer, triager, fixer and checker. Compare each hash with its manifest. Every role prompt, including panels launched by `<lanes>/main/finalize.sh`, must name the [lane pin](#prompt-revision-pin). No role prompt may come from the live working tree.
-
-The smaller-core design's separate canary remains separate. This design's canary tests pack assembly and its interface with normal lane sessions. The role-pack design owns shared-rule placement checks.
-
 <a id="rollout-and-pins"></a>
 ## Rollout and pins
 
@@ -437,14 +417,6 @@ The smaller-core design's separate canary remains separate. This design's canary
 5. After the lane runner's test run passes, **draft** the matching Warden compiler change for operator approval. Warden's existing staging path remains usable while that change is pending.
 
 Legacy single-file expansion remains available to existing callers. Normal sessions continue to use their installed [foundation](75-subagent-profiles.md#session-foundation) [pointers](73-instruction-layer-foundation.md#instruction-pointer). This design does not prescribe a merge order for unrelated review-skill or [specialist](75-subagent-profiles.md#specialist) work.
-
-<a id="interfaces-with-the-other-designs"></a>
-## Interfaces with the other designs
-
-- [Smaller core, issue #73](https://github.com/symbiotic-sh/house-rules/issues/73): owns `house-rules/INDEX.md`, global and repository [pointers](73-instruction-layer-foundation.md#instruction-pointer), and its separate canary. This compiler includes target [pointer](73-instruction-layer-foundation.md#instruction-pointer) text unchanged and does not detect its shape (lead decision L6).
-- [Role packs](74-complete-worker-packs.md#role-pack), issue #74 ([source](https://github.com/symbiotic-sh/house-rules/issues/74)): owns [shared rules](74-complete-worker-packs.md#shared-rule) under `rules/`, role instructions for normal sessions and Warden, and the Warden staging guard. This design provides shared-rule omission and a manifest of compiled inputs. The [dispatcher](75-subagent-profiles.md#dispatcher) puts Decisions and Pre-flight in task text.
-- [Specialists](75-subagent-profiles.md#specialist), issue #75 ([source](https://github.com/symbiotic-sh/house-rules/issues/75)): owns [specialist](75-subagent-profiles.md#specialist) selection, separate Claude safe-mode processes, supplied skill text and the Model Context Protocol (MCP) test and fallback. [Specialist packs](75-subagent-profiles.md#specialist-pack) use the named commit and include [shared rules](74-complete-worker-packs.md#shared-rule) when the [specialist](75-subagent-profiles.md#specialist) does not load the [foundation](75-subagent-profiles.md#session-foundation).
-- [Review skill, issue #76](https://github.com/symbiotic-sh/house-rules/issues/76): owns `change-review`, the shared review format, and one reviewer for a plain chat request unless a panel is requested. Dispatched reviewer prompts use the named-commit compiler interface.
 
 <a id="decisions"></a>
 ## Decisions
@@ -472,3 +444,35 @@ No operator choice remains open for this design.
 
 - **Runtime verification:** close when the compiler implementation and the declared compiler and lane tests pass. Pack assembly remains undeployed until that evidence exists.
 - **Warden adoption:** close when the [lane runner](#lane-runner)'s successful test evidence is available, the operator approves the matching Warden change, and Warden adopts that change.
+<a id="interfaces-with-the-other-designs"></a>
+## Interfaces with the other designs
+
+- [Smaller core, issue #73](https://github.com/symbiotic-sh/house-rules/issues/73): owns `house-rules/INDEX.md`, global and repository [pointers](73-instruction-layer-foundation.md#instruction-pointer), and its separate canary. This compiler includes target [pointer](73-instruction-layer-foundation.md#instruction-pointer) text unchanged and does not detect its shape (lead decision L6).
+- [Role packs](74-complete-worker-packs.md#role-pack), issue #74 ([source](https://github.com/symbiotic-sh/house-rules/issues/74)): owns [shared rules](74-complete-worker-packs.md#shared-rule) under `rules/`, role instructions for normal sessions and Warden, and the Warden staging guard. This design provides shared-rule omission and a manifest of compiled inputs. The [dispatcher](75-subagent-profiles.md#dispatcher) puts Decisions and Pre-flight in task text.
+- [Specialists](75-subagent-profiles.md#specialist), issue #75 ([source](https://github.com/symbiotic-sh/house-rules/issues/75)): owns [specialist](75-subagent-profiles.md#specialist) selection, separate Claude safe-mode processes, supplied skill text and the Model Context Protocol (MCP) test and fallback. [Specialist packs](75-subagent-profiles.md#specialist-pack) use the named commit and include [shared rules](74-complete-worker-packs.md#shared-rule) when the [specialist](75-subagent-profiles.md#specialist) does not load the [foundation](75-subagent-profiles.md#session-foundation).
+- [Review skill, issue #76](https://github.com/symbiotic-sh/house-rules/issues/76): owns `change-review`, the shared review format, and one reviewer for a plain chat request unless a panel is requested. Dispatched reviewer prompts use the named-commit compiler interface.
+
+<a id="verification"></a>
+## Verification
+
+Implementation tests belong in [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py). Each test uses a small local Git fixture with a compiler copy. Each subprocess has a fixed short timeout.
+
+- **1.** Commit-built output stays identical after an included working-tree file changes or the clone checks out another branch. A file present only as an untracked file fails as missing at the pin.
+- **2.** The manifest records the resolved House Rules commit. Each included blob matches `git --no-replace-objects rev-parse <commit>:<path>`. The pack hash matches the output bytes.
+- **3.** [Include-once](#include-once) preserves first-include order across role, lens and extra-file parts. The manifest records repeats. Include cycles still fail.
+- **4.** Every role compiles with no repeated includes in both shared-rule modes. Normal-session mode omits `rules/` includes and records the omissions. Default mode includes the [shared rules](74-complete-worker-packs.md#shared-rule) once. An invalid omitted-rule path still fails.
+- **5.** A symlink entry, a mismatched compiler, a missing commit, a manifest without `--rev`, or pack mode without `--rev` returns exit 2 with one error line and no outputs.
+- **6.** [Pack parts](#pack-part) and separators match the declared order. Legacy single-file and standard-input output has no revision header. Task bytes and manifest hashes agree with the part-ending newline rule. A standalone include line in a task remains literal and does not read the named rule. Task sources cover an issue reference, a caller-chosen name and the `inline` default; no machine input path reaches the manifest. A bounded regression with nonempty and empty tasks rejects repeated concatenation of the accumulated prefix while preserving bytes and hashes (lead decision L7). Task-file and [lane-runner](#lane-runner) retry instructions distinguish unchanged read-only reviewer inputs from fresh packs for workers that change files (lead decision L5).
+- **7.** Target fixtures cover both `.agents/rules.md` and `AGENTS.md` present (included unchanged, in that order), either file alone, neither file, and uncommitted edits to both files. Loader wording, local requirements beside a loader, and a [pointer](73-instruction-layer-foundation.md#instruction-pointer) to an absent rules file do not cause refusals or dropped content. Invalid file entries, invalid UTF-8 and read errors fail even when the other file exists. The no-rules result occurs only when both files are absent. The target manifest records the selected commit and each included file's blob, byte count and hash in order. House Rules' own [pointer](73-instruction-layer-foundation.md#instruction-pointer) is included alongside its bible without reading `house-rules/INDEX.md`.
+- **8.** Pack mode without exactly one target choice fails with exit 2. The compiler tests run under `/usr/bin/python3` with Python 3.9.
+- **9.** One bounded replacement-ref case uses small House Rules and target fixtures. Install replacement commits, trees and blobs in turn, including the compiler blob and one selected rule blob in each repository. Extract the compiler with replacements disabled. Compile before and after each replacement; pack bytes, resolved revisions, blob ids and manifest hashes must stay identical. Record Git invocations and check that every revision, tree and blob read, including compiler extraction, uses native replacement protection. Each subprocess has a fixed short timeout.
+- **10.** Requested-path reads use one long-lived batch process per source repository and no whole-tree enumeration. A fixture with an unrelated file records Git requests and confirms that only requested paths are read.
+- **11.** A compilation failure produces no output. File-output failures while writing either artifact or renaming the directory leave no published destination. Success publishes both files together. An existing destination fails without overwriting it. A standard-output write failure returns nonzero; the caller discards all output from that run.
+
+The lane runner's canary test runs after switching assembly:
+
+- **Dirty edit and branch independence:** edit [prompts/roles/reviewer.md](../../prompts/roles/reviewer.md) without committing in the clone used by the runner. Run a lane review round from the named commit. Every reviewer manifest must name the pinned role blob. The canary text must appear in no pack or worker log. Repeat from another checked-out branch with a matching extracted compiler.
+- **Normal session and supplied target rules:** run a worker with the operator's normal Codex home. Confirm that shared-rule paths are omitted from the role prompt. Confirm that the target rules part and every included target blob are recorded. Confirm that the worker retains the live [foundation](75-subagent-profiles.md#session-foundation), skills and guardian path. A read of the live [House Rules index](73-instruction-layer-foundation.md#house-rules-index) is expected session behavior rather than a failure.
+- **Hash identity and panels:** record the exact bytes sent to each implementer, reviewer, triager, fixer and checker. Compare each hash with its manifest. Every role prompt, including panels launched by `<lanes>/main/finalize.sh`, must name the [lane pin](#prompt-revision-pin). No role prompt may come from the live working tree.
+
+The smaller-core design's separate canary remains separate. This design's canary tests pack assembly and its interface with normal lane sessions. The role-pack design owns shared-rule placement checks.

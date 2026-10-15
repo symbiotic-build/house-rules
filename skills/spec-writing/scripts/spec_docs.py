@@ -643,6 +643,24 @@ def load_corpus(source, format_contract=None, *, comparison=False):
             if type(corpus.profile.get("version")) is not int or corpus.profile["version"] != 1:
                 diagnostics.add("D02", "unsupported version: writing profile", PROFILE_PATH)
     resolve_links(corpus)
+    declared = set(corpus.markdown)
+    for path in sorted(source.tracked - declared):
+        if not path.lower().endswith('.md') or path not in source.files:
+            continue
+        text = read_text(source, path, diagnostics)
+        if text is None:
+            continue
+        inbound = parse_markdown(path, text, diagnostics)
+        for link in inbound.links:
+            try:
+                target = urlsplit(link.target)
+                destination = posixpath.normpath(posixpath.join(posixpath.dirname(path), unquote(target.path))) if target.path else path
+                if not target.scheme and not target.netloc and destination in declared:
+                    anchor = unquote(target.fragment)
+                    if anchor and len(corpus.markdown[destination].anchors.get(anchor, [])) != 1:
+                        diagnostics.add('D06', f"target '{link.target}' does not resolve", path, link.line + 1)
+            except ValueError:
+                continue  # Non-document links remain outside this inbound-only check.
     assemble_declarations(corpus)
     return corpus
 
@@ -804,6 +822,46 @@ def check_implementation(corpus, declaration, diagnostics):
         diagnostics.add("D02", f"malformed declaration: '{declaration['id']}' Implementation requires comma-separated [repository-file::selector](relative-file) links", md.path, token.map[0] + 1)
 
 
+def retired_identities(base):
+    """Derive retired trace anchors from the selected base's reachable Git history."""
+    if base.source.root is None or base.source.revision is None:
+        return set()
+    root, revision = base.source.root, base.source.revision
+    paths = {p for p, kind in base.inventory.items() if kind in ("specification", "design")}
+    # Historical manifests retain paths for documents deleted before this base.
+    for commit in git(root, "log", "--format=%H", revision, "--", "docs/DOCUMENTS.json").decode().splitlines():
+        if not git(root, "ls-tree", "--name-only", commit, "--", "docs/DOCUMENTS.json").strip():
+            continue  # This history entry deletes the manifest; prior entries remain reachable.
+        manifest = json.loads(git(root, "show", commit + ":docs/DOCUMENTS.json"))
+        paths.update(e["path"] for e in manifest.get("inventory", []) if e.get("kind") in ("specification", "design"))
+    if not paths:
+        return set()
+    commits = dict.fromkeys(git(root, "log", "-m", "--format=%H", "-G", '<a id="(req|test)-',
+                               revision, "--", *sorted(paths)).decode().splitlines())
+    historical, parsed_blobs = set(), set()
+    for commit in commits:
+        if not git(root, "ls-tree", "--name-only", commit, "--", "docs/DOCUMENTS.json").strip():
+            continue
+        manifest = json.loads(git(root, "show", commit + ":docs/DOCUMENTS.json"))
+        declared = [entry["path"] for entry in manifest.get("inventory", [])
+                    if entry.get("kind") in ("specification", "design")]
+        if not declared:
+            continue
+        for entry in git(root, "ls-tree", "-rz", commit, "--", *declared).split(b"\0"):
+            if not entry:
+                continue
+            header, path = entry.split(b"\t", 1)
+            mode, kind, oid = header.split()
+            if kind != b"blob" or mode not in (b"100644", b"100755") or oid in parsed_blobs:
+                continue
+            parsed_blobs.add(oid)
+            md = parse_markdown(path.decode(), git(root, "cat-file", "blob", oid.decode()).decode(), Diagnostics())
+            historical.update(heading.anchor for heading in md.headings if heading.anchor and
+                              (heading.title.startswith("Requirement:") or heading.anchor.startswith("test-")))
+    live = {item["heading"].anchor for item in base.declarations.values() if item["kind"] in ("Requirement", "Acceptance test")}
+    return historical - live
+
+
 def check(corpus, base=None, _freshness=True):
     """Check declarations and projections; return every available diagnostic."""
     d = Diagnostics(corpus.diagnostics.items[:])
@@ -833,13 +891,15 @@ def check(corpus, base=None, _freshness=True):
         for role in required:
             if role not in roles and not (document["status"] == "draft" and role in gaps):
                 d.add("D15", f"required document role '{role}' is missing or incomplete")
-        tour_orders = [section["order"] for section in sections if "tour" in section["roles"]]
-        mechanism_orders = [section["order"] for section in sections if "mechanism" in section["roles"]]
-        reference_orders = [section["order"] for section in sections if "reference" in section["roles"]]
-        if tour_orders and mechanism_orders and min(tour_orders) > min(mechanism_orders):
-            d.add("D15", "required document role 'tour' is missing or incomplete: place the tour before mechanisms")
-        if mechanism_orders and reference_orders and min(reference_orders) < max(mechanism_orders):
-            d.add("D15", "required document role 'reference' is missing or incomplete: place reference after mechanisms")
+        positions = {role: [section["order"] for section in sections if role in section["roles"]]
+                     for role in corpus.contract["roles"]}
+        previous = -1
+        for role, orders in positions.items():
+            if not orders:
+                continue
+            if min(orders) < previous:
+                d.add("D15", f"required document role '{role}' is missing or incomplete: preserve declared role order")
+            previous = max(previous, max(orders))
         for selector in document["scenarios"]:
             if selector not in corpus.declarations or corpus.declarations[selector]["kind"] != "Scenario":
                 d.add("D06", f"target '{selector}' does not resolve")
@@ -897,7 +957,7 @@ def check(corpus, base=None, _freshness=True):
             section = corpus.section_at(md.path, link.line)
             for entity in corpus.entities.values():
                 if section and link.destination in use_targets(corpus, entity) and section["document"] not in entity["scope"]:
-                    d.add("D07", f"entity '{entity["id"]}' is used outside its declared document scope", md.path, link.line + 1)
+                    d.add("D07", f"entity '{entity['id']}' is used outside its declared document scope", md.path, link.line + 1)
             fact = next((f for f in corpus.facts.values() if (f["path"], f["anchor"]) == link.destination), None)
             if fact:
                 owner = corpus.entities[fact["owner"]]
@@ -923,6 +983,8 @@ def check(corpus, base=None, _freshness=True):
                 code = "D30" if kind == "Failure state" else "D02"
                 message = f"failure declaration '{identity}' lacks '{name}'" if code == "D30" else f"malformed declaration: '{identity}' lacks '{name}'"
                 d.add(code, message, declaration["path"], declaration["heading"].start + 1)
+        if kind == "Failure state" and not fields.get("Verification", ("", []))[1]:
+            d.add("D30", f"failure declaration '{identity}' lacks linked 'Verification'", declaration["path"], declaration["heading"].start + 1)
         if kind == "Requirement":
             tests = declaration_targets(corpus, declaration, "Tests")
             tests = {key for key in tests if corpus.declarations[key]["kind"] == "Acceptance test"}
@@ -932,6 +994,18 @@ def check(corpus, base=None, _freshness=True):
                 if identity not in declaration_targets(corpus, corpus.declarations[test], "Requirements"):
                     d.add("D29", f"requirement/test link '{identity}' <-> '{test}' is not reciprocal", declaration["path"], declaration["heading"].start + 1)
         if kind == "Acceptance test":
+            method = fields.get("Method", ("", []))[0].strip().rstrip(".").casefold()
+            if method not in ("test", "inspection", "analysis", "demonstration"):
+                d.add("D02", f"malformed declaration: '{identity}' Method must be test, inspection, analysis or demonstration", declaration["path"], declaration["heading"].start + 1)
+            if (method == "test") != ("Implementation" in fields):
+                d.add("D02", f"malformed declaration: '{identity}' requires Implementation exactly when Method is test", declaration["path"], declaration["heading"].start + 1)
+            if method in ("inspection", "analysis", "demonstration"):
+                h = declaration["heading"]
+                evidence = [link for link in corpus.markdown[declaration["path"]].links
+                            if h.start < link.line < h.end and link.label
+                            and link not in fields.get("Requirements", ("", []))[1]]
+                if not evidence:
+                    d.add("D02", f"malformed declaration: '{identity}' needs linked evidence", declaration["path"], h.start + 1)
             if "Implementation" in fields:
                 check_implementation(corpus, declaration, d)
             requirements = declaration_targets(corpus, declaration, "Requirements")
@@ -942,6 +1016,12 @@ def check(corpus, base=None, _freshness=True):
                 if identity not in declaration_targets(corpus, corpus.declarations[req], "Tests"):
                     d.add("D29", f"requirement/test link '{req}' <-> '{identity}' is not reciprocal", declaration["path"], declaration["heading"].start + 1)
     if base is not None:
+        live_base = {item["heading"].anchor for item in base.declarations.values()}
+        new_anchors = {item["heading"].anchor for item in corpus.declarations.values()} - live_base
+        retired = retired_identities(base) if new_anchors else set()
+        for item in corpus.declarations.values():
+            if item["kind"] in ("Requirement", "Acceptance test") and item["heading"].anchor in retired:
+                d.add("D03", f"retired identity '{item['heading'].anchor}' is reused; first in base history", item["path"], item["heading"].start + 1)
         report = requirement_changes(base, corpus)
         assignment = corpus.assignment or {}
         removals = assignment.get("removal_decisions", {})
@@ -1139,10 +1219,7 @@ def check_prose(corpus, md, diagnostics):
                         count += 1
                 before = md.text.splitlines()[:token.map[0]]
                 preceding = next((line.strip() for line in reversed(before) if line.strip()), "")
-                rest = "\n".join(md.text.splitlines()[token.map[1]:])
-                question = md.intro_at(token.map[0])
-                exempt = bool(question and re.match(r"\d+\\?\.\s", question.title) and "**Answer like so:**" in rest)
-                if not exempt and (not re.fullmatch(r"\*\*Procedure:\s+.+\*\*", preceding) or count < 2):
+                if not re.fullmatch(r"\*\*Procedure:\s+.+\*\*", preceding) or count < 2:
                     diagnostics.add("D18", "numbered list requires a labelled procedure with at least two actions", md.path, token.map[0] + 1)
             ordered_depth += 1
         elif token.type == "ordered_list_close":
@@ -1207,7 +1284,7 @@ def project_navigation(corpus):
                  f"**Scope:** {document['scope']}", "", f"**Non-goals:** {document['non_goals']}", ""]
         if document.get("gaps"):
             lines.extend(["**Declared gaps:** " + ", ".join(document["gaps"]), ""])
-        lines.extend(["## Document map", ""])
+        lines.extend(["## Document map", "", "Use this map to choose the next explanation to read.", ""])
         for section in sections:
             target = relative_link(path, section["path"], section["anchor"])
             lines.extend([f"- [{section['heading'].title}]({target}) — {section['summary']}"])
@@ -1222,7 +1299,7 @@ def project_navigation(corpus):
             if section["prerequisites"]:
                 prereqs = [corpus.sections[key] for key in section["prerequisites"]]
                 lines.append("  Prerequisites: " + ", ".join(f"[{s['heading'].title}]({relative_link(path, s['path'], s['anchor'])})" for s in prereqs) + ".")
-        lines.extend(["", "## Entity index", ""])
+        lines.extend(["", "## Entity index", "", "Use this index to find each registered meaning at its home.", ""])
         for identity, entity in sorted(corpus.entities.items()):
             if document["id"] in entity["scope"]:
                 lines.extend([f"- [{entity['title']}]({relative_link(path, entity['path'], entity['anchor'])}) (`{identity}`) — {entity['meaning']}"])
@@ -1241,7 +1318,18 @@ def project_navigation(corpus):
                             and not any(a <= token.map[0] < b for a, b in md.generated)), None)
             if opening is None:
                 fail("D02", "malformed declaration: navigation entry needs a title and opening paragraph", path)
-            insertion = sum(len(line) for line in md.text.splitlines(keepends=True)[:opening.map[1]])
+            opening_end = opening.map[1]
+            diagram = next((token for token in md.tokens if token.type == "fence" and token.info == "mermaid"
+                            and title.start < token.map[0] < title.intro_end
+                            and not any(a <= token.map[0] < b for a, b in md.generated)), None)
+            if diagram is not None:
+                opening_end = diagram.map[1]
+                annotation = next((token for token in md.tokens if token.type == "inline" and token.map
+                                   and token.map[0] >= opening_end and token.content.startswith("**Entities in this example:**")
+                                   and not any(line.strip() for line in md.text.splitlines()[opening_end:token.map[0]])), None)
+                if annotation is not None:
+                    opening_end = annotation.map[1]
+            insertion = sum(len(line) for line in md.text.splitlines(keepends=True)[:opening_end])
             first, last = current.index(start), current.index(END) + len(END)
             region = rendered[rendered.index(start):rendered.index(END) + len(END)]
             outside = current[:first] + current[last:]
@@ -1384,7 +1472,7 @@ def select_context(corpus, assignment):
         if selector not in selected:
             selected.add(selector)
             add_range(section["path"], section["heading"], selector, reason)
-            pending.append(selector)
+            pending.append((primary_label, selector, section["path"], section["heading"]))
 
     for selector in assignment["sections"]:
         add_section(selector, "assigned section")
@@ -1410,33 +1498,50 @@ def select_context(corpus, assignment):
             d.add("D06", f"target '{selector}' does not resolve", "assignment")
         if location:
             add_range(*location, selector, "decision" if selector in assignment.get("decisions", []) else "changed requirement test")
+            pending.append((primary_label, selector, *location))
         if old_location:
             add_range(*old_location, "base:" + selector, "linked test from base snapshot", label="base")
+            pending.append(("base", selector, *old_location))
     relevant = set()
     expanded_dependencies = set()
     while pending:
-        selector = pending.pop(0)
-        section = corpus.sections[selector]
-        if selector not in expanded_dependencies:
-            expanded_dependencies.add(selector)
+        label, selector, path, h = pending.pop(0)
+        selected_corpus = source_corpora[label]
+        section = selected_corpus.section_at(path, h.start)
+        section_key = (label, section["selector"])
+        if section_key not in expanded_dependencies:
+            expanded_dependencies.add(section_key)
             for dep in section["explanatory_dependencies"]:
-                add_section(dep["section"], "declared dependency of " + selector + ": " + dep["reason"])
-        md, h = corpus.markdown[section["path"]], section["heading"]
-        used = {identity for identity, entity in corpus.entities.items() if entity["home"]["section"] == selector}
+                if label == primary_label:
+                    add_section(dep["section"], "declared dependency of " + selector + ": " + dep["reason"])
+                else:
+                    dependency = selected_corpus.sections[dep["section"]]
+                    add_range(dependency["path"], dependency["heading"], "base:" + dep["section"], "base declared dependency", label=label)
+                    pending.append((label, dep["section"], dependency["path"], dependency["heading"]))
+        md = selected_corpus.markdown[path]
+        used = {identity for identity, entity in selected_corpus.entities.items()
+                if entity["path"] == path and h.start <= entity["start"] + 1 < h.end}
         for token in md.tokens:
             if token.type in ("inline", "fence", "code_block") and token.map and not any(a <= token.map[0] < b for a, b in md.generated) and h.start <= token.map[0] < h.end:
-                used.update(hit[2] for hit in recognized(corpus, token.content if token.type != "inline" else visible(token.children)))
+                used.update(hit[2] for hit in recognized(selected_corpus, token.content if token.type != "inline" else visible(token.children)))
         destinations = {l.destination for l in md.links if h.start <= l.line < h.end}
-        used.update(identity for identity, entity in corpus.entities.items() if destinations & use_targets(corpus, entity))
-        for identity in sorted(used - relevant):
-            entity = corpus.entities[identity]
-            relevant.add(identity)
-            home = next(h for h in corpus.markdown[entity["path"]].headings if h.anchor == entity["anchor"])
-            add_range(entity["path"], home, identity, "entity owned or used in " + selector)
+        used.update(identity for identity, entity in selected_corpus.entities.items() if destinations & use_targets(selected_corpus, entity))
+        for identity in sorted(used):
+            if (label, identity) in relevant:
+                continue
+            relevant.add((label, identity))
+            entity = selected_corpus.entities[identity]
+            home = next(h for h in selected_corpus.markdown[entity["path"]].headings if h.anchor == entity["anchor"])
+            add_range(entity["path"], home, ("base:" if label == "base" else "") + identity, "entity owned or used in " + selector, label=label)
             # Only declared dependencies of an added home expand, not its ordinary links.
-            home_section = corpus.sections[entity["home"]["section"]]
+            home_section = selected_corpus.sections[entity["home"]["section"]]
             for dep in home_section["explanatory_dependencies"]:
-                add_section(dep["section"], "declared dependency of home " + identity + ": " + dep["reason"])
+                if label == primary_label:
+                    add_section(dep["section"], "declared dependency of home " + identity + ": " + dep["reason"])
+                elif (label, dep["section"]) not in expanded_dependencies:
+                    dependency = selected_corpus.sections[dep["section"]]
+                    add_range(dependency["path"], dependency["heading"], "base:" + dep["section"], "base home dependency", label=label)
+                    pending.append((label, dep["section"], dependency["path"], dependency["heading"]))
     for document in corpus.documents.values():
         if document.get("approval") and any(corpus.sections[s]["document"] == document["id"] for s in selected):
             selector = document["approval"]["decision"]

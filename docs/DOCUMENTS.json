@@ -522,6 +522,78 @@
       "path": "skills/spec-writing/scripts/fixtures/miniature/writing.md",
       "kind": "other",
       "reason": "Fixture note about shared profile ownership."
+    },
+    {
+      "path": "docs/specs/spec-system/documents.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/sections.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/homes.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/entities.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/facts.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/obligations.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/tests.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/scenarios.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/failures.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/environment.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/navigation.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/snapshots.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/registry.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/writing.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/review.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/adoption.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/requirements.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/decisions.md",
+      "kind": "specification"
     }
   ],
   "documents": [
@@ -545,80 +617,321 @@
           "roles": [
             "tour"
           ],
-          "summary": "Understand the system and follow a mismatched-value repair.",
+          "summary": "Understand specification and design-document system.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
-          "prerequisites": [],
-          "explanatory_dependencies": [],
-          "id": "example",
-          "path": "docs/specs/spec-system/example.md",
-          "anchor": "minimal-example",
+          "id": "documents",
+          "path": "docs/specs/spec-system/documents.md",
+          "anchor": "source-document",
           "roles": [
-            "tour"
+            "mechanism"
           ],
-          "summary": "Set up a passing specification from three authored files."
+          "summary": "Understand source document.",
+          "prerequisites": [
+            "spec-system#overview"
+          ],
+          "explanatory_dependencies": []
         },
         {
-          "id": "checking",
-          "path": "docs/specs/spec-system/checking.md",
-          "anchor": "checking",
+          "id": "sections",
+          "path": "docs/specs/spec-system/sections.md",
+          "anchor": "addressable-section",
           "roles": [
-            "mechanism",
-            "requirements"
+            "mechanism"
           ],
-          "summary": "Use the pinned tool to check sources and rebuild navigation.",
-          "prerequisites": [],
+          "summary": "Understand addressable section.",
+          "prerequisites": [
+            "spec-system#documents"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "homes",
+          "path": "docs/specs/spec-system/homes.md",
+          "anchor": "registered-entity",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand registered entity.",
+          "prerequisites": [
+            "spec-system#sections"
+          ],
           "explanatory_dependencies": []
         },
         {
           "id": "sources",
           "path": "docs/specs/spec-system/sources.md",
-          "anchor": "sources",
+          "anchor": "document-manifest",
           "roles": [
-            "mechanism",
-            "requirements"
+            "mechanism"
           ],
-          "summary": "Declare homes, literal values, requirements, tests and recovery.",
-          "prerequisites": [],
+          "summary": "Understand document manifest.",
+          "prerequisites": [
+            "spec-system#homes"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "entities",
+          "path": "docs/specs/spec-system/entities.md",
+          "anchor": "entity-index",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand entity index.",
+          "prerequisites": [
+            "spec-system#sources"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "facts",
+          "path": "docs/specs/spec-system/facts.md",
+          "anchor": "canonical-fact",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand canonical fact.",
+          "prerequisites": [
+            "spec-system#entities"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "obligations",
+          "path": "docs/specs/spec-system/obligations.md",
+          "anchor": "requirement-declaration",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand requirement declaration.",
+          "prerequisites": [
+            "spec-system#facts"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "tests",
+          "path": "docs/specs/spec-system/tests.md",
+          "anchor": "acceptance-test",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand acceptance test.",
+          "prerequisites": [
+            "spec-system#obligations"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "scenarios",
+          "path": "docs/specs/spec-system/scenarios.md",
+          "anchor": "scenario",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand scenario.",
+          "prerequisites": [
+            "spec-system#tests"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "failures",
+          "path": "docs/specs/spec-system/failures.md",
+          "anchor": "failure-declaration",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand failure declaration.",
+          "prerequisites": [
+            "spec-system#scenarios"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "environment",
+          "path": "docs/specs/spec-system/environment.md",
+          "anchor": "tool-environment",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand tool environment.",
+          "prerequisites": [
+            "spec-system#failures"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "checking",
+          "path": "docs/specs/spec-system/checking.md",
+          "anchor": "documentation-checker",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand documentation checker.",
+          "prerequisites": [
+            "spec-system#environment"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "navigation",
+          "path": "docs/specs/spec-system/navigation.md",
+          "anchor": "navigation-generation",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand navigation generation.",
+          "prerequisites": [
+            "spec-system#checking"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "snapshots",
+          "path": "docs/specs/spec-system/snapshots.md",
+          "anchor": "source-snapshot",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand source snapshot.",
+          "prerequisites": [
+            "spec-system#navigation"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "registry",
+          "path": "docs/specs/spec-system/registry.md",
+          "anchor": "complete-registry",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand complete registry.",
+          "prerequisites": [
+            "spec-system#snapshots"
+          ],
           "explanatory_dependencies": []
         },
         {
           "id": "context",
           "path": "docs/specs/spec-system/context.md",
-          "anchor": "context",
+          "anchor": "context-pack",
           "roles": [
-            "mechanism",
-            "requirements"
+            "mechanism"
           ],
-          "summary": "Prepare complete snapshot-isolated assignments and semantic review.",
-          "prerequisites": [],
+          "summary": "Understand context pack.",
+          "prerequisites": [
+            "spec-system#registry"
+          ],
           "explanatory_dependencies": []
         },
         {
-          "prerequisites": [],
-          "explanatory_dependencies": [],
+          "id": "writing",
+          "path": "docs/specs/spec-system/writing.md",
+          "anchor": "writing-profile",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand writing profile.",
+          "prerequisites": [
+            "spec-system#context"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "review",
+          "path": "docs/specs/spec-system/review.md",
+          "anchor": "semantic-review",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand semantic review.",
+          "prerequisites": [
+            "spec-system#writing"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "adoption",
+          "path": "docs/specs/spec-system/adoption.md",
+          "anchor": "adoption",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Understand adoption and ownership.",
+          "prerequisites": [
+            "spec-system#review"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "requirements",
+          "path": "docs/specs/spec-system/requirements.md",
+          "anchor": "requirements",
+          "roles": [
+            "requirements"
+          ],
+          "summary": "Understand requirements.",
+          "prerequisites": [
+            "spec-system#adoption"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "decisions",
+          "path": "docs/specs/spec-system/decisions.md",
+          "anchor": "decisions",
+          "roles": [
+            "decisions",
+            "questions"
+          ],
+          "summary": "Understand decisions.",
+          "prerequisites": [
+            "spec-system#requirements"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
           "id": "formats",
           "path": "docs/specs/spec-system/formats.md",
           "anchor": "source-format",
           "roles": [
             "reference"
           ],
-          "summary": "Look up exact JSON shapes, declarations and callable inputs."
+          "summary": "Understand source formats.",
+          "prerequisites": [
+            "spec-system#decisions"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "example",
+          "path": "docs/specs/spec-system/example.md",
+          "anchor": "minimal-example",
+          "roles": [
+            "reference"
+          ],
+          "summary": "Understand minimal corpus.",
+          "prerequisites": [
+            "spec-system#formats"
+          ],
+          "explanatory_dependencies": []
         },
         {
           "id": "reference",
           "path": "docs/specs/spec-system/reference.md",
-          "anchor": "reference",
+          "anchor": "interfaces",
           "roles": [
-            "reference",
-            "decisions",
-            "questions",
-            "requirements"
+            "reference"
           ],
-          "summary": "Find exact interfaces, diagnostics, settled decisions and adoption duties.",
-          "prerequisites": [],
+          "summary": "Understand interfaces and encodings.",
+          "prerequisites": [
+            "spec-system#example"
+          ],
           "explanatory_dependencies": []
         },
         {
@@ -628,8 +941,10 @@
           "roles": [
             "acceptance"
           ],
-          "summary": "Prove structural behavior and real authoring and review acceptance.",
-          "prerequisites": [],
+          "summary": "Understand acceptance evidence.",
+          "prerequisites": [
+            "spec-system#reference"
+          ],
           "explanatory_dependencies": []
         }
       ],
@@ -728,18 +1043,6 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "verification",
-          "path": "docs/design/73-instruction-layer-foundation.md",
-          "anchor": "verification",
-          "roles": [
-            "acceptance",
-            "acceptance-evidence"
-          ],
-          "summary": "Find the required tests and canaries, with their evidence limits.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
           "id": "rollout-and-pins",
           "path": "docs/design/73-instruction-layer-foundation.md",
           "anchor": "rollout-and-pins",
@@ -749,6 +1052,28 @@
             "work-packages"
           ],
           "summary": "Follow the dependency and qualification order before adoption.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "decisions",
+          "path": "docs/design/73-instruction-layer-foundation.md",
+          "anchor": "decisions",
+          "roles": [
+            "decisions"
+          ],
+          "summary": "Read the recorded operator and lead choices with their stated authority.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "open-points",
+          "path": "docs/design/73-instruction-layer-foundation.md",
+          "anchor": "open-points",
+          "roles": [
+            "questions"
+          ],
+          "summary": "Find the remaining implementation evidence; no operator choice is open.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -766,25 +1091,14 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "decisions",
+          "id": "verification",
           "path": "docs/design/73-instruction-layer-foundation.md",
-          "anchor": "decisions",
+          "anchor": "verification",
           "roles": [
-            "decisions",
-            "reference"
+            "acceptance",
+            "acceptance-evidence"
           ],
-          "summary": "Read the recorded operator and lead choices with their stated authority.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "open-points",
-          "path": "docs/design/73-instruction-layer-foundation.md",
-          "anchor": "open-points",
-          "roles": [
-            "questions"
-          ],
-          "summary": "Find the remaining implementation evidence; no operator choice is open.",
+          "summary": "Find the required tests and canaries, with their evidence limits.",
           "prerequisites": [],
           "explanatory_dependencies": []
         }
@@ -881,18 +1195,6 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "verification",
-          "path": "docs/design/74-complete-worker-packs.md",
-          "anchor": "verification",
-          "roles": [
-            "acceptance",
-            "acceptance-evidence"
-          ],
-          "summary": "Find the required tests and canaries, with their evidence limits.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
           "id": "rollout-and-dependencies",
           "path": "docs/design/74-complete-worker-packs.md",
           "anchor": "rollout-and-dependencies",
@@ -902,6 +1204,28 @@
             "work-packages"
           ],
           "summary": "Deploy shared-rule staging, compiler variants and canaries in dependency order.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "decisions",
+          "path": "docs/design/74-complete-worker-packs.md",
+          "anchor": "decisions",
+          "roles": [
+            "decisions"
+          ],
+          "summary": "Read the recorded operator and lead choices with their stated authority.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "open-points",
+          "path": "docs/design/74-complete-worker-packs.md",
+          "anchor": "open-points",
+          "roles": [
+            "questions"
+          ],
+          "summary": "Find the remaining implementation evidence; no operator choice is open.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -919,25 +1243,14 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "decisions",
+          "id": "verification",
           "path": "docs/design/74-complete-worker-packs.md",
-          "anchor": "decisions",
+          "anchor": "verification",
           "roles": [
-            "decisions",
-            "reference"
+            "acceptance",
+            "acceptance-evidence"
           ],
-          "summary": "Read the recorded operator and lead choices with their stated authority.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "open-points",
-          "path": "docs/design/74-complete-worker-packs.md",
-          "anchor": "open-points",
-          "roles": [
-            "questions"
-          ],
-          "summary": "Find the remaining implementation evidence; no operator choice is open.",
+          "summary": "Find the required tests and canaries, with their evidence limits.",
           "prerequisites": [],
           "explanatory_dependencies": []
         }
@@ -1034,18 +1347,6 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "verification",
-          "path": "docs/design/75-subagent-profiles.md",
-          "anchor": "verification",
-          "roles": [
-            "acceptance",
-            "acceptance-evidence"
-          ],
-          "summary": "Find the required tests and canaries, with their evidence limits.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
           "id": "rollout-and-pins",
           "path": "docs/design/75-subagent-profiles.md",
           "anchor": "rollout-and-pins",
@@ -1055,6 +1356,28 @@
             "work-packages"
           ],
           "summary": "Follow the dependency and qualification order before adoption.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "decisions",
+          "path": "docs/design/75-subagent-profiles.md",
+          "anchor": "decisions",
+          "roles": [
+            "decisions"
+          ],
+          "summary": "Read the recorded operator and lead choices with their stated authority.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "open-points",
+          "path": "docs/design/75-subagent-profiles.md",
+          "anchor": "open-points",
+          "roles": [
+            "questions"
+          ],
+          "summary": "Find the remaining implementation evidence; no operator choice is open.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -1072,25 +1395,14 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "decisions",
+          "id": "verification",
           "path": "docs/design/75-subagent-profiles.md",
-          "anchor": "decisions",
+          "anchor": "verification",
           "roles": [
-            "decisions",
-            "reference"
+            "acceptance",
+            "acceptance-evidence"
           ],
-          "summary": "Read the recorded operator and lead choices with their stated authority.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "open-points",
-          "path": "docs/design/75-subagent-profiles.md",
-          "anchor": "open-points",
-          "roles": [
-            "questions"
-          ],
-          "summary": "Find the remaining implementation evidence; no operator choice is open.",
+          "summary": "Find the required tests and canaries, with their evidence limits.",
           "prerequisites": [],
           "explanatory_dependencies": []
         }
@@ -1187,18 +1499,6 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "verification",
-          "path": "docs/design/76-review-entry-skill.md",
-          "anchor": "verification",
-          "roles": [
-            "acceptance",
-            "acceptance-evidence"
-          ],
-          "summary": "Find the required tests and canaries, with their evidence limits.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
           "id": "rollout-and-interfaces-with-the-other-designs",
           "path": "docs/design/76-review-entry-skill.md",
           "anchor": "rollout-and-interfaces-with-the-other-designs",
@@ -1217,8 +1517,7 @@
           "path": "docs/design/76-review-entry-skill.md",
           "anchor": "decisions",
           "roles": [
-            "decisions",
-            "reference"
+            "decisions"
           ],
           "summary": "Read the recorded operator and lead choices with their stated authority.",
           "prerequisites": [],
@@ -1232,6 +1531,29 @@
             "questions"
           ],
           "summary": "Find the remaining implementation evidence; no operator choice is open.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "reference",
+          "path": "docs/design/76-review-entry-skill.md",
+          "anchor": "reference",
+          "roles": [
+            "reference"
+          ],
+          "summary": "Find exact interface owners.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "verification",
+          "path": "docs/design/76-review-entry-skill.md",
+          "anchor": "verification",
+          "roles": [
+            "acceptance",
+            "acceptance-evidence"
+          ],
+          "summary": "Find the required tests and canaries, with their evidence limits.",
           "prerequisites": [],
           "explanatory_dependencies": []
         }
@@ -1337,18 +1659,6 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "verification",
-          "path": "docs/design/77-one-step-pack-assembly.md",
-          "anchor": "verification",
-          "roles": [
-            "acceptance",
-            "acceptance-evidence"
-          ],
-          "summary": "Find the required tests and canaries, with their evidence limits.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
           "id": "rollout-and-pins",
           "path": "docs/design/77-one-step-pack-assembly.md",
           "anchor": "rollout-and-pins",
@@ -1358,6 +1668,28 @@
             "work-packages"
           ],
           "summary": "Follow the dependency and qualification order before adoption.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "decisions",
+          "path": "docs/design/77-one-step-pack-assembly.md",
+          "anchor": "decisions",
+          "roles": [
+            "decisions"
+          ],
+          "summary": "Read the recorded operator and lead choices with their stated authority.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "open-points",
+          "path": "docs/design/77-one-step-pack-assembly.md",
+          "anchor": "open-points",
+          "roles": [
+            "questions"
+          ],
+          "summary": "Find the remaining implementation evidence; no operator choice is open.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -1375,25 +1707,14 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "decisions",
+          "id": "verification",
           "path": "docs/design/77-one-step-pack-assembly.md",
-          "anchor": "decisions",
+          "anchor": "verification",
           "roles": [
-            "decisions",
-            "reference"
+            "acceptance",
+            "acceptance-evidence"
           ],
-          "summary": "Read the recorded operator and lead choices with their stated authority.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "open-points",
-          "path": "docs/design/77-one-step-pack-assembly.md",
-          "anchor": "open-points",
-          "roles": [
-            "questions"
-          ],
-          "summary": "Find the remaining implementation evidence; no operator choice is open.",
+          "summary": "Find the required tests and canaries, with their evidence limits.",
           "prerequisites": [],
           "explanatory_dependencies": []
         }

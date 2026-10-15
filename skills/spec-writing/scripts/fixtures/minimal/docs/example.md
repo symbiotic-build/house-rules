@@ -18,21 +18,26 @@ Show bounded submission and refusal.
 
 ## Document map
 
+Use this map to choose the next explanation to read.
+
 - [Bounded batches](example.md#example) — Follow submission and inspect its evidence.
   - [Batcher](example.md#batcher)
   - [Decisions](example.md#decision)
   - [Open questions](example.md#questions)
   - [Reference](example.md#reference)
+  - [Acceptance test: full batch](example.md#test-capacity)
 
 ## Entity index
 
-- [Batcher](example.md#batcher) (`example.batcher`) — A batcher accepts items until its batch is full.
+Use this index to find each registered meaning at its home.
+
+- [Batcher](example.md#batcher) (`example.batcher`) — A batcher prevents overfilling by accepting items only while its batch has room.
 <!-- /spec-docs:navigation -->
 
 <a id="batcher"></a>
 ## Batcher
 
-A batcher accepts items until its batch is full.
+A batcher prevents overfilling by accepting items only while its batch has room.
 
 | Key | Value | Status | Basis |
 |---|---|---|---|
@@ -42,6 +47,8 @@ Submit items below [2](#capacity); a full batch retains its items on refusal.
 
 <a id="req-capacity"></a>
 ### Requirement: refuse a full batch
+
+This obligation preserves existing items when a caller exceeds the batch capacity.
 
 **Actor:** [Batcher](#batcher).
 
@@ -57,19 +64,10 @@ Submit items below [2](#capacity); a full batch retains its items on refusal.
 
 **Basis:** [Teaching decision](#decision).
 
-<a id="test-capacity"></a>
-### Acceptance test: full batch
-
-**Method:** inspection.
-
-**Requirements:** [Capacity refusal](#req-capacity).
-
-**Inputs:** A full batch and one additional item.
-
-**Expected:** `Full` and the same retained items.
-
 <a id="failure-full"></a>
 ### Failure state: full batch
+
+This refusal tells the caller how to submit an item after the batch fills.
 
 **Trigger:** Submission would exceed [2](#capacity) items.
 
@@ -85,6 +83,8 @@ Submit items below [2](#capacity); a full batch retains its items on refusal.
 
 <a id="decision"></a>
 ## Decisions
+
+This decision keeps the teaching example small enough to inspect.
 
 **Choice:** Use this synthetic capacity to teach declarations.
 
@@ -103,3 +103,18 @@ None; the teaching contract is complete.
 ## Reference
 
 `Full` means the submitted item was refused.
+
+<a id="test-capacity"></a>
+## Acceptance test: full batch
+
+This inspection checks that refusal preserves the existing items.
+
+**Method:** inspection.
+
+**Requirements:** [Capacity refusal](#req-capacity).
+
+**Inputs:** A full batch and one additional item.
+
+**Expected:** `Full` and the same retained items.
+
+Evidence: [retained-state inspection](#failure-full).

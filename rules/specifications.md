@@ -6,10 +6,34 @@ documents. Declaration syntax and literal comparison belong to the
 belongs to [spec-writing](../skills/spec-writing/SKILL.md); approval and closeout belong
 to [design-flow](../skills/design-flow/SKILL.md).
 
+<a id="reader-progression"></a>
+## Reader progression
+
+- Order document roles as purpose, audience, scope and non-goals; tour; mechanisms;
+  requirements; decisions with rejected alternatives; open questions; reference; acceptance.
+  Every role is present or explicitly inapplicable with a reason. Short documents may
+  combine adjacent roles in one section while preserving that order within it.
+- Start with the map: an opening paragraph, one diagram with its question stated before
+  it, then generated overview, chapter map and term index. Continue with a tour in plain
+  steps, mechanisms, and exact reference in lookup form. Readers can stop after each part.
+- Carry one real example from the tour through each mechanism to the reference and acceptance.
+  Give each mechanism its own chapter. Build on earlier chapters; when explanation is
+  deferred, state what comes later in one line and link to its home.
+- Open every section with its purpose before rules, encodings or fields. An entity home
+  opens with one concise sentence giving its meaning and the problem it solves; that
+  paragraph becomes its generated definition. Declaration records also explain their purpose.
+- In tours and procedures, keep each step's action and caller-visible result in plain
+  words. Put exact rows, values and counts in a labelled detail block beneath that step,
+  following [rules/writing.md](writing.md#sequences-and-structured-detail).
+- Keep normative requirement records separate from illustrative explanation and examples.
+
+<a id="authority-and-homes"></a>
 ## Authority and homes
 
 - Declare the reader, purpose, scope, reading order, stable section identities and entity
-  homes through the shared document manifest and entity index.
+  homes through the shared document manifest and entity index. Classify every candidate
+  Markdown path, including preserved inputs and evidence. Each chapter's opening text
+  belongs to a registered section subtree.
 - Give each entity one complete home containing its meaning and canonical declarations.
   The entity index owns identity, classification, accepted and rejected forms, and home
   location. The Markdown home owns meaning, facts and operational explanation.
@@ -23,6 +47,7 @@ to [design-flow](../skills/design-flow/SKILL.md).
 - Move the entity home when approved design becomes maintained specification. Update its
   index entry and incoming links together; retain no competing current contracts.
 
+<a id="direct-links"></a>
 ## Direct links
 
 - Link an entity or fact directly to its home at first use in the text of each level-2
@@ -30,6 +55,9 @@ to [design-flow](../skills/design-flow/SKILL.md).
 - Link every use before its home in manifest reading order. A home in another document
   counts as ahead. After the home appears, later uses in the same section may be plain.
   Introductory definitions need no self-link. Never put a link inside a heading.
+- Give a first-use link a short gloss when its meaning is needed to continue reading.
+  Label repository-file links with their repository path. Named-section links use the
+  section name. Implementation links append their selector to the path.
 - Use adjacent **Entities in this example** links for literal code, signatures and
   diagrams. Repeat them for each literal block before a home. An index, glossary or
   another use site never substitutes for the home.
@@ -40,14 +68,21 @@ to [design-flow](../skills/design-flow/SKILL.md).
 - Use unnumbered headings in specifications and design documents. Refer to a section or
   decision by its linked name, never by a hand-typed number.
 
+<a id="requirements-tests-and-recovery"></a>
 ## Requirements, tests and recovery
 
 - Give each requirement and acceptance test a permanent repository-unique identity,
   independent of its file, heading and wording. Preserve it when moving or revising
   the same obligation or case; never reuse a retired identity. New obligations or
   cases from a split or replacement receive new identities. Keep revision information
-  outside the identity in Git history. Requirement anchors start with `req-` and
+  outside the identity in Git history. When a base snapshot is supplied, compare candidate
+  anchors against its reachable history to reject reuse of deleted identities. Without
+  a Git-backed base, reviewers check historical reuse. Requirement anchors start with `req-` and
   acceptance-test anchors with `test-`; suffix syntax belongs to the format contract.
+- A test with Method `test` names executable selectors in its Implementation field.
+  A test with Method `inspection`, `analysis` or `demonstration` instead links evidence
+  (a review lens or run record) and has no Implementation field. The selector audit
+  executes every Implementation selector; acceptance requires zero missing and failing ones.
 - Link requirements and acceptance tests reciprocally. Changed requirements and directly
   referenced facts expose affected tests for re-review, including relevant base material.
   Removing a requirement needs a resolving decision reference.
@@ -91,7 +126,9 @@ to [design-flow](../skills/design-flow/SKILL.md).
 
 - Block structural errors with the shared checker over the complete candidate corpus.
   Follow [writing rules](writing.md#house-technical-english) for prose-check policy,
-  profile and severity.
+  profile and severity. Review every remaining warning group with a stated disposition.
+- Keep every emitted diagnostic's meaning and remedy in the diagnostic reference, with
+  behavioral regression evidence for every active code. Run the repository's declared gates.
 - Review meaning, technical correctness, readability, design and cost, failure and
   recovery, and complete scenarios. Reviewers establish that explanations and tests prove
   the contract; structural success alone does not establish either.

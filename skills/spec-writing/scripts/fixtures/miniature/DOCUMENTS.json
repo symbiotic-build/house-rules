@@ -33,9 +33,7 @@
           "anchor": "acceptance-section",
           "roles": [
             "tour",
-            "mechanism",
-            "requirements",
-            "acceptance"
+            "mechanism"
           ],
           "summary": "Acceptance checks current state before allocating numbers.",
           "prerequisites": [],
@@ -52,9 +50,11 @@
           "anchor": "settings-section",
           "roles": [
             "mechanism",
+            "requirements",
             "decisions",
             "questions",
-            "reference"
+            "reference",
+            "acceptance"
           ],
           "summary": "Settings identify canonical values and qualifications.",
           "prerequisites": [

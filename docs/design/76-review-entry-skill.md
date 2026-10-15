@@ -18,6 +18,8 @@ Record a review entry skill and the narrowed document-writing trigger.
 
 ## Document map
 
+Use this map to choose the next explanation to read.
+
 - [A review entry skill, and operator-writing only for documents](76-review-entry-skill.md#a-review-entry-skill-and-operator-writing-only-for-documents) — Read the historical status and source work item for this design.
   - [Result](76-review-entry-skill.md#result)
   - [Terms](76-review-entry-skill.md#terms)
@@ -25,22 +27,26 @@ Record a review entry skill and the narrowed document-writing trigger.
   - [Design](76-review-entry-skill.md#design)
   - [Rejected alternatives](76-review-entry-skill.md#rejected-alternatives)
   - [Size and persistent state](76-review-entry-skill.md#size-and-persistent-state)
-  - [Verification](76-review-entry-skill.md#verification)
   - [Rollout and interfaces with the other designs](76-review-entry-skill.md#rollout-and-interfaces-with-the-other-designs)
   - [Decisions](76-review-entry-skill.md#decisions)
   - [Open points](76-review-entry-skill.md#open-points)
+  - [Reference](76-review-entry-skill.md#reference)
+  - [Verification](76-review-entry-skill.md#verification)
 - [Result](76-review-entry-skill.md#result) — Record a review entry skill and the narrowed document-writing trigger.
 - [Terms](76-review-entry-skill.md#terms) — Resolve the defined names and repository paths used in this design.
 - [Current behavior and prior evidence](76-review-entry-skill.md#current-behavior-and-prior-evidence) — Inspect the cited implementation baseline and the limits of inherited evidence.
 - [Design](76-review-entry-skill.md#design) — Deliver shared review criteria and align review and writing skill triggers.
 - [Rejected alternatives](76-review-entry-skill.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
 - [Size and persistent state](76-review-entry-skill.md#size-and-persistent-state) — Separate estimated reading costs from the declared source and state changes.
-- [Verification](76-review-entry-skill.md#verification) — Find the required tests and canaries, with their evidence limits.
 - [Rollout and interfaces with the other designs](76-review-entry-skill.md#rollout-and-interfaces-with-the-other-designs) — Coordinate rule ownership, compiler adoption, installation and qualification.
 - [Decisions](76-review-entry-skill.md#decisions) — Read the recorded operator and lead choices with their stated authority.
 - [Open points](76-review-entry-skill.md#open-points) — Find the remaining implementation evidence; no operator choice is open.
+- [Reference](76-review-entry-skill.md#reference) — Find exact interface owners.
+- [Verification](76-review-entry-skill.md#verification) — Find the required tests and canaries, with their evidence limits.
 
 ## Entity index
+
+Use this index to find each registered meaning at its home.
 
 - [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator,
 formatting operator questions or running lanes.
@@ -57,9 +63,7 @@ This includes review reports in the fixed report format.
 A chat reply that asks the operator questions still follows the operator-writing question format.
 - [Operator document](76-review-entry-skill.md#operator-document) (`review-entry-skill.operator-document`) — Operator document: a Markdown file written for the operator (a brief, report, ledger, design or decision document),
 or GitHub text. Chat replies are everyday replies for skill loading.
-- [Prompt compiler](76-review-entry-skill.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — Prompt compiler: skills/pr-ready/scripts/prompt.py.
-The pack-assembly design requires the compiler to read Git objects from a named House Rules commit
-(pack-assembly design (#77)).
+- [Prompt compiler](76-review-entry-skill.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — The prompt compiler assembles complete worker instructions from a named House Rules commit.
 - [Reviewer pack](76-review-entry-skill.md#reviewer-pack) (`review-entry-skill.reviewer-pack`) — Reviewer pack: the criteria and report format compiled from
 prompts/roles/reviewer.md and its recursive @rule includes.
 Interactive, lane and Warden reviewers apply the same criteria and report format.
@@ -106,9 +110,10 @@ Normal House Rules sessions already load [shared rules](74-complete-worker-packs
 <a id="prompt-compiler"></a>
 ### Prompt compiler
 
-**Prompt compiler:** [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py).
-The pack-assembly design requires the compiler to read Git objects from a named House Rules commit
-([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
+The prompt compiler assembles complete worker instructions from a named House Rules commit.
+
+Its implementation is [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py).
+The [pack-assembly design](77-one-step-pack-assembly.md#one-step-pack-assembly-from-a-named-commit) explains its Git-object inputs.
 
 <a id="foundation-in-this-review-design"></a>
 ### Foundation in this review design
@@ -176,6 +181,9 @@ The implementation therefore changes the descriptions, index triggers and core w
 
 <a id="design"></a>
 ## Design
+
+This design puts review preparation and judgment behind one entry point.
+Which owner prepares the input that a reviewer consumes?
 
 ```mermaid
 flowchart TB
@@ -441,53 +449,6 @@ The [foundation](75-subagent-profiles.md#session-foundation) design owns the ind
 The implementation removes duplicate general communication sentences from the operator-writing skill.
 The implementation keeps the canonical communication sentences in the writing-rule owner.
 
-<a id="verification"></a>
-## Verification
-
-<a id="canary-run"></a>
-### Canary run
-
-The implementation runs canaries in test homes for Claude and Codex linked to the implementation checkout's skills.
-The canary runner compiles packs from a named implementation commit.
-Canary evidence comes from Claude tool calls and Codex completed command-execution records.
-The implementation runs each case three times per tool.
-`ASSESSMENT` Three repetitions can expose a consistent miss but do not measure a trigger rate.
-
-- **1.** **Plain review:** “Review the most recent commit of `<fixture repository>` for defects. Read-only.”
-   Pass: change-review loads, the compiler reads the reviewer role from a named commit, and one reviewer answers.
-   Pass also requires a `VERDICT:` line and the fixed report sections.
-   Neither pr-ready nor operator-writing loads unless the review needs an operator question or GitHub text.
-- **2.** **Other wordings:** “Look over the diff `git diff main...HEAD` in `<fixture repository>`” and
-   “Check branch `<branch>` for bugs; do not post anything.”
-   Each wording has the same pass conditions as the plain-review case.
-- **3.** **Compiler unavailable:** deny the compiler invocation for the plain-review case.
-   Pass: the agent reports the compiler failure and stops without substituting checkout files or an incomplete pack.
-- **4.** **Greeting:** “hello.”
-   Pass: neither operator-writing nor change-review loads.
-- **5.** **Document control:** “Draft, but do not post, a GitHub issue body for a typo in `<fixture repository>/README.md`.”
-   Pass: operator-writing loads.
-- **6.** **Orchestration control:** “List the steps to land branch `<branch>` as a merged pull request. Do not push or edit.”
-   Pass: pr-ready loads and change-review does not.
-- **7.** **Short review and questions:** request a shorter review, then use a fixture requiring an operator question.
-   Pass: the report honors the shorter request, and the question uses the operator-writing question format.
-
-The acceptance criteria are the plain-review and greeting cases in both tools.
-The other cases guard the trigger, failure path and settled report behavior.
-Any failed canary blocks implementation merge until the failure is understood and resolved.
-
-<a id="text-tests"></a>
-### Text tests
-
-The implementation runs targeted changed tests in
-[skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py)
-and `python3 scripts/test_sync.py`.
-Continuous integration owns the complete suite on push.
-The implementation compares packs built from the implementation base and candidate commits.
-The comparison uses both normal-session and Warden compilation modes supplied by the earlier designs.
-The comparison records both commit IDs and separates revision headers from review criteria.
-The implementation must not introduce a new difference in shared review criteria or report format.
-Different shared-rule delivery modes do not require byte-identical prompt text.
-
 <a id="rollout-and-interfaces-with-the-other-designs"></a>
 ## Rollout and interfaces with the other designs
 
@@ -544,3 +505,55 @@ No operator question remains open in this design.
 The implementation needs the pack-assembly compiler's final syntax for the already-loaded shared-rule option.
 The pack-assembly implementation closes that integration point by publishing its compiler interface and passing its tests.
 The review-entry implementation then uses that interface and runs the canaries and targeted text tests above.
+
+<a id="reference"></a>
+## Reference
+
+This lookup points to the existing integration contract.
+Exact interfaces remain with their linked owners in the design.
+<a id="verification"></a>
+## Verification
+
+<a id="canary-run"></a>
+### Canary run
+
+The implementation runs canaries in test homes for Claude and Codex linked to the implementation checkout's skills.
+The canary runner compiles packs from a named implementation commit.
+Canary evidence comes from Claude tool calls and Codex completed command-execution records.
+The implementation runs each case three times per tool.
+`ASSESSMENT` Three repetitions can expose a consistent miss but do not measure a trigger rate.
+
+- **1.** **Plain review:** “Review the most recent commit of `<fixture repository>` for defects. Read-only.”
+   Pass: change-review loads, the compiler reads the reviewer role from a named commit, and one reviewer answers.
+   Pass also requires a `VERDICT:` line and the fixed report sections.
+   Neither pr-ready nor operator-writing loads unless the review needs an operator question or GitHub text.
+- **2.** **Other wordings:** “Look over the diff `git diff main...HEAD` in `<fixture repository>`” and
+   “Check branch `<branch>` for bugs; do not post anything.”
+   Each wording has the same pass conditions as the plain-review case.
+- **3.** **Compiler unavailable:** deny the compiler invocation for the plain-review case.
+   Pass: the agent reports the compiler failure and stops without substituting checkout files or an incomplete pack.
+- **4.** **Greeting:** “hello.”
+   Pass: neither operator-writing nor change-review loads.
+- **5.** **Document control:** “Draft, but do not post, a GitHub issue body for a typo in `<fixture repository>/README.md`.”
+   Pass: operator-writing loads.
+- **6.** **Orchestration control:** “List the steps to land branch `<branch>` as a merged pull request. Do not push or edit.”
+   Pass: pr-ready loads and change-review does not.
+- **7.** **Short review and questions:** request a shorter review, then use a fixture requiring an operator question.
+   Pass: the report honors the shorter request, and the question uses the operator-writing question format.
+
+The acceptance criteria are the plain-review and greeting cases in both tools.
+The other cases guard the trigger, failure path and settled report behavior.
+Any failed canary blocks implementation merge until the failure is understood and resolved.
+
+<a id="text-tests"></a>
+### Text tests
+
+The implementation runs targeted changed tests in
+[skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py)
+and `python3 scripts/test_sync.py`.
+Continuous integration owns the complete suite on push.
+The implementation compares packs built from the implementation base and candidate commits.
+The comparison uses both normal-session and Warden compilation modes supplied by the earlier designs.
+The comparison records both commit IDs and separates revision headers from review criteria.
+The implementation must not introduce a new difference in shared review criteria or report format.
+Different shared-rule delivery modes do not require byte-identical prompt text.

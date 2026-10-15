@@ -18,6 +18,8 @@ Record the index rename and pointer-only loading change.
 
 ## Document map
 
+Use this map to choose the next explanation to read.
+
 - [House Rules index rename and pointer files](73-instruction-layer-foundation.md#house-rules-index-rename-and-pointer-files) — Read the historical status and source work item for this design.
   - [Result](73-instruction-layer-foundation.md#result)
   - [Terms](73-instruction-layer-foundation.md#terms)
@@ -25,24 +27,26 @@ Record the index rename and pointer-only loading change.
   - [Design](73-instruction-layer-foundation.md#design)
   - [Rejected alternatives](73-instruction-layer-foundation.md#rejected-alternatives)
   - [Compatibility](73-instruction-layer-foundation.md#compatibility)
-  - [Verification](73-instruction-layer-foundation.md#verification)
   - [Rollout and pins](73-instruction-layer-foundation.md#rollout-and-pins)
-  - [Interfaces with the other designs](73-instruction-layer-foundation.md#interfaces-with-the-other-designs)
   - [Decisions](73-instruction-layer-foundation.md#decisions)
   - [Open points](73-instruction-layer-foundation.md#open-points)
+  - [Interfaces with the other designs](73-instruction-layer-foundation.md#interfaces-with-the-other-designs)
+  - [Verification](73-instruction-layer-foundation.md#verification)
 - [Result](73-instruction-layer-foundation.md#result) — Record the index rename and pointer-only loading change.
 - [Terms](73-instruction-layer-foundation.md#terms) — Resolve the defined names and repository paths used in this design.
 - [Current behavior](73-instruction-layer-foundation.md#current-behavior) — Inspect the cited implementation baseline and the limits of inherited evidence.
 - [Design](73-instruction-layer-foundation.md#design) — Rename the index and preserve pointer wording, loading rules and test coverage.
 - [Rejected alternatives](73-instruction-layer-foundation.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
 - [Compatibility](73-instruction-layer-foundation.md#compatibility) — Keep existing pointers usable without adding stored state or a local rules file.
-- [Verification](73-instruction-layer-foundation.md#verification) — Find the required tests and canaries, with their evidence limits.
 - [Rollout and pins](73-instruction-layer-foundation.md#rollout-and-pins) — Follow the dependency and qualification order before adoption.
-- [Interfaces with the other designs](73-instruction-layer-foundation.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
 - [Decisions](73-instruction-layer-foundation.md#decisions) — Read the recorded operator and lead choices with their stated authority.
 - [Open points](73-instruction-layer-foundation.md#open-points) — Find the remaining implementation evidence; no operator choice is open.
+- [Interfaces with the other designs](73-instruction-layer-foundation.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
+- [Verification](73-instruction-layer-foundation.md#verification) — Find the required tests and canaries, with their evidence limits.
 
 ## Entity index
+
+Use this index to find each registered meaning at its home.
 
 - [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator,
 formatting operator questions or running lanes.
@@ -237,35 +241,6 @@ They can still reach the [shared index](#house-rules-index); sync reports their 
 The index rename adds no store, cache, projection, queue or migration.
 The local-rule file remains optional and is not created by this change.
 
-<a id="verification"></a>
-## Verification
-
-<a id="text-tests"></a>
-### Text tests
-
-Run the existing sync and prompt tests with the renamed index.
-Run all declared workflow checks.
-Do not install [pointers](#instruction-pointer) into real tool homes.
-
-Before the implementation commit, run the [dispatcher](75-subagent-profiles.md#dispatcher)'s one-time coverage gate:
-
-```sh
-python3 <COVERAGE_SCRIPT> <HOUSE_RULES_ROOT> ba1e5b0 <worktree>
-```
-
-Every printed rule line must differ from its baseline text only by the index rename.
-Report any other line as a failure.
-This one-time check adds no repository script or stored report.
-
-<a id="pointer-canary"></a>
-### Pointer canary
-
-A session reads `INDEX.md` through the new pointer and loads every [always-loaded file](#always-loaded-files) in full.
-The canary checks only pointer resolution and the unchanged always-load inventory.
-Tool event logs provide the evidence.
-It introduces no rule triggers, read-count limit, forced compaction loop or import probe.
-Real-home installation and external session runs remain with the lead.
-
 <a id="rollout-and-pins"></a>
 ## Rollout and pins
 
@@ -274,15 +249,6 @@ The lead owns installation and external writes.
 After installation, new sessions follow the [pointers](#instruction-pointer) to the [shared index](#house-rules-index).
 Rule changes still come from the live House Rules checkout.
 The rename does not pin normal [session rules](74-complete-worker-packs.md#session-rule) to a Git commit.
-
-<a id="interfaces-with-the-other-designs"></a>
-## Interfaces with the other designs
-
-[Design #74](https://github.com/symbiotic-sh/house-rules/issues/74) owns shared-rule and worker-pack changes.
-[Design #75](https://github.com/symbiotic-sh/house-rules/issues/75) owns [specialist](75-subagent-profiles.md#specialist) processes and isolation.
-[Design #76](https://github.com/symbiotic-sh/house-rules/issues/76) owns review entry and writing triggers.
-[Design #77](https://github.com/symbiotic-sh/house-rules/issues/77) owns prompt assembly from pinned Git objects.
-None of those changes belongs to this implementation.
 
 <a id="decisions"></a>
 ## Decisions
@@ -314,3 +280,40 @@ Earlier choices remain recorded below with their disposition under the latest di
 
 No operator design choice remains open for this implementation.
 The lead collects the [pointer](#instruction-pointer)-canary event log before rollout.
+<a id="interfaces-with-the-other-designs"></a>
+## Interfaces with the other designs
+
+[Design #74](https://github.com/symbiotic-sh/house-rules/issues/74) owns shared-rule and worker-pack changes.
+[Design #75](https://github.com/symbiotic-sh/house-rules/issues/75) owns [specialist](75-subagent-profiles.md#specialist) processes and isolation.
+[Design #76](https://github.com/symbiotic-sh/house-rules/issues/76) owns review entry and writing triggers.
+[Design #77](https://github.com/symbiotic-sh/house-rules/issues/77) owns prompt assembly from pinned Git objects.
+None of those changes belongs to this implementation.
+
+<a id="verification"></a>
+## Verification
+
+<a id="text-tests"></a>
+### Text tests
+
+Run the existing sync and prompt tests with the renamed index.
+Run all declared workflow checks.
+Do not install [pointers](#instruction-pointer) into real tool homes.
+
+Before the implementation commit, run the [dispatcher](75-subagent-profiles.md#dispatcher)'s one-time coverage gate:
+
+```sh
+python3 <COVERAGE_SCRIPT> <HOUSE_RULES_ROOT> ba1e5b0 <worktree>
+```
+
+Every printed rule line must differ from its baseline text only by the index rename.
+Report any other line as a failure.
+This one-time check adds no repository script or stored report.
+
+<a id="pointer-canary"></a>
+### Pointer canary
+
+A session reads `INDEX.md` through the new pointer and loads every [always-loaded file](#always-loaded-files) in full.
+The canary checks only pointer resolution and the unchanged always-load inventory.
+Tool event logs provide the evidence.
+It introduces no rule triggers, read-count limit, forced compaction loop or import probe.
+Real-home installation and external session runs remain with the lead.

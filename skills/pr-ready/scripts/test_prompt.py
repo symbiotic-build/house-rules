@@ -1898,14 +1898,16 @@ class AcceptedScopeRegressionTest(unittest.TestCase):
 
 
 class AlwaysLoadedWritingTest(unittest.TestCase):
-    def test_original_introduction_is_preserved_in_its_rule_owners(self):
+    def test_introduction_preserves_rule_owners_and_names_the_defined_profile(self):
         general = " ".join((ROOT / "rules/writing.md").read_text().split())
         operator = " ".join((ROOT / "skills/operator-writing/SKILL.md").read_text().split())
+        self.assertNotIn("about 80 %", operator)
         for sentence, owner, other in (
             ("The reader must understand the text without any other document.", general, operator),
             ("They should know what happened, why it matters and what to do, in that order.", general, operator),
-            ("This skill combines a controlled language (ASD-STE100, applied at about 80 %) "
-             "with an explanation-first structure and a reader test.", operator, general),
+            ("This skill applies the versioned House technical English profile in "
+             "[rules/writing.md](../../rules/writing.md#house-technical-english), an explanation-first "
+             "structure and a reader test.", operator, general),
             ("Decisions use skill `decision-brief` for their full content; "
              "this skill sets how all of it is written.", operator, general),
         ):

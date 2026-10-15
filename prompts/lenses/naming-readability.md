@@ -17,3 +17,11 @@ Check unlinked restatements and ordinary words given unstated technical meanings
 successful literal-value link check does not establish those meanings.
 
 @rule house-rules:rules/specifications.md
+
+Check the concrete reading path in rules/specifications.md: map with a stated diagram
+question, plain tour, one mechanism per chapter, then lookup reference. Follow the same
+example through all four parts and acceptance. Check skippable labelled detail blocks,
+purpose-first openings (including declaration records), explicit linked deferrals and
+first-use glosses. Check role order against the manifest and templates. Require the
+fresh-reader and normal authoring/conversion run evidence from the canonical procedure;
+a fixed published fixture does not establish reader construction or pipeline quality.

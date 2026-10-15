@@ -1,45 +1,11 @@
 <a id="reference"></a>
-# Reference, decisions and adoption
-
-The declaration reference supplies exact encodings.
-This chapter records the system's interfaces, diagnostic meanings and settled choices.
-It contains no product-specific contracts.
-
 <a id="interfaces"></a>
-## Interfaces and encodings
+# Interfaces and encodings
 
 The [exact source formats](formats.md#source-format) define every JSON shape, Markdown declaration, navigation marker and callable input.
 The [skills/spec-writing/references/format-contract.json](../../../skills/spec-writing/references/format-contract.json) must agree with that chapter.
 The [complete minimal corpus](example.md#minimal-example) is checked as a real fixture.
 There is no unit configuration or value-type system.
-
-<a id="writing-profile"></a>
-## Writing profile
-
-The writing profile is the versioned set of controlled-language practices owned by [rules/writing.md](../../../rules/writing.md).
-
-The [documentation checker](checking.md#documentation-checker) reads that owner's machine-readable block from its own House Rules revision.
-The profile supplies advisory prose targets; no second handwritten limits file exists.
-Procedure structure and counting conventions remain in the [rules/writing.md](../../../rules/writing.md).
-Readability review establishes whether an explanation preserves its conditions, exceptions and consequences.
-A counter warning alone does not demonstrate a reader problem.
-
-<a id="req-profile"></a>
-### Requirement: structural procedures and advisory prose checks
-
-**Actor:** [Documentation checker](checking.md#documentation-checker) and readability reviewer.
-
-**Condition:** Authored prose or numbered actions are checked.
-
-**Result:** Read the shared machine-readable profile. Enforce procedure structure; keep approximate language and length checks advisory. Preserve qualifications during review.
-
-**Verification:** Check valid procedures, single-item lists, operator options and warning-only prose.
-
-**Tests:** [Prose checks](acceptance.md#test-profile).
-
-**Status:** specified.
-
-**Basis:** [Writing decision](#writing-decision).
 
 <a id="diagnostics"></a>
 ## Diagnostic reference
@@ -47,58 +13,63 @@ A counter warning alone does not demonstrate a reader problem.
 The [documentation checker](checking.md#documentation-checker) reports structural failures through these templates.
 Diagnostic codes identify failure classes; they do not certify technical validity.
 
-```text
-D01 tracked Markdown file is not classified: <path>
-D02 unsupported version, unknown field or malformed declaration: <detail>
-D03 duplicate identity '<id>'; first at <location>
-D04 entity '<id>' has no complete, unique home
-D05 source '<path>' is outside the declared input set: <reason>
-D06 target '<target>' does not resolve
-D07 entity '<id>' is used outside its declared document scope
-D08 fact '<id>' needs exactly one home anchor in its declaring row
-D10 value link for '<fact>' differs: home <home-text>, link <link-text>
-D11 requirement '<id>' has no linked acceptance test
-D12 use of '<id>' needs a direct home link: <first-use|forward-use|wrong-target>
-D13 rejected form '<text>'; use '<replacement>'
-D14 symbol '<symbol>' violates naming rule '<id>'
-D15 required document role '<role>' is missing or incomplete
-D16 prerequisite '<section>' appears later without a direct forward link
-D17 generated navigation differs: regenerate '<output>'
-D18 numbered list requires a labelled procedure with at least two actions
-D21 approval is blocked by unresolved contract '<id>'
-D22 removed requirement '<id>' needs a resolving decision reference
-D24 pack baseline differs from assignment baseline
-D25 mandatory pack requires <size>; available budget is <limit>
-D26 review plan lacks required coverage '<responsibility>'
-D27 cannot <operation> '<input>': <reason>
-D28 acceptance test '<id>' has no linked requirement
-D29 requirement/test link '<requirement>' <-> '<test>' is not reciprocal
-D30 failure declaration '<id>' lacks '<field>'
-D31 changed requirement '<id>' lacks linked-test review input '<test>'
-D32 heading starts with a section number: use an unnumbered name
-D33 heading contains a link: move it into the section text
-```
+| Code | Meaning | Fix |
+|---|---|---|
+| D01 | Unclassified Markdown | Classify the file |
+| D02 | Malformed declaration | Use the declared shape |
+| D03 | Duplicate or retired identity | Allocate a fresh identity |
+| D04 | Incomplete entity home | Restore heading and meaning |
+| D05 | Invalid input boundary | Use regular repository inputs |
+| D06 | Unresolved target | Repair the direct destination |
+| D07 | Entity outside scope | Correct scope or usage |
+| D08 | Invalid fact anchor | Anchor the Key cell once |
+| D10 | Literal mismatch | Match the home text |
+| D11 | Requirement without test | Link an acceptance case |
+| D12 | Missing direct home link | Link the intended home |
+| D13 | Rejected name | Use the registered replacement |
+| D14 | Structured naming violation | Follow the declared pattern |
+| D15 | Missing or misordered role | Repair the role and order |
+| D16 | Forward prerequisite | Add its direct handoff |
+| D17 | Stale navigation | Regenerate from valid sources |
+| D18 | Invalid ordered procedure | Label two ordered actions |
+| D21 | Approval blocked | Resolve the blocking contract |
+| D22 | Unexplained requirement removal | Supply its decision reference |
+| D24 | Stale baseline | Regenerate current-baseline input |
+| D25 | Mandatory input exceeds budget | Narrow the assignment |
+| D26 | Missing review responsibility | Repair the review plan |
+| D27 | Invocation or I/O failure | Repair the reported input |
+| D28 | Test without requirement | Link its requirement |
+| D29 | One-sided trace link | Repair both directions |
+| D30 | Incomplete recovery declaration | Complete fields and verification link |
+| D31 | Missing changed-test input | Select every affected test |
+| D32 | Numbered heading | Use an unnumbered title |
+| D33 | Linked heading | Move links into prose |
 
 **Entities in this example:** [documentation checker](checking.md#documentation-checker),
-[acceptance test](sources.md#acceptance-test), [context pack](context.md#context-pack),
-[requirement declaration](sources.md#requirement-declaration),
-[failure declaration](sources.md#failure-declaration).
+[acceptance test](tests.md#acceptance-test), [context pack](context.md#context-pack),
+[requirement declaration](obligations.md#requirement-declaration),
+[failure declaration](failures.md#failure-declaration).
 
-Codes `D09`, `D19`, `D20` and `D23` are retired. Warning `W03` is retired.
+Codes `D09`, `D19`, `D20` and `D23` are retired.
+Warning `W03` is retired.
 There is no value-reference evaluator or typed-value diagnostic.
+
 Malformed declaration checks cover duplicate JSON keys and invalid naming patterns, not value content.
 Exact symbols and unambiguous registered phrases receive blocking terminology checks.
 Ambiguous ordinary-word matches warn.
+
 Procedure checks inspect structure, not action meaning inferred from punctuation.
 
-| Code | Warning |
-|---|---|
-| W01 | Sentence exceeds target |
-| W02 | Paragraph exceeds target |
-| W04 | Possible technical use |
-| W05 | Possible profile violation |
 
-Unlinked value restatements require [semantic review](context.md#semantic-review).
+| Code | Meaning | Disposition |
+|---|---|---|
+| W01 | Long sentence | Shorten or explain retention |
+| W02 | Long paragraph | Split or explain retention |
+| W04 | Ambiguous technical use | Review the intended meaning |
+| W05 | Possible profile violation | Inspect; retain exact literals |
+
+
+Unlinked value restatements require [semantic review](review.md#semantic-review).
 Warnings accompany readability assignments.
 A demonstrated contradiction or missing explanation is a review finding; a warning alone is not.
 
@@ -106,159 +77,36 @@ Test ranges become explicit links to each intended test.
 The checker does not infer several existing targets from a range notation.
 History values are comparable only when their links identify the same fact.
 
-<a id="decisions"></a>
-## Decisions
 
-These choices bind the system's source, value, toolchain and context contracts.
-Their rationale records maintenance trade-offs, not benchmark results.
+<a id="selector-audit"></a>
+## Selector audit
 
-<a id="source-decision"></a>
-### Decision: ordinary Markdown and shared declarations
+This audit turns the batch example's executable evidence links into observable test results.
+Run `python skills/spec-writing/scripts/audit_selectors.py --root REPOSITORY` after the static check.
+It lists each acceptance identity and linked requirements, then executes every Implementation selector.
 
-**Choice:** Use ordinary Markdown, shared JSON metadata and one Python checker built on `markdown-it-py`.
+Python unittest files use `Class::test_method` selectors; unsupported files and missing selectors are visible failures.
+Each result includes runtime.
+The final line reports passed, missing and failing counts.
 
-**Authority:** Operator-approved design dated 2026-10-16.
+A test process exceeding `--timeout-seconds` fails visibly.
+This versioned tool interface defaults that configurable runaway ceiling to 30 seconds.
+The current system declares no executable evidence in other test frameworks.
+Non-executable inspection evidence is reviewed through its linked lens or run record.
 
-**Reason:** Preserve ordinary source reading and direct links while deriving navigation, traceability and context from one source set.
 
-**Rejected alternatives:** A JavaScript-based document runtime adds another runtime without removing registry or selection work. Alternate source and publication systems change the authoring contract. Independent requirement stores duplicate writable authority.
+<a id="continuing-example-reference"></a>
+## Bounded-batch lookup
 
-Borrow identity and disambiguation principles from definition-oriented tools.
-Borrow map and applicability principles from modular documentation systems.
-Borrow reciprocal test links and change review from requirement tools.
-Adopt none of their publication machinery.
-No separate terminology executable, exporter or second vocabulary authority is required.
-An existing installation may remain where it serves other writing needs.
+This lookup reconnects each part of the tour to its exact reference.
 
-<a id="literal-decision"></a>
-### Decision: literal values
+| Need | Reference |
+|---|---|
+| Authored files | [Minimal corpus](example.md#minimal-example) |
+| Capacity declaration | [Markdown declarations](formats.md#markdown-declarations) |
+| Wrong label | [D10](#diagnostics) |
+| Assigned input | [Callable assignment](formats.md#callable-core-and-context-assignment) |
+| Executable evidence | [Literal values](acceptance.md#test-literals) |
 
-**Choice:** “Fact values are literal text, exactly as the spec writes them in the home table cell.”
-
-**Authority:** Operator selection dated 2026-10-16, decision Q178 = 1.
-
-**Reason:** Check direct restatements without introducing product-specific value interpretation.
-
-**Rejected alternatives:** Typed values, unit vocabularies, range validation, expressions and reference-valued facts introduce another value model. Mathematical equivalence does not replace literal equality.
-
-<a id="toolchain-decision"></a>
-### Decision: shared pinned toolchain
-
-**Choice:** The shared tool owns exact wheel versions, hashes and supported Python metadata. Repositories pin its House Rules revision.
-
-**Authority:** Operator-approved design dated 2026-10-16.
-
-**Reason:** Keep checker, helper, parser, profile and format contract aligned across local, continuous integration and extracted use.
-
-**Rejected alternatives:** Repository-specific parser pins and checker copies create independent implementations. Source-build and alternate-parser fallbacks hide failed setup.
-
-<a id="context-decision"></a>
-### Decision: complete mandatory context
-
-**Choice:** Derive compulsory registry and selected complete homes from one immutable snapshot. Refuse missing or excessive input before dispatch.
-
-**Authority:** Operator-approved design dated 2026-10-16.
-
-**Reason:** Preserve shared meaning and provenance without recursive link expansion or silent truncation.
-
-**Rejected alternatives:** Optional registry inclusion, automatic traversal of ordinary links and trimmed specification bodies break the mandatory context contract. Persistent mirrors and approval hashes duplicate source authority.
-
-<a id="writing-decision"></a>
-### Decision: defined prose profile
-
-**Choice:** Use versioned controlled-language practices, ISO 80000-1 prose numbers and ISO 8601 dates and times. Keep approximate prose checks non-blocking.
-
-**Authority:** Operator-approved design and number-format selection dated 2026-10-16.
-
-**Reason:** Make expectations explicit without claiming full standard conformance or erasing technical qualifications.
-
-**Rejected alternatives:** An approximate percentage does not define enforceable practices. Blocking length limits can encourage loss of meaning.
-
-<a id="open-questions"></a>
-## Open questions
-
-None in the approved design.
-Implementation acceptance still requires actual checker, navigation, anchor behavior and real-dispatch evidence.
-A passing source check does not replace those tests.
-
-<a id="adoption"></a>
-## Adoption and ownership
-
-Existing naming material may contain technical contracts beyond preferred words.
-Inventory each row and substantive prose rule before replacing it.
-Preferred names become headings and accepted forms.
-Meanings become home introductions.
-
-Rejected synonyms become rejected forms.
-Naming patterns become structured rules.
-Interface mappings remain explanation; states and transitions become requirements.
-Historical decisions become decision references.
-
-Preserve boundaries, actors, states and interface distinctions.
-A name-only index is insufficient.
-
-Conversion completes atomically before the repository enables its required gate.
-
-**Procedure: convert a repository**
-
-1. **Inventory the existing contract.**
-   - Record names, meanings, settings, relationships, requirements and acceptance cases.
-2. **Establish homes and metadata.**
-   - Preserve qualifications and settled decisions.
-3. **Update links and loaders.**
-   - Point each use at its current authority.
-4. **Generate navigation and context.**
-   - Check the assembled source and required input.
-5. **Remove superseded material.**
-   - Review the replacement before enabling the gate.
-   - Git preserves history; add no permanent legacy reader.
-Product contract decisions remain with their owners.
-Do not invent concepts to justify stale text.
-Preserve provisional, observed, required and unresolved meanings.
-
-Writing rules own profile and procedure invariants.
-Specifications rules own authority, homes, linking and context invariants.
-The [exact source formats](formats.md#source-format) own syntax and literal comparison.
-The authoring skill owns authoring and reader procedures.
-Design lifecycle skills own outline, approval and closeout.
-
-The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) and review preparer own context integration.
-Review lenses own meaning and whole-[scenario](sources.md#scenario) examination.
-The structure reference owns paths; the index and changelog own loading and adoption rationale.
-The generated [entity index](sources.md#entity-index) replaces a separate hand-maintained glossary.
-
-Branch validation uses ordinary authoring and review entry points with the exact branch revision.
-Do not merge merely to make the environment load branch rules.
-
-**Procedure: validate branch use**
-
-1. **Prepare the pinned implementation.**
-   - Include checker, profile, templates and pack integration.
-2. **Run authoring assignments.**
-   - Exercise single-file and multi-file sources through normal loaders.
-3. **Run review assignments.**
-   - Check mandatory input, fresh-reader understanding and whole-scenario coverage.
-4. **Inspect source and run evidence.**
-   - Check meaning preservation, link density and table retention.
-   - Record defects and false positives in existing output.
-   - Repair owning mechanisms instead of hand-repairing packs or exports.
-5. **Review the resulting branch.**
-   - Present required continuous integration and real-run evidence before merge.
-   - A separate renderer may consume checked output after this pipeline passes.
-
-<a id="req-adoption"></a>
-### Requirement: faithful conversion and branch use
-
-**Actor:** Repository editor and lead.
-
-**Condition:** Existing specifications or naming material adopt this system.
-
-**Result:** Preserve technical distinctions, qualifications and settled decisions. Replace duplicate current contracts atomically and validate branch rules through normal authoring and review paths before merge.
-
-**Verification:** Compare source inventory with resulting homes and inspect real branch-run evidence.
-
-**Tests:** [Real authoring and review](acceptance.md#test-real-use).
-
-**Status:** specified.
-
-**Basis:** [Source decision](#source-decision), [context decision](#context-decision).
+The full-batch inspection in the minimal corpus is intentionally non-executable.
+Its evidence names the retained-state refusal; the independent-repository regression executes the [documentation checker](checking.md#documentation-checker) against those exact files.

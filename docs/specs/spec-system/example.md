@@ -4,8 +4,8 @@
 A corpus is the set of Markdown files and metadata checked together.
 This synthetic corpus contains every authored file needed for a passing specification.
 It declares one component and one literal capacity.
-A [requirement declaration](sources.md#requirement-declaration) specifies refusal; an [acceptance test](sources.md#acceptance-test) checks it.
-A [failure declaration](sources.md#failure-declaration) explains retained state and recovery.
+A [requirement declaration](obligations.md#requirement-declaration) specifies refusal; an [acceptance test](tests.md#acceptance-test) checks it.
+A [failure declaration](failures.md#failure-declaration) explains retained state and recovery.
 Its approval is teaching evidence only; it approves no production behavior.
 
 Create the following three files in a new repository, then run the commands under [Generate and check](#example-checking).
@@ -14,6 +14,9 @@ The entry chapter includes generated navigation immediately after its opening pa
 
 <a id="example-documents"></a>
 ## docs/DOCUMENTS.json
+
+This manifest identifies the bounded-batch document and its reading order.
+The exact field rules are explained in [Source formats](formats.md#source-format).
 
 ```json
 {
@@ -44,10 +47,10 @@ The entry chapter includes generated navigation immediately after its opening pa
             "tour",
             "mechanism",
             "requirements",
-            "acceptance",
             "decisions",
             "questions",
-            "reference"
+            "reference",
+            "acceptance"
           ],
           "summary": "Follow submission and inspect its evidence."
         }
@@ -66,10 +69,13 @@ The entry chapter includes generated navigation immediately after its opening pa
 }
 ```
 
-**Entities in this example:** [Scenario](sources.md#scenario).
+**Entities in this example:** [Scenario](scenarios.md#scenario).
 
 <a id="example-entities"></a>
 ## docs/ENTITIES.json
+
+This index binds the batcher name to its complete home.
+The exact field rules are explained in [Source formats](formats.md#source-format).
 
 ```json
 {
@@ -98,6 +104,9 @@ The entry chapter includes generated navigation immediately after its opening pa
 <a id="example-example"></a>
 ## docs/example.md
 
+This source gives the batcher its capacity, refusal, recovery and inspection evidence.
+The exact field rules are explained in [Source formats](formats.md#source-format).
+
 ```markdown
 <a id="example"></a>
 # Bounded batches
@@ -119,21 +128,26 @@ Show bounded submission and refusal.
 
 ## Document map
 
+Use this map to choose the next explanation to read.
+
 - [Bounded batches](example.md#example) — Follow submission and inspect its evidence.
   - [Batcher](example.md#batcher)
   - [Decisions](example.md#decision)
   - [Open questions](example.md#questions)
   - [Reference](example.md#reference)
+  - [Acceptance test: full batch](example.md#test-capacity)
 
 ## Entity index
 
-- [Batcher](example.md#batcher) (`example.batcher`) — A batcher accepts items until its batch is full.
+Use this index to find each registered meaning at its home.
+
+- [Batcher](example.md#batcher) (`example.batcher`) — A batcher prevents overfilling by accepting items only while its batch has room.
 <!-- /spec-docs:navigation -->
 
 <a id="batcher"></a>
 ## Batcher
 
-A batcher accepts items until its batch is full.
+A batcher prevents overfilling by accepting items only while its batch has room.
 
 | Key | Value | Status | Basis |
 |---|---|---|---|
@@ -143,6 +157,8 @@ Submit items below [2](#capacity); a full batch retains its items on refusal.
 
 <a id="req-capacity"></a>
 ### Requirement: refuse a full batch
+
+This obligation preserves existing items when a caller exceeds the batch capacity.
 
 **Actor:** [Batcher](#batcher).
 
@@ -158,19 +174,10 @@ Submit items below [2](#capacity); a full batch retains its items on refusal.
 
 **Basis:** [Teaching decision](#decision).
 
-<a id="test-capacity"></a>
-### Acceptance test: full batch
-
-**Method:** inspection.
-
-**Requirements:** [Capacity refusal](#req-capacity).
-
-**Inputs:** A full batch and one additional item.
-
-**Expected:** `Full` and the same retained items.
-
 <a id="failure-full"></a>
 ### Failure state: full batch
+
+This refusal tells the caller how to submit an item after the batch fills.
 
 **Trigger:** Submission would exceed [2](#capacity) items.
 
@@ -186,6 +193,8 @@ Submit items below [2](#capacity); a full batch retains its items on refusal.
 
 <a id="decision"></a>
 ## Decisions
+
+This decision keeps the teaching example small enough to inspect.
 
 **Choice:** Use this synthetic capacity to teach declarations.
 
@@ -204,16 +213,31 @@ None; the teaching contract is complete.
 ## Reference
 
 `Full` means the submitted item was refused.
+
+<a id="test-capacity"></a>
+## Acceptance test: full batch
+
+This inspection checks that refusal preserves the existing items.
+
+**Method:** inspection.
+
+**Requirements:** [Capacity refusal](#req-capacity).
+
+**Inputs:** A full batch and one additional item.
+
+**Expected:** `Full` and the same retained items.
+
+Evidence: [retained-state inspection](#failure-full).
 ```
 
-**Entities in this example:** [Acceptance test](sources.md#acceptance-test), [Entity index](sources.md#entity-index).
+**Entities in this example:** [Acceptance test](tests.md#acceptance-test), [Entity index](entities.md#entity-index).
 
 <a id="example-checking"></a>
 ## Generate and check
 
 Initialize Git so the checker can capture the repository input set.
 Use the shared helper from the pinned House Rules revision, with its configured Python environment.
-The [setup and use chapter](checking.md#tool-environment) explains that environment.
+The [setup and use chapter](environment.md#tool-environment) explains that environment.
 The `--fixture` option accepts this synthetic authority only; production documents use `operator` or `delegated`.
 
 ```sh

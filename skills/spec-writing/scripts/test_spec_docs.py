@@ -74,6 +74,63 @@ class CorpusTests(unittest.TestCase):
         self.assertIn(code, {d.code for d in caught.exception.diagnostics.errors})
         self.assertGreater(self.context().size_bytes, 0)
 
+    def test_map_places_diagram_before_generated_overview(self):
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0].update(navigation={'path': ACCEPTANCE, 'region': 'example-demo'}))
+        self.paths.pop('docs/generated/example-demo.md')
+        edit(self.paths, ACCEPTANCE, 'This tour follows a refusal before explaining its limits.',
+             'This tour follows a refusal before explaining its limits.\n\nWhat does the tool check?\n\n```mermaid\nflowchart TD\n    A[Source] --> B[Check]\n```')
+        self.paths[ACCEPTANCE] += ('\n' + s.START.format(document='example-demo') + '\n' + s.END + '\n').encode()
+        c = refresh(self.paths)
+        text = self.paths[ACCEPTANCE].decode()
+        self.assertLess(text.index('```mermaid'), text.index('## Overview'))
+        self.assertTrue(s.check(c).ok)
+
+    def test_every_role_preserves_contract_order(self):
+        for role in ('requirements', 'decisions', 'questions', 'reference', 'acceptance'):
+            with self.subTest(role=role):
+                self.paths = self.clean.copy()
+                def reorder(v):
+                    first, last = v['documents'][0]['sections']
+                    last['roles'].remove(role)
+                    first['roles'].append(role)
+                metadata(self.paths, s.JSON_PATHS[1], reorder)
+                self.red_green('D15')
+
+    def test_inbound_links_from_other_markdown_are_checked(self):
+        self.paths['CHANGELOG.md'] = b'[Retired section](docs/example/acceptance.md#gone)\n'
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['inventory'].append(
+            dict(path='CHANGELOG.md', kind='other', reason='Change history.')))
+        self.assertIn('D06', self.codes())
+        edit(self.paths, 'CHANGELOG.md', '#gone', '#writer')
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
+    def test_failure_verification_requires_a_resolving_link(self):
+        edit(self.paths, ACCEPTANCE, '**Verification:** [Stale request](#test-stale-revision).',
+             '**Verification:** checked manually.')
+        self.red_green('D30')
+
+    def test_executable_method_requires_implementation_and_other_methods_require_evidence(self):
+        edit(self.paths, ACCEPTANCE, '**Method:** analysis.', '**Method:** test.')
+        self.assertIn('D02', self.codes())
+        self.paths['tests/example.py'] = b'import unittest\nclass Suite(unittest.TestCase):\n    def test_ok(self): pass\n'
+        self.implementation('[tests/example.py::Suite::test_ok](../../tests/example.py)')
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+        edit(self.paths, ACCEPTANCE, '**Method:** test.', '**Method:** analysis.')
+        self.assertIn('D02', self.codes())
+        self.paths[ACCEPTANCE] = self.paths[ACCEPTANCE].split(b'\n**Implementation:**')[0]
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
+    def test_selected_test_expands_homes_and_declared_dependencies(self):
+        # The narrow assigned section has no test-related names or dependencies.
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0]['sections'][0].update(explanatory_dependencies=[]))
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0]['sections'].append(dict(
+            id='questions-only', path=SETTINGS, anchor='open-questions', roles=[],
+            summary='Questions only.', prerequisites=[], explanatory_dependencies=[])))
+        refresh(self.paths)
+        ctx = self.context({'version': 1, 'sections': ['example-demo#questions-only'],
+                            'required_test_reviews': ['example-demo#test-stale-revision']})
+        self.assertIn('example.writer', ctx.manifest['included'])
+
     def test_repeated_example_annotations_are_not_duplicate_declaration_fields(self):
         self.paths[SETTINGS] += b'\n```text\nwriter\n```\n\n**Entities in this example:** [Writer](acceptance.md#writer).\n\n```text\nwriter\n```\n\n**Entities in this example:** [Writer](acceptance.md#writer).\n'
         self.assertTrue(s.check(refresh(self.paths)).ok)
@@ -99,7 +156,7 @@ class CorpusTests(unittest.TestCase):
         first = text.index('<a id="test-stale-revision">')
         test = text[first:]
         self.paths[ACCEPTANCE] = text[:first].replace('**Tests:** [Stale request](#test-stale-revision).', '**Tests:** [Stale request](test.md#test-stale-revision).', 1).replace('**Tests:** [Stale request](#test-stale-revision).', '').replace('](#test-stale-revision)', '](test.md#test-stale-revision)').encode()
-        self.paths['docs/example/test.md'] = test.replace('](#req-stale-revision)', '](acceptance.md#req-stale-revision)').replace('](#writer)', '](acceptance.md#writer)').replace('](#acceptance)', '](acceptance.md#acceptance)').encode()
+        self.paths['docs/example/test.md'] = test.replace('](#req-stale-revision)', '](acceptance.md#req-stale-revision)').replace('](#writer)', '](acceptance.md#writer)').replace('](#acceptance)', '](acceptance.md#acceptance)').replace('](#acceptance-stale-failure)', '](acceptance.md#acceptance-stale-failure)').encode()
         def update(v):
             v['inventory'].append({'path': 'docs/example/test.md', 'kind': 'specification'})
             v['documents'][0]['sections'][0]['explanatory_dependencies'] = []
@@ -148,6 +205,8 @@ class CorpusTests(unittest.TestCase):
     def test_navigation_lists_second_level_sections(self):
         output = self.paths['docs/generated/example-demo.md'].decode()
         self.assertIn('[Writer](../example/acceptance.md#writer)', output.split('## Entity index')[0])
+        self.assertIn('Use this map to choose the next explanation to read.', output)
+        self.assertIn('Use this index to find each registered meaning at its home.', output)
 
     def test_miniature_retains_multirow_table_and_complete_registry(self):
         c = corpus(self.paths)
@@ -398,13 +457,13 @@ class CorpusTests(unittest.TestCase):
         edit(self.paths, ACCEPTANCE, '3. **Submit the prepared request.**', '- **Submit the prepared request.**')
         self.red_green("D18")
 
-    def test_operator_decision_options_are_exempt(self):
+    def test_operator_questions_are_not_specification_procedures(self):
         edit(self.paths, SETTINGS, 'None for this fixture.', '### 1\\. Which option applies?\n\n1. **First choice.**\n2. Second choice.\n\n**Answer like so:**\n\n```text\n1. 1\n```')
         c = corpus(self.paths)
         diagnostics = s.Diagnostics()
         s.check_prose(c, c.markdown[SETTINGS], diagnostics)
-        self.assertNotIn('D18', {d.code for d in diagnostics.errors})
-        # Operator questions retain their prose exemption; specs forbid their numbered headings.
+        self.assertIn('D18', {d.code for d in diagnostics.errors})
+        # Operator-facing question formatting does not apply inside specifications.
         self.assertIn('D32', self.codes())
 
     def test_unresolved_contract_blocks_approval(self):
@@ -601,6 +660,7 @@ class CorpusTests(unittest.TestCase):
         self.red_green('D02')
 
     def implementation(self, value):
+        self.paths[ACCEPTANCE] = self.paths[ACCEPTANCE].replace(b'**Method:** analysis.', b'**Method:** test.')
         self.paths[ACCEPTANCE] += ('\n**Implementation:** ' + value + '\n').encode()
 
     def test_implementation_links_resolve_files_and_leave_code_selectors_to_review(self):
@@ -687,6 +747,8 @@ class CorpusTests(unittest.TestCase):
         assignment = {'version': 1, 'sections': ['example-demo#settings'], 'required_test_reviews': ['example-demo#test-stale-revision']}
         ctx = s.select_context(candidate, assignment)
         self.assertIn('base:example-demo#test-stale-revision', ctx.manifest['included'])
+        self.assertIn('base:example.writer', ctx.manifest['included'])
+        self.assertIn('example.writer', ctx.manifest['included'])
         self.assertIn(b'**Result:** Return `Conflict`', ctx.content)
         self.assertIn(b'**Result:** Report `Conflict`', ctx.content)
         self.assertIn('base_provenance', ctx.manifest)
@@ -714,6 +776,23 @@ class CorpusTests(unittest.TestCase):
 
 
 class MinimalExampleTests(unittest.TestCase):
+    def test_checker_parses_under_the_minimum_supported_python_grammar(self):
+        import ast
+        ast.parse(Path(s.__file__).read_text(), feature_version=(3, 11))
+
+    def test_every_ci_python_consumer_uses_the_locked_environment(self):
+        root = Path(s.__file__).resolve().parents[3]
+        workflow = (root / '.github/workflows/checks.yml').read_text()
+        lock = 'skills/spec-writing/scripts/requirements.lock'
+        self.assertIn('--require-hashes --only-binary=:all: --no-deps -r ' + lock, workflow)
+        consumers = [line.strip() for line in workflow.splitlines() if 'run:' in line and
+                     ('skills/pr-ready/scripts' in line or 'scripts/check_review_staging.py' in line)]
+        self.assertTrue(consumers)
+        for line in consumers:
+            self.assertNotIn('python3 ', line)
+            self.assertIn('.tmp/spec-docs-env/bin/python', line)
+        self.assertLess(workflow.index(lock), min(workflow.index(line) for line in consumers))
+
     def test_published_example_is_the_checked_fixture_in_an_independent_repository(self):
         fixture = Path(__file__).parent / 'fixtures/minimal'
         paths = {p.relative_to(fixture).as_posix(): p.read_bytes() for p in fixture.rglob('*') if p.is_file()}
@@ -779,6 +858,75 @@ class SnapshotTests(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(['git', '-C', str(self.root), *args], capture_output=True, check=True).stdout
+
+    def test_literal_trace_examples_do_not_reserve_historical_identities(self):
+        target = self.root / SETTINGS
+        target.write_text(target.read_text() + '\n```markdown\n<a id="req-fenced-only"></a>\n### Requirement: example\n```\n')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'fixture: literal identity example')
+        target.write_text(target.read_text().split('\n```markdown')[0])
+        self.git('add', '.')
+        self.git('commit', '-qm', 'fixture: retire literal example')
+        base = s.load_corpus(s.Snapshot.from_git(self.root, rev='HEAD', fixture=True))
+        source = self.root / ACCEPTANCE
+        source.write_text(source.read_text().replace('req-stale-revision', 'req-fenced-only'))
+        candidate = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        self.assertNotIn('D03', {d.code for d in s.check(candidate, base).errors})
+
+    def test_retired_trace_identity_is_checked_against_base_history_only(self):
+        # Retire both declarations without keeping tombstones in current source.
+        target = self.root / ACCEPTANCE
+        original = target.read_text()
+        retired = original.replace('req-stale-revision', 'req-retired-replacement').replace(
+            'test-stale-revision', 'test-retired-replacement')
+        target.write_text(retired)
+        manifest = self.root / s.JSON_PATHS[1]
+        manifest.write_text(manifest.read_text().replace('stale-revision', 'retired-replacement'))
+        # Keep the scenario identity consistent with the manifest.
+        target.write_text(target.read_text().replace('id="stale-revision"', 'id="retired-replacement"'))
+        self.git('add', '.')
+        self.git('commit', '-qm', 'fixture: retire identities')
+        base = s.load_corpus(s.Snapshot.from_git(self.root, rev='HEAD', fixture=True))
+        target.write_text(original)
+        manifest.write_text(manifest.read_text().replace('retired-replacement', 'stale-revision'))
+        candidate = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        self.assertNotIn('D03', {d.code for d in s.check(candidate).errors})
+        errors = s.check(candidate, base).errors
+        self.assertTrue(any(d.code == 'D03' and 'retired' in d.message for d in errors), errors)
+
+    def test_interrupted_multioutput_generation_is_visible_and_regenerable(self):
+        manifest_path = self.root / s.JSON_PATHS[1]
+        manifest_value = json.loads(manifest_path.read_bytes())
+        manifest_value['documents'][0]['purpose'] = 'An updated purpose.'
+        manifest_value['documents'][0]['navigation']['path'] = 'docs/generated/new-demo.md'
+        manifest_value['inventory'].append(dict(path='docs/generated/example-demo.md', kind='generated'))
+        old_attributes = (self.root / '.gitattributes').read_bytes()
+        manifest_path.write_bytes(s.canonical(manifest_value))
+        c = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        outputs = s.generate_navigation(c)
+        old = (self.root / 'docs/generated/example-demo.md').read_bytes()
+        real_replace = s.os.replace
+        count = 0
+        def interrupted(source, destination):
+            nonlocal count
+            count += 1
+            if count == 2:
+                raise OSError('synthetic interrupted replacement')
+            return real_replace(source, destination)
+        with patch.object(s.os, 'replace', side_effect=interrupted):
+            with self.assertRaisesRegex(s.SpecDocsError, 'interrupted replacement'):
+                s.write_outputs(c, outputs)
+        self.assertEqual((self.root / 'docs/generated/example-demo.md').read_bytes(), old)
+        self.assertNotEqual((self.root / '.gitattributes').read_bytes(), old_attributes)
+        self.assertIn(b'new-demo.md', (self.root / '.gitattributes').read_bytes())
+        self.assertFalse((self.root / 'docs/generated/new-demo.md').exists())
+        # Persist the authored change, then regenerate from a newly captured source.
+        manifest = self.root / s.JSON_PATHS[1]
+        manifest.write_bytes(s.canonical(c.manifest))
+        broken = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        self.assertIn('D17', {d.code for d in s.check(broken).errors})
+        s.write_outputs(broken, s.generate_navigation(broken))
+        self.assertTrue(s.check(s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))).ok)
 
     def test_snapshot_does_not_load_unrelated_binary_bytes(self):
         (self.root / 'asset.bin').write_bytes(b'large unrelated asset')
@@ -849,6 +997,30 @@ class SnapshotTests(unittest.TestCase):
         self.assertEqual(invoke('check').returncode, 1)
         (self.root / s.JSON_PATHS[0]).unlink()
         self.assertEqual(invoke('check').returncode, 2)
+
+
+class DiagnosticCoverageSuite(unittest.TestSuite):
+    """Use existing test runs as the diagnostic coverage record, without rerunning them."""
+    def run(self, result, debug=False):
+        import re
+        emitted = set()
+        original = s.Diagnostics.add
+        def record(diagnostics, code, *args, **kwargs):
+            emitted.add(code)
+            return original(diagnostics, code, *args, **kwargs)
+        with patch.object(s.Diagnostics, 'add', record):
+            super().run(result, debug)
+        reference = Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/reference.md'
+        expected = set(re.findall(r'^\| ([DW]\d{2}) \|', reference.read_text(), re.M))
+        def verify():
+            unittest.TestCase().assertEqual(emitted, expected)
+            print(f'diagnostic coverage: {len(expected)} active codes emitted by behavioral tests; 0 missing')
+        unittest.FunctionTestCase(verify, description='Every referenced diagnostic is exercised').run(result)
+        return result
+
+
+def load_tests(loader, tests, pattern):
+    return DiagnosticCoverageSuite(tests)
 
 
 if __name__ == '__main__':
