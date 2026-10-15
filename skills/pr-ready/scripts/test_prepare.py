@@ -81,7 +81,7 @@ print(json.dumps(value))
         prompt = self.root / "prompt.txt"
         prompt.write_text("review\n")
         return subprocess.run(["bash", str(SCRIPT.with_name("quick-review.sh")), "quick",
-                               str(self.repo), str(prompt)], capture_output=True, text=True, env=env)
+                               str(self.repo), str(prompt)], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
 
     def test_quick_review_refuses_binary_changes_even_before_text(self):
         (self.repo / "blob.bin").write_bytes(bytes(range(256)) * 4)
@@ -103,7 +103,7 @@ print(json.dumps(value))
 
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", str(repo), *args], check=True,
-                              capture_output=True, text=True).stdout.strip()
+                              capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout.strip()
 
     def write(self, repo, name, content):
         p = repo / name
@@ -145,7 +145,7 @@ print(json.dumps(value))
         (scripts / "prompt.py").write_text("print('DIRTY COMPILER CANARY')\nraise RuntimeError('live import')\n")
         result = subprocess.run([sys.executable, "-B", str(scripts / "prepare.py"),
                                  "review", str(self.repo), "--context-only", "--base", "origin/trunk",
-                                 "--no-fetch"], capture_output=True, text=True, timeout=5)
+                                 "--no-fetch"], capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("DIRTY COMPILER CANARY", result.stdout)
         self.assertIn("# 3. Pull request and issue", result.stdout)
@@ -242,7 +242,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
 """
         try:
             result = subprocess.run([sys.executable, "-c", code, str(SCRIPT.parent)],
-                                    capture_output=True, text=True, timeout=5)
+                                    capture_output=True, text=True, timeout=5, stdin=subprocess.DEVNULL)
         except subprocess.TimeoutExpired:
             self.fail("redaction rescans a 300,000-character query-start run")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -308,7 +308,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         summary, output, env = self.panel_fixture()
         Path(env["REVIEW_PANEL_CONF"]).write_text("a = codexx test-model - high\n")
         env["REVIEW_BASE"] = "origin/trunk"
-        result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "unknown-cli", str(self.repo), str(summary), "generalist-a"], capture_output=True, text=True, env=env)
+        result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "unknown-cli", str(self.repo), str(summary), "generalist-a"], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         self.assertNotEqual(result.returncode, 0)
         recorded = (output / "unknown-cli" / "summary.txt").read_text()
         self.assertIn("generalist-a failed:", recorded)
@@ -385,7 +385,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         saved.write_text("previous run\n")
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), panel.name,
                                  str(self.root / "absent"), str(summary), "generalist-a"],
-                                capture_output=True, text=True, env=env)
+                                capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(saved.read_text(), "previous run\n")
 
@@ -469,7 +469,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         (panel / "summary.txt").write_text("Existing summary")
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "duplicate",
                                  str(self.repo), str(summary), "generalist-a", "generalist-a"],
-                                capture_output=True, text=True, env=env)
+                                capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
         self.assertIn("duplicate reviewer", result.stderr)
         self.assertEqual((panel / "summary.txt").read_text(), "Existing summary")
@@ -479,7 +479,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         env["REVIEW_BASE"] = "missing-ref"
         panel = output / "badbase"
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "badbase",
-                                 str(self.repo), str(summary), "generalist-a"], capture_output=True, text=True, env=env)
+                                 str(self.repo), str(summary), "generalist-a"], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("base resolution", (panel / "summary.txt").read_text())
         self.assertFalse(any(panel.glob("generalist-a.*")))
@@ -665,7 +665,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         stub.chmod(0o755)
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "isolated",
                                  str(self.repo), str(summary), "generalist-a"],
-                                cwd=self.repo, capture_output=True, text=True, timeout=10, env=env)
+                                cwd=self.repo, capture_output=True, text=True, timeout=10, env=env, stdin=subprocess.DEVNULL)
         self.assertFalse(marker.exists(), result.stderr)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         pack = output / "isolated" / "generalist-a.pack"
@@ -694,10 +694,10 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
                           "('docs/spec.md', 'SECOND SPEC\\n'), ('src/core.py', 'second_change = 3\\n')]:\n" +
                           "        (repo / path).write_text(body)\n" +
                           f"    subprocess.run([{real_git!r}, '-C', str(repo), 'add', " +
-                          "'AGENTS.md', 'docs/spec.md', 'src/core.py'], check=True, timeout=5)\n" +
+                          "'AGENTS.md', 'docs/spec.md', 'src/core.py'], check=True, timeout=5, stdin=subprocess.DEVNULL)\n" +
                           f"    subprocess.run([{real_git!r}, '-C', str(repo), 'commit', '-m', " +
                           "'Second title\\n\\nDesign: docs/spec.md'], check=True, timeout=5, " +
-                          "stdout=subprocess.DEVNULL)\n" +
+                          "stdout=subprocess.DEVNULL, stdin=subprocess.DEVNULL)\n" +
                           f"os.execv({real_git!r}, [{real_git!r}, *args])\n")
         wrapper.chmod(0o755)
         stub = self.binaries / "codex"
@@ -708,7 +708,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         stub.chmod(0o755)
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "moving-head",
                                  str(self.repo), str(summary), "generalist-a"],
-                                capture_output=True, text=True, timeout=10, env=env)
+                                capture_output=True, text=True, timeout=10, env=env, stdin=subprocess.DEVNULL)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         second = self.git(self.repo, "rev-parse", "HEAD")
         self.assertNotEqual(first, second)
@@ -759,7 +759,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
                 recorder.chmod(0o755)
             result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), round_name,
                                      str(self.repo), str(summary), "generalist-a"],
-                                    capture_output=True, text=True, timeout=10, env=env)
+                                    capture_output=True, text=True, timeout=10, env=env, stdin=subprocess.DEVNULL)
             self.assertEqual(result.returncode, 0, result.stderr)
             pack = output / round_name / "generalist-a.pack"
             data = (pack / "pack.txt").read_bytes()
@@ -808,7 +808,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         wrapper.chmod(0o755)
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "single-compile",
                                  str(self.repo), str(summary), "generalist-a"],
-                                capture_output=True, text=True, timeout=10, env=env)
+                                capture_output=True, text=True, timeout=10, env=env, stdin=subprocess.DEVNULL)
         self.assertEqual(result.returncode, 0, result.stderr)
         panel = output / "single-compile"
         data = (panel / "generalist-a.pack/pack.txt").read_bytes()
@@ -839,7 +839,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         self.commit(self.repo, "Local rules")
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "rules-size",
                                  str(self.repo), str(summary), "generalist-a"],
-                                capture_output=True, text=True, timeout=10, env=env)
+                                capture_output=True, text=True, timeout=10, env=env, stdin=subprocess.DEVNULL)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("context preparation", (output / "rules-size/summary.txt").read_text())
         self.assertIn("800,000", (output / "rules-size/generalist-a.prepare.err").read_text())
@@ -857,7 +857,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         env["REVIEW_HOUSE_RULES_REV"] = self.git(source, "rev-parse", "HEAD")
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "final-size",
                                  str(self.repo), str(summary), "generalist-a"],
-                                capture_output=True, text=True, timeout=10, env=env)
+                                capture_output=True, text=True, timeout=10, env=env, stdin=subprocess.DEVNULL)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("complete prompt size", (output / "final-size/summary.txt").read_text())
         self.assertIn("800,000", (output / "final-size/generalist-a.prepare.err").read_text())
@@ -894,7 +894,7 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
         self.commit(self.repo, "Implement PT999")
         subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "round",
                         str(self.repo), str(summary), "generalist-a"],
-                       capture_output=True, text=True, env=env)
+                       capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         prompt = (output / "round" / "generalist-a.prompt").read_text()
         self.assertIn("not found: PT999", prompt)
         notice = next(line for line in prompt.splitlines() if line.startswith("Size guard:"))
@@ -946,7 +946,7 @@ sys.exit(99 if attempt == 1 else 0)
             with self.subTest(cli=cli):
                 result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), family,
                                          str(self.repo), str(summary), "generalist-" + family],
-                                        capture_output=True, text=True, timeout=10, env=env)
+                                        capture_output=True, text=True, timeout=10, env=env, stdin=subprocess.DEVNULL)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 panel = output / family
                 reviewer = "generalist-" + family
@@ -988,7 +988,7 @@ sys.exit(99)
                 env["TEST_RETRY_MUTATE"] = str(panel / "generalist-a.pack" / name)
                 result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), name,
                                          str(self.repo), str(summary), "generalist-a"],
-                                        capture_output=True, text=True, timeout=10, env=env)
+                                        capture_output=True, text=True, timeout=10, env=env, stdin=subprocess.DEVNULL)
                 self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertIn("pack or manifest changed", (panel / "summary.txt").read_text())
                 self.assertFalse((panel / "generalist-a.attempt-2.md").exists())
@@ -1004,7 +1004,7 @@ sys.exit(99)
             with self.subTest(family=family):
                 result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), family,
                                          str(self.repo), str(summary), "generalist-" + family],
-                                        capture_output=True, text=True, env=env)
+                                        capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("failed: reviewer CLI (exit 99", (output / family / "summary.txt").read_text())
 
@@ -1020,7 +1020,7 @@ sys.exit(99)
                     'echo "reviewer must not run" >&2\nexit 99\n')
                 result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "b",
                                          str(self.repo), str(summary), "generalist-b"],
-                                        capture_output=True, text=True, env=env)
+                                        capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
                 self.assertNotEqual(result.returncode, 0)
                 recorded = (output / "b" / "summary.txt").read_text()
                 self.assertIn("Grok would load an enabled hook or MCP server", recorded)
@@ -1059,7 +1059,7 @@ else:
                     env["TEST_REVIEW_REPORT"] = json.dumps(report)
                     result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), name,
                                              str(self.repo), str(summary), "generalist-" + family],
-                                            capture_output=True, text=True, env=env)
+                                            capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
                     recorded = (output / name / "summary.txt").read_text()
                     if index < 5 or report is None:
                         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -1091,7 +1091,7 @@ else:
                     path.write_text("keep\n")
                 result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), family,
                                          str(self.repo), str(summary), reviewer],
-                                        capture_output=True, text=True, env=env)
+                                        capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
                 self.assertEqual(result.returncode, 1, result.stderr)
                 self.assertIn("fresh panel directory", result.stderr)
                 self.assertEqual((panel / "summary.txt").read_text(), "previous run verdict=APPROVE\n")
@@ -1113,7 +1113,7 @@ else:
         result = subprocess.run(
             ["bash", str(SCRIPT.with_name("review-panel.sh")), "../..",
              str(self.repo), str(summary), "generalist-a"],
-            capture_output=True, text=True, env=env)
+            capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         for filename, content in saved.items():
             self.assertTrue((self.repo / filename).exists(), f"cleanup deleted {filename}")
             self.assertEqual((self.repo / filename).read_text(), content)
@@ -1131,7 +1131,7 @@ else:
                 result = subprocess.run(
                     ["bash", str(SCRIPT.with_name("review-panel.sh")), name,
                      str(self.repo), str(summary), "generalist-a"],
-                    capture_output=True, text=True, env=env)
+                    capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertIn("invalid panel name", result.stderr)
                 self.assertFalse(output.exists())
@@ -1153,7 +1153,7 @@ else:
                 result = subprocess.run(
                     ["bash", str(SCRIPT.with_name("review-panel.sh")), panel.name,
                      str(self.repo), str(summary), "generalist-a"],
-                    capture_output=True, text=True, env=env)
+                    capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
                 for filename, content in saved.items():
                     self.assertTrue((target / filename).exists(), f"cleanup deleted {filename}")
                     self.assertEqual((target / filename).read_text(), content)
@@ -1169,7 +1169,7 @@ else:
         victim.write_text("keep outside panel\n")
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "round",
                                  str(self.repo), str(summary), "../../../README"],
-                                capture_output=True, text=True, env=env)
+                                capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         self.assertTrue(victim.exists(), "cleanup deleted checkout README.md")
         self.assertEqual(victim.read_text(), "keep outside panel\n")
         self.assertNotEqual(result.returncode, 0)
@@ -1191,7 +1191,7 @@ else:
                     result = subprocess.run(
                         ["bash", str(SCRIPT.with_name("review-panel.sh")), name,
                          str(self.repo), str(summary), "generalist-a", reviewer],
-                        capture_output=True, text=True, env=env)
+                        capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("invalid reviewer", result.stderr)
                     self.assertFalse((output / "new").exists())
@@ -1220,7 +1220,7 @@ else:
                 result = subprocess.run(
                     ["bash", str(SCRIPT.with_name("review-panel.sh")), panel.name,
                      str(self.repo), str(summary), "generalist-a"],
-                    capture_output=True, text=True, env=env)
+                    capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
                 self.assertTrue(link.is_symlink(), "escaping cleanup path was removed")
                 self.assertEqual(victim.read_text(), "keep outside panel\n")
                 self.assertNotEqual(result.returncode, 0)
@@ -1233,7 +1233,7 @@ else:
     def test_panel_preparation_failure_returns_nonzero(self):
         summary, output, env = self.panel_fixture(summary_exists=False)
         env["REVIEW_BASE"] = "origin/trunk"
-        result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "round", str(self.repo), str(summary)], capture_output=True, text=True, env=env)
+        result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "round", str(self.repo), str(summary)], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("context preparation", (output / "round" / "summary.txt").read_text())
 
@@ -1243,7 +1243,7 @@ else:
         env["REVIEW_BASE"] = "origin/trunk"
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "round",
                                  str(self.repo), str(summary), "generalist-a"],
-                                capture_output=True, text=True, env=env)
+                                capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("context preparation", (output / "round" / "summary.txt").read_text())
         self.assertIn("800,000", (output / "round" / "generalist-a.prepare.err").read_text())
@@ -1261,7 +1261,7 @@ else:
                            + f"os.execv({real_git!r}, [{real_git!r}, *sys.argv[1:]])\n")
         wrapper.chmod(0o755)
         env.pop("REVIEW_BASE", None)
-        result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "round", str(self.repo), str(summary)], capture_output=True, text=True, env=env)
+        result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "round", str(self.repo), str(summary)], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         calls = [json.loads(line) for line in log.read_text().splitlines()]
         self.assertEqual(sum(c[0] == "fetch" for c in calls), 1, result.stderr)
         self.assertEqual(sum(c[0] == "ls-remote" for c in calls), 1, result.stderr)
@@ -1348,7 +1348,7 @@ else:
             "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n')\n")
         result = subprocess.run(["bash", str(scripts / "review-panel.sh"), "round",
                                  str(self.repo), str(summary), "generalist-a"],
-                                capture_output=True, text=True, env=env, timeout=15)
+                                capture_output=True, text=True, env=env, timeout=15, stdin=subprocess.DEVNULL)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("generalist-a codex/family-b-model", result.stdout)
         prompt = (output / "round/generalist-a.prompt").read_text()
@@ -1828,7 +1828,7 @@ else:
                    TEST_SENT_ROOT=str(sent))
         name = "Round9._-"
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), name,
-                                 str(self.repo), str(summary)], capture_output=True, text=True, env=env)
+                                 str(self.repo), str(summary)], capture_output=True, text=True, env=env, stdin=subprocess.DEVNULL)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.count("verdict=APPROVE"), 3, result.stdout + result.stderr)
         for family in ("a", "b", "c"):

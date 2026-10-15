@@ -46,7 +46,7 @@ Use this map to choose the next explanation to read.
 
 ## Entity index
 
-Use this index to find each registered meaning at its home.
+Each technical term below links to its defining Markdown section.
 
 - [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator, formatting operator questions or running lanes.
 - [Shared rule](74-complete-worker-packs.md#shared-rule) (`complete-worker-packs.shared-rule`) — Shared rule: a rule every agent needs, with one owner under rules/.

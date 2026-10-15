@@ -22,7 +22,7 @@ flowchart TD
 
 ## Overview
 
-Write implementable technical contracts with one authored authority, checked structure and complete agent reading material.
+Authors write Markdown and metadata; the tool checks them and generates navigation and agent reading packages.
 
 **Audience:** Specification and design-document authors, reviewers and tool implementers familiar with Markdown links, headings and basic Git snapshots.
 
@@ -71,6 +71,7 @@ Use this map to choose the next explanation to read.
   Prerequisites: [Documents, homes and values](documents-homes-and-values.md#shared-contract), [Requirements, tests and failures](requirements-tests-and-failures.md#behavior-and-change), [Agent context](agent-context.md#agent-context).
 - [Source formats](source-formats.md#source-format) — Look up exact metadata keys, declaration grammar and callable assignments after learning what each source contributes.
   - [Sources and commands](source-formats.md#sources-and-commands)
+  - [Tool environment](source-formats.md#tool-environment)
   - [Metadata](source-formats.md#metadata)
   - [Markdown declarations](source-formats.md#markdown-declarations)
   - [Navigation](source-formats.md#navigation)
@@ -93,7 +94,7 @@ Use this map to choose the next explanation to read.
 
 ## Entity index
 
-Use this index to find each registered meaning at its home.
+Each technical term below links to its defining Markdown section.
 
 - [Prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — The prompt compiler assembles complete worker instructions from a named House Rules commit.
 - [Acceptance test](requirements-tests-and-failures.md#acceptance-test) (`spec-system.acceptance-test`) — An acceptance test is an identified verification case with a method, inputs and expected result linked to requirements.
@@ -112,7 +113,7 @@ Use this index to find each registered meaning at its home.
 - [Semantic review](writing-and-review-workflow.md#semantic-review) (`spec-system.semantic-review`) — Semantic review is the examination of technical meaning and reader understanding that structural checking cannot establish.
 - [Source document](documents-homes-and-values.md#source-document) (`spec-system.source-document`) — A source document is an ordered technical contract written in one or more Markdown files.
 - [Source snapshot](checking-and-navigation.md#source-snapshot) (`spec-system.source-snapshot`) — A source snapshot is a captured set of repository paths, input bytes and source problems used by one documentation operation.
-- [Tool environment](checking-and-navigation.md#tool-environment) (`spec-system.tool-environment`) — The tool environment is an isolated Python installation running the shared documentation tool with its owned dependency pins.
+- [Tool environment](source-formats.md#tool-environment) (`spec-system.tool-environment`) — The tool environment is an isolated Python installation running the shared documentation tool with its owned dependency pins.
 - [Writing profile](writing-and-review-workflow.md#writing-profile) (`spec-system.writing-profile`) — A writing profile is the versioned set of advisory prose targets read from the shared writing rules.
 - [Dispatcher](../../design/75-subagent-profiles.md#dispatcher) (`subagent-profiles.dispatcher`) — Dispatcher: the session or script that starts a subagent and writes its task.
 <!-- /spec-docs:navigation -->
@@ -124,7 +125,7 @@ The document assumes familiarity with Markdown headings, links and basic Git sna
 <a id="continuing-example"></a>
 ## Continuing example
 
-This example gives the reader one concrete contract to follow through authoring, checking and review. The [bounded-batch fixture](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md) describes a synthetic component that accepts items while its batch has room. Its teaching authority approves no production behavior.
+This example gives the reader one concrete contract to follow through authoring, checking and review. The [bounded-batch fixture](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md) describes a synthetic component that accepts items while its batch has room. This is a fictional example, not an approved production design.
 
 The [batcher home](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher) contains the definition and a capacity of [2](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#capacity) items. Capacity counts items in one batch. When a caller submits a third item, the [full-batch refusal](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#failure-full) returns `Full` and leaves the existing items unchanged. The submitting caller can submit the refused item in a new batch.
 

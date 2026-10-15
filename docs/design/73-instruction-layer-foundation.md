@@ -46,7 +46,7 @@ Use this map to choose the next explanation to read.
 
 ## Entity index
 
-Use this index to find each registered meaning at its home.
+Each technical term below links to its defining Markdown section.
 
 - [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator, formatting operator questions or running lanes.
 - [Always-loaded files](73-instruction-layer-foundation.md#always-loaded-files) (`instruction-layer-foundation.always-loaded-files`) — Always-loaded files: every rule file under the index's “Always load” heading.

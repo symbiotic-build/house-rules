@@ -84,7 +84,9 @@ The checker requires the declared fields and resolving verification links. Revie
 
 A contract change can invalidate evidence even when the evidence’s text stays the same. A changed [requirement declaration](#requirement-declaration) brings its linked [acceptance tests](#acceptance-test) into review even when those cases did not change. A directly referenced [canonical fact](documents-homes-and-values.md#canonical-fact) can trigger the same selection.
 
-Correcting only a link displaying `3` to the capacity row's `2` repairs a literal mismatch. Changing the row itself changes the admission contract. If a requirement directly references that row, comparison reports the affected requirement and its tests. The comparison also observes changes to the fact's status, basis, basis targets and linked qualifications, because these can change the claim without changing the literal.
+Correcting only a link displaying `3` to the capacity row's `2` repairs a literal mismatch. Changing the row itself changes the admission contract. If a requirement directly references that row, comparison reports the affected requirement and its tests. The comparison also observes status, basis, the source linked as evidence, and qualifications linked to the fact. Those can change a claim while its literal stays the same.
+
+For example, capacity remains `2`, but its linked evidence changes from sequential-only inspection to a concurrency test. Comparison selects the requirement's tests again. Likewise, editing nearby prose linked to the capacity row can change the conditions those tests must cover.
 
 Comparison derives new, changed and removed requirements from both snapshots. It includes old and new declaration text, linked cases from both sides, and added or removed test relationships. A requirement move retains its permanent anchor, so comparison can follow the obligation across files or documents. A textual change within its declared subtree can also select it; the report is not a semantic equivalence proof.
 
@@ -94,4 +96,4 @@ When a Git-backed base is supplied, checking derives retired requirement and tes
 
 The underlying Git work consists of native history selection, tree inventory and blob reads. Parsing historical declarations earns its cost by detecting reuse across removed files and earlier versions. The change report is rebuilt from Markdown, metadata and Git; it adds no identity ledger, approval stamp or persistent traceability cache.
 
-The [Writing and review workflow](writing-and-review-workflow.md#authoring-and-review) chapter explains how the editor integrates accepted resolutions. After a contract change, affected authors recheck surrounding explanations and complete [scenarios](#scenario) using regenerated input. An assignment whose baseline is stale is regenerated from the current snapshot; no documentation rebase verifier exists.
+The [Writing and review workflow](writing-and-review-workflow.md#authoring-and-review) chapter explains how the editor integrates accepted resolutions. After a contract change, affected authors recheck surrounding explanations and complete [scenarios](#scenario) using regenerated input. A stale assignment receives `D24` and no pack. Regenerate the assignment from the current snapshot before dispatch.

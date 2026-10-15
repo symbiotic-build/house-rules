@@ -46,7 +46,7 @@ Use this map to choose the next explanation to read.
 
 ## Entity index
 
-Use this index to find each registered meaning at its home.
+Each technical term below links to its defining Markdown section.
 
 - [Open citation](74-complete-worker-packs.md#open-citation) (`complete-worker-packs.open-citation`) — Open citation: an instruction to read a rule absent from both the compiled prompt and the session's declared House Rules loading path.
 - [Role pack](74-complete-worker-packs.md#role-pack) (`complete-worker-packs.role-pack`) — Role pack: the compiled output of skills/pr-ready/scripts/prompt.py for a role file under prompts/roles/.

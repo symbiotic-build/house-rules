@@ -14,7 +14,8 @@ to [design-flow](../skills/design-flow/SKILL.md).
   Every role is present or explicitly inapplicable with a reason. Short documents may
   combine adjacent roles in one section while preserving that order within it.
 - Start with the map: an opening paragraph, one diagram with its question stated before
-  it, then generated overview, chapter map and term index. Continue with a tour in plain
+  it, then generated overview, chapter map and term index. Write the manifest purpose as a
+  statement of what the system does. Continue with a tour in plain
   steps, mechanisms, and exact reference in lookup form. Readers can stop after each part.
 - Carry one real example from the tour through mechanisms to the reference and acceptance.
   Show its relevant snippet or values where each concept is introduced. Never append the
@@ -23,15 +24,19 @@ to [design-flow](../skills/design-flow/SKILL.md).
   understand on its own, usually several related concepts and their homes. Never split
   chapters by term. Several entity homes may share a chapter, each in its own section.
   A chapter's filename is the slug of its title under the exact source formats.
-- Open every section with its purpose before rules, encodings or fields. Within an entity
+- Except for decision records below, open every section with its purpose before rules,
+  encodings or fields. Within an entity
   home, put a concise definition sentence first: say what the thing is. Explain its purpose
   in the next sentence or paragraph. For example: "A canonical fact is a named literal
   value declared once, in a table at its owner's home." Then explain how it prevents
   conflicting values. The generated entity index uses only that definition sentence.
-  Declaration records also explain their purpose.
+  Declaration records also explain their purpose. Decision records start with
+  Choice and use Reason to explain why; omit formula openings such as "This choice keeps".
 - In tours and procedures, keep each step's action and caller-visible result in plain
   words. Put exact rows, values and counts in a labelled detail block beneath that step,
   following [rules/writing.md](writing.md#sequences-and-structured-detail).
+- Keep setup pins, exact vocabularies and diagnostic lookup tables in reference. Use
+  one diagnostic table with each code's severity, meaning, remedy and behavioral test.
 - Keep normative requirement records separate from illustrative explanation and examples.
 
 <a id="authority-and-homes"></a>
@@ -45,8 +50,8 @@ to [design-flow](../skills/design-flow/SKILL.md).
   The entity index owns identity, classification, accepted and rejected forms, and home
   location. The Markdown home owns meaning, facts and operational explanation.
 - Keep each canonical fact's literal value in one home table cell. Other sections link
-  directly to that fact. Linked values match the home text after the format contract's
-  surrounding-space and digit-group-separator normalization. Do not infer value types,
+  directly to that fact. The format contract defines which labels assert values and their
+  permitted normalization. Do not infer value types,
   measurement equivalence, ranges or formats from that comparison.
 - Keep examples, diagrams and summaries illustrative; they introduce no obligations.
 - Generate the overview, document map and entity index from canonical declarations.

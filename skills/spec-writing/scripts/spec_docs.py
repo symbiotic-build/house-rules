@@ -238,6 +238,7 @@ class Link:
     label: str
     line: int
     destination: tuple[str, str] | None = None
+    code_label: bool = False
 
 
 @dataclass
@@ -325,7 +326,9 @@ def parse_markdown(path, text, diagnostics):
                     links.append(Link(child.attrGet("src") or "", visible(child.children), line))
                 if child.type == "link_open":
                     end = next((k for k in range(j + 1, len(children)) if children[k].type == "link_close"), len(children))
-                    link = Link(child.attrGet("href") or "", visible(children[j + 1:end]), line)
+                    label_tokens = children[j + 1:end]
+                    link = Link(child.attrGet("href") or "", visible(label_tokens), line,
+                                code_label=len(label_tokens) == 1 and label_tokens[0].type == "code_inline")
                     links.append(link)
                     token_links.append(link)
             inline_links[id(token)] = token_links
@@ -505,11 +508,29 @@ def load_corpus(source, format_contract=None, *, comparison=False):
     ep, mp = JSON_PATHS
     if not shape(corpus.index, ["version", "entities", "naming_rules"], [], diagnostics, ep, "entity index"):
         corpus.index = {"entities": {}, "naming_rules": []}
-    if not shape(corpus.manifest, ["version", "inventory", "documents"], [], diagnostics, mp, "document manifest"):
+    if not shape(corpus.manifest, ["version", "inventory", "documents"], ["test_runners"], diagnostics, mp, "document manifest"):
         corpus.manifest = {"inventory": [], "documents": []}
     for path, data in ((ep, corpus.index), (mp, corpus.manifest)):
         if type(data.get("version")) is not int or data["version"] != 1:
             diagnostics.add("D02", "unsupported version: expected 1", path)
+    runners = corpus.manifest.get("test_runners", [])
+    if not isinstance(runners, list):
+        diagnostics.add("D02", "malformed declaration: test_runners must be an array", mp)
+    else:
+        patterns = set()
+        for runner in runners:
+            if not shape(runner, ["pattern", "command"], [], diagnostics, mp, "test runner"):
+                continue
+            pattern, command = runner["pattern"], runner["command"]
+            if not safe_path(pattern) or not pattern.strip() or not strings(command) or not command:
+                diagnostics.add("D02", "malformed declaration: test runner pattern or command", mp)
+                continue
+            if pattern in patterns:
+                diagnostics.add("D02", "malformed declaration: duplicate test runner pattern", mp)
+            patterns.add(pattern)
+            template = " ".join(command)
+            if "{file}" not in template or "{selector}" not in template or re.search(r"[{}]", template.replace("{file}", "").replace("{selector}", "")):
+                diagnostics.add("D02", "malformed declaration: test runner command requires only {file} and {selector} placeholders", mp)
     inventory = {}
     entries = corpus.manifest.get("inventory", [])
     if not isinstance(entries, list):
@@ -918,7 +939,8 @@ def check(corpus, base=None, _freshness=True):
                 continue
             authorities = ("operator", "delegated", "fixture") if corpus.source.fixture else ("operator", "delegated")
             if approval.get("authority") not in authorities:
-                d.add("D02", "malformed declaration: approval authority")
+                d.add("D02", "authority 'fixture' is accepted only in fixture mode; use operator or delegated"
+                      if approval.get("authority") == "fixture" else "malformed declaration: approval authority", mp)
             if not corpus.locate(approval.get("decision")):
                 d.add("D06", f"target '{approval.get('decision')}' does not resolve")
             if document["status"] == "approved" and isinstance(document.get("unresolved_contracts", []), list):
@@ -969,9 +991,8 @@ def check(corpus, base=None, _freshness=True):
                     d.add("D07", f"entity '{entity['id']}' is used outside its declared document scope", md.path, link.line + 1)
             fact = next((f for f in corpus.facts.values() if (f["path"], f["anchor"]) == link.destination), None)
             if fact:
-                owner = corpus.entities[fact["owner"]]
-                descriptive = [fact["key"], owner["title"], *owner["forms"], *owner["symbols"]]
-                if link.label.casefold() not in {x.casefold() for x in descriptive} and normalize_literal(link.label, corpus.contract) != normalize_literal(fact["value"], corpus.contract):
+                value_bearing = link.code_label or any(character.isdigit() for character in link.label)
+                if value_bearing and normalize_literal(link.label, corpus.contract) != normalize_literal(fact["value"], corpus.contract):
                     d.add("D10", f"value link for '{fact['id']}' differs: home {fact['value']!r}, link {link.label!r}", md.path, link.line + 1)
         check_uses(corpus, md, d)
         check_prose(corpus, md, d)
@@ -1363,7 +1384,7 @@ def project_navigation(corpus):
             if section["prerequisites"]:
                 prereqs = [corpus.sections[key] for key in section["prerequisites"]]
                 lines.append("  Prerequisites: " + ", ".join(f"[{s['heading'].title}]({relative_link(path, s['path'], s['anchor'])})" for s in prereqs) + ".")
-        lines.extend(["", "## Entity index", "", "Use this index to find each registered meaning at its home.", ""])
+        lines.extend(["", "## Entity index", "", "Each technical term below links to its defining Markdown section.", ""])
         for identity, entity in sorted(corpus.entities.items()):
             if document["id"] in entity["scope"]:
                 lines.extend([f"- [{entity['title']}]({relative_link(path, entity['path'], entity['anchor'])}) (`{identity}`) — {entity['meaning']}"])
@@ -1627,6 +1648,13 @@ def select_context(corpus, assignment):
             merged[-1]["reasons"].add(reason)
         else:
             merged.append(dict(label=label, path=path, start=start, end=end, identities={identity}, reasons={reason}))
+    def reading_order(item):
+        selected_corpus = source_corpora[item["label"]]
+        section = selected_corpus.section_at(item["path"], item["start"] + 1)
+        document_order = list(selected_corpus.documents).index(section["document"])
+        return item["label"], document_order, section["order"], item["start"]
+
+    merged.sort(key=reading_order)
     registry_bytes = canonical(corpus.registry)
     metadata_bytes = canonical({"entities": corpus.index, "documents": corpus.manifest})
     parts = [b"# Complete registry\n\n" + registry_bytes, b"# Metadata\n\n" + metadata_bytes, b"# Applicable writing profile\n\n" + corpus.profile_bytes]

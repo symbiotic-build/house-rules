@@ -7,7 +7,7 @@ For each finding, show the concrete passage and what the reader cannot explain. 
 
 Fresh-reader packages follow the [canonical reader procedure](../../skills/spec-writing/SKILL.md#fresh-reader-review).
 Identify what this reader cannot explain about the tour, refusal or recovery from the supplied document.
-In addition to the questions and reader-built corpus, rate every chapter "followed on first
+In addition to the questions and concrete exercise in the document's domain, rate every chapter "followed on first
 read: yes / with effort / no". Quote every choppy, abstract, formulaic or repeated passage.
 The pass bar is every chapter "yes" from every reader, with no quoted passage unaddressed.
 

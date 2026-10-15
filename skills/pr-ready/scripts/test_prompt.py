@@ -1,5 +1,6 @@
 from pathlib import Path
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -2007,7 +2008,7 @@ class CommitPackTest(unittest.TestCase):
         self.commit(self.target, empty=True)
         self.manifest = self.root / "manifest.json"
 
-    def git(self, repo, *args, data=None):
+    def git(self, repo, *args, data=b""):
         result = subprocess.run(["git", "--no-replace-objects", "-C", str(repo), *args],
                                 input=data, capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -2029,7 +2030,7 @@ class CommitPackTest(unittest.TestCase):
             "--rev", rev or self.rev, "--role", "reviewer",
             *( ["--target", str(self.target)] if target else ["--no-target"] ),
             *map(str, args),
-        ], capture_output=True, timeout=5, env=env)
+        ], capture_output=True, timeout=5, env=env, stdin=subprocess.DEVNULL)
 
     def good(self, *args, **kwargs):
         result = self.run_pack("--manifest", self.manifest, *args, **kwargs)
@@ -2041,6 +2042,17 @@ class CommitPackTest(unittest.TestCase):
         self.assertEqual(result.stdout, b"")
         self.assertEqual(len(result.stderr.splitlines()), 1, result.stderr)
         self.assertIn(message.encode(), result.stderr)
+
+    def test_pack_helper_finishes_with_callers_standard_input_left_open(self):
+        read_fd, write_fd = os.pipe()
+        original = os.dup(0)
+        try:
+            os.dup2(read_fd, 0)
+            self.good()
+        finally:
+            os.dup2(original, 0)
+            for descriptor in (original, read_fd, write_fd):
+                os.close(descriptor)
 
     def test_commit_output_ignores_dirty_files_and_other_branch(self):
         before = self.good()
@@ -2116,7 +2128,7 @@ class CommitPackTest(unittest.TestCase):
                     result = subprocess.run([
                         "/usr/bin/python3", "-B", str(self.script), *pin,
                         "--session", *listing, "rules/entry.md",
-                    ], capture_output=True, timeout=5)
+                    ], capture_output=True, timeout=5, stdin=subprocess.DEVNULL)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     expected = (b"rules/entry.md\n" if listing else
                                 b"Loading path: session; shared rules come from the live House Rules index.\n\nRequested entry\n")
@@ -2348,7 +2360,7 @@ class CommitPackTest(unittest.TestCase):
                 raise BrokenPipeError("closed output")
             def flush(self):
                 pass
-        with patch.object(sys, "stdout") as stdout:
+        with patch.object(sys, "stdout") as stdout, patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO())):
             stdout.buffer = Broken()
             self.assertNotEqual(prompt.main(["--repo", str(self.repo), "--rev", self.rev,
                                             "--role", "reviewer", "--no-target"]), 0)
@@ -2418,7 +2430,7 @@ class CommitPackTest(unittest.TestCase):
         # Extraction is the dispatcher's native Git read, protected like compiler reads.
         extract.write_bytes(subprocess.run(["git", "--no-replace-objects", "-C", str(self.repo),
                             "show", self.rev + ":skills/pr-ready/scripts/prompt.py"],
-                            check=True, capture_output=True, timeout=5).stdout)
+                            check=True, capture_output=True, timeout=5, stdin=subprocess.DEVNULL).stdout)
         baseline = self.good(target=True, script=extract)
         for repo, rev, paths in ((self.repo, self.rev, ["skills/pr-ready/scripts/prompt.py", "common.md"]),
                                  (self.target, target_rev, [".agents/rules.md", "AGENTS.md"])):

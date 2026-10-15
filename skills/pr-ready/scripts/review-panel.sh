@@ -11,6 +11,8 @@
 # Output directory: ${REVIEW_PANEL_OUT:-<checkout>/.tmp/review-panel}/<name>/ with <reviewer>.md,
 #   raw logs, and summary.txt (verdict and wall time per reviewer).
 set -u
+# Reviewers receive the pack through a file or argument; other children receive EOF.
+exec < /dev/null
 here=$(cd "$(dirname "$0")" && pwd)
 rules_repo=${REVIEW_HOUSE_RULES_REPO:-$here/../../..}
 rules_rev=${REVIEW_HOUSE_RULES_REV:-}
@@ -70,11 +72,11 @@ if not rev:
     sys.exit("review panel requires --rev COMMIT or REVIEW_HOUSE_RULES_REV")
 try:
     pin = subprocess.run(["git", "--no-replace-objects", "-C", repo, "rev-parse", "--verify",
-                          "--end-of-options", rev + "^{commit}"], capture_output=True, timeout=5, check=True).stdout.decode().strip()
+                          "--end-of-options", rev + "^{commit}"], capture_output=True, timeout=5, check=True, stdin=subprocess.DEVNULL).stdout.decode().strip()
     for reviewer in reviewers:
         path = f"prompts/lenses/{reviewer}.md"
         entry = subprocess.run(["git", "--no-replace-objects", "-C", repo, "ls-tree", "-z", pin,
-                                "--", path], capture_output=True, timeout=5, check=True).stdout
+                                "--", path], capture_output=True, timeout=5, check=True, stdin=subprocess.DEVNULL).stdout
         if not entry or entry.split(b"\t", 1)[-1] != path.encode() + b"\0" or entry[:6] not in (b"100644", b"100755"):
             sys.exit(f"invalid reviewer: {reviewer!r}; no matching regular reviewer file at {pin[:12]}")
 except (OSError, subprocess.SubprocessError) as exc:
@@ -211,7 +213,7 @@ from pathlib import Path
 import subprocess, sys
 checkout, model, prompt = sys.argv[1:]
 text = Path(prompt).read_bytes().decode("utf-8")
-sys.exit(subprocess.run(["kimi", "-m", model, "-p", text], cwd=checkout).returncode)
+sys.exit(subprocess.run(["kimi", "-m", model, "-p", text], cwd=checkout, stdin=subprocess.DEVNULL).returncode)
 ' "$dir" "$model" "$prompt" > "$logs.md" 2> "$logs.err" || cli_status=$? ;;
       *)     echo "$r failed: unknown cli $cli" >> "$out/summary.txt"; return 1 ;;
     esac

@@ -1,9 +1,9 @@
 <a id="minimal-example"></a>
 # Minimal corpus
 
-This corpus lets a reader reproduce a complete checked contract in an independent repository. Its three files are the executable teaching fixture: a [document manifest](documents-homes-and-values.md#document-manifest), an [entity index](documents-homes-and-values.md#entity-index) and one Markdown source. The example declares a batch capacity of `2` items, returns `Full` for an extra item and lets the caller recover with a new batch.
+This corpus lets a reader reproduce a complete checked contract in an independent repository. Its three files form an unapproved draft: a [document manifest](documents-homes-and-values.md#document-manifest), an [entity index](documents-homes-and-values.md#entity-index) and one Markdown source. The example declares a batch capacity of `2` items, returns `Full` for an extra item and lets the caller recover with a new batch.
 
-The displayed source is copied exactly from [skills/spec-writing/scripts/fixtures/minimal/docs/example.md](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md) and its sibling metadata. Fixture approval applies only to this synthetic contract. It grants no production approval or batch implementation.
+The displayed source is copied exactly from [skills/spec-writing/scripts/fixtures/minimal/docs/example.md](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md) and its sibling metadata. The draft has no approval entry. Copying it requires no fixture mode and grants no approval or batch implementation.
 
 <a id="example-documents"></a>
 ## Document manifest input
@@ -16,10 +16,6 @@ This file registers the complete example and its reading path. Save these bytes 
 {
   "documents": [
     {
-      "approval": {
-        "authority": "fixture",
-        "decision": "example#decision"
-      },
       "audience": "Authors familiar with Markdown.",
       "id": "example",
       "navigation": {
@@ -27,7 +23,7 @@ This file registers the complete example and its reading path. Save these bytes 
         "region": "example"
       },
       "non_goals": "A production service.",
-      "purpose": "Show bounded submission and refusal.",
+      "purpose": "The batcher accepts items until its batch fills.",
       "scenarios": [],
       "scope": "One synthetic submission rule.",
       "sections": [
@@ -49,7 +45,7 @@ This file registers the complete example and its reading path. Save these bytes 
           "summary": "Follow submission and inspect its evidence."
         }
       ],
-      "status": "approved",
+      "status": "draft",
       "title": "Bounded batches"
     }
   ],
@@ -59,6 +55,7 @@ This file registers the complete example and its reading path. Save these bytes 
       "path": "docs/example.md"
     }
   ],
+  "test_runners": [],
   "version": 1
 }
 ```
@@ -67,7 +64,7 @@ This file registers the complete example and its reading path. Save these bytes 
 
 The single section `main` starts at anchor `example` in the source. Its seven role names declare tour, behavior, obligations, choices, questions, lookup and evidence in that order. `example#main` selects that complete subtree. Its summary states the reader's outcome. Empty prerequisite and dependency arrays request no other explanation, and the empty scenarios array registers no separate scenario.
 
-The navigation path points to the same source. Region identity `example` selects its marker pair. Status `approved` is qualified by authority `fixture` and decision `example#decision`; checking therefore needs `--fixture`. A production authority must follow the [approval contract](source-formats.md#metadata).
+The navigation path points to the same source. Region identity `example` selects its marker pair. Status `draft` declares no approval. The empty `test_runners` array keeps the built-in Python unittest default; other languages add a runner through the [metadata contract](source-formats.md#metadata). Approval requires the authority and decision described there.
 
 <a id="example-entities"></a>
 ## Entity index input
@@ -118,7 +115,7 @@ Submit one batch; a full [batcher](#batcher) refuses another item.
 
 ## Overview
 
-Show bounded submission and refusal.
+The batcher accepts items until its batch fills.
 
 **Audience:** Authors familiar with Markdown.
 
@@ -139,7 +136,7 @@ Use this map to choose the next explanation to read.
 
 ## Entity index
 
-Use this index to find each registered meaning at its home.
+Each technical term below links to its defining Markdown section.
 
 - [Batcher](example.md#batcher) (`example.batcher`) — A batcher prevents overfilling by accepting items only while its batch has room.
 <!-- /spec-docs:navigation -->
@@ -194,11 +191,9 @@ This refusal tells the caller how to submit an item after the batch fills.
 <a id="decision"></a>
 ## Decisions
 
-This decision keeps the teaching example small enough to inspect.
-
 **Choice:** Use this synthetic capacity to teach declarations.
 
-**Authority:** fixture; no production behavior is approved.
+**Authority:** Unapproved example proposal.
 
 **Reason:** Demonstrate refusal and retained state.
 
@@ -245,13 +240,13 @@ Initialize an empty independent repository with `git init -q`. In these commands
 
 1. **Write the corpus.** Save the three files shown above.
    The helper captures new, unignored files without staging them.
-2. **Check the source:** `python HELPER check --root REPOSITORY --fixture`.
-   The fixture reports `0 errors, 0 warnings` and exit `0`.
-3. **Generate navigation:** `python HELPER generate --root REPOSITORY --fixture`.
+2. **Check the source:** `python HELPER check --root REPOSITORY`.
+   The draft reports `0 errors, 0 warnings` and exit `0`.
+3. **Generate navigation:** `python HELPER generate --root REPOSITORY`.
    The command reports `docs/example.md` and exit `0`.
 4. **Change the display.** Replace `Submit up to [2](#capacity)` with `Submit up to [3](#capacity)`.
    The home value remains unchanged.
-5. **Check the mismatch:** `python HELPER check --root REPOSITORY --fixture`.
+5. **Check the mismatch:** `python HELPER check --root REPOSITORY`.
    The comparison reports `D10` and exit `1`.
 
    > **Detail — refused comparison**
@@ -259,11 +254,11 @@ Initialize an empty independent repository with `git init -q`. In these commands
    > Both refer to admitted items per batch; only the displayed literal changed.
 6. **Repair the display.** Restore `[2](#capacity)` in the authored source.
    The link again shows the home value.
-7. **Regenerate navigation:** `python HELPER generate --root REPOSITORY --fixture`.
+7. **Regenerate navigation:** `python HELPER generate --root REPOSITORY`.
    The command succeeds from the repaired source.
-8. **Check the repair:** `python HELPER check --root REPOSITORY --fixture`.
+8. **Check the repair:** `python HELPER check --root REPOSITORY`.
    The corpus reports `0 errors, 0 warnings` and exit `0`.
 
-An assignment file containing `{"version":1,"sections":["example#main"]}` selects the complete chapter. Run `python HELPER context --root REPOSITORY --fixture --assignment FILE` to emit its registry, metadata, profile, source and provenance.
+An assignment file containing `{"version":1,"sections":["example#main"]}` selects the complete chapter. Run `python HELPER context --root REPOSITORY --assignment FILE` to emit its registry, metadata, profile, source and provenance.
 
 The [skills/spec-writing/scripts/test_spec_docs.py::MinimalExampleTests::test_published_example_is_the_checked_fixture_in_an_independent_repository](../../../skills/spec-writing/scripts/test_spec_docs.py) compares these three fenced inputs byte-for-byte with the fixture and checks them outside House Rules. The [literal acceptance case](acceptance-evidence.md#test-literals) names its executable selector. This proves the documentation path; it does not execute the illustrated batch service.

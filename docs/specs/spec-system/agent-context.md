@@ -55,10 +55,20 @@ Selection provides complete explanations without turning every source link into 
 
    > **Detail — selection boundary**
    > Uses include recognized registered names and direct links to homes or their facts.
-   > An added home's containing section can declare further dependencies.
+   > If an added home's section declares a dependency, include that dependency too.
    > Ordinary links inside that added home do not recursively add further homes.
-5. **Merge the ranges.** Emit each overlapping or adjacent range once per path and snapshot label.
-   Retain every contributing identity and reason in the range record.
+5. **Merge the ranges.** Emit overlapping or adjacent ranges once per path and snapshot label.
+   Order them by document, manifest section and source line; retain every identity and inclusion reason.
+
+For example, an assigned submission section uses the batcher home. That home's section declares a dependency on a recovery explanation.
+The pack includes recovery. An ordinary link from the added home to an unrelated glossary does not add that glossary's source.
+
+| Connection | Included source |
+|---|---|
+| Assignment to submission | Submission section |
+| Submission uses batcher | Complete batcher home |
+| Home declares recovery dependency | Recovery section |
+| Home links ordinary glossary | No further source |
 
 A comparison also includes the requirement change report and selected linked tests from the base and candidate. The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) derives affected test selectors from both snapshots. A removal decision remains explicit assignment input; a resolving link establishes existence, not decision authority.
 
@@ -71,7 +81,13 @@ The selector reports exact UTF-8 bytes, including its embedded manifest. Provena
 
 The assignment's `budget_bytes` bounds the documentation content. The compiler's separate byte budget bounds its assembled rules, documentation and task. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) reserves response allowance within its execution budget before assigning optional material. None of these limits authorizes truncating mandatory documentation.
 
-When registry or home bytes change, rebuild affected packs and recheck their surrounding explanations and [scenarios](requirements-tests-and-failures.md#scenario). A stale assignment baseline requires regeneration from the current snapshot. There is no rebase verifier. A new pack may contain different bytes even when its human-readable assignment name stays the same.
+For example, a documentation pack uses `6 000` bytes against an assignment limit of `8 000` bytes.
+Adding rules and task uses another `4 000` bytes, so the compiler compares `10 000` bytes against its `12 000` byte limit.
+Suppose the [dispatcher](../../design/75-subagent-profiles.md#dispatcher) converts those bytes to `2 500` input tokens and reserves `1 500` response tokens.
+Against `5 000` execution tokens, it has `1 000` tokens left for optional material.
+These illustrative limits use different accounting units; no byte-to-token conversion is assumed by the selector.
+
+When registry or home bytes change, rebuild affected packs and recheck their surrounding explanations and [scenarios](requirements-tests-and-failures.md#scenario). A stale assignment baseline requires regeneration from the current snapshot. A new pack may contain different bytes even when its human-readable assignment name stays the same.
 
 <a id="failure-context"></a>
 ### Failure state: invalid or excessive assignment

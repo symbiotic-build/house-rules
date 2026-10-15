@@ -8,7 +8,7 @@ Authors use the checked source system to produce explanations that an engineer c
 
 Ownership keeps concurrent authors from defining competing contracts. One editor owns manifest and entity-index changes for the round. Each entity has one home owner, and every author receives a disjoint source assignment with generated input. Changes to another owner's facts are proposals to that owner.
 
-A valid draft map precedes body assignments. Its anchored openings, explicit role gaps and unregistered incomplete homes let generation succeed before definitions exist.
+Before assigning body sections, create anchored chapter openings and declare missing roles in `gaps`. Leave planned entities out of the index until their definitions are complete. Generate and check that draft map before assigning its chapters.
 
 **Procedure: write an implementable explanation**
 
@@ -81,9 +81,15 @@ This refusal exposes missing review coverage before a reviewer receives an incom
 <a id="review-and-adoption"></a>
 ## Review and adoption
 
-Qualification tests the normal authoring pipeline before the branch is merged. The [Fresh-reader review](../../../skills/spec-writing/SKILL.md#fresh-reader-review) owns the reader procedure: two readers using different models answer ten questions, build independent corpora and rate every chapter. It requires zero unanswered questions, guesses or stuck points, zero errors on each corpus’s first check, and “yes” for every chapter. Readers quote troublesome passages; accepted findings receive repairs and fresh ratings. That procedure can fill the existing readability responsibility without authorizing a larger panel.
+Qualification tests the normal authoring pipeline before the branch is merged. The [Fresh-reader review](../../../skills/spec-writing/SKILL.md#fresh-reader-review) owns the reader procedure. Two readers using different models answer ten questions and exercise the document in its own domain. They also rate every chapter.
 
-Pipeline qualification also runs a fresh author from a short feature brief using branch-pinned normal loaders. It separately converts an existing unconverted design and a deliberately messy document. The resulting multi-chapter source passes structural checking and the fresh-reader procedure. Bind the run record to its source revision and candidate digest; inspect approved decisions for implemented behavior or an explicit reasoned change.
+The procedure requires zero unanswered questions, guesses or stuck points, a successful first tool run for each concrete exercise, and “yes” for every chapter. Readers quote troublesome passages; accepted findings receive repairs and fresh ratings.
+
+For this specification, the exercise is a small corpus whose first checker run has zero errors. That procedure can fill the existing readability responsibility without authorizing a larger panel.
+
+Pipeline qualification starts a fresh author session from a short feature brief. The session loads the repository’s rules. It loads the spec-writing skill from the selected House Rules revision. It separately converts an existing unconverted design and a deliberately messy document. The resulting multi-chapter source passes structural checking and the fresh-reader procedure.
+
+Record the source revision, candidate digest, run inputs and observed output. Compare the implementation with approved decisions and cite a permitting decision for any change.
 
 Conversion accounts for every substantive source rule, table row, qualification and settled decision. Move names and rejected forms into the [entity index](documents-homes-and-values.md#entity-index), and move behavior and declarations into complete homes. Preserve distinctions that cannot be represented as naming patterns through linked requirements. Update loaders, links and metadata together before removing a superseded contract.
 

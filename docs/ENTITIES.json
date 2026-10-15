@@ -746,7 +746,7 @@
     "spec-system.tool-environment": {
       "kind": "component",
       "home": {
-        "section": "spec-system#checking",
+        "section": "spec-system#formats",
         "anchor": "tool-environment"
       },
       "scope": [

@@ -11,7 +11,6 @@ The following records preserve the decisions that determine source authority, ch
 <a id="source-decision"></a>
 ### Decision: Markdown source with shared metadata
 
-This choice keeps a contract readable in its authored form while supporting derived navigation and checks.
 
 **Choice:** Author ordinary Markdown with pipe tables, shared JSON metadata and one Python checker using `markdown-it-py`.
 
@@ -30,7 +29,6 @@ Vale is not a required dependency. An existing installation can serve other writ
 <a id="literal-decision"></a>
 ### Decision: literal fact values
 
-This choice makes a linked restatement checkable without interpreting a product's value model.
 
 **Choice:** Treat a fact's Value cell as literal text. Normalize only surrounding space and the declared digit-group separators.
 
@@ -43,7 +41,6 @@ This choice makes a linked restatement checkable without interpreting a product'
 <a id="toolchain-decision"></a>
 ### Decision: one pinned shared tool
 
-This choice keeps local, automated and extracted use on the same parsing contract.
 
 **Choice:** Let the shared tool own the runtime range, exact dependency versions and wheel hashes. Consumers select its House Rules revision.
 
@@ -56,7 +53,6 @@ This choice keeps local, automated and extracted use on the same parsing contrac
 <a id="context-decision"></a>
 ### Decision: complete mandatory input
 
-This choice gives agents shared meanings without following every source link recursively.
 
 **Choice:** Include the complete repository registry and selected complete explanations from one snapshot. Refuse invalid, stale or excessive mandatory input before dispatch.
 
@@ -69,7 +65,6 @@ This choice gives agents shared meanings without following every source link rec
 <a id="writing-decision"></a>
 ### Decision: explicit advisory prose targets
 
-This choice supports readable explanations while retaining necessary technical qualifications.
 
 **Choice:** Use the versioned profile in the shared writing rules. Apply ISO 80000-1 prose number formatting and ISO 8601 dates and times; keep approximate prose checks advisory.
 
@@ -82,7 +77,6 @@ This choice supports readable explanations while retaining necessary technical q
 <a id="delivery-decision"></a>
 ### Decision: qualify the branch before merge
 
-This choice establishes real use before adopting changes to the shared instruction system.
 
 **Choice:** Run normal authoring and review paths with an exact branch revision before merge. Keep renderer acceptance in its owning repository.
 

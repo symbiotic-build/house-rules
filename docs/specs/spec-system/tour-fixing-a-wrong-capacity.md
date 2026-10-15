@@ -10,9 +10,9 @@ That refusal belongs to the teaching contract. The documentation error introduce
 <a id="capacity-repair"></a>
 ## The capacity correction
 
-Follow this path to see each authored input become checked navigation and complete review material. The initial draft reserves its unfinished roles explicitly. Once its explanations exist, the author replaces those gaps with the complete teaching contract from the [minimal corpus](minimal-corpus.md#minimal-example).
+Follow this path to see each authored input become checked navigation and complete review material. Document roles are named content categories, such as tour and requirements. The draft lists missing categories in `gaps`. Once its explanations exist, the author replaces those gaps with the complete teaching contract from the [minimal corpus](minimal-corpus.md#minimal-example).
 
-The command examples use `python` from the pinned House Rules [tool environment](checking-and-navigation.md#tool-environment). Their placeholder roots denote the House Rules checkout and an independent example repository with Git initialized. The [toolchain explanation](checking-and-navigation.md#toolchain-and-inputs) supplies setup details.
+The command examples use `python` from the pinned House Rules [tool environment](source-formats.md#tool-environment). Their placeholder roots denote the House Rules checkout and an independent example repository with Git initialized. The [toolchain explanation](checking-and-navigation.md#toolchain-and-inputs) supplies setup details.
 
 **Procedure: author, break and repair the bounded-batch contract**
 
@@ -24,8 +24,9 @@ The command examples use `python` from the pinned House Rules [tool environment]
    > Its section `main` selects the title anchor `example` in the new example source, whose repository path is `docs/example.md`.
    > The combined selector `example#main` therefore selects that title's complete subtree.
    > The manifest classifies the source as a specification and declares unfinished roles as gaps.
+   >
    > The [entity index](documents-homes-and-values.md#entity-index), stored in [docs/ENTITIES.json](../../ENTITIES.json), initially contains no entities.
-   > The draft has anchored opening prose and a navigation region, so it contains no incomplete declaration or unresolved entity home.
+   > The draft registers no unfinished entity. It declares its missing content explicitly, for example `"gaps": ["requirements", "acceptance"]`.
 
 2. **Write the batcher's home.** The author gives readers one place to learn what the component does and find its capacity.
 
@@ -57,7 +58,8 @@ The command examples use `python` from the pinned House Rules [tool environment]
    > The [acceptance test](requirements-tests-and-failures.md#acceptance-test) uses anchor `test-capacity` and Method `inspection`.
    > It checks a full batch plus one additional item and expects `Full` with the same retained items.
    > The requirement links to that case, and the case links back to the requirement.
-   > The complete fixture also supplies its teaching decision, open-question statement and reference, replacing the draft gaps.
+   > These steps describe edits to the exact files shown later in the [minimal corpus](minimal-corpus.md#minimal-example).
+   > Its decision, question statement and reference replace the corresponding draft gaps.
 
 4. **Register the completed home.** The author binds the component's name to the explanation that now exists.
 
@@ -65,23 +67,22 @@ The command examples use `python` from the pinned House Rules [tool environment]
    >
    > The [entity index](documents-homes-and-values.md#entity-index) adds `example.batcher` with kind `component` and accepted form `batcher`.
    > Its home pairs section `example#main` with anchor `batcher`.
-   > The section selects the source subtree; the home anchor identifies the definition within it.
+   > The section selects the title and all headings beneath it. The home anchor identifies the definition within that selection.
+   >
    > Scope `example` makes that name applicable in this document.
    > Empty symbol and rejected-form lists add no alternate names.
    > The [exact entity entry](minimal-corpus.md#example-entities) shows the complete JSON.
    >
-   > The complete example's [document manifest](documents-homes-and-values.md#document-manifest) records approval authority `fixture` and its teaching decision.
-   > That authority permits this teaching example only; ordinary approvals use their declared operator or delegated authority.
+   > The complete example remains a draft without approval. Its decision records a proposal; the [approval reference](source-formats.md#metadata) explains the approval fields.
 
 5. **Generate navigation.** The shared tool produces a map and an index from the valid sources.
 
    > **Detail — first generated map**
    >
    > ```sh
-   > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py generate --root /path/to/example --fixture
+   > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py generate --root /path/to/example
    > ```
    >
-   > The `--fixture` switch accepts the example's synthetic approval authority.
    > The output replaces the example's declared navigation region.
    > Its map links to the batcher explanation, and its entity entry displays the definition sentence.
    > [Navigation generation](checking-and-navigation.md#navigation-generation) explains validation and replacement.
@@ -106,7 +107,7 @@ The command examples use `python` from the pinned House Rules [tool environment]
    > **Detail — visible documentation error**
    >
    > ```sh
-   > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py check --root /path/to/example --fixture
+   > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py check --root /path/to/example
    > ```
    >
    > The [documentation checker](checking-and-navigation.md#documentation-checker) reports `D10` at the mutated line and exits with status `1`.
@@ -136,10 +137,10 @@ The command examples use `python` from the pinned House Rules [tool environment]
    > **Detail — rebuild from the same authority**
    >
    > ```sh
-   > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py generate --root /path/to/example --fixture
+   > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py generate --root /path/to/example
    > ```
    >
-   > The command exits with status `0` and reports the example source as generated output.
+   > The command exits with status `0` and reports the file whose navigation region it replaced.
    > Correcting only a link label does not change the declared map or entity definition.
    > Regeneration therefore preserves their content while rebuilding it from the repaired source.
 
@@ -148,7 +149,7 @@ The command examples use `python` from the pinned House Rules [tool environment]
     > **Detail — repair result**
     >
     > ```sh
-    > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py check --root /path/to/example --fixture
+    > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py check --root /path/to/example
     > ```
     >
     > The checked fixture returns `0 errors, 0 warnings` and exit status `0`.
@@ -169,11 +170,11 @@ The command examples use `python` from the pinned House Rules [tool environment]
     > The sole `sections` entry identifies the complete registered subtree, rather than a line excerpt.
     >
     > ```sh
-    > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py context --root /path/to/example --assignment /path/to/assignment.json --fixture
+    > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py context --root /path/to/example --assignment /path/to/assignment.json
     > ```
     >
     > The resulting [context pack](agent-context.md#context-pack) includes the example's complete source subtree and batcher home without repeating overlapping ranges.
-    > It also contains the [complete registry](agent-context.md#complete-registry), metadata and applicable teaching decision.
+    > It also contains the [complete registry](agent-context.md#complete-registry), metadata and the teaching decision within the selected chapter.
     > The [writing profile](writing-and-review-workflow.md#writing-profile) supplies the shared prose-check policy.
     > Its manifest reports exact UTF-8 byte counts and fingerprints for the captured input.
     > The [agent-context chapter](agent-context.md#snapshot-and-selection) explains selection and snapshot boundaries.

@@ -103,7 +103,7 @@ Write section openings under the purpose and entity-definition rule in
 [reader progression](../../rules/specifications.md#reader-progression).
 For each entity home, draft the definition sentence separately from its purpose and check
 that the generated index contains the definition alone.
-When touching an explanation owned elsewhere, add a one-line linked handoff naming what is
+When touching an explanation owned elsewhere, add a one-line linked note naming what is
 explained later. Check each first-use gloss against what a reader needs at that point.
 
 For each tour or procedure step, write the action and caller-visible result first.
@@ -151,11 +151,16 @@ neither an explanation nor adequate evidence for a value or acceptance test.
 2. **Give a new reader a generic task.**
    - Ask it to explain the system and follow the tour.
    - Use two fresh readers using different models for system acceptance.
-   - Ask ten questions: purpose, inputs, authority, reading order, identity, literal equality,
-     ordinary result, refusal, recovery, and context selection. Require citations for each.
+   - Ask ten questions covering purpose, inputs, authority, reading order, identity, value
+     rules, ordinary result, refusal, recovery and execution context. Adapt their terms to
+     the system under review and require citations for each.
    - Require zero unanswered questions, guesses or stuck points.
-   - Have each reader build a small corpus from the chapters alone. Its first checker run
-     must have zero errors; retain that run's output as evidence.
+   - Have each reader apply the document to a small concrete case in its own domain, using
+     only the chapters. Ask for a predicted output for a given input, or the input the
+     described system needs. Check it with that system's tool when one exists and retain
+     the first run's output. For the specification system, this means building a small
+     corpus whose first checker run has zero errors; a renderer reader instead predicts
+     or renders a small document's display.
    - Ask it to explain a refusal and its recovery, or the declared absence of either.
    - Require citations for ambiguity, hidden assumptions and places understanding fails.
    - Have each reader rate every chapter "followed on first read: yes / with effort / no".
@@ -175,12 +180,14 @@ the existing readability responsibility; it does not authorize another review pa
 
 ## Qualify the authoring pipeline
 
-Use normal branch-pinned loaders for a fresh author run from a short feature brief.
+For a fresh author run, use the normal session entry point with a pinned House Rules revision.
+The session loads the repository rules and this skill before applying a short feature brief.
 Check the new multi-chapter specification against the reader-progression rules, structural
 gate and fresh-reader procedure. Separately convert an existing unconverted design and a
 deliberately messy document through the conversion procedure. Require the same checks.
-Bind run records to the source revision and candidate digest. Inspect every approved design
-and operator decision for implemented behavior or an explicit reasoned change. A renderer
+Record the source revision and candidate digest with the run inputs and observed output.
+Compare implemented behavior with every approved design and operator decision.
+Report any difference and the explicit decision that permits it. A renderer
 has its own specification and linked display tests in its repository; do not claim its
 acceptance from the House Rules check. Repair defects in their rule, template, lens or
 checker owner and repeat the normal run; never repair generated output by hand.

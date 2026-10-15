@@ -1,7 +1,7 @@
 <a id="requirements"></a>
 # Requirements
 
-These obligations specify the observable results of authoring, checking and preparing documentation. The mechanisms explain how those results arise; each record below links reciprocal acceptance evidence. In the bounded-batch corpus, capacity `2`, the wrong display `3` and refusal `Full` exercise those obligations without establishing a production capacity policy.
+These obligations specify the observable results of authoring, checking and preparing documentation. The mechanisms explain how those results arise; each record below links reciprocal acceptance evidence.
 
 <a id="requirement-coverage"></a>
 ## Required system behavior

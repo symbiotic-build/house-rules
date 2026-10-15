@@ -549,7 +549,7 @@
       "id": "spec-system",
       "title": "Specification and design-document system",
       "status": "draft",
-      "purpose": "Write implementable technical contracts with one authored authority, checked structure and complete agent reading material.",
+      "purpose": "Authors write Markdown and metadata; the tool checks them and generates navigation and agent reading packages.",
       "audience": "Specification and design-document authors, reviewers and tool implementers familiar with Markdown links, headings and basic Git snapshots.",
       "scope": "Single-file and multi-file specifications and designs; source authority, declarations, navigation, checking, review and snapshot-bound agent context.",
       "non_goals": "Product contracts, HTML publication, a renderer, expression evaluation, semantic measurement conversion, independent requirement stores and general prose formatting.",

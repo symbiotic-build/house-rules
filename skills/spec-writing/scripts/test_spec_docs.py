@@ -2,6 +2,7 @@
 import copy
 from dataclasses import replace
 import json
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -261,7 +262,7 @@ class CorpusTests(unittest.TestCase):
         output = self.paths['docs/generated/example-demo.md'].decode()
         self.assertIn('[Writer](../example/acceptance.md#writer)', output.split('## Entity index')[0])
         self.assertIn('Use this map to choose the next explanation to read.', output)
-        self.assertIn('Use this index to find each registered meaning at its home.', output)
+        self.assertIn('Each technical term below links to its defining Markdown section.', output)
 
     def test_miniature_retains_multirow_table_and_complete_registry(self):
         c = corpus(self.paths)
@@ -375,6 +376,40 @@ class CorpusTests(unittest.TestCase):
             paths = self.clean.copy()
             edit(paths, SETTINGS, 'Its default uses the [default]', f'Its default uses the [{value}]')
             self.assertTrue(s.check(refresh(paths)).ok, value)
+
+    def test_runner_declarations_validate_commands_and_patterns(self):
+        valid = dict(pattern='tests/*.spec', command=['sh', 'runner.sh', '{file}', '{selector}'])
+        for invalid in (None, {}, [None], [dict(valid, pattern='../*.spec')],
+                        [dict(valid, command=[])], [dict(valid, command=['sh', '{file}'])],
+                        [dict(valid, command=['sh', '{file}', '{selector}', '{unknown}'])],
+                        [valid, valid]):
+            paths = self.clean.copy()
+            metadata(paths, s.JSON_PATHS[1], lambda value: value.update(test_runners=invalid))
+            self.assertIn('D02', {item.code for item in s.check(corpus(paths)).errors})
+        metadata(self.paths, s.JSON_PATHS[1], lambda value: value.update(test_runners=[valid]))
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
+    def test_descriptive_fact_labels_and_code_only_literals(self):
+        for label in ('declared limit', 'borrowing limit', '**declared limit**', '`1024`', '``1024``'):
+            paths = self.clean.copy()
+            edit(paths, SETTINGS, 'Its default uses the [default]', f'Its default uses the [{label}]')
+            self.assertTrue(s.check(refresh(paths)).ok, label)
+        for label in ('`wrong`', '``wrong``', 'revision 2'):
+            paths = self.clean.copy()
+            edit(paths, SETTINGS, 'Its default uses the [default]', f'Its default uses the [{label}]')
+            self.assertIn('D10', {d.code for d in s.check(corpus(paths)).errors}, label)
+
+    def test_context_sources_follow_manifest_order_then_source_order(self):
+        # Reverse lexical path order without changing the document's reading order.
+        paths = {p.replace('acceptance.md', 'z.md').replace('settings.md', 'a.md'):
+                 b.replace(b'acceptance.md', b'z.md').replace(b'settings.md', b'a.md')
+                 for p, b in self.clean.items()}
+        edit(paths, 'docs/example/z.md', '# Acceptance', '# Z')
+        edit(paths, 'docs/example/a.md', '# Settings', '# A')
+        refresh(paths)
+        result = self.context(paths=paths)
+        sources = result.manifest['ranges']
+        self.assertEqual([item['path'] for item in sources], ['docs/example/z.md', 'docs/example/a.md'])
 
     def test_fact_key_and_owner_name_are_descriptive_links(self):
         for label in ("default", "commit capacity", "commit_max_documents", "Commit capacity"):
@@ -524,6 +559,11 @@ class CorpusTests(unittest.TestCase):
     def test_unresolved_contract_blocks_approval(self):
         metadata(self.paths, s.JSON_PATHS[1], lambda v: v["documents"][0].update(unresolved_contracts=["example-demo#fixture-decision"]))
         self.red_green("D21")
+
+    def test_fixture_authority_diagnostic_names_the_production_fix(self):
+        result = s.check(s.load_corpus(s.Snapshot.from_mapping(self.clean)))
+        self.assertTrue(any("authority 'fixture' is accepted only in fixture mode; use operator or delegated" in d.message
+                            for d in result.errors), result.errors)
 
     def test_fixture_approval_does_not_authorize_production(self):
         c = s.load_corpus(replace(s.Snapshot.from_mapping(self.paths), fixture=False))
@@ -884,7 +924,7 @@ class MinimalExampleTests(unittest.TestCase):
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(data)
             subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
-            result = subprocess.run([__import__('sys').executable, '-B', s.__file__, 'check', '--root', str(root), '--fixture'], capture_output=True)
+            result = subprocess.run([__import__('sys').executable, '-B', s.__file__, 'check', '--root', str(root)], capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn(b'0 errors', result.stdout)
             self.assertFalse((root / 'rules/writing.md').exists())
@@ -902,9 +942,13 @@ class MinimalExampleTests(unittest.TestCase):
 
     def test_documented_vocabulary_agrees_with_the_machine_contract(self):
         path = Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/source-formats.md'
-        tokens = s.MarkdownIt('commonmark').parse(path.read_text())
-        blocks = [json.loads(t.content) for t in tokens if t.type == 'fence' and t.info == 'json format-contract']
-        self.assertEqual(blocks, [json.loads(s.REFERENCE.read_text())])
+        text = re.sub(r'\[(`[^`]+`)\]\([^)]*\)', r'\1', path.read_text())
+        contract = json.loads(s.REFERENCE.read_text())
+        for key, values in contract.items():
+            if isinstance(values, list) and key != 'group_separators':
+                self.assertIn('| `' + key + '` | ' + ', '.join('`' + value + '`' for value in values) + ' |', text)
+        for key, values in contract['relationship_targets'].items():
+            self.assertIn('| `' + key + '` | ' + ', '.join('`' + value + '`' for value in values) + ' |', text)
 
     def test_valid_draft_skeleton_generates_before_registering_homes(self):
         paths = {'docs/ENTITIES.json': s.canonical(dict(version=1, entities={}, naming_rules=[])),

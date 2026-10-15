@@ -65,7 +65,7 @@ class DocumentationContextTests(unittest.TestCase):
 
     def git(self, repo, *args):
         return subprocess.run(["git", "--no-replace-objects", "-C", str(repo), *args],
-                              capture_output=True, check=True, timeout=5).stdout.decode().strip()
+                              capture_output=True, check=True, timeout=5, stdin=subprocess.DEVNULL).stdout.decode().strip()
 
     def write(self, repo, path, data):
         destination = repo / path
@@ -285,8 +285,13 @@ class DocumentationContextTests(unittest.TestCase):
                            REVIEW_PYTHON=sys.executable, REVIEW_PANEL_CONF=str(config), REVIEW_PANEL_OUT=str(output),
                            REVIEW_BASE=self.revision, REVIEW_SPEC_ASSIGNMENT="")
         command = ["bash", str(ROOT / "skills/pr-ready/scripts/review-panel.sh")]
-        result = subprocess.run([*command, "--assignment", str(self.assignment_file), "complete", str(self.repo),
-                                 str(task), "generalist-a"], env=environment, capture_output=True, timeout=10)
+        read_fd, write_fd = os.pipe()
+        try:
+            result = subprocess.run([*command, "--assignment", str(self.assignment_file), "complete", str(self.repo),
+                                     str(task), "generalist-a"], env=environment, capture_output=True, timeout=10, stdin=read_fd)
+        finally:
+            os.close(read_fd)
+            os.close(write_fd)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         pack = (output / "complete/generalist-a.pack/pack.txt").read_bytes()
         manifest = json.loads((output / "complete/generalist-a.pack/manifest.json").read_bytes())
@@ -296,7 +301,7 @@ class DocumentationContextTests(unittest.TestCase):
         self.assertFalse((output / "complete/preparer.py").exists())
         self.assertEqual(pack, (output / "complete/generalist-a.attempt-1.md.sent").read_bytes())
         failed = subprocess.run([*command, "missing", str(self.repo), str(task), "generalist-a"],
-                                env=environment, capture_output=True, timeout=10)
+                                env=environment, capture_output=True, timeout=10, stdin=subprocess.DEVNULL)
         self.assertNotEqual(failed.returncode, 0)
         self.assertIn(b"explicit --assignment", failed.stderr)
         self.assertFalse((output / "missing/generalist-a.attempt-1.md").exists())

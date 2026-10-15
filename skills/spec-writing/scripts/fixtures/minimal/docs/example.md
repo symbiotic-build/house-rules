@@ -8,7 +8,7 @@ Submit one batch; a full [batcher](#batcher) refuses another item.
 
 ## Overview
 
-Show bounded submission and refusal.
+The batcher accepts items until its batch fills.
 
 **Audience:** Authors familiar with Markdown.
 
@@ -29,7 +29,7 @@ Use this map to choose the next explanation to read.
 
 ## Entity index
 
-Use this index to find each registered meaning at its home.
+Each technical term below links to its defining Markdown section.
 
 - [Batcher](example.md#batcher) (`example.batcher`) — A batcher prevents overfilling by accepting items only while its batch has room.
 <!-- /spec-docs:navigation -->
@@ -84,11 +84,9 @@ This refusal tells the caller how to submit an item after the batch fills.
 <a id="decision"></a>
 ## Decisions
 
-This decision keeps the teaching example small enough to inspect.
-
 **Choice:** Use this synthetic capacity to teach declarations.
 
-**Authority:** fixture; no production behavior is approved.
+**Authority:** Unapproved example proposal.
 
 **Reason:** Demonstrate refusal and retained state.
 

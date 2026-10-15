@@ -24,7 +24,8 @@ flowchart TD
 <!-- spec-docs:navigation document="document-id" -->
 <!-- /spec-docs:navigation -->
 
-[Put purpose, audience, scope and non-goals in the manifest; generate this region immediately
+[Put purpose, audience, scope and non-goals in the manifest. Write purpose as a statement
+of what the system does; generate this region immediately
 following the authored opening paragraph. State the diagram's question before the diagram.
 The map is followed by tour, mechanisms, requirements, decisions, open questions, reference,
 then acceptance. Combine adjacent roles only; preserve their internal order.]
@@ -87,7 +88,8 @@ format contract for decision anchors. Distinguish proposed choices from approved
 
 [Use one heading per decision and each field once: **Choice:**, **Authority:**,
 **Reason:** and **Rejected alternatives:**. Put all rejected options and their reasons
-in that one field, rather than repeating the label.]
+in that one field, rather than repeating the label. Start each record with **Choice:**;
+let **Reason:** explain its purpose without a formula opening such as "This choice keeps".]
 
 <a id="questions"></a>
 ## Open questions
@@ -109,7 +111,8 @@ closeout when intent becomes maintained specification.]
 <a id="reference"></a>
 ## Reference
 
-[Revisit the tour example in lookup form; link its exact files, diagnostics and selectors.]
+[Revisit the tour example in lookup form; link its exact files. Put installation pins and vocabulary tables here, with each
+diagnostic's severity, meaning, remedy and behavioral selector in one table.]
 
 [Keep exact schemas, signatures, module layouts, configuration and errors here. Reuse
 canonical fact links; retain qualifications and their evidence beside the owning facts.]

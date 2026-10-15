@@ -26,7 +26,16 @@ An addressable section is a named heading subtree with a stable identity and an 
 
 A subtree starts at its heading's anchor and ends before the next heading of equal or higher level. A chapter selected by its title includes the chapter opening and all its subsections. Registering only a later subsection would leave the opening outside the selected explanation. In the batch corpus, the assignment `example#main` selects the section named `main` in the document named `example`.
 
-Selection boundaries differ from first-use linking boundaries. Each level-2 section starts a linking scope; deeper headings share that scope. Within each scope, the first technical use links directly to its home. Every use before that home in reading order also needs the direct link. A home in another document always counts as ahead because documents have no common reading order.
+An assignment can select a whole chapter while its level-2 sections require separate first-use links. Each level-2 section starts a linking scope; deeper headings share that scope. Within each scope, the first technical use links directly to its home. Every use before that home in reading order also needs the direct link. The manifest orders sections within each document identity. It defines no reading order between document identities, so a home in another document always counts as ahead.
+
+For example, selecting the following title includes both level-2 sections. Each section starts a separate linking scope; its deeper subsection shares that scope.
+
+```markdown
+# Submission
+## Admission
+### Validation
+## Recovery
+```
 
 Keep headings unnumbered and put links in the surrounding prose, never inside the headings themselves. Give a first-use link a short gloss when the reader needs its meaning to continue. Literal code and diagrams use adjacent **Entities in this example** links so their technical names also lead directly home. An index or another use site cannot replace that destination.
 
@@ -101,11 +110,13 @@ The bounded batch's capacity value is `2`, measured in items admitted to one bat
 | <a id="capacity"></a>capacity | 2 | specified | [Teaching decision](#decision) |
 ```
 
-The home retains authority when another section displays `[3](example.md#capacity)`. The destination resolves, but the displayed value disagrees with the home and produces `D10`. Correcting the displayed value to `2` repairs the link; changing the row would instead change the admission contract. A descriptive link such as `capacity` navigates to the row without claiming a second literal value.
+The home retains authority when another section displays `[3](example.md#capacity)`. The destination resolves, but the displayed value disagrees with the home and produces `D10`. Correcting the displayed value to `2` repairs the link; changing the row would instead change the admission contract. Descriptive links such as `capacity` or `borrowing limit` navigate without asserting a literal. The [label grammar](source-formats.md#markdown-declarations) defines value-bearing labels.
 
 Comparison uses visible literal text after trimming surrounding space and normalizing supported digit-group separators. It neither evaluates expressions nor converts measurements. Thus `1 024` and `1,024` compare alike, while `1.024` keeps its decimal point. Adding `items` inside a link to the capacity row changes the literal; put the unit outside that link. Reviewers check unlinked restatements because the checker cannot infer their intended source.
 
-Status and linked basis qualify a value's authority. Keep provisional conditions, observed limits, exceptions and resolution paths beside the home, with a link to the affected row. A consumer that shares the batch capacity links to that row and carries its qualification; it declares no independent default. There are no effective-value chains to evaluate.
+Status and linked basis qualify a value's authority. Keep provisional conditions, observed limits, exceptions and resolution paths beside the home, with a link to the affected row. For example, put `Provisional: [capacity](#capacity) applies only to sequential submissions; concurrency needs an operator decision` beside the row.
+That qualification names the condition and resolution path while linking the affected fact.
+A consumer links to the original literal and carries its qualification; it declares no independent default.
 
 Relations express declared connections between entities in a separate table. A relation can name the component performing admission or a setting that limits it. Each target must have its own registered home of the permitted kind. The small batch fixture keeps capacity as a fact and needs no extra setting home. Each relation supplies a supported predicate and linked basis. Exact columns and supported kinds belong to [Markdown declarations](source-formats.md#markdown-declarations).
 

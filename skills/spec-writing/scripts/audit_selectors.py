@@ -2,6 +2,10 @@
 """Execute every declared Implementation selector; normal checking stays static."""
 import argparse
 import importlib.util
+from fnmatch import fnmatchcase
+import math
+import os
+import signal
 from pathlib import Path
 import subprocess
 import sys
@@ -49,13 +53,28 @@ def audit(corpus, root, timeout_seconds=30):
         for link in declaration['fields'].get('Implementation', ('', []))[1]:
             path, selector = link.label.split('::', 1)
             started = time.monotonic()
+            runner = next((entry for entry in corpus.manifest.get('test_runners', [])
+                           if fnmatchcase(path, entry['pattern'])), None)
+            command = ([argument.format(file=path, selector=selector)
+                        for argument in runner['command']] if runner else
+                       [sys.executable, '-B', str(Path(__file__).resolve()),
+                        '--root', str(root), '--execute', path, selector])
             try:
-                result = subprocess.run([sys.executable, '-B', str(Path(__file__).resolve()),
-                    '--root', str(root), '--execute', path, selector], capture_output=True, text=True, timeout=timeout_seconds)
-                code = result.returncode
-                output = result.stdout + result.stderr
-            except subprocess.TimeoutExpired as exc:
-                code, output = 1, f'test exceeded {timeout_seconds} seconds: {exc}'
+                if not (root / path).is_file():
+                    code, output = 2, f'missing: absent executable test file {path}'
+                else:
+                    with subprocess.Popen(command, cwd=root, stdin=subprocess.DEVNULL,
+                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                          text=True, start_new_session=True) as child:
+                        try:
+                            stdout, stderr = child.communicate(timeout=timeout_seconds)
+                            code, output = child.returncode, stdout + stderr
+                        except subprocess.TimeoutExpired:
+                            os.killpg(child.pid, signal.SIGKILL)
+                            stdout, stderr = child.communicate()
+                            code, output = 1, f'test exceeded {timeout_seconds} seconds\n' + stdout + stderr
+            except OSError as exc:
+                code, output = 2, f'missing: cannot start runner: {exc}'
             outcome = 'pass' if code == 0 else 'missing' if code == 2 else 'failing'
             passed += code == 0
             missing += code == 2
@@ -74,7 +93,7 @@ def main():
     parser.add_argument('--timeout-seconds', type=float, default=30, help='Per-selector runaway ceiling (default: 30).')
     parser.add_argument('--execute', nargs=2, metavar=('FILE', 'SELECTOR'), help=argparse.SUPPRESS)
     args = parser.parse_args()
-    if args.timeout_seconds <= 0:
+    if not math.isfinite(args.timeout_seconds) or args.timeout_seconds <= 0:
         parser.error('--timeout-seconds must be positive')
     root = args.root.resolve()
     if args.execute:
