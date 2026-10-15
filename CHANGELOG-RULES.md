@@ -2,6 +2,22 @@
 
 Source notes for House Rules invariants and procedures.
 
+## rules/writing.md — Sequences and structured detail
+
+Operator direction: 2026-10-15, while reviewing a specification. One walkthrough paragraph
+packed three calls, their parameters, three commits and the rows each wrote into four
+sentences; the operator called a rewrite with one numbered item per call and short
+sub-items "3000 times better and easier to follow" and expected the writing rules to produce
+it by default. "One fact per sentence" already applied, but nothing asked for a list when
+text describes a sequence of actions, and splitting sentences alone left dense blocks. A
+trial rewrite under the draft by a standard agent turned a short lookup table into bullets
+and wrote one sentence per line, so two lines were added. The changes:
+
+- Ordered actions in walkthroughs, procedures, worked examples and test scenarios get one
+  numbered item each, with short sub-items for inputs, written values and the observed result.
+- Keep a lookup table when every cell is a few words.
+- Short related sentences stay in one paragraph.
+
 ## rules/writing.md, rules/core.md, skills/decision-brief — Briefs checked before sending; settled decisions reopen on new evidence
 
 Operator correction: 2026-10-12, issue #107, rejecting the settled/unratified split in the
