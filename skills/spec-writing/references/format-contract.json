@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "entity_kinds": [
+    "component",
+    "mechanism",
+    "setting",
+    "concept",
+    "interface",
+    "state",
+    "actor",
+    "data"
+  ],
+  "inventory_kinds": [
+    "specification",
+    "design",
+    "other",
+    "generated"
+  ],
+  "document_statuses": [
+    "draft",
+    "approved",
+    "implemented",
+    "superseded"
+  ],
+  "roles": [
+    "tour",
+    "mechanism",
+    "requirements",
+    "acceptance",
+    "decisions",
+    "questions",
+    "reference"
+  ],
+  "design_roles": [
+    "evidence",
+    "constraints",
+    "alternatives",
+    "ownership",
+    "integration",
+    "rollout",
+    "work-packages",
+    "acceptance-evidence"
+  ],
+  "relationship_targets": {
+    "performed-by": [
+      "actor",
+      "component"
+    ],
+    "protected-by": [
+      "mechanism",
+      "component"
+    ],
+    "limited-by": [
+      "setting"
+    ],
+    "precedes": [
+      "component",
+      "mechanism",
+      "setting",
+      "concept",
+      "interface",
+      "state",
+      "actor",
+      "data"
+    ]
+  },
+  "requirement_fields": [
+    "Actor",
+    "Condition",
+    "Result",
+    "Verification",
+    "Tests",
+    "Status",
+    "Basis"
+  ],
+  "test_fields": [
+    "Method",
+    "Requirements",
+    "Inputs",
+    "Expected"
+  ],
+  "failure_fields": [
+    "Trigger",
+    "Outcome",
+    "Retained state",
+    "Recovery",
+    "Authority",
+    "Verification"
+  ],
+  "scenario_fields": [
+    "Purpose",
+    "Inputs",
+    "Expected"
+  ],
+  "review_responsibilities": [
+    "technical",
+    "readability",
+    "design/cost",
+    "failure/recovery",
+    "whole-scenario"
+  ],
+  "group_separators": [
+    ",",
+    "_",
+    " ",
+    " ",
+    " "
+  ]
+}

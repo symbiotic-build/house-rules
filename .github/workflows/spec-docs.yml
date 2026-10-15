@@ -1,0 +1,29 @@
+name: Specification documents
+
+on: [push, pull_request, workflow_dispatch]
+
+permissions:
+  contents: read
+
+jobs:
+  spec-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install pinned documentation tooling
+        run: |
+          python -m venv .tmp/spec-docs-env
+          .tmp/spec-docs-env/bin/python -m pip install --require-hashes --only-binary=:all: --no-deps -r skills/spec-writing/scripts/requirements.lock
+          .tmp/spec-docs-env/bin/python -m pip check
+      - name: Check supported runtime and pins
+        run: |
+          .tmp/spec-docs-env/bin/python -B -c "import sys; sys.path.insert(0, 'skills/spec-writing/scripts'); from spec_docs import validate_runtime; validate_runtime()"
+      - name: Test documentation checker and context selector
+        run: .tmp/spec-docs-env/bin/python -B -m unittest discover -s skills/spec-writing/scripts -p 'test_spec_docs.py'
+      - name: Check complete candidate documentation corpus
+        run: .tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/spec_docs.py check --root .
