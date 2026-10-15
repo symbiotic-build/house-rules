@@ -67,30 +67,6 @@
       "kind": "design"
     },
     {
-      "path": "docs/specs/spec-system/acceptance-evidence.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/documentation-checker.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/context-pack.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/specification-and-design-document-system.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/interfaces-and-encodings.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/document-manifest.md",
-      "kind": "specification"
-    },
-    {
       "path": "prompts/README.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
@@ -506,14 +482,6 @@
       "reason": "Skill procedure or supporting reference, not a specification or design document."
     },
     {
-      "path": "docs/specs/spec-system/minimal-corpus.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/source-formats.md",
-      "kind": "specification"
-    },
-    {
       "path": "skills/spec-writing/scripts/fixtures/minimal/docs/example.md",
       "kind": "other",
       "reason": "Synthetic checker fixture, not a repository contract."
@@ -524,67 +492,31 @@
       "reason": "Fixture note about shared profile ownership."
     },
     {
-      "path": "docs/specs/spec-system/source-document.md",
+      "path": "docs/specs/spec-system/specification-and-design-document-system.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/addressable-section.md",
+      "path": "docs/specs/spec-system/tour-fixing-a-wrong-capacity.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/registered-entity.md",
+      "path": "docs/specs/spec-system/documents-homes-and-values.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/entity-index.md",
+      "path": "docs/specs/spec-system/requirements-tests-and-failures.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/canonical-fact.md",
+      "path": "docs/specs/spec-system/checking-and-navigation.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/requirement-declaration.md",
+      "path": "docs/specs/spec-system/agent-context.md",
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/acceptance-test.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/scenario.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/failure-declaration.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/tool-environment.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/navigation-generation.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/source-snapshot.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/complete-registry.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/writing-profile.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/semantic-review.md",
-      "kind": "specification"
-    },
-    {
-      "path": "docs/specs/spec-system/adoption-and-ownership.md",
+      "path": "docs/specs/spec-system/writing-and-review-workflow.md",
       "kind": "specification"
     },
     {
@@ -592,7 +524,23 @@
       "kind": "specification"
     },
     {
-      "path": "docs/specs/spec-system/decisions.md",
+      "path": "docs/specs/spec-system/decisions-and-open-questions.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/source-formats.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/minimal-corpus.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/interfaces-and-encodings.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/acceptance-evidence.md",
       "kind": "specification"
     }
   ],
@@ -601,10 +549,10 @@
       "id": "spec-system",
       "title": "Specification and design-document system",
       "status": "draft",
-      "purpose": "Keep technical meaning in Markdown and check declared structure without a second writable contract.",
-      "audience": "Authors, reviewers and tool implementers familiar with Markdown and Git.",
-      "scope": "Single-file and multi-file specifications, design documents, declarations, navigation and mandatory agent context.",
-      "non_goals": "Publication server, custom renderer, expression evaluation, general prose formatting and product-specific contracts.",
+      "purpose": "Write implementable technical contracts with one authored authority, checked structure and complete agent reading material.",
+      "audience": "Specification and design-document authors, reviewers and tool implementers familiar with Markdown links, headings and basic Git snapshots.",
+      "scope": "Single-file and multi-file specifications and designs; source authority, declarations, navigation, checking, review and snapshot-bound agent context.",
+      "non_goals": "Product contracts, HTML publication, a renderer, expression evaluation, semantic measurement conversion, independent requirement stores and general prose formatting.",
       "navigation": {
         "path": "docs/specs/spec-system/specification-and-design-document-system.md",
         "region": "spec-system"
@@ -614,246 +562,88 @@
           "id": "overview",
           "path": "docs/specs/spec-system/specification-and-design-document-system.md",
           "anchor": "overview",
+          "roles": [],
+          "summary": "Choose a reading path and see which authored sources produce checked navigation and agent input.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "tour",
+          "path": "docs/specs/spec-system/tour-fixing-a-wrong-capacity.md",
+          "anchor": "tour",
           "roles": [
             "tour"
           ],
-          "summary": "Follow a batch refusal from its authored contract to checked agent context.",
+          "summary": "Follow a wrong capacity link through a visible error, correction, regenerated map and complete review input.",
           "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "documents",
-          "path": "docs/specs/spec-system/source-document.md",
-          "anchor": "source-document",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Distinguish authored contracts from generated navigation and context.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "sections",
-          "path": "docs/specs/spec-system/addressable-section.md",
-          "anchor": "addressable-section",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Select complete explanations by stable anchors and heading boundaries.",
-          "prerequisites": [
-            "spec-system#documents"
-          ],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "homes",
-          "path": "docs/specs/spec-system/registered-entity.md",
-          "anchor": "registered-entity",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Locate each technical meaning and its canonical declarations at one home.",
-          "prerequisites": [
-            "spec-system#sections"
-          ],
           "explanatory_dependencies": []
         },
         {
           "id": "sources",
-          "path": "docs/specs/spec-system/document-manifest.md",
-          "anchor": "document-manifest",
+          "path": "docs/specs/spec-system/documents-homes-and-values.md",
+          "anchor": "shared-contract",
           "roles": [
             "mechanism"
           ],
-          "summary": "Declare document scope, reading order and input classifications.",
+          "summary": "Place meanings and values once, then connect reading order, accepted names and direct links to those homes.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
-          "id": "entities",
-          "path": "docs/specs/spec-system/entity-index.md",
-          "anchor": "entity-index",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Register accepted names, symbols and their owning explanations.",
-          "prerequisites": [
-            "spec-system#homes"
-          ],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "facts",
-          "path": "docs/specs/spec-system/canonical-fact.md",
-          "anchor": "canonical-fact",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Declare a literal once and detect conflicting displayed values.",
-          "prerequisites": [
-            "spec-system#homes"
-          ],
-          "explanatory_dependencies": []
-        },
-        {
           "id": "obligations",
-          "path": "docs/specs/spec-system/requirement-declaration.md",
-          "anchor": "requirement-declaration",
+          "path": "docs/specs/spec-system/requirements-tests-and-failures.md",
+          "anchor": "behavior-and-change",
           "roles": [
             "mechanism"
           ],
-          "summary": "State observable behavior and link its acceptance evidence.",
+          "summary": "Connect obligations, refusals and evidence, then determine which tests a changed contract brings into review.",
           "prerequisites": [
-            "spec-system#homes"
+            "spec-system#sources"
           ],
           "explanatory_dependencies": []
         },
         {
-          "id": "tests",
-          "path": "docs/specs/spec-system/acceptance-test.md",
-          "anchor": "acceptance-test",
+          "id": "checking",
+          "path": "docs/specs/spec-system/checking-and-navigation.md",
+          "anchor": "checking-and-navigation",
           "roles": [
             "mechanism"
           ],
-          "summary": "Choose executable selectors or inspection evidence for an obligation.",
+          "summary": "Run the pinned checker, distinguish errors from warnings and rebuild valid navigation after a failed or interrupted generation.",
           "prerequisites": [
+            "spec-system#sources",
             "spec-system#obligations"
           ],
           "explanatory_dependencies": []
         },
         {
-          "id": "scenarios",
-          "path": "docs/specs/spec-system/scenario.md",
-          "anchor": "scenario",
+          "id": "context",
+          "path": "docs/specs/spec-system/agent-context.md",
+          "anchor": "agent-context",
           "roles": [
             "mechanism"
           ],
-          "summary": "Trace one behavior through its actions, requirements and evidence.",
-          "prerequisites": [
-            "spec-system#tests"
-          ],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "failures",
-          "path": "docs/specs/spec-system/failure-declaration.md",
-          "anchor": "failure-declaration",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Explain a refusal, retained state and authorized recovery.",
-          "prerequisites": [
-            "spec-system#tests"
-          ],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "environment",
-          "path": "docs/specs/spec-system/tool-environment.md",
-          "anchor": "tool-environment",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Run the shared checker with the pinned interpreter and parser dependencies.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "checking",
-          "path": "docs/specs/spec-system/documentation-checker.md",
-          "anchor": "documentation-checker",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Find structural contradictions and report every available diagnostic.",
-          "prerequisites": [
-            "spec-system#environment"
-          ],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "navigation",
-          "path": "docs/specs/spec-system/navigation-generation.md",
-          "anchor": "navigation-generation",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Project authored metadata into a map without creating another authority.",
+          "summary": "Select complete explanations from one snapshot and refuse unknown, stale or excessive assignments before dispatch.",
           "prerequisites": [
             "spec-system#sources",
-            "spec-system#entities"
+            "spec-system#obligations",
+            "spec-system#checking"
           ],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "snapshots",
-          "path": "docs/specs/spec-system/source-snapshot.md",
-          "anchor": "source-snapshot",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Choose immutable bytes from the working tree, index or commit.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "registry",
-          "path": "docs/specs/spec-system/complete-registry.md",
-          "anchor": "complete-registry",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Build complete reference input from metadata and entity homes.",
-          "prerequisites": [
-            "spec-system#entities"
-          ],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "context",
-          "path": "docs/specs/spec-system/context-pack.md",
-          "anchor": "context-pack",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Select mandatory reading material and refuse missing or oversized assignments.",
-          "prerequisites": [
-            "spec-system#registry",
-            "spec-system#snapshots"
-          ],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "writing",
-          "path": "docs/specs/spec-system/writing-profile.md",
-          "anchor": "writing-profile",
-          "roles": [
-            "mechanism"
-          ],
-          "summary": "Distinguish advisory prose counters from demonstrated reader problems.",
-          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
           "id": "review",
-          "path": "docs/specs/spec-system/semantic-review.md",
-          "anchor": "semantic-review",
+          "path": "docs/specs/spec-system/writing-and-review-workflow.md",
+          "anchor": "authoring-and-review",
           "roles": [
             "mechanism"
           ],
-          "summary": "Assess meaning, readability and evidence beyond structural success.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "adoption",
-          "path": "docs/specs/spec-system/adoption-and-ownership.md",
-          "anchor": "adoption",
-          "roles": [
-            "mechanism"
+          "summary": "Assign source ownership, review technical meaning and qualify real authoring without mistaking a structural pass for reader acceptance.",
+          "prerequisites": [
+            "spec-system#sources",
+            "spec-system#obligations",
+            "spec-system#context"
           ],
-          "summary": "Share one pinned tool across authoring, checking and context preparation.",
-          "prerequisites": [],
           "explanatory_dependencies": []
         },
         {
@@ -863,20 +653,30 @@
           "roles": [
             "requirements"
           ],
-          "summary": "Find the observable obligations and their verification links.",
-          "prerequisites": [],
+          "summary": "Find the observable obligations for authoring, checking, generation, context and review with reciprocal verification links.",
+          "prerequisites": [
+            "spec-system#sources",
+            "spec-system#obligations",
+            "spec-system#checking",
+            "spec-system#context",
+            "spec-system#review"
+          ],
           "explanatory_dependencies": []
         },
         {
           "id": "decisions",
-          "path": "docs/specs/spec-system/decisions.md",
+          "path": "docs/specs/spec-system/decisions-and-open-questions.md",
           "anchor": "decisions",
           "roles": [
             "decisions",
             "questions"
           ],
-          "summary": "Read the source, tool and rollout choices with their authority.",
-          "prerequisites": [],
+          "summary": "Distinguish settled source and tool choices from unresolved differences between rules, code and approved intent.",
+          "prerequisites": [
+            "spec-system#sources",
+            "spec-system#obligations",
+            "spec-system#context"
+          ],
           "explanatory_dependencies": []
         },
         {
@@ -886,10 +686,12 @@
           "roles": [
             "reference"
           ],
-          "summary": "Construct valid metadata, declarations and callable inputs.",
+          "summary": "Look up exact metadata keys, declaration grammar and callable assignments after learning what each source contributes.",
           "prerequisites": [
-            "spec-system#sections",
-            "spec-system#entities"
+            "spec-system#sources",
+            "spec-system#obligations",
+            "spec-system#checking",
+            "spec-system#context"
           ],
           "explanatory_dependencies": []
         },
@@ -900,7 +702,7 @@
           "roles": [
             "reference"
           ],
-          "summary": "Build and check a complete batch-refusal contract in an independent repository.",
+          "summary": "Reproduce the bounded-batch fixture in an independent repository and inspect the exact files used throughout the tour.",
           "prerequisites": [
             "spec-system#formats"
           ],
@@ -909,12 +711,15 @@
         {
           "id": "reference",
           "path": "docs/specs/spec-system/interfaces-and-encodings.md",
-          "anchor": "interfaces",
+          "anchor": "commands-and-diagnostics",
           "roles": [
             "reference"
           ],
-          "summary": "Look up exact diagnostic codes and executable-selector behavior.",
-          "prerequisites": [],
+          "summary": "Choose the command or diagnostic remedy for the batch correction and inspect executable-selector audit results.",
+          "prerequisites": [
+            "spec-system#checking",
+            "spec-system#context"
+          ],
           "explanatory_dependencies": []
         },
         {
@@ -924,14 +729,14 @@
           "roles": [
             "acceptance"
           ],
-          "summary": "Run the evidence linked to each system obligation.",
-          "prerequisites": [],
+          "summary": "Find behavioral regressions and real-run evidence that prove each obligation, including reader understanding and visible recovery.",
+          "prerequisites": [
+            "spec-system#requirements"
+          ],
           "explanatory_dependencies": []
         }
       ],
-      "scenarios": [
-        "spec-system#capacity-repair"
-      ]
+      "scenarios": []
     },
     {
       "id": "instruction-layer-foundation",

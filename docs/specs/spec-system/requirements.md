@@ -1,251 +1,256 @@
 <a id="requirements"></a>
 # Requirements
 
-These obligations define the observable behavior that the batch example exercises.
-The preceding mechanisms explain their purpose; acceptance provides their evidence.
+These obligations specify the observable results of authoring, checking and preparing documentation. The mechanisms explain how those results arise; each record below links reciprocal acceptance evidence. In the bounded-batch corpus, capacity `2`, the wrong display `3` and refusal `Full` exercise those obligations without establishing a production capacity policy.
 
-<a id="req-adoption"></a>
-### Requirement: faithful conversion and branch use
+<a id="requirement-coverage"></a>
+## Required system behavior
 
-This obligation makes faithful conversion and branch use observable to callers.
+These records let implementers and reviewers find each obligation independently of its explanatory chapter. Their permanent identities survive changes to headings, wording and chapter locations.
 
-**Actor:** Repository editor and lead.
+<a id="req-roles"></a>
+### Requirement: complete document roles
 
-**Condition:** Existing specifications or naming material adopt this system.
+Make each document provide the explanations its audience needs.
 
-**Result:** Preserve technical distinctions, qualifications and settled decisions. Replace duplicate current contracts atomically and validate branch rules through normal authoring and review paths before merge.
+**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and editor.
 
-**Verification:** Compare source inventory with resulting homes and inspect real branch-run evidence.
+**Condition:** A document is checked or presented for approval.
 
-**Tests:** [Real authoring and review](acceptance-evidence.md#test-real-use).
+**Result:** Require purpose, audience, scope and non-goals, followed by tour, mechanisms, requirements, decisions, questions, reference and acceptance. Keep declared roles in order and refuse unresolved implementation contracts at approval.
 
-**Status:** specified.
+**Verification:** Exercise complete corpora, draft gaps, misordered roles and approval refusals.
 
-**Basis:** [Source decision](decisions.md#source-decision), [context decision](decisions.md#context-decision).
-<a id="req-profile"></a>
-### Requirement: structural procedures and advisory prose checks
-
-This obligation makes structural procedures and advisory prose checks observable to callers.
-
-**Actor:** [Documentation checker](documentation-checker.md#documentation-checker) and readability reviewer.
-
-**Condition:** Authored prose or numbered actions are checked.
-
-**Result:** Read the shared machine-readable profile. Enforce procedure structure; keep approximate language and length checks advisory. Preserve qualifications during review.
-
-**Verification:** Check valid procedures, single-item lists, the operator-question boundary and warning-only prose.
-
-**Tests:** [Prose checks](acceptance-evidence.md#test-profile).
+**Tests:** [Complete document roles](acceptance-evidence.md#test-roles).
 
 **Status:** specified.
 
-**Basis:** [Writing decision](decisions.md#writing-decision).
+**Basis:** [Source decision](decisions-and-open-questions.md#source-decision).
 
-<a id="req-review"></a>
-### Requirement: review coverage and fresh understanding
+<a id="req-homes"></a>
+### Requirement: unique homes and direct links
 
-This obligation makes review coverage and fresh understanding observable to callers.
+Keep each registered meaning reachable at one complete source home.
 
-**Actor:** [Dispatcher](../../design/75-subagent-profiles.md#dispatcher), editor and reviewers.
+**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and home owners.
 
-**Condition:** A specification or design receives an authoring or review assignment.
+**Condition:** [Registered entities](documents-homes-and-values.md#registered-entity), facts, names or symbols appear in a corpus.
 
-**Result:** Validate all review responsibilities and include changed requirements' linked tests. Require a fresh reader to explain the tour, refusal and recovery without author coaching.
+**Result:** Require unique complete homes, valid document scope and direct first-use and forward-use links. Reject forbidden names and violations of declared naming patterns.
 
-**Verification:** Inspect prepared assignments and reader responses through normal entry points.
+**Verification:** Mutate home anchors, scope, reading order, accepted names and destinations.
 
-**Tests:** [Real authoring and review](acceptance-evidence.md#test-real-use).
+**Tests:** [Unique homes and direct links](acceptance-evidence.md#test-homes).
 
 **Status:** specified.
 
-**Basis:** [Context decision](decisions.md#context-decision).
+**Basis:** [Source decision](decisions-and-open-questions.md#source-decision).
+
+<a id="req-literals"></a>
+### Requirement: literal equality
+
+Prevent a linked display from contradicting the declared value.
+
+**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker).
+
+**Condition:** A fact row or a link to its anchor is checked.
+
+**Result:** Require exactly one anchor in the declaring Key cell. Compare value-bearing labels with the home literal using only declared normalization; descriptive labels navigate without claiming a value.
+
+**Verification:** Check capacity 2 against displayed 3, then repair the label. Exercise grouping and measurement spellings.
+
+**Tests:** [Literal equality](acceptance-evidence.md#test-literals).
+
+**Status:** specified.
+
+**Basis:** [Literal decision](decisions-and-open-questions.md#literal-decision).
+
+<a id="req-traceability"></a>
+### Requirement: reciprocal and changed-test review
+
+Expose the evidence affected by a changed obligation.
+
+**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and review preparer.
+
+**Condition:** Requirements and acceptance cases are checked, with an optional comparison base.
+
+**Result:** Require reciprocal requirement–test links. Report changed requirements and directly referenced fact contracts with tests from both snapshots. Require affected test input and a resolving decision for each removed requirement.
+
+**Verification:** Change requirement fields, test links, fact qualifications and requirement presence across snapshots.
+
+**Tests:** [Reciprocal and changed-test review](acceptance-evidence.md#test-traceability).
+
+**Status:** specified.
+
+**Basis:** [Source decision](decisions-and-open-questions.md#source-decision).
+
+<a id="req-failures"></a>
+### Requirement: visible recovery contract
+
+Make the consequences of a stopping path reviewable.
+
+**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and semantic reviewer.
+
+**Condition:** A mechanism can refuse, stop or remain blocked.
+
+**Result:** Require trigger, caller outcome, retained state, recovery or its explicit absence, authority and linked verification. Review whether the stated actor can perform the recovery.
+
+**Verification:** Remove each required field and inspect retained-state recovery against its explanation.
+
+**Tests:** [Visible recovery contract](acceptance-evidence.md#test-failures).
+
+**Status:** specified.
+
+**Basis:** [Source decision](decisions-and-open-questions.md#source-decision).
+
+<a id="req-checking"></a>
+### Requirement: deterministic visible checking
+
+Let callers distinguish invalid documents from failed invocation or input access.
+
+**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker).
+
+**Condition:** A caller checks, generates or selects a corpus.
+
+**Result:** Use one captured source model. Report deterministic uncapped diagnostics and the declared exit status; warnings remain non-blocking. Refuse invalid input without fallback parsing.
+
+**Verification:** Exercise malformed input, path boundaries, multiple defects, warning-only input and command failures.
+
+**Tests:** [Deterministic visible checking](acceptance-evidence.md#test-checking).
+
+**Status:** specified.
+
+**Basis:** [Source decision](decisions-and-open-questions.md#source-decision).
+
+<a id="req-navigation"></a>
+### Requirement: rebuildable navigation
+
+Keep the reading map derived from authored declarations.
+
+**Actor:** Navigation generator and documentation checker.
+
+**Condition:** A caller generates navigation or checks its freshness.
+
+**Result:** Derive deterministic output bytes from valid sources. Validate the proposed output before replacing destinations. Report stale or partially replaced output so regeneration can repair it.
+
+**Verification:** Generate repeatedly, mutate summaries, edit generated bytes and interrupt replacement.
+
+**Tests:** [Rebuildable navigation](acceptance-evidence.md#test-navigation).
+
+**Status:** specified.
+
+**Basis:** [Source decision](decisions-and-open-questions.md#source-decision).
+
+<a id="req-toolchain"></a>
+### Requirement: pinned tool ownership
+
+Keep all consumers on the shared parsing and selection contract.
+
+**Actor:** Tool integrator and [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler).
+
+**Condition:** The tool is invoked directly or through an extracted compiler.
+
+**Result:** Use the owning runtime contract and dependency lock. Keep helper, profile and format contract from the selected House Rules revision. Refuse mismatched environments instead of switching parsers.
+
+**Verification:** Inspect locked inputs and exercise matching, mismatched and extracted environments.
+
+**Tests:** [Pinned tool ownership](acceptance-evidence.md#test-toolchain).
+
+**Status:** specified.
+
+**Basis:** [Toolchain decision](decisions-and-open-questions.md#toolchain-decision).
+
+<a id="req-snapshots"></a>
+### Requirement: isolated snapshot provenance
+
+Make a selected source version independent of later working-tree changes.
+
+**Actor:** Source loader and review preparer.
+
+**Condition:** A caller chooses working-tree, staged or commit input.
+
+**Result:** Read the selected snapshot and record its provenance. Reject stale assignment baselines and rebuild affected packs after registry or home changes.
+
+**Verification:** Compare index and commit results while unrelated working-tree bytes change.
+
+**Tests:** [Isolated snapshot provenance](acceptance-evidence.md#test-snapshots).
+
+**Status:** specified.
+
+**Basis:** [Context decision](decisions-and-open-questions.md#context-decision).
 
 <a id="req-context"></a>
 ### Requirement: complete bounded assignment input
 
-This obligation makes complete bounded assignment input observable to callers.
+Give an agent enough source to understand its explicit assignment.
 
 **Actor:** Documentation selector, [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) and [dispatcher](../../design/75-subagent-profiles.md#dispatcher).
 
 **Condition:** A writer or reviewer assignment is prepared.
 
-**Result:** Include every mandatory source range from one snapshot exactly once. Expand declared dependencies, not ordinary home links. Refuse unknown selectors, omitted context, stale baselines and excessive input before dispatch.
+**Result:** Include compulsory registry, metadata, profile and complete selected explanations from one snapshot. Expand declared dependencies and deduplicate ranges. Refuse unknown scope, stale baselines, missing mandatory input and excessive byte size before dispatch.
 
-**Verification:** Exercise explicit selectors, dependencies, cycles, overlapping ranges, [scenarios](scenario.md#scenario) and model budgets.
+**Verification:** Exercise example#main, unknown selectors, whole [scenarios](requirements-tests-and-failures.md#scenario), dependency cycles, range overlaps and exact byte budgets.
 
-**Tests:** [Context selection](acceptance-evidence.md#test-context).
-
-**Status:** specified.
-
-**Basis:** [Context decision](decisions.md#context-decision).
-
-<a id="req-snapshots"></a>
-### Requirement: isolated snapshot provenance
-
-This obligation makes isolated snapshot provenance observable to callers.
-
-**Actor:** Source loader and review preparer.
-
-**Condition:** A check or assignment selects working-tree, staged or commit input.
-
-**Result:** Read only the selected snapshot. Record its provenance and reject stale assignment baselines. Regenerate affected packs after source changes.
-
-**Verification:** Compare staged and commit outputs while unrelated working-tree bytes change.
-
-**Tests:** [Snapshot isolation and invalidation](acceptance-evidence.md#test-snapshots).
+**Tests:** [Complete bounded assignment input](acceptance-evidence.md#test-context).
 
 **Status:** specified.
 
-**Basis:** [Context decision](decisions.md#context-decision).
+**Basis:** [Context decision](decisions-and-open-questions.md#context-decision).
 
-<a id="req-failures"></a>
-### Requirement: visible recovery contract
+<a id="req-profile"></a>
+### Requirement: structural procedures and advisory prose checks
 
-This obligation makes visible recovery contract observable to callers.
+Apply writing checks without deleting meaning to satisfy counters.
 
-**Actor:** [Documentation checker](documentation-checker.md#documentation-checker) and semantic reviewer.
+**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and readability reviewer.
 
-**Condition:** A mechanism can stop, refuse or remain blocked.
+**Condition:** Prose and ordered actions are checked.
 
-**Result:** Require a complete [failure declaration](failure-declaration.md#failure-declaration). Review whether the named actor can repair retained state without invoking the failing operation again.
+**Result:** Read the shared versioned profile. Enforce procedure structure and keep approximate language, length and numeral checks advisory. Preserve conditions and qualifications during review.
 
-**Verification:** Inspect complete and incomplete failure fields and trace the documented recovery.
+**Verification:** Check procedure labels, short and long prose, excluded literal content and warning-only success.
 
-**Tests:** [Failure completeness](acceptance-evidence.md#test-failures).
-
-**Status:** specified.
-
-**Basis:** [Source decision](decisions.md#source-decision).
-<a id="req-traceability"></a>
-### Requirement: reciprocal and changed-test review
-
-This obligation makes reciprocal and changed-test review observable to callers.
-
-**Actor:** [Documentation checker](documentation-checker.md#documentation-checker) and review preparer.
-
-**Condition:** Requirements and tests are checked against an optional base snapshot.
-
-**Result:** Refuse missing or one-sided relationships. Report changed declarations and directly referenced facts with tests from both snapshots. Include affected tests in review input and require decisions for removals.
-
-**Verification:** Mutate declarations, relationships, fact qualifications and requirement presence across two snapshots.
-
-**Tests:** [Traceability and change selection](acceptance-evidence.md#test-traceability).
+**Tests:** [Structural procedures and advisory prose checks](acceptance-evidence.md#test-profile).
 
 **Status:** specified.
 
-**Basis:** [Source decision](decisions.md#source-decision).
+**Basis:** [Writing decision](decisions-and-open-questions.md#writing-decision).
 
-<a id="req-literals"></a>
-### Requirement: literal equality
+<a id="req-review"></a>
+### Requirement: review coverage and fresh understanding
 
-This obligation makes literal equality observable to callers.
+Require evidence that the document can be understood without author coaching.
 
-**Actor:** [Documentation checker](documentation-checker.md#documentation-checker).
+**Actor:** [dispatcher](../../design/75-subagent-profiles.md#dispatcher), editor and reviewers.
 
-**Condition:** A value is declared or a link targets its fact anchor.
+**Condition:** The system prepares or accepts authoring and review assignments.
 
-**Result:** Require one home anchor in the declaring Key cell and a resolving target. Compare value-bearing labels as literal text under grouping normalization.
+**Result:** Validate technical, readability, design/cost, failure/recovery and whole-scenario coverage. Include affected linked tests. Apply the current fresh-reader procedure with independent corpus construction and chapter ratings.
 
-**Verification:** Exercise descriptive labels, equal and unequal literals, punctuation, grouping and equivalent measurements.
+**Verification:** Inspect normal prepared assignments and cited fresh-reader responses.
 
-**Tests:** [Literal values](acceptance-evidence.md#test-literals).
-
-**Status:** specified.
-
-**Basis:** [Literal-value decision](decisions.md#literal-decision).
-
-<a id="req-homes"></a>
-### Requirement: unique homes and direct links
-
-This obligation makes unique homes and direct links observable to callers.
-
-**Actor:** [Documentation checker](documentation-checker.md#documentation-checker).
-
-**Condition:** Registered names, symbols, home declarations or their uses appear in the selected corpus.
-
-**Result:** Require complete unique homes, declared document scope and direct first-use and forward-use links. Refuse rejected forms and structured naming violations.
-
-**Verification:** Check valid uses and mutations of home identity, scope, name, target and reading order.
-
-**Tests:** [Homes and names](acceptance-evidence.md#test-homes).
+**Tests:** [Review coverage and fresh understanding](acceptance-evidence.md#test-real-use).
 
 **Status:** specified.
 
-**Basis:** [Source decision](decisions.md#source-decision).
+**Basis:** [Context decision](decisions-and-open-questions.md#context-decision).
 
-<a id="req-roles"></a>
-### Requirement: complete document roles
+<a id="req-adoption"></a>
+### Requirement: faithful conversion and branch use
 
-This obligation makes complete document roles observable to callers.
+Preserve existing contract meaning while qualifying changes through normal use.
 
-**Actor:** [Documentation checker](documentation-checker.md#documentation-checker).
+**Actor:** Repository editor and lead.
 
-**Condition:** A document is checked or submitted for approval.
+**Condition:** Existing material adopts the system or House Rules behavior changes.
 
-**Result:** Require purpose, audience, scope, non-goals, tour, mechanisms, requirements, decisions, questions, reference and acceptance in that order. Refuse blocking unresolved contracts at approval.
+**Result:** Account for source rules, distinctions, qualifications and settled decisions. Replace competing current contracts together and validate branch-pinned real authoring and review before merge.
 
-**Verification:** Check complete, incomplete, draft and approval-blocked declarations.
+**Verification:** Inspect the conversion inventory and source-bound normal-run evidence.
 
-**Tests:** [Document roles](acceptance-evidence.md#test-roles).
-
-**Status:** specified.
-
-**Basis:** [Source decision](decisions.md#source-decision).
-
-<a id="req-navigation"></a>
-### Requirement: rebuildable navigation
-
-This obligation makes rebuildable navigation observable to callers.
-
-**Actor:** [Documentation checker](documentation-checker.md#documentation-checker) and generator.
-
-**Condition:** Navigation is generated or checked for freshness.
-
-**Result:** Derive bytes deterministically from valid authored declarations. Validate before replacement and refuse stale or partial output.
-
-**Verification:** Generate twice, change an authored summary and edit generated output directly.
-
-**Tests:** [Navigation and interrupted output](acceptance-evidence.md#test-navigation).
+**Tests:** [Faithful conversion and branch use](acceptance-evidence.md#test-real-use).
 
 **Status:** specified.
 
-**Basis:** [Source decision](decisions.md#source-decision).
-
-<a id="req-checking"></a>
-### Requirement: deterministic visible checking
-
-This obligation makes deterministic visible checking observable to callers.
-
-**Actor:** [Documentation checker](documentation-checker.md#documentation-checker).
-
-**Condition:** The caller selects a corpus and operation.
-
-**Result:** Parse one snapshot, refuse invalid inputs and report deterministic uncapped diagnostics with the declared exit status. Keep warnings non-blocking.
-
-**Verification:** Check malformed inputs, path boundaries, diagnostic order, invocation conflicts and warning-only input.
-
-**Tests:** [Checker failures](acceptance-evidence.md#test-checking).
-
-**Status:** specified.
-
-**Basis:** [Source decision](decisions.md#source-decision).
-
-<a id="req-toolchain"></a>
-### Requirement: pinned tool ownership
-
-This obligation makes pinned tool ownership observable to callers.
-
-**Actor:** Tool setup and repository integrator.
-
-**Condition:** The shared tool is installed, invoked or extracted with a [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler).
-
-**Result:** Use the pinned runtime contract and wheel versions. Keep helper, profile and format contract from the same House Rules revision. Refuse unsupported or inconsistent environments.
-
-**Verification:** Inspect pins and extraction inputs; run supported and mismatched environment cases.
-
-**Tests:** [Toolchain ownership](acceptance-evidence.md#test-toolchain).
-
-**Status:** specified.
-
-**Basis:** [Toolchain decision](decisions.md#toolchain-decision).
-
+**Basis:** [Delivery decision](decisions-and-open-questions.md#delivery-decision).

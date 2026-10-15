@@ -1,209 +1,191 @@
 <a id="acceptance"></a>
 # Acceptance evidence
 
-These cases define how the system's obligations are proved.
-They require behavior, successful repairs and visible failures, rather than one assertion per diagnostic code.
-An executable implementation link is evidence only after the named test is inspected and run.
-No case below claims a completed run merely by existing.
-Each section below is an [acceptance test](acceptance-test.md#acceptance-test).
+These cases define the evidence required to accept the documentation system. They connect obligations to behavioral regressions and normal-run inspections. A declaration names planned verification; it does not assert a completed run. The bounded-batch case checks capacity `2`, a wrong displayed `3`, the resulting `D10` and a successful repair.
 
-Use small synthetic fixtures.
-Every single test must be explicitly bounded and finish in seconds.
-Continuous integration owns the full suite; local checks target changed behavior.
-Existing test output records triggers, outcomes and runtime.
-Add no separate result ledger.
-Scale evidence moves to a named replacement rather than disappearing.
+Use small synthetic inputs and bounded tests that finish in seconds. Existing command output records findings, outcomes and runtime; it remains the run record rather than feeding another result ledger. Local verification targets the change, while continuous integration owns the complete suite. Preserve scale coverage through a named replacement when moving a test.
+
+<a id="planned-acceptance"></a>
+## Verification coverage
+
+The following permanent cases let reviewers distinguish executable structure checks from inspection of real understanding and conversion. Acceptance requires that each linked selector actually exists and passes; a static file link is insufficient.
 
 <a id="test-roles"></a>
-## Document roles
+### Acceptance test: document roles
 
-This case checks document roles against the linked obligations.
+Check whether declared content and approval can form a complete reading path.
 
 **Method:** test.
 
-**Requirements:** [Complete document roles](requirements.md#req-roles).
+**Requirements:** [roles](requirements.md#req-roles).
 
-**Inputs:** Single-file and multi-file manifests; missing roles; explicit inapplicability; draft gaps; approved unresolved contracts; production and fixture approval authorities.
+**Inputs:** Complete single-file and multi-file documents, draft role gaps, misordered roles and unresolved approval contracts.
 
-**Expected:** Complete documents pass. Missing required content and blocking approval gaps fail visibly. Fixture authority is accepted only by the fixture runner. Review detects classifications that hide specifications or designs.
+**Expected:** Valid roles pass in order. Missing content and blocking contracts fail. Fixture authority is confined to fixture mode.
 
-**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_required_document_roles_are_not_optional_for_approval](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_unresolved_contract_blocks_approval](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_fixture_approval_does_not_authorize_production](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_reading_order_places_tour_before_mechanisms](../../../skills/spec-writing/scripts/test_spec_docs.py)
+**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_required_document_roles_are_not_optional_for_approval](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_every_role_preserves_contract_order](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_unresolved_contract_blocks_approval](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_fixture_approval_does_not_authorize_production](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
 <a id="test-homes"></a>
-## Homes and names
+### Acceptance test: homes and names
 
-This case checks homes and names against the linked obligations.
+Check that registered meanings have unique homes and required links reach those homes.
 
 **Method:** test.
 
-**Requirements:** [Unique homes and direct links](requirements.md#req-homes).
+**Requirements:** [homes](requirements.md#req-homes).
 
-**Inputs:** Permanent prefixed anchors; cross-document duplicates and retired identities; several entities sharing a section; first uses in level-2 sections and their deeper subsections; repeated forward uses; cross-document uses; wrong-target links; rejected forms; structured naming patterns; literal blocks with adjacent home links; linked or numbered headings.
+**Inputs:** Duplicate and missing anchors, scoped names, forward uses, deeper subsections, wrong destinations, literal blocks and retired trace identities.
 
-**Expected:** Valid homes and required direct links pass. Deeper subsections do not reset first use; level-2 sections do. Missing, duplicate, out-of-scope or wrongly targeted uses fail. Linked and numbered headings fail. Heading mentions do not satisfy body links. Every repeated literal block before a home has its own adjacent links. Ambiguous ordinary words warn instead of becoming false structural certainty.
+**Expected:** Valid scoped homes pass. Missing, duplicated or wrong destinations fail. Level-2 sections reset first use; deeper sections share it. Ambiguous registered phrases warn.
 
-**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_duplicate_anchor_is_not_a_unique_home](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_trace_anchors_require_type_prefix_and_nonempty_kebab_identity](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_trace_identities_are_unique_across_documents_and_retired_records](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_subsections_share_level_two_first_use_scope](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_level_two_sections_restart_first_use](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_heading_mentions_do_not_license_body_uses](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_links_in_headings_are_refused](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_numbered_headings_are_refused_without_changing_anchors](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_acceptance_case_is_identified_by_its_permanent_anchor](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_home_needs_heading_anchor_and_introductory_meaning](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_entity_scope_cannot_omit_its_own_document](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_wrong_target_is_not_a_home_link](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_rejected_forms_are_diagnosed](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_structured_symbols_obey_compiled_naming_rule](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_literal_examples_need_adjacent_links_for_each_block](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_ambiguous_registered_phrase_warns_instead_of_guessing](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_retired_trace_identity_is_checked_against_base_history_only](../../../skills/spec-writing/scripts/test_spec_docs.py)
+**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_duplicate_anchor_is_not_a_unique_home](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_subsections_share_level_two_first_use_scope](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_level_two_sections_restart_first_use](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_wrong_target_is_not_a_home_link](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_literal_examples_need_adjacent_links_for_each_block](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_trace_identities_are_unique_across_documents_and_retired_records](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_retired_trace_identity_is_checked_against_base_history_only](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
 <a id="test-literals"></a>
-## Literal values
+### Acceptance test: literal values
 
-This case checks literal values against the linked obligations.
+Check the capacity repair and the limits of literal comparison.
 
 **Method:** test.
 
-**Requirements:** [Literal equality](requirements.md#req-literals).
+**Requirements:** [literals](requirements.md#req-literals).
 
-**Inputs:** Multi-row tables with inline Key anchors; missing and duplicate fact anchors; descriptive labels; value-bearing links; grouped digit runs; decimals; punctuation; code-span values; distinct measurement spellings.
+**Inputs:** Exact minimal corpus; capacity 2 linked as 3; grouped integers; different measurement spellings; fact anchors inside and outside Key cells.
 
-**Expected:** Exactly one anchor per declaring row preserves the table. Descriptive labels navigate. Equal literal labels pass after permitted grouping normalization. Mismatches fail. Equivalent measurements and differently formatted literals receive no semantic evaluation. Unlinked restatements remain review work.
+**Expected:** The wrong display fails with D10 and its repair passes. Grouping normalization succeeds without unit conversion. Each declaring row has exactly one Key-cell anchor.
 
-**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_literal_values_allow_grouping_and_markdown_formatting](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_mismatched_literal_and_equivalent_measurement_are_refused](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_fact_anchor_belongs_inside_its_key_cell](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_two_anchors_in_one_fact_row_are_refused](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_fact_key_and_owner_name_are_descriptive_links](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::MinimalExampleTests::test_published_example_is_the_checked_fixture_in_an_independent_repository](../../../skills/spec-writing/scripts/test_spec_docs.py)
-
-The [capacity-repair walkthrough](specification-and-design-document-system.md#capacity-repair) supplies a complete author-facing example.
-It proves no product-specific capacity guarantee.
+**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_literal_values_allow_grouping_and_markdown_formatting](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_mismatched_literal_and_equivalent_measurement_are_refused](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_fact_anchor_belongs_inside_its_key_cell](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_two_anchors_in_one_fact_row_are_refused](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::MinimalExampleTests::test_published_example_is_the_checked_fixture_in_an_independent_repository](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
 <a id="test-traceability"></a>
-## Traceability and change selection
+### Acceptance test: traceability and change selection
 
-This case checks traceability and change selection against the linked obligations.
+Check that a changed contract brings its evidence into review.
 
 **Method:** test.
 
-**Requirements:** [Reciprocal and changed-test review](requirements.md#req-traceability).
+**Requirements:** [traceability](requirements.md#req-traceability).
 
-**Inputs:** Comma-separated implementation links with file paths and test selectors; invalid implementation syntax and missing files; two [source snapshots](source-snapshot.md#source-snapshot) with added, changed and removed requirements; reciprocal and one-sided links; missing targets; changed literal values, Status, Basis and adjacent qualifications; unchanged linked tests; resolving removal decisions.
+**Inputs:** Reciprocal and one-sided links, requirement and fact changes across snapshots, affected unchanged tests and explicit removal decisions.
 
-**Expected:** Missing and one-sided links fail. Change reports contain declarations and tests from both snapshots, relationship changes and directly referenced changed facts. Review input includes affected tests even when their text is unchanged. Removal without a resolving decision fails. No persistent suspect-link state is added.
+**Expected:** One-sided links fail. Reports include base and candidate declarations, directly linked changed facts and tests from both sides. Removed requirements need a resolving decision; affected tests enter mandatory input.
 
-**Implementation:** [skills/spec-writing/scripts/test_audit_selectors.py::SelectorAuditTests::test_audit_distinguishes_pass_missing_and_failure](../../../skills/spec-writing/scripts/test_audit_selectors.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_traceability_is_reciprocal](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_changed_fact_and_qualification_select_unchanged_linked_tests](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_implementation_links_resolve_files_and_leave_code_selectors_to_review](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_implementation_requires_only_file_and_selector_links](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_requirement_needs_linked_acceptance_test](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_acceptance_test_needs_linked_requirement](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_changed_requirement_requires_test_review_input](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_removed_requirement_requires_resolving_decision](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_selected_test_expands_homes_and_declared_dependencies](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_change_review_context_contains_base_tests_and_changed_declarations](../../../skills/spec-writing/scripts/test_spec_docs.py)
+**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_traceability_is_reciprocal](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_changed_fact_and_qualification_select_unchanged_linked_tests](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_changed_requirement_requires_test_review_input](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_removed_requirement_requires_resolving_decision](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_change_review_context_contains_base_tests_and_changed_declarations](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/pr-ready/scripts/test_documentation_context.py::DocumentationContextTests::test_review_preparer_compares_base_and_selects_unchanged_tests](../../../skills/pr-ready/scripts/test_documentation_context.py), [skills/spec-writing/scripts/test_audit_selectors.py::SelectorAuditTests::test_audit_distinguishes_pass_missing_and_failure](../../../skills/spec-writing/scripts/test_audit_selectors.py)
 
 <a id="test-failures"></a>
-## Failure completeness
+### Acceptance test: failure completeness
 
-This case checks failure completeness against the linked obligations.
+Check whether stopping paths declare enough information for recovery review.
 
 **Method:** test.
 
-**Requirements:** [Visible recovery contract](requirements.md#req-failures).
+**Requirements:** [failures](requirements.md#req-failures).
 
-**Inputs:** Complete and incomplete stopping declarations; an explicit absence of recovery; retained invalid state; authority distinctions; public error mappings.
+**Inputs:** Complete refusal fields, one missing field at a time, absent verification links and an explicit absence of recovery.
 
-**Expected:** Missing required fields or unresolved links fail. Review traces entry, retained state, restart and exits. The declared actor can perform the documented recovery, or the consequence of no recovery is explicit. A field-presence check alone does not approve a recovery design.
+**Expected:** Incomplete declarations fail visibly. An explained absence of recovery is structurally valid. [Semantic review](writing-and-review-workflow.md#semantic-review) still establishes whether the stated recovery is possible and authorized.
 
-**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_failure_declaration_requires_each_field](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_missing_recovery_can_be_explicit_and_explained](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_failure_verification_requires_a_resolving_link](../../../skills/spec-writing/scripts/test_spec_docs.py)
-
-Checker fixtures prove structure and [semantic review](semantic-review.md#semantic-review) proves recovery meaning.
+**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_failure_declaration_requires_each_field](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_failure_verification_requires_a_resolving_link](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_missing_recovery_can_be_explicit_and_explained](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
 <a id="test-checking"></a>
-## Checker failures
+### Acceptance test: checker failures
 
-This case checks checker failures against the linked obligations.
+Check input failures and deterministic visible results through the shared command path.
 
 **Method:** test.
 
-**Requirements:** [Deterministic visible checking](requirements.md#req-checking).
+**Requirements:** [checking](requirements.md#req-checking).
 
-**Inputs:** Duplicate JSON keys, unknown fields, malformed patterns, invalid encoding, path escapes, symlinks, unresolved fragments, malformed external URLs, conflicting snapshot options, several simultaneous defects and warning-only prose.
+**Inputs:** Duplicate JSON keys, invalid UTF-8, path escapes, missing fragments, malformed external URLs, malformed metadata types and warning-only prose.
 
-**Expected:** Invalid inputs fail without being skipped. Diagnostics have deterministic order, source locations and no cap. Invocation or input/output failures differ from document errors. Warning-only input succeeds. No network result affects deterministic checking. One parsed model supports all operations.
+**Expected:** Invalid input returns diagnostics without a fallback or silent omission. Local targets resolve within the selected input; external syntax needs no network. Commands distinguish document failures from invocation or I/O failures.
 
-**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_duplicate_json_keys_are_not_last_value_wins](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_all_declared_metadata_types_fail_visibly_instead_of_crashing](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_path_escape_in_input_is_refused](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_invalid_utf8_is_not_silently_skipped](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_local_fragment_must_be_explicit_and_present](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_external_url_syntax_is_checked_without_network](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_declared_source_is_parsed_once_and_reused_by_all_operations](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_inbound_links_from_other_markdown_are_checked](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_symlinks_are_not_local_inputs](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_commands_share_the_same_checker_and_exit_codes](../../../skills/spec-writing/scripts/test_spec_docs.py)
+**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_duplicate_json_keys_are_not_last_value_wins](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_all_declared_metadata_types_fail_visibly_instead_of_crashing](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_invalid_utf8_is_not_silently_skipped](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_local_fragment_must_be_explicit_and_present](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_external_url_syntax_is_checked_without_network](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_commands_share_the_same_checker_and_exit_codes](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
 <a id="test-navigation"></a>
-## Navigation and interrupted output
+### Acceptance test: navigation and interrupted output
 
-This case checks navigation and interrupted output against the linked obligations.
+Check deterministic projection and recovery after incomplete replacement.
 
 **Method:** test.
 
-**Requirements:** [Rebuildable navigation](requirements.md#req-navigation).
+**Requirements:** [navigation](requirements.md#req-navigation).
 
-**Inputs:** Standalone and in-file navigation arrangements; changed summaries; direct edits to generated text; an unwritable destination; interrupted replacement of several outputs.
+**Inputs:** Repeated generation, changed summaries, edited generated content, concurrent authored-destination changes and interrupted multioutput replacement.
 
-**Expected:** Repeated generation produces identical bytes. Outputs contain only authored navigation claims and direct destinations. Stale or partial output fails freshness. Validation precedes replacement. Unreplaced old output survives failure. Regeneration repairs a partial set. Standalone generated files receive generated-file attributes.
+**Expected:** Fresh projections match source-derived bytes. Validation failure preserves previous output. A partial generated set fails freshness and can be repaired by regeneration. Concurrent authored edits are refused.
 
-**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_generated_navigation_and_attributes_are_freshness_checked](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_generation_preserves_prior_output_on_validation_failure](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_interrupted_multioutput_generation_is_visible_and_regenerable](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_generation_refuses_concurrent_attributes_edits](../../../skills/spec-writing/scripts/test_spec_docs.py)
+**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_generated_navigation_and_attributes_are_freshness_checked](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_entity_index_uses_definition_sentence_without_following_purpose](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_map_places_diagram_before_generated_overview](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_generation_preserves_prior_output_on_validation_failure](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_interrupted_multioutput_generation_is_visible_and_regenerable](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_generation_refuses_concurrent_attributes_edits](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
 <a id="test-toolchain"></a>
-## Toolchain ownership
+### Acceptance test: toolchain ownership
 
-This case checks toolchain ownership against the linked obligations.
+Check that direct and extracted consumers use their owning environment and helper.
 
 **Method:** test.
 
-**Requirements:** [Pinned tool ownership](requirements.md#req-toolchain).
+**Requirements:** [toolchain](requirements.md#req-toolchain).
 
-**Inputs:** Shared direct dependency input, hash lock and runtime metadata; a supported isolated environment; mismatched installed versions; hash-lock installation command (inspection evidence in the toolchain decision); an extracted compiler package.
+**Inputs:** Locked dependencies and runtime metadata, a mismatched installed version, the minimum supported grammar and pinned compiler extraction.
 
-**Expected:** Declared runtime and installed versions are checked. Installation uses selected wheels and unchanged hashes. Unsupported input stops visibly without alternate parsers or source builds. Extraction contains helper, profile and format from the same pinned revision. The supported range is not reported as completed compatibility testing.
+**Expected:** Mismatch fails visibly. Extracted compiler inputs come from the selected revision despite live edits. Grammar compatibility does not claim a full runtime matrix.
 
-**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::MinimalExampleTests::test_checker_parses_under_the_minimum_supported_python_grammar](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::MinimalExampleTests::test_every_ci_python_consumer_uses_the_locked_environment](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/pr-ready/scripts/test_documentation_context.py::DocumentationContextTests::test_commit_compiler_uses_pinned_helper_and_profile_after_live_edits](../../../skills/pr-ready/scripts/test_documentation_context.py), [skills/pr-ready/scripts/test_documentation_context.py::DocumentationContextTests::test_missing_pinned_helper_fails_instead_of_importing_live_tool](../../../skills/pr-ready/scripts/test_documentation_context.py), [skills/pr-ready/scripts/test_documentation_context.py::DocumentationContextTests::test_extracted_compiler_uses_matching_pinned_selector](../../../skills/pr-ready/scripts/test_documentation_context.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_runtime_and_dependency_mismatch_stop_without_a_fallback_parser](../../../skills/spec-writing/scripts/test_spec_docs.py)
+**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_runtime_and_dependency_mismatch_stop_without_a_fallback_parser](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::MinimalExampleTests::test_checker_parses_under_the_minimum_supported_python_grammar](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/pr-ready/scripts/test_documentation_context.py::DocumentationContextTests::test_commit_compiler_uses_pinned_helper_and_profile_after_live_edits](../../../skills/pr-ready/scripts/test_documentation_context.py), [skills/pr-ready/scripts/test_documentation_context.py::DocumentationContextTests::test_missing_pinned_helper_fails_instead_of_importing_live_tool](../../../skills/pr-ready/scripts/test_documentation_context.py), [skills/pr-ready/scripts/test_documentation_context.py::DocumentationContextTests::test_extracted_compiler_uses_matching_pinned_selector](../../../skills/pr-ready/scripts/test_documentation_context.py)
 
 <a id="test-snapshots"></a>
-## Snapshot isolation and invalidation
+### Acceptance test: snapshot isolation and invalidation
 
-This case checks snapshot isolation and invalidation against the linked obligations.
+Check that selected source bytes cannot be repaired or changed by unrelated working-tree edits.
 
 **Method:** test.
 
-**Requirements:** [Isolated snapshot provenance](requirements.md#req-snapshots).
+**Requirements:** [snapshots](requirements.md#req-snapshots).
 
-**Inputs:** A broken staged source with an unstaged repair; a selected commit with dirty working-tree files; captured authoring bytes; a changed registry or home; stale and current assignment baselines.
+**Inputs:** A defective staged source with an unstaged repair, commit-selected source with dirty files, immutable captured bytes and stale assignment baselines.
 
-**Expected:** Staged checking still detects the staged defect. Commit-built output ignores dirty files. Captured authoring input remains immutable. Changes invalidate earlier packs. Provenance labels base and candidate separately. A stale baseline fails; selection from the current baseline repairs it.
+**Expected:** Index checking sees the staged defect. Commit context ignores dirty bytes, captured snapshots remain stable and stale baselines fail until the assignment is regenerated.
 
 **Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_unstaged_repair_cannot_hide_broken_index](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::SnapshotTests::test_commit_pack_ignores_dirty_bytes_and_snapshot_is_immutable](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_refuses_omission_stale_baseline_budget_and_missing_review_coverage](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
 <a id="test-context"></a>
-## Context selection
+### Acceptance test: context selection
 
-This case checks context selection against the linked obligations.
+Check explicit complete selection and refusal before dispatch.
 
 **Method:** test.
 
-**Requirements:** [Complete bounded assignment input](requirements.md#req-context).
+**Requirements:** [context](requirements.md#req-context).
 
-**Inputs:** Explicit section and [scenario](scenario.md#scenario) selectors; unknown or missing scope; [complete registry](complete-registry.md#complete-registry); relevant home uses; ordinary links inside homes; declared transitive dependencies and cycles; overlapping source ranges; omitted mandatory identities; exact and insufficient byte budgets.
+**Inputs:** The [complete registry](agent-context.md#complete-registry), explicit assignments, whole [scenarios](requirements-tests-and-failures.md#scenario), transitive dependencies, cycles, overlapping ranges, missing review coverage and exact byte budgets.
 
-**Expected:** Mandatory registry, selected ranges, dependencies, homes, decisions, profile and provenance appear exactly once per source range. Cycles deduplicate. Ordinary home links do not expand selection; declared dependencies do. Whole [scenarios](scenario.md#scenario) contain actions, requirements and tests. Missing, stale or excessive input refuses dispatch without truncation. The exact UTF-8 size is reported.
+**Expected:** Ranges deduplicate while keeping reasons. Added homes do not recursively follow ordinary links. Missing scope, unknown targets, stale input and excessive size fail without truncating mandatory content.
 
-**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_dependencies_expand_transitively_and_deduplicate_cycles](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_refuses_omission_stale_baseline_budget_and_missing_review_coverage](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_contains_entire_registry_exact_bytes_and_unique_ranges](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_rejects_unknown_selector_and_missing_scope](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_applies_whole_scenario_and_changed_test_selectors](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_ordinary_links_in_added_home_do_not_expand_context](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_review_plan_is_checked_without_spawning_reviewers](../../../skills/spec-writing/scripts/test_spec_docs.py)
+**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_contains_entire_registry_exact_bytes_and_unique_ranges](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_rejects_unknown_selector_and_missing_scope](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_dependencies_expand_transitively_and_deduplicate_cycles](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_ordinary_links_in_added_home_do_not_expand_context](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_applies_whole_scenario_and_changed_test_selectors](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_context_review_plan_is_checked_without_spawning_reviewers](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/pr-ready/scripts/test_documentation_context.py::DocumentationContextTests::test_preparer_reserves_context_before_optional_material_and_never_trims_it](../../../skills/pr-ready/scripts/test_documentation_context.py), [skills/pr-ready/scripts/test_documentation_context.py::DocumentationContextTests::test_complete_pack_budget_counts_rules_tasks_and_unicode_bytes](../../../skills/pr-ready/scripts/test_documentation_context.py)
 
 <a id="test-profile"></a>
-## Writing profile
+### Acceptance test: writing profile
 
-This case checks the [writing profile](writing-profile.md#writing-profile) against the linked obligations.
+Check that structural writing rules and approximate prose targets have different consequences.
 
 **Method:** test.
 
-**Requirements:** [Structural procedures and advisory prose checks](requirements.md#req-profile).
+**Requirements:** [profile](requirements.md#req-profile).
 
-**Inputs:** The shared machine-readable profile; prose exceeding sentence and paragraph targets; quantities and dates; decimals and code-span punctuation; attributed quotations; valid procedures; single-item numbered lists; operator-question lists inside specifications; simultaneous actions.
+**Inputs:** Labelled procedures, single-item numbered lists, long sentences and paragraphs, code punctuation, attributed quotations and long table cells.
 
-**Expected:** The checker reads one profile owner. Structural procedure violations fail. Approximate writing and numeral findings warn without affecting success or dispatch. Excluded literal content does not distort prose counts. Review retains conditions, uncertainty and consequences instead of deleting them to clear counters.
+**Expected:** Invalid procedure structure fails. Approximate prose, number-format and action warnings do not fail valid input. Literal exclusions do not erase ordinary explanatory prose from counting.
 
-**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_warnings_do_not_fail_a_valid_structural_gate](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_sentence_counter_preserves_decimals_and_code_punctuation](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_procedure_needs_label_and_two_direct_actions](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_operator_questions_are_not_specification_procedures](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_ordinary_detail_prose_counts_but_attributed_quotation_does_not](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_suspected_multi_action_and_long_cells_warn](../../../skills/spec-writing/scripts/test_spec_docs.py)
+**Implementation:** [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_warnings_do_not_fail_a_valid_structural_gate](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_procedure_needs_label_and_two_direct_actions](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_sentence_counter_preserves_decimals_and_code_punctuation](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_ordinary_detail_prose_counts_but_attributed_quotation_does_not](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_suspected_multi_action_and_long_cells_warn](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_three_repeated_sentences_fail_with_whitespace_normalization](../../../skills/spec-writing/scripts/test_spec_docs.py), [skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_summary_explains_more_than_title_or_generic_verb](../../../skills/spec-writing/scripts/test_spec_docs.py)
 
 <a id="test-real-use"></a>
-## Real authoring and review
+### Acceptance test: real authoring and review
 
-This case checks real authoring and review against the linked obligations.
+This inspection establishes whether normal loading, authoring and review produce a usable contract. The [Fresh-reader review](../../../skills/spec-writing/SKILL.md#fresh-reader-review) and [prompts/lenses/naming-readability.md](../../../prompts/lenses/naming-readability.md) identify the inspection method. The evidence must include the actual branch-run record; these links alone assert no completed qualification.
 
 **Method:** inspection.
 
-Evidence is the normal branch-run record, including citations and first-check output.
-The [prompts/lenses/naming-readability.md](../../../prompts/lenses/naming-readability.md) supplies the inspection lens.
-The [skills/spec-writing/SKILL.md](../../../skills/spec-writing/SKILL.md#fresh-reader-review) defines the reader and pipeline procedure.
-No completed campaign is asserted without it.
+**Requirements:** [Review coverage](requirements.md#req-review), [faithful adoption](requirements.md#req-adoption).
 
-**Requirements:** [Review coverage and fresh understanding](requirements.md#req-review), [faithful conversion and branch use](requirements.md#req-adoption).
+**Inputs:** A short feature brief, an unconverted design, a deliberately messy document, a source-content inventory and exact branch-pinned normal loaders. Supply fresh reader contexts and the real review plan.
 
-**Inputs:** An exact branch revision through normal loading and dispatch; single-file and multi-file assignments; a complete converted path with multi-row facts, reciprocal tests and recovery; a naming-content inventory; fresh reader contexts; complete and incomplete review plans.
+**Expected:** Normal authoring produces a multi-chapter contract. Conversion preserves substantive rules, distinctions, qualifications and settled decisions. Two fresh readers using different models answer all ten questions with citations, construct a corpus whose first check has zero errors and rate every chapter “yes”. No unanswered question, guess, stuck point or unaddressed quoted passage remains. Real source navigation and refusal recovery work in the reading environment.
 
-**Expected:** Real assignments use branch rules and complete mandatory input. Missing coverage stops preparation without launching extra reviewers. Converted homes preserve names, meanings, boundaries, actors, states, interfaces, qualifications and settled decisions. Fresh readers explain the system, complete tour, refusal and recovery from the supplied document alone. Findings identify concrete reader failures. No pack or export is hand-repaired.
-
-Normal branch-run records provide acceptance evidence; no executable implementation is asserted here.
-
-This case includes actual anchor behavior and useful navigation in the source-reading environment.
-Static inspection alone does not establish those results.
-The lead reviews existing run output for defects, false positives and required repairs before merge.
+Retain source revision, candidate digest, first-check output, reader responses and dispositions in the existing run record. Inspect approved designs for implementation or an explicit reasoned change. Repair source owners and repeat normal entry points instead of editing generated packs. Renderer display acceptance remains with its separate specification and linked tests.

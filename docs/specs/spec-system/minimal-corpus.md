@@ -1,21 +1,16 @@
 <a id="minimal-example"></a>
 # Minimal corpus
 
-A corpus is the set of Markdown files and metadata checked together.
-This synthetic corpus contains every authored file needed for a passing specification.
-It declares one component and one literal capacity.
-A [requirement declaration](requirement-declaration.md#requirement-declaration) specifies refusal; an [acceptance test](acceptance-test.md#acceptance-test) checks it.
-A [failure declaration](failure-declaration.md#failure-declaration) explains retained state and recovery.
-Its approval is teaching evidence only; it approves no production behavior.
+This corpus lets a reader reproduce a complete checked contract in an independent repository. Its three files are the executable teaching fixture: a [document manifest](documents-homes-and-values.md#document-manifest), an [entity index](documents-homes-and-values.md#entity-index) and one Markdown source. The example declares a batch capacity of `2` items, returns `Full` for an extra item and lets the caller recover with a new batch.
 
-Create the following three files in a new repository, then run the commands under [Generate and check](#example-checking).
-The JSON keys and Markdown fields use the exact [source format](source-formats.md#source-format).
-The entry chapter includes generated navigation immediately after its opening paragraph.
+The displayed source is copied exactly from [skills/spec-writing/scripts/fixtures/minimal/docs/example.md](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md) and its sibling metadata. Fixture approval applies only to this synthetic contract. It grants no production approval or batch implementation.
 
 <a id="example-documents"></a>
-## docs/DOCUMENTS.json
+## Document manifest input
 
-This manifest identifies the bounded-batch document and its reading order.
+This file registers the complete example and its reading path. Save these bytes as `docs/DOCUMENTS.json` in the independent repository.
+
+**Entities in this example:** [Scenario](requirements-tests-and-failures.md#scenario).
 
 ```json
 {
@@ -68,12 +63,16 @@ This manifest identifies the bounded-batch document and its reading order.
 }
 ```
 
-**Entities in this example:** [Scenario](scenario.md#scenario).
+`version: 1` selects the metadata format. The inventory's one `specification` entry classifies the Markdown source. Document identity `example` is the prefix used by assignment selectors. The title names the reading entry; purpose, audience, scope and non-goals describe what the teaching contract covers.
+
+The single section `main` starts at anchor `example` in the source. Its seven role names declare tour, behavior, obligations, choices, questions, lookup and evidence in that order. `example#main` selects that complete subtree. Its summary states the reader's outcome. Empty prerequisite and dependency arrays request no other explanation, and the empty scenarios array registers no separate scenario.
+
+The navigation path points to the same source. Region identity `example` selects its marker pair. Status `approved` is qualified by authority `fixture` and decision `example#decision`; checking therefore needs `--fixture`. A production authority must follow the [approval contract](source-formats.md#metadata).
 
 <a id="example-entities"></a>
-## docs/ENTITIES.json
+## Entity index input
 
-This index binds the batcher name to its complete home.
+This file gives the batcher one identity and home. Save it as `docs/ENTITIES.json` beside the manifest.
 
 ```json
 {
@@ -99,11 +98,14 @@ This index binds the batcher name to its complete home.
 }
 ```
 
-<a id="example-example"></a>
-## docs/example.md
+`example.batcher` identifies the component across the corpus. Its home belongs to section `example#main` and begins at anchor `batcher`. Scope contains only document `example`. The one accepted form is `batcher`; empty symbol and rejected-form arrays declare no additional spellings. The empty naming-rules array adds no patterned constraint.
 
-This source gives the batcher its capacity, refusal, recovery and inspection evidence.
-The exact field rules are explained in [Source formats](source-formats.md#source-format).
+<a id="example-example"></a>
+## Markdown input
+
+This source explains the batcher's behavior and connects its obligation to inspection evidence. Save it as `docs/example.md`; its generated region is already fresh.
+
+**Entities in this example:** [Entity index](documents-homes-and-values.md#entity-index), [acceptance test](requirements-tests-and-failures.md#acceptance-test).
 
 ```markdown
 <a id="example"></a>
@@ -151,7 +153,7 @@ A batcher prevents overfilling by accepting items only while its batch has room.
 |---|---|---|---|
 | <a id="capacity"></a>capacity | 2 | specified | [Teaching decision](#decision) |
 
-Submit items below [2](#capacity); a full batch retains its items on refusal.
+Submit up to [2](#capacity); a full batch retains its items on refusal.
 
 <a id="req-capacity"></a>
 ### Requirement: refuse a full batch
@@ -200,7 +202,7 @@ This decision keeps the teaching example small enough to inspect.
 
 **Reason:** Demonstrate refusal and retained state.
 
-**Rejected alternative:** An unbounded example would omit refusal.
+**Rejected alternatives:** An unbounded example would omit refusal.
 
 <a id="questions"></a>
 ## Open questions
@@ -228,22 +230,40 @@ This inspection checks that refusal preserves the existing items.
 Evidence: [retained-state inspection](#failure-full).
 ```
 
-**Entities in this example:** [Acceptance test](acceptance-test.md#acceptance-test), [Entity index](entity-index.md#entity-index).
+The capacity row declares `2`, counted in admitted items per batch. Its `specified` status is supported by the teaching decision. A full batch rejects the next item with `Full`; refusal leaves existing items unchanged. Recovery belongs to the submitting caller, who may start another batch.
+
+The requirement's Tests field and the acceptance case's Requirements field point back to one another. Method `inspection` names retained-state evidence and has no Implementation field. It describes what must be inspected; it does not assert that a production batcher test ran. The generated map and definition remain rebuildable from the three authored inputs.
 
 <a id="example-checking"></a>
 ## Generate and check
 
-Initialize Git so the checker can capture the repository input set.
-Use the shared helper from the pinned House Rules revision, with its configured Python environment.
-The [setup and use chapter](tool-environment.md#tool-environment) explains that environment.
-The `--fixture` option accepts this synthetic authority only; production documents use `operator` or `delegated`.
+These operations reproduce a clean check, an intentional literal mismatch and its repair. Use the shared helper from its pinned location; the independent repository needs no checker copy or local writing-profile file.
 
-```sh
-python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py generate --root /path/to/example --fixture
-python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py check --root /path/to/example --fixture
-```
+Initialize an empty independent repository with `git init -q`. In these commands, `HELPER` names the pinned shared helper and `REPOSITORY` names that directory. Use the Python environment containing the tool's locked dependencies.
 
-The result is `0 errors`.
-No local writing-rules file is required.
-The helper reads the profile from its own House Rules revision.
-The checker tests compare these fenced files with the real minimal fixture and check that fixture from an independent repository.
+**Procedure: reproduce the capacity mismatch**
+
+1. **Write the corpus.** Save the three files shown above.
+   The helper captures new, unignored files without staging them.
+2. **Check the source:** `python HELPER check --root REPOSITORY --fixture`.
+   The fixture reports `0 errors, 0 warnings` and exit `0`.
+3. **Generate navigation:** `python HELPER generate --root REPOSITORY --fixture`.
+   The command reports `docs/example.md` and exit `0`.
+4. **Change the display.** Replace `Submit up to [2](#capacity)` with `Submit up to [3](#capacity)`.
+   The home value remains unchanged.
+5. **Check the mismatch:** `python HELPER check --root REPOSITORY --fixture`.
+   The comparison reports `D10` and exit `1`.
+
+   > **Detail — refused comparison**
+   > The home is `2`, while the link displays `3`.
+   > Both refer to admitted items per batch; only the displayed literal changed.
+6. **Repair the display.** Restore `[2](#capacity)` in the authored source.
+   The link again shows the home value.
+7. **Regenerate navigation:** `python HELPER generate --root REPOSITORY --fixture`.
+   The command succeeds from the repaired source.
+8. **Check the repair:** `python HELPER check --root REPOSITORY --fixture`.
+   The corpus reports `0 errors, 0 warnings` and exit `0`.
+
+An assignment file containing `{"version":1,"sections":["example#main"]}` selects the complete chapter. Run `python HELPER context --root REPOSITORY --fixture --assignment FILE` to emit its registry, metadata, profile, source and provenance.
+
+The [skills/spec-writing/scripts/test_spec_docs.py::MinimalExampleTests::test_published_example_is_the_checked_fixture_in_an_independent_repository](../../../skills/spec-writing/scripts/test_spec_docs.py) compares these three fenced inputs byte-for-byte with the fixture and checks them outside House Rules. The [literal acceptance case](acceptance-evidence.md#test-literals) names its executable selector. This proves the documentation path; it does not execute the illustrated batch service.

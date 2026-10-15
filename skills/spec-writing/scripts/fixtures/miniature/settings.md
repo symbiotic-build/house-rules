@@ -48,7 +48,7 @@ This home declares no independent default.
 
 **Reason:** It covers homes, literal values, shared defaults and [acceptance](acceptance.md#acceptance) links.
 
-**Rejected alternative:** Maintain independent copies of a shared default.
+**Rejected alternatives:** Maintain independent copies of a shared default.
 
 <a id="open-questions"></a>
 ## Open questions

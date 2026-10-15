@@ -122,8 +122,8 @@ to [design-flow](../skills/design-flow/SKILL.md).
   assignment or remove unjustified dependencies; changing resources when the compulsory
   registry alone cannot fit requires an operator decision.
 - Rebuild packs when registry or home digests change. Affected authors recheck surrounding
-  explanations and scenarios. Other assignments need a current-baseline pack or a
-  mechanically verified rebase.
+  explanations and scenarios. Regenerate any assignment whose baseline is
+  stale from the current snapshot; no rebase verifier exists.
 - Use the pinned shared checker and selector through the existing prompt compiler.
   Extracted compilers use their matching helper, profile and format contract, never an
   unrelated live checkout. Review services prepare and check packs; reviewers stay

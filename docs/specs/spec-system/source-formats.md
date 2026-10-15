@@ -1,74 +1,45 @@
 <a id="source-format"></a>
 # Source formats
 
-This is the declaration and callable interface contract for the shared checker.
-Markdown uses CommonMark with pipe tables. JSON rejects duplicate keys and unknown
-fields. The [skills/spec-writing/references/format-contract.json](../../../skills/spec-writing/references/format-contract.json) must agree with these formats;
-the machine-readable profile in [rules/writing.md](../../../rules/writing.md) owns
-prose targets. Facts have literal values, without types or unit conversion.
+This chapter specifies the encodings that connect authored Markdown, shared metadata and callable tooling. Use it after the mechanisms to construct or inspect a corpus without guessing field names. The [minimal corpus](minimal-corpus.md#minimal-example) supplies complete inputs for capacity `2`, refusal `Full` and assignment `example#main`.
+
+Markdown uses CommonMark with pipe tables. JSON keys are case-sensitive; duplicate and unknown keys are errors. The [skills/spec-writing/references/format-contract.json](../../../skills/spec-writing/references/format-contract.json) contains the same vocabularies as this chapter. The separate prose profile belongs to [rules/writing.md](../../../rules/writing.md).
 
 <a id="sources-and-commands"></a>
 ## Sources and commands
 
-These interfaces let callers check, regenerate or select the bounded-batch example from a chosen snapshot.
+These commands select which source is checked, projected or delivered to an agent. Invoke the shared helper with its owning runtime inputs; invoking it does not install packages.
 
-Run `python skills/spec-writing/scripts/spec_docs.py check --root REPOSITORY`.
-The sibling runtime and dependency lock travel with the helper; initialization
-checks those owning inputs and the installed versions without installing packages.
-Commands `generate` and `context` share the same inputs.
+```text
+python skills/spec-writing/scripts/spec_docs.py check --root REPOSITORY
+python skills/spec-writing/scripts/spec_docs.py generate --root REPOSITORY
+python skills/spec-writing/scripts/spec_docs.py context --root REPOSITORY --assignment FILE
+```
 
-`--staged` selects the
-complete Git index; `--rev REV` selects a commit.
-They are mutually exclusive.
-The default captures working-tree bytes once, including unignored new files.
+The default captures working-tree Markdown and metadata, including unignored new files. `--staged` reads the complete index. `--rev REV` reads the resolved commit. These last two switches are mutually exclusive. `--base REV` adds a comparison base for requirement changes; a base before adoption can contain neither metadata file, but partial metadata remains invalid.
 
-Tracked Markdown must appear in `docs/DOCUMENTS.json` inventory.
-Every input is a
-regular repository-relative UTF-8 file.
-Symlinks and path escapes are refused.
+`--assignment FILE` supplies context selectors, affected-test review input and removal decisions. Context requires that option. `--format-contract FILE` selects an explicit format contract; the normal default belongs to the shared helper. `--json` emits structured output. `--fixture` permits synthetic `fixture` approval authority for teaching and tests only.
 
-No network access occurs.
-Exit codes are [success](documentation-checker.md#checker-success), [document-errors](documentation-checker.md#checker-document-errors),
-and [invocation-failure](documentation-checker.md#checker-invocation-failure).
-Warnings never fail a command.
+Every candidate Markdown file needs an inventory classification. Paths use forward slashes and are repository-relative, with no empty, `.` or `..` components. Source text is UTF-8. Symlinks and nonregular source inputs are refused. Code and asset links use file inventory for existence checks without loading unrelated binary bytes. External URLs receive syntax checks without network access.
 
+The public exit meanings are:
 
-`--fixture` allows synthetic approval authority `fixture`.
-Production authorities
-are `operator` and `delegated`.
-`--base REV` enables requirement change reporting.
+| Status | Meaning |
+|---|---|
+| `0` | Successful operation |
+| `1` | Document or selection errors |
+| `2` | Invocation, environment or I/O failure |
 
-Changed requirements require
-linked-test review selectors supplied through `--assignment`.
-`context --assignment FILE` reads the assignment below.
-`--json` emits structured
-results.
+Warnings do not change success. Text checking prints each source-addressed finding and final error and warning counts. JSON checking returns `errors`, `warnings` and `ok`, plus `changes` when comparing a base. Each diagnostic has `path`, `line`, `code`, `message` and `severity`. Generation returns the generated path list. Context returns its complete text or, with `--json`, `content`, `size_bytes` and `manifest`.
 
-Generation owns only declared files or regions, validates the complete
-proposed output, then replaces destinations.
-A region destination must still match
-the selected snapshot, so generation cannot overwrite intervening authored edits.
-A partial replacement fails visibly;
-regeneration repairs the set.
+Generation validates all proposed bytes before replacing any destination. Replacement is atomic per file, not across the whole generated set. Mixed authored destinations must still match captured bytes. An interrupted set requires regeneration; neither checking nor dispatch treats an old output as a successful substitute.
 
+Runtime metadata declares CPython `>=3.11,<3.15`. The owning [skills/spec-writing/scripts/runtime.json](../../../skills/spec-writing/scripts/runtime.json) and [skills/spec-writing/scripts/requirements.lock](../../../skills/spec-writing/scripts/requirements.lock) are checked at initialization. Installed `markdown-it-py` and `mdurl` versions must match the lock. The supported range is a compatibility contract, not a claim that every interpreter has been tested.
 
 <a id="metadata"></a>
 ## Metadata
 
-These shapes let authors register the bounded-batch files without guessing required keys.
-
-All keys below are exact and case-sensitive.
-No unlisted key is allowed.
-Every `version` is the integer `1`, not a string or Boolean.
-
-Text fields are nonempty strings.
-Arrays may be empty unless stated otherwise.
-Paths are repository-relative regular UTF-8 inputs without `.` or `..` components.
-
-The complete [minimal corpus](minimal-corpus.md#minimal-example) instantiates the required shapes.
-
-
-The JSON envelopes are:
+Metadata identifies the files and homes that source selection can use. The two version-1 envelopes are exact; arrays can be empty unless their field requires entries.
 
 ```json
 {"version": 1, "inventory": [], "documents": []}
@@ -78,111 +49,67 @@ The JSON envelopes are:
 {"version": 1, "entities": {}, "naming_rules": []}
 ```
 
+The first envelope belongs to [docs/DOCUMENTS.json](../../DOCUMENTS.json). An inventory entry has `path` and `kind`, with optional `reason`; `other` requires a nonempty reason. A document has the required fields shown below. The final `approval`, `gaps` and `unresolved_contracts` fields are optional.
 
-[docs/ENTITIES.json](../../ENTITIES.json) uses an identity-keyed `entities` object and a `naming_rules` array.
-[docs/DOCUMENTS.json](../../DOCUMENTS.json) uses `inventory` and ordered `documents` arrays.
-The complete shapes below define their keys; the contract block defines allowed vocabularies.
-The contract block's ordered `roles` array defines the reading sequence checked by `D15`.
-
-Section roles may share a position only when adjacent roles are combined in one section.
-The section array places the tour before mechanisms, and acceptance after reference.
-Every authored heading and paragraph belongs to a registered section subtree, including each chapter's opening.
-
-For a multi-file document, each chapter filename is the slug of its first heading plus
-`.md`.
-A slug uses lowercase words separated by hyphens, with punctuation removed and underscores
-replaced by hyphens. For example, "Batch admission" becomes `batch-admission.md`.
-There is no short-name mapping. Single-file documents retain their document filename.
-A mismatch is error `D34`.
-
-A section summary states what the reader learns or can do there.
-"Batch admission" might use "Determine whether a batch fits and what a refusal retains".
-Error `D36` rejects summaries with no word beyond the title.
-Comparison ignores case and punctuation and removes a leading "Understand", "Learn about",
-"Read about" or "Overview of".
-
-Prerequisites list only chapters whose concepts the section cannot be read without.
-For more than five sections, warning `W06` flags an empty first prerequisite list followed
-entirely by single-predecessor lists. Review actual conceptual dependencies.
-
-Error `D35` rejects any sentence of at least eight whitespace-separated words that occurs
-three or more times within a document's chapters, after whitespace normalization.
-It checks authored paragraph prose, including lists and ordinary detail blocks, but excludes
-generated regions, literal blocks, attributed quotations, table cells and declaration fields.
-Reuse the continuing example at each concept's introduction instead of a closing formula.
-
-Register a chapter's title anchor to include that opening; registering only its later level-2 sections leaves the opening unassigned.
-Reader progression follows [rules/specifications.md](../../../rules/specifications.md#reader-progression).
-
-
-Each inventory entry is `{"path": "docs/example.md", "kind": "specification"}`;
-`reason` is the only optional key and is required for `other`.
-Each document has this shape (the last three keys are optional):
+**Entities in this example:** [Scenario](requirements-tests-and-failures.md#scenario).
 
 ```json
 {
-  "id": "example", "title": "Example", "status": "draft",
-  "purpose": "Explain one contract.", "audience": "Authors.",
-  "scope": "One example.", "non_goals": "Production behavior.",
+  "id": "example",
+  "title": "Bounded batches",
+  "status": "draft",
+  "purpose": "Show bounded submission and refusal.",
+  "audience": "Authors familiar with Markdown.",
+  "scope": "One synthetic submission rule.",
+  "non_goals": "A production service.",
   "navigation": {"path": "docs/example.md", "region": "example"},
   "sections": [{
     "id": "main", "path": "docs/example.md", "anchor": "example",
-    "roles": ["tour"], "summary": "Follow the example.",
-    "prerequisites": [],
-    "explanatory_dependencies": [{"section": "example#reference", "reason": "Explains the fields."}]
+    "roles": ["tour", "mechanism", "requirements", "decisions", "questions", "reference", "acceptance"],
+    "summary": "Follow submission and inspect its evidence.",
+    "prerequisites": [], "explanatory_dependencies": []
   }],
   "scenarios": [],
-  "approval": {"authority": "operator", "decision": "example#decision"},
-  "gaps": ["mechanism"], "unresolved_contracts": ["example#pending"]
+  "approval": {"authority": "fixture", "decision": "example#decision"},
+  "gaps": [],
+  "unresolved_contracts": []
 }
 ```
 
-**Entities in this example:** [Scenario](scenario.md#scenario).
+This shape uses the teaching document's identity. `main` is its registered section identity; `example` is the explicit anchor that starts its source subtree. Each `roles` element describes content inside that subtree, in reading order. `summary` tells readers what they can do there. The example's empty prerequisite and dependency arrays make no claim that other material is needed.
 
-This shape illustrates optional fields; its reference and decision targets must be supplied in a real corpus.
-`navigation.region` is optional; omit it only for a whole file under `docs/generated/`.
-Approval authorities are `operator` and `delegated`; `fixture` is accepted only with `--fixture` for synthetic teaching or test data.
+`navigation.region`, when present, equals the document identity and selects markers inside an authored source file. Without `region`, `navigation.path` names a whole output under `docs/generated/`. Approval needs an `authority` and a resolving `document#anchor` decision. Production authorities are `operator` and `delegated`; `fixture` requires fixture mode and never authorizes production behavior.
 
-Fixture authority approves the example contract only and confers no production authority.
-`gaps` is a list of role names that waives missing roles only for a draft.
-`unresolved_contracts` lists anchor selectors; approval rejects any retained entry.
+`gaps` names missing roles waived only for a draft. Every retained `unresolved_contracts` selector blocks an approved document. These selectors must resolve. The checker establishes resolution; review establishes whether the decision's authority and content justify approval.
 
-The `sections`, `scenarios`, `prerequisites`, `scope`, `forms`, and `symbols` values are arrays.
-Sections are ordered; prerequisites and dependencies use `document#section` selectors.
-[Scenario](scenario.md#scenario), decision and unresolved-contract selectors use `document#anchor`.
+Sections are ordered objects with exactly `id`, `path`, `anchor`, `roles`, `summary`, `prerequisites` and `explanatory_dependencies`. A dependency has exactly `section` and `reason`. Prerequisites and dependency targets use registered `document#section` selectors. [Scenarios](requirements-tests-and-failures.md#scenario) use declaration selectors; a nonempty scenarios array must name existing scenario declarations.
 
-**Entities in this example:** [Scenario](scenario.md#scenario).
+Every chapter opening belongs to a registered subtree. In a multi-file document, the filename equals the first heading's slug plus `.md`. Slugs case-fold words, remove punctuation, join words with hyphens and replace underscores with hyphens. A single-file document keeps its document filename. There is no abbreviation map.
 
+A summary must add a reader outcome beyond its title. `D36` compares case-folded words after removing punctuation and a leading “Understand”, “Learn about”, “Read about” or “Overview of”. A summary with no remaining word beyond the title fails. For more than five sections, `W06` warns when all prerequisites form only a predecessor chain after an empty first list.
 
-Each identity-keyed entity has exactly this shape:
+`D35` detects an authored sentence of at least eight whitespace-separated words repeated at least three times in one document. It normalizes whitespace. Generated regions, literal blocks, attributed quotations, table cells and declaration fields are excluded. Ordinary detail prose and list paragraphs remain in scope.
+
+The second envelope belongs to [docs/ENTITIES.json](../../ENTITIES.json). Its `entities` object maps stable identities to records with exactly these keys:
 
 ```json
 {
   "kind": "component",
   "home": {"section": "example#main", "anchor": "batcher"},
-  "scope": ["example"], "forms": ["batcher"], "symbols": ["Batcher"],
-  "rejected_forms": [{"text": "batch gate", "replacement": "batcher", "reason": "Use one name."}]
+  "scope": ["example"],
+  "forms": ["batcher"],
+  "symbols": [],
+  "rejected_forms": []
 }
 ```
 
-The `naming_rules` array contains objects with exactly these keys:
+The `home` selects the batcher's complete heading subtree. `scope` lists document identities where it may be used and includes the home document. `forms` lists accepted phrases, matched without case distinction; `symbols` lists exact code spellings. An empty `symbols` array declares none. Each rejected form instead has `text`, `replacement` and `reason`, all nonempty strings.
 
-```json
-{"id": "component-symbol", "kind": "component", "field": "symbols", "pattern": "^[A-Z][a-zA-Z0-9]*$", "message": "Use a capitalized symbol."}
-```
+Naming rules check a selected entity kind's accepted forms or symbols. Each record has `id`, `kind`, `field`, `pattern` and `message`. `field` is `forms` or `symbols`; `pattern` is a Python regular expression applied with full-match semantics. Invalid expressions fail visibly, and duplicate rule identities are errors.
 
-`field` is `forms` or `symbols`.
-`pattern` is a Python regular expression applied with full-match semantics.
-`kind` selects the entity kind to check.
+The following block supplies every allowed vocabulary and required declaration field. List order matters for the document roles. The `group_separators` characters are comma, underscore, ordinary space, no-break space and narrow no-break space.
 
-An invalid pattern is an input error.
-The machine-readable vocabularies below list every allowed classification, status, role, entity kind, predicate target kind, required declaration field and review responsibility.
-A fact's `Status` is nonempty literal text; examples use `specified`, `provisional`, `observed` and `unresolved`, without introducing a value-type system.
-
-Declaration Method is `test`, `inspection`, `analysis` or `demonstration`.
-Status and Basis are nonempty prose.
-The declaration rules below identify required links.
-
+**Entities in this example:** [Scenario](requirements-tests-and-failures.md#scenario).
 
 ```json format-contract
 {
@@ -296,232 +223,113 @@ The declaration rules below identify required links.
 }
 ```
 
-**Entities in this example:** [Scenario](scenario.md#scenario).
+A fact's Status is nonempty literal text, rather than a member of `document_statuses`. For example, `specified` qualifies a declared teaching value. Basis is also nonempty and contains a resolving link. No field in this contract introduces a unit or value-type system.
 
 <a id="markdown-declarations"></a>
 ## Markdown declarations
 
-These encodings make the batcher's homes, facts and evidence addressable by the checker.
-
-An empty `<a id="stable-anchor"></a>` immediately precedes each home heading.
-The opening follows the [entity-definition rule](../../../rules/specifications.md#reader-progression).
-The home includes its whole heading
-subtree.
-
-Heading titles and meanings enter the generated [complete registry](complete-registry.md#complete-registry).
-Generated regions cannot provide declarations.
-Linking and heading policy belongs to [rules/specifications.md](../../../rules/specifications.md#direct-links).
-
-For an exact repository-file label, write [INDEX.md](../../../INDEX.md).
-Named-section links instead use the section name.
-Implementation labels append their selector.
-
-
-A `Key | Value | Status | Basis` table declares facts in its containing entity
-home.
-Each Key cell contains exactly one explicit anchor and its key text.
-Fact
-identities are `entity-identity#key`; destinations use the row anchor.
-
-Markdown
-formatting is removed from cell text; code-span text remains literal.
-Trim outer
-spaces and remove commas, underscores or grouping spaces only in digit runs
-with groups of three.
-Preserve decimals, punctuation, case and other spacing.
-
-A fact link whose label equals its key or an accepted form, symbol or heading name
-of its owner is descriptive.
-Every other label must equal the literal home value
-under that normalization.
-Status and Basis are nonempty; Basis contains a link.
-
-Qualifications remain adjacent prose referring directly to the fact.
-For example:
-
+Markdown declarations make a contract's values and evidence addressable without moving their meaning into metadata. The batcher uses an explicit home anchor followed immediately by its heading and definition.
 
 ```markdown
-**Qualification for [capacity](#capacity):** Confirm this provisional value before deployment.
+<a id="batcher"></a>
+## Batcher
+
+A batcher prevents overfilling by accepting items only while its batch has room.
 ```
 
-`Key | Predicate | Target | Basis` tables declare relations.
-Predicates and target
-kinds are listed in the format contract.
-Target and Basis contain direct links.
+Use an empty `<a id="stable-anchor"></a>` anchor with the intended identity. The source form is `<a id="batcher"></a>`; `name` does not substitute for `id`. Generated regions cannot supply authored homes. The home extends through its heading subtree, and its first definition sentence enters generated navigation and registry output.
 
-Requirement, failure and [scenario](scenario.md#scenario) headings start respectively with
-`Requirement:`, `Failure state:`, and `Scenario:`.
-An acceptance case is identified by its permanent `test-` anchor; its heading may omit `Acceptance test:`.
-A bold field label appears once per declaration or decision heading.
-One Rejected alternatives field contains all options and their reasons.
-Declarations have an
-explicit anchor and bold field paragraphs, for example `**Actor:** [Batcher](#batcher)`.
+Facts use precisely `Key | Value | Status | Basis` columns. Each Key cell contains its key text and exactly one explicit anchor; the row has no other anchor. The fact identity combines owner identity and key, such as `example.batcher#capacity`, while links target the row's `capacity` anchor.
 
-**Entities in this example:** [Scenario](scenario.md#scenario), [Acceptance test](acceptance-test.md#acceptance-test).
+```markdown
+| Key | Value | Status | Basis |
+|---|---|---|---|
+| <a id="capacity"></a>capacity | 2 | specified | [Teaching decision](#decision) |
+```
 
-A scenario uses `### Scenario: capacity repair` and an immediately preceding explicit anchor.
-Its Purpose, Inputs and Expected fields describe the story; Requirements and Tests link its evidence.
-Required field names are listed in the contract.
+Here `2` counts items admitted to one batch. `specified` states the declaration's qualification, and the teaching decision supplies its basis. A link labelled `capacity`, the owner's heading, an accepted form or an exact symbol is descriptive. Other labels claim a value and must match the cell after normalization. Thus `[3](#capacity)` fails with `D10`.
 
-**Entities in this example:** [Scenario](scenario.md#scenario).
+Normalization removes surrounding space and supported group separators within integer digit runs grouped in threes. Inline Markdown formatting is removed; code-span content remains literal. Decimal points, case, punctuation and other spacing remain significant. There is no expression evaluation, range interpretation or measurement conversion. Keep qualifications beside their home with a direct link to the fact so change reporting can include them.
 
-Tests and requirements declare
-reciprocal links through their Tests and Requirements fields.
-Failure Authority
-names the recovery actor and authority.
-`Recovery: none` includes the consequence
-in the field or adjacent explanation.
+Relations use precisely `Key | Predicate | Target | Basis` columns. Target contains one direct link to a registered home of a kind permitted for that predicate. Basis contains a link. The vocabulary block specifies the allowed `performed-by`, `protected-by`, `limited-by` and `precedes` targets.
 
-Review checks those meanings.
+**Entities in this example:** [Acceptance test](requirements-tests-and-failures.md#acceptance-test), [scenario](requirements-tests-and-failures.md#scenario).
 
+Declarations have an immediately preceding explicit anchor and a heading beginning `Requirement:`, `Acceptance test:`, `Failure state:` or `Scenario:`. A permanent `test-` anchor also identifies an acceptance case when its heading omits that prefix. Requirement anchors use `req-` and test anchors use `test-`, followed by nonempty lower-case letters or digits separated by single hyphens. Preserve identities for unchanged obligations and cases.
 
-**Entities in this example:** [Acceptance test](acceptance-test.md#acceptance-test), [Scenario](scenario.md#scenario).
+Required bold fields appear once per declaration heading. Each field occupies a separate paragraph. For example, `**Result:** Return Full without changing the batch.` Requirements link tests through `Tests`; acceptance cases link back through `Requirements`. A failure's `Authority` identifies the recovery actor and authority. Explicitly absent recovery also explains its consequence. Review checks these meanings beyond field presence.
 
-Only acceptance cases may add `Implementation`; [failure declarations](failure-declaration.md#failure-declaration) may add `Actor`.
-[Scenarios](scenario.md#scenario) may add `Requirements` and `Tests` links.
-No other declaration field is allowed.
-Adjacent **Entities in this example** annotations apply to each literal block and are not declaration fields.
+The contract block lists required fields. Acceptance cases may add `Implementation`; [failure declarations](requirements-tests-and-failures.md#failure-declaration) may add `Actor`; scenarios may add `Requirements` and `Tests`. No other declaration fields are accepted. Decisions use separate headings and one `Rejected alternatives` field containing all rejected options and reasons.
 
-Requirement anchors use `req-<identity>` and acceptance-test anchors use
-`test-<identity>`. The suffix is nonempty lower-case kebab case: letters or digits
-separated by single hyphens. Identity permanence and historical verification belong to [rules/specifications.md](../../../rules/specifications.md#requirements-tests-and-recovery).
-
-Method `test` requires an `Implementation` field containing Markdown links.
-Separate links with a comma and whitespace.
-Add no other prose or terminal punctuation.
-Each plain-text link label is `repository-file::selector`.
-
-The file is repository-relative and must match the link's resolved destination.
-The destination is a relative path to that file, with no URL scheme, query or fragment.
-
-The selector is a nonempty whitespace-free test name; it may include `::` for nesting.
-For example, from a document one directory below the repository root:
+Method is `test`, `inspection`, `analysis` or `demonstration`, ignoring case and an optional final period. Exactly Method `test` requires Implementation. Its field contains only plain-text Markdown links separated by comma and whitespace, with no final punctuation.
 
 ```markdown
 **Implementation:** [tests/test_batches.py::Suite::test_full](../tests/test_batches.py), [tests/test_batches.py::Suite::test_empty](../tests/test_batches.py)
 ```
 
-The checker validates this grammar and resolves every file against the selected
-snapshot. It retains the selector in the parsed field for the later spec-to-code
-pass. Run `audit_selectors.py --root REPOSITORY` to establish whether each named test exists and passes. Omit the field
-for Method `inspection`, `analysis` or `demonstration`; name the review lens or run record in a linked evidence paragraph.
-The selector audit executes Python unittest selectors, including `Class::test_method`; unsupported executable files fail visibly.
+In that illustrative field, each label starts with the repository-relative file and appends `::selector`. The resolved relative destination must be that same file, with no scheme, query or fragment. A selector is nonempty and whitespace-free; nested names can contain `::`. Static checking validates the grammar and file existence. The [selector audit](interfaces-and-encodings.md#selector-audit) executes the named Python unittest selectors.
 
-Literal-example annotations have the exact prefix `**Entities in this example:**` followed by direct home links.
-For example: `**Entities in this example:** [Batcher](#batcher)`.
+Other methods omit Implementation and include linked evidence such as a review lens or run record. A resolving link is necessary but does not establish adequate evidence. The bounded-batch acceptance case uses inspection of retained state instead of claiming executable batch implementation.
 
-Procedure structure and prose counting follow the [rules/writing.md](../../../rules/writing.md).
-They are not separate format policies.
+Literal blocks and inline code need adjacent home annotations for their registered uses. The prefix is `**Entities in this example:**`. Each block before a home has its own annotation; one annotation cannot license a later block. These annotations are not declaration fields. First-use scope, forward links and unnumbered headings follow the [Direct links](../../../rules/specifications.md#direct-links).
 
 <a id="navigation"></a>
 ## Navigation
 
-These markers identify the exact output region that readers can rebuild from the example.
-
-Each document gets one output containing its overview, ordered document map, and
-[entity index](entity-index.md#entity-index).
-A region follows the entry opening and its overview diagram with adjacent home annotations.
-Without an introductory diagram, it follows the opening paragraph.
-The map lists every chapter and links each level-2 heading in its registered subtree.
-
-Each mapped heading has an explicit anchor.
-A region does not repeat the entry title.
-It projects authored title, purpose, audience, scope, non-goals,
-section summaries, prerequisites and entity meanings.
-
-Links point to source.
-Single-file output is enclosed by exactly one pair of markers:
-
+Navigation markers tell the generator where derived reading material belongs. The bounded-batch example keeps one region inside its existing source file.
 
 ```markdown
-<!-- spec-docs:navigation document="document-id" -->
-Generated Markdown.
+<!-- spec-docs:navigation document="example" -->
+<!-- Generated by spec-docs; edit authored declarations. -->
 <!-- /spec-docs:navigation -->
 ```
 
-The navigation object names that existing file and uses `region: "document-id"`.
-Whole-file outputs live under `docs/generated/`. The generator also projects
-`linguist-generated=true` entries in a `.gitattributes` region delimited by
-`# spec-docs:generated` and `# /spec-docs:generated` on separate lines. Source
-files containing a generated region are not marked wholly generated.
+The marker pair must occur exactly once in order. Its document identity matches `navigation.region`. Generated content includes overview fields, declared gaps, the ordered section map, prerequisites and scoped entity definitions. Map links select authored destinations, including anchored level-2 headings within each section subtree. The region omits a duplicate entry title.
+
+Place the region after the entry's opening paragraph and introductory Mermaid diagram with its adjacent home annotation. Without that diagram, placement follows the opening paragraph. The generator derives the insertion point from parsed authored content rather than generated headings.
+
+Whole-file destinations live under `docs/generated/`. Their generated-file attributes appear between `# spec-docs:generated` and `# /spec-docs:generated` in `.gitattributes`. Each line uses a quoted repository path followed by `linguist-generated=true`. A source file containing a region is not marked wholly generated.
 
 <a id="callable-core-and-context-assignment"></a>
 ## Callable core and context assignment
 
-These calls let an integrator prepare the same example without launching another command-line parser.
+The callable interface lets integrators reuse the parsed model for checking, projection and selection. Import the shared module from its owning scripts directory; a consumer does not copy it into a private implementation.
 
-Import `spec_docs` from the scripts directory.
-`Snapshot.from_git(root, staged=False,
-rev=None)` captures one source; `Snapshot.from_mapping(paths, fixture=False)` is
-useful for integration and fixtures.
-`load_corpus(source, format_contract=None, comparison=False)`
-parses each authored Markdown source once.
+```python
+Snapshot.from_mapping(paths, fixture=False)
+Snapshot.from_git(root, staged=False, rev=None, fixture=False)
+load_corpus(source, format_contract=None, *, comparison=False)
+check(corpus, base=None)
+generate_navigation(corpus)
+requirement_changes(base, candidate)
+select_context(corpus, assignment)
+```
 
-The keyword `comparison=True` permits an empty pre-adoption base with neither metadata file; partial metadata still fails.
-Ordinary checking never permits missing metadata.
-`check(corpus, base=None)` returns
-`Diagnostics` with `errors`, `warnings`, `ok`, and `to_dict()`.
+`paths` maps repository paths to strings or bytes. Loading parses declared Markdown once. `comparison=True` permits a base with neither metadata file; it does not permit partial metadata or missing metadata in ordinary checking. `check` returns `Diagnostics`, exposing `errors`, `warnings`, `ok` and `to_dict()`. Projection returns proposed path-to-bytes output without writing it.
 
-`generate_navigation(corpus)` returns repository-relative paths to bytes.
-`requirement_changes(base, candidate)` returns a `ChangeReport` with `changes` and
-`to_dict()`.
-Set `candidate.base = base` to check removal decisions and test-review
-inputs during selection and include labelled base test ranges and changed declarations.
+`requirement_changes` returns a `ChangeReport` whose `to_dict()` contains `changes`. Each change has `id`, `kind` (`new`, `changed` or `removed`), `base`, `candidate`, `tests`, `added_tests`, `removed_tests` and `changed_facts`. [Requirement declarations](requirements-tests-and-failures.md#requirement-declaration) remain full source text. Facts contain their identity plus base and candidate contracts for value, status, basis, basis targets and qualifications.
 
-`select_context(corpus, assignment)` returns `Context` with `content`
-(bytes), `size_bytes`, `manifest`, and `to_dict()`.
-Invalid selections raise
-`SpecDocsError` with diagnostics.
-Context selection requires a checked snapshot.
+Set `candidate.base = base` before selection to include comparison evidence and enforce removal decisions and affected-test input. The report compares requirements by their permanent anchors, including moves between documents. It selects tests from both snapshots when a declaration or directly linked fact contract changes. It maintains no persistent suspect-link ledger.
 
+An assignment has required `version` and a nonempty `sections` array. The bounded-batch assignment is `{"version": 1, "sections": ["example#main"]}`. Optional fields are:
 
-Assignment JSON has `version: 1` and nonempty `sections` (explicit selectors).
-Optional fields are `scenarios` (whole-[scenario](scenario.md#scenario) selectors), `decisions` (anchor
-selectors), `baseline` (snapshot digest or commit revision), `budget_bytes`,
-`review_plan`, `required_test_reviews`, `removal_decisions`,
-and `label` (`base` or `candidate`). Every removal decision maps a removed
-requirement selector to a resolving decision selector. Review-plan entries have
-`responsibilities`, an array of contract responsibility names. A single entry may
-cover several responsibilities. `required_test_reviews` lists selected test
-selectors from change reporting; their complete ranges are mandatory.
+| Field | Assignment value |
+|---|---|
+| [`scenarios`](requirements-tests-and-failures.md#scenario) | Whole-scenario selectors |
+| `decisions` | Decision anchor selectors |
+| `baseline` | Captured digest or resolved commit |
+| `budget_bytes` | Nonnegative integer bytes |
+| `review_plan` | Actual reviewer responsibilities |
+| `required_test_reviews` | Affected test selectors |
+| `removal_decisions` | Removed requirement to decision |
+| `label` | `base` or `candidate` |
 
-**Entities in this example:** [Scenario](scenario.md#scenario).
+Each review-plan entry has `responsibilities` and optional `id`. Responsibilities use the contract vocabulary; their union must cover every required responsibility when a plan is supplied. Authoring may omit a plan. Normal review preparation supplies the plan and resolved base; direct compiler review requires `--target-base REV`. It derives required tests, while removal decisions remain explicit input.
 
-The single `budget_bytes` field bounds documentation context bytes.
-The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) separately bounds the complete pack, including rules and task text.
-Authoring assignments may omit a review plan.
+`select_context` returns `Context`, exposing byte `content`, `size_bytes`, `manifest`, `diagnostics` and `to_dict()`. The dictionary form decodes content as UTF-8. Invalid selection raises `SpecDocsError` carrying diagnostics. The content contains manifest, [complete registry](agent-context.md#complete-registry), metadata, profile, optional change report and labelled source ranges.
 
-Review [dispatchers](../../design/75-subagent-profiles.md#dispatcher) supply the responsibilities of their actual reviewers and validate full coverage.
-Normal review preparation passes the already-resolved base revision to the selector.
-Direct review compiler calls require `--target-base REV`.
+The manifest contains `version`, `tool_version`, `format_version`, `profile_version`, `label`, `baseline`, `source_digest`, `registry_digest`, `input_fingerprints`, `assignment`, `included`, `inclusion_reasons`, `ranges`, `registry_size_bytes`, `metadata_size_bytes`, `profile_size_bytes`, `profile_digest` and `size_bytes`. A comparison adds `base_provenance` with its baseline, registry digest and input fingerprints.
 
-It derives required test selectors from the base/candidate change report.
-Removal decisions remain explicit assignment input from the work item.
+Each range records `label`, `path`, `start`, `end`, `identities`, `reasons`, `digest` and `size_bytes`. Offsets count zero-based lines with an exclusive end; the digest is SHA-256 of that range's UTF-8 bytes. `input_fingerprints` maps metadata and declared source paths to SHA-256 digests. The source digest covers the captured content map, not a hash of every unrelated asset.
 
-
-The output contains the [complete registry](complete-registry.md#complete-registry), unique assigned ranges, transitive
-explanatory dependencies, relevant complete homes, metadata, profile, decisions,
-and provenance.
-Ranges overlap by source lines and are merged, with all inclusion
-reasons retained.
-Ordinary links in an added home never recursively add homes.
-
-Its containing section's declared dependencies do expand.
-The registry contains
-all entities, names, meanings, homes, facts, statuses and bases, even outside the
-assignment.
-The manifest records input fingerprints, snapshot and registry
-digests, tool/format/profile versions, labels, assignment and reasons.
-
-Size is
-exact UTF-8 bytes of `content`; the manifest is embedded in that content.
-Budget
-refusal never truncates.
-The returned manifest size is the same byte count.
-
-
-Changes to requirement fields or directly linked facts (including Status, Basis,
-and adjacent fact qualifications) select tests from both snapshots. Removed
-requirements need a resolving decision supplied by the work item through
-`removal_decisions`. Declarations and changed facts remain separately labelled
-base and candidate. There is no stored traceability ledger.
+The embedded manifest's `size_bytes` equals the complete content length, including itself. The selector reaches that value before testing `budget_bytes`. This budget bounds documentation bytes only; the [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) separately bounds its complete pack. Missing or excessive mandatory input returns an error instead of a prefix of the content.

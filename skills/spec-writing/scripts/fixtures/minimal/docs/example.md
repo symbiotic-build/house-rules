@@ -43,7 +43,7 @@ A batcher prevents overfilling by accepting items only while its batch has room.
 |---|---|---|---|
 | <a id="capacity"></a>capacity | 2 | specified | [Teaching decision](#decision) |
 
-Submit items below [2](#capacity); a full batch retains its items on refusal.
+Submit up to [2](#capacity); a full batch retains its items on refusal.
 
 <a id="req-capacity"></a>
 ### Requirement: refuse a full batch
@@ -92,7 +92,7 @@ This decision keeps the teaching example small enough to inspect.
 
 **Reason:** Demonstrate refusal and retained state.
 
-**Rejected alternative:** An unbounded example would omit refusal.
+**Rejected alternatives:** An unbounded example would omit refusal.
 
 <a id="questions"></a>
 ## Open questions
