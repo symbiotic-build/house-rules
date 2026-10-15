@@ -184,7 +184,7 @@ No retry loop conceals a setup or output failure.
 
 **Actor:** Tool setup and repository integrator.
 
-**Condition:** The shared tool is installed, invoked or extracted with a prompt compiler.
+**Condition:** The shared tool is installed, invoked or extracted with a [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler).
 
 **Result:** Use the pinned runtime contract and wheel versions. Keep helper, profile and format contract from the same House Rules revision. Refuse unsupported or inconsistent environments.
 

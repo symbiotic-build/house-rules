@@ -176,6 +176,9 @@ Keep technical meaning in Markdown and check declared structure without a second
 
 ## Entity index
 
+- [Prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — Prompt compiler: skills/pr-ready/scripts/prompt.py.
+The pack-assembly design requires the compiler to read Git objects from a named House Rules commit
+(pack-assembly design (#77)).
 - [Acceptance test](sources.md#acceptance-test) (`spec-system.acceptance-test`) — An acceptance test declares a verification method, inputs, pass condition and reciprocal requirement links.
 - [Addressable section](overview.md#addressable-section) (`spec-system.addressable-section`) — An addressable section is a stable named part of a source document.
 - [Canonical fact](sources.md#canonical-fact) (`spec-system.canonical-fact`) — A canonical fact is a named literal value declared in a table cell at its owning entity's home.
@@ -194,4 +197,5 @@ Keep technical meaning in Markdown and check declared structure without a second
 - [Source snapshot](context.md#source-snapshot) (`spec-system.source-snapshot`) — A source snapshot is one immutable set of repository paths and bytes selected for checking, generation or assignment.
 - [Tool environment](checking.md#tool-environment) (`spec-system.tool-environment`) — The tool environment is an isolated Python installation using dependencies owned by the shared spec-writing tool.
 - [Writing profile](reference.md#writing-profile) (`spec-system.writing-profile`) — The writing profile is the versioned set of controlled-language practices owned by writing rules.
+- [Dispatcher](../../design/75-subagent-profiles.md#dispatcher) (`subagent-profiles.dispatcher`) — Dispatcher: the session or script that starts a subagent and writes its task.
 <!-- /spec-docs:navigation -->

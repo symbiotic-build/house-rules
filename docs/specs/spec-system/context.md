@@ -97,7 +97,7 @@ Further home expansion requires a declared dependency with a reason.
 An ordinary link cannot turn into an unbounded traversal.
 
 The tool counts exact UTF-8 bytes for mandatory documentation input.
-The dispatcher applies its configured model budget, including rules, task and response allowance.
+The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) applies its configured model budget, including rules, task and response allowance.
 
 Mandatory input is never truncated.
 An excessive pack stops before dispatch.
@@ -105,7 +105,7 @@ Narrow the assignment or remove an unjustified dependency to recover.
 The [complete registry](#complete-registry) remains compulsory.
 If it alone cannot fit, the operator must choose a different execution resource.
 
-Extend the existing [prompt compiler](../../../skills/pr-ready/scripts/prompt.py) with one documentation-context call.
+Extend the existing [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) ([source](../../../skills/pr-ready/scripts/prompt.py)) with one documentation-context call.
 Reserve its complete output before optional context.
 The launcher and review service use the same selector.
 
@@ -117,7 +117,7 @@ Reviewers remain read-only and run no builds, tests or external writes.
 <a id="require-context"></a>
 ### Requirement: complete bounded assignment input
 
-**Actor:** Documentation selector, prompt compiler and dispatcher.
+**Actor:** Documentation selector, [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) and [dispatcher](../../design/75-subagent-profiles.md#dispatcher).
 
 **Condition:** A writer or reviewer assignment is prepared.
 
@@ -185,7 +185,7 @@ These responsibilities set no agent count and authorize no larger panel.
    - Recheck reading order and changed contracts.
    - Apply the existing operator approval boundary.
 
-The dispatcher validates technical, readability, design/cost, failure/recovery and whole-[scenario](sources.md#scenario) coverage.
+The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) validates technical, readability, design/cost, failure/recovery and whole-[scenario](sources.md#scenario) coverage.
 One generalist may cover several responsibilities.
 Coverage validation launches no additional reviewers.
 
@@ -201,7 +201,7 @@ This may satisfy existing readability coverage without adding a technical review
 <a id="require-review"></a>
 ### Requirement: review coverage and fresh understanding
 
-**Actor:** Dispatcher, editor and reviewers.
+**Actor:** [Dispatcher](../../design/75-subagent-profiles.md#dispatcher), editor and reviewers.
 
 **Condition:** A specification or design receives an authoring or review assignment.
 

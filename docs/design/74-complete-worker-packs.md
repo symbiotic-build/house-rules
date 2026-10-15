@@ -1,6 +1,7 @@
-Status: design revised to the operator's decisions of 2026-10-07; implementation pending.
+<a id="complete-worker-role-packs"></a>
+# Complete worker [role packs](#role-pack)
 
-# Complete worker role packs
+Status: design revised to the operator's decisions of 2026-10-07; implementation pending.
 
 Design for [#74](https://github.com/symbiotic-sh/house-rules/issues/74), reviewed in
 [draft PR #80](https://github.com/symbiotic-sh/house-rules/pull/80).
@@ -8,37 +9,59 @@ The operator's recorded answers of 2026-10-07 settle the shared-rule ownership a
 Implementation details below remain proposals where the operator did not specify them.
 File paths are repository-relative unless a named repository or tool home qualifies them.
 
+<a id="result"></a>
 ## 1. Result
 
 The five role files serve implementers, fixers, reviewers, triagers and checkers.
 Each role file supports two ways of loading House Rules.
-A normal lane session loads shared rules and skills through the House Rules index, then receives its role prompt.
-A Warden reviewer receives the shared rules in its compiled role prompt.
+A normal lane session loads [shared rules](#shared-rule) and skills through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index), then receives its role prompt.
+A Warden reviewer receives the [shared rules](#shared-rule) in its compiled role prompt.
 Both ways use the same rule owners under `rules/`.
 No verbatim rule copies are added under `prompts/util/`.
 
-The dispatcher supplies the target repository's rules and the work item's Decisions and Pre-flight sections.
+The [dispatcher](75-subagent-profiles.md#dispatcher) supplies the [target repository](77-one-step-pack-assembly.md#target-repository)'s rules and the work item's Decisions and Pre-flight sections.
 Role instructions identify those supplied parts instead of asking workers to search for rule files.
 The checker calls itself CHECKER.
 Tests cover shared-rule ownership, both prompt variants and the checker's identity.
 
+<a id="terms"></a>
 ## 2. Terms
 
-- **Role pack:** the compiled output of [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py)
-  for a role file under `prompts/roles/`.
-- **Shared rule:** a rule every agent needs, with one owner under `rules/`.
-  Writing rules, claim labels, Git rules and priority labels are shared rules.
-- **Session rule:** a rule for a normal chat session, such as talking to the operator,
-  formatting operator questions or running lanes.
-  Warden role prompts do not include session-rule files.
-- **Open citation:** an instruction to read a rule absent from both the compiled prompt and
-  the session's declared House Rules loading path.
-- **Repository rules part** and **task part:** the supplied parts defined by the
-  [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77).
-  The repository rules part holds the target repository's own rules or the line
-  “Repository rules: this repository has no rules of its own.”
-  The task part holds the work item's Decisions and Pre-flight sections.
+<a id="role-pack"></a>
+### Role pack
 
+**Role pack:** the compiled output of [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py)
+for a role file under `prompts/roles/`.
+
+<a id="shared-rule"></a>
+### Shared rule
+
+**Shared rule:** a rule every agent needs, with one owner under `rules/`.
+Writing rules, claim labels, Git rules and priority labels are shared rules.
+
+<a id="session-rule"></a>
+### Session rule
+
+**Session rule:** a rule for a normal chat session, such as talking to the operator,
+formatting operator questions or running lanes.
+Warden role prompts do not include session-rule files.
+
+<a id="open-citation"></a>
+### Open citation
+
+**Open citation:** an instruction to read a rule absent from both the compiled prompt and
+the session's declared House Rules loading path.
+
+<a id="supplied-rule-parts"></a>
+### Supplied rule parts
+
+**Repository rules part** and **task part:** the supplied parts defined by the
+[one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77).
+The repository rules part holds the [target repository](77-one-step-pack-assembly.md#target-repository)'s own rules or the line
+“Repository rules: this repository has no rules of its own.”
+The task part holds the work item's Decisions and Pre-flight sections.
+
+<a id="current-behavior-verified-for-this-revision"></a>
 ## 3. Current behavior verified for this revision
 
 The following observations come from the worktree at commit
@@ -49,7 +72,7 @@ Historical lane-load reports from earlier design revisions are not new runtime e
   [skills/pr-ready/scripts/prompt.py at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/skills/pr-ready/scripts/prompt.py).
 - `FACT` The implementer prompt forbids loading House Rules in the opening paragraph of
   [prompts/roles/implementer.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/implementer.md).
-  `FACT` The implementer prompt also directs the worker to the target repository's instruction file in
+  `FACT` The implementer prompt also directs the worker to the [target repository](77-one-step-pack-assembly.md#target-repository)'s instruction file in
   [prompts/roles/implementer.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/implementer.md).
 - `FACT` The reviewer prompt permits one targeted test, as stated in
   [prompts/roles/reviewer.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/reviewer.md).
@@ -63,15 +86,17 @@ Historical lane-load reports from earlier design revisions are not new runtime e
 [prompts/util/issue-form.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/util/issue-form.md).
 `FACT` The cost-defect definition lives in
 [prompts/util/triage-classes.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/util/triage-classes.md).
-`ASSESSMENT` Direct includes from shared rule owners remove the need for copied rule fragments and parity tests.
+`ASSESSMENT` Direct includes from [shared rule](#shared-rule) owners remove the need for copied rule fragments and parity tests.
 
+<a id="design"></a>
 ## 4. Design
 
-### 4.1 One owner for shared rules
+<a id="one-owner-for-shared-rules"></a>
+### 4.1 One owner for [shared rules](#shared-rule)
 
 `DECISION` The operator chose “one place for everything” on 2026-10-07.
 Rules every agent needs become separate, clearly organized files under `rules/`.
-Sessions and subagents load those files through the House Rules index.
+Sessions and [subagents](75-subagent-profiles.md#subagent) load those files through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
 Warden role prompts include those files with `@rule house-rules:rules/<file>.md` lines.
 
 The proposed shared owners are:
@@ -80,7 +105,7 @@ The proposed shared owners are:
   Warden packs include the claim labels rather than omitting them in favor of a review confidence field.
   A confidence field describes a finding's confidence; a claim label describes the evidence behind a statement.
 - The proposed `rules/git.md` owns the Git rules currently in
-  [rules/delivery.md §Git](../../rules/delivery.md#git).
+  [rules/delivery.md §Git](../../rules/delivery.md).
   [rules/delivery.md](../../rules/delivery.md) points to that owner instead of repeating its text.
 - The proposed `rules/priority-labels.md` owns the P0–P3 definitions.
   [prompts/util/issue-form.md](../../prompts/util/issue-form.md) points to that owner.
@@ -89,7 +114,7 @@ The proposed shared owners are:
 
 Session-only writing and question instructions move to a separate session-rule file.
 The proposed name is `rules/session-writing.md`.
-The House Rules index loads that file for normal sessions.
+The [House Rules index](73-instruction-layer-foundation.md#house-rules-index) loads that file for normal sessions.
 Warden role prompts never include that file or lane-running procedures.
 The split preserves the shared writing rules and their claim labels in [rules/writing.md](../../rules/writing.md).
 
@@ -99,25 +124,26 @@ Shared-rule edits change the canonical owner once.
 
 The index becomes `house-rules/INDEX.md` under the
 [smaller-core design](https://github.com/symbiotic-sh/house-rules/issues/73).
-The pointer at `house-rules/AGENTS.md` names `house-rules/INDEX.md` and `house-rules/.agents/rules.md`.
-The smaller-core design also owns the matching pointer shape in `<target-repository>/AGENTS.md`
+The [pointer](73-instruction-layer-foundation.md#instruction-pointer) at `house-rules/AGENTS.md` names `house-rules/INDEX.md` and `house-rules/.agents/rules.md`.
+The smaller-core design also owns the matching [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape in `<target-repository>/AGENTS.md`
 and `<codex-home>/AGENTS.md`.
-This design uses those pointers; this design does not define a competing loader.
+This design uses those [pointers](73-instruction-layer-foundation.md#instruction-pointer); this design does not define a competing loader.
 
+<a id="one-role-file-two-loading-paths"></a>
 ### 4.2 One role file, two loading paths
 
-`DECISION` Lane workers run as normal sessions in the operator's Codex home.
-Lane implementers, fixers and reviewers retain the House Rules block, skills and guardian escalation path.
+`DECISION` [Lane workers](75-subagent-profiles.md#lane-worker) run as normal sessions in the operator's Codex home.
+Lane implementers, fixers and reviewers retain the [House Rules block](73-instruction-layer-foundation.md#house-rules-block), skills and guardian escalation path.
 Role prompts add the worker's role instructions to that session.
 Role prompts do not forbid those normal sessions from loading House Rules.
 
 The proposed compiler option is `--session`.
 The default compile includes shared-rule files for an agent that has no House Rules session loader.
-Each default role pack includes all three shared owners from §4.1.
+Each default [role pack](#role-pack) includes all three shared owners from §4.1.
 A compile with `--session` omits the shared-rule includes because the session loads their canonical owners.
 Both variants read the same role file.
 The compiler does not infer the loading path from a tool-home name or filesystem search.
-The dispatcher explicitly selects the variant.
+The [dispatcher](75-subagent-profiles.md#dispatcher) explicitly selects the variant.
 The selected loading path is stated in the compiled prompt header.
 
 The option omits only the declared shared-rule includes from §4.1.
@@ -128,8 +154,8 @@ The revision header still names the commit used for the role prompt.
 
 For the default variant, every rule citation must resolve inside the compiled pack.
 For the session variant, a shared-rule citation may resolve through the index's declared loading path.
-Neither variant sends the worker to a skill solely to recover missing shared rule text.
-The role prompt tells a session worker to use its session rules and the supplied task and repository rules.
+Neither variant sends the worker to a skill solely to recover missing [shared rule](#shared-rule) text.
+The role prompt tells a session worker to use its [session rules](#session-rule) and the supplied task and repository rules.
 The role prompt tells a Warden reviewer that the compiled pack supplies its House Rules.
 
 `DECISION` A lane session's House Rules come from the live checkout through the installed block.
@@ -139,38 +165,40 @@ The [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issue
 owns reading the named commit from Git objects in any clone.
 The one-step assembly design also removes the need for a separate pinned checkout.
 
+<a id="repository-and-task-rules"></a>
 ### 4.3 Repository and task rules
 
-Role instructions name the repository rules part and the task part before work begins.
-The dispatcher writes the work item's Decisions and Pre-flight sections into the task part.
-The dispatcher supplies the target repository's own rules through the repository rules part.
-No role asks the worker to search the target repository or its parent directories for rule files.
+Role instructions name the [repository rules part](#supplied-rule-parts) and the [task part](#supplied-rule-parts) before work begins.
+The [dispatcher](75-subagent-profiles.md#dispatcher) writes the work item's Decisions and Pre-flight sections into the [task part](#supplied-rule-parts).
+The [dispatcher](75-subagent-profiles.md#dispatcher) supplies the [target repository](77-one-step-pack-assembly.md#target-repository)'s own rules through the [repository rules part](#supplied-rule-parts).
+No role asks the worker to search the [target repository](77-one-step-pack-assembly.md#target-repository) or its parent directories for rule files.
 
-A repository rules part that says the target repository has no rules of its own is complete.
+A repository rules part that says the [target repository](77-one-step-pack-assembly.md#target-repository) has no rules of its own is complete.
 The worker does not report missing rules in that case.
 A prompt built with `--no-target` has no repository rules part.
 The worker reports that absence once and continues with the supplied task.
 
-A normal session may follow its installed House Rules pointer.
-A Warden reviewer uses the supplied pack and does not follow a pointer into a live House Rules checkout.
+A normal session may follow its installed House Rules [pointer](73-instruction-layer-foundation.md#instruction-pointer).
+A Warden reviewer uses the supplied pack and does not follow a [pointer](73-instruction-layer-foundation.md#instruction-pointer) into a live House Rules checkout.
 The previous blanket stay-off fragment is removed from the design.
 The [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77)
-owns recognizing the pointer shape in `<target-repository>/AGENTS.md` and supplying actual repository rules.
-That design must use the pointer shape chosen by the smaller-core design, rather than an obsolete loader template.
+owns recognizing the [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape in `<target-repository>/AGENTS.md` and supplying actual repository rules.
+That design must use the [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape chosen by the smaller-core design, rather than an obsolete loader template.
 
+<a id="role-and-fragment-changes"></a>
 ### 4.4 Role and fragment changes
 
-[prompts/roles/implementer.md](../../prompts/roles/implementer.md) identifies the loading path and supplied rule parts.
+[prompts/roles/implementer.md](../../prompts/roles/implementer.md) identifies the loading path and [supplied rule parts](#supplied-rule-parts).
 The implementer role cites the canonical Git owner instead of [rules/delivery.md](../../rules/delivery.md).
 The implementer role retains its local gate.
 The implementer role retains the full local merge gate for repositories without pull-request continuous integration (the no-PR-CI exception).
-The implementer role drops the open merge-eligibility pointer because the worker does not merge.
+The implementer role drops the open merge-eligibility [pointer](73-instruction-layer-foundation.md#instruction-pointer) because the worker does not merge.
 [prompts/util/external-writes.md](../../prompts/util/external-writes.md) continues to reserve external writes for the lead.
 
 [prompts/roles/fixer.md](../../prompts/roles/fixer.md) uses the same Git owner through its implementer include.
 The fixer keeps the one-new-commit contract and pushed-history protection.
 The fixer inherits shared-rule includes through the implementer role instead of repeating them.
-The compiler therefore emits each shared rule once without a new deduplication mechanism.
+The compiler therefore emits each [shared rule](#shared-rule) once without a new deduplication mechanism.
 
 [prompts/roles/reviewer.md](../../prompts/roles/reviewer.md) includes the shared writing rules for its default compile.
 The reviewer role separates Warden's static review from the lane reviewer's existing targeted-test allowance.
@@ -188,7 +216,7 @@ Reviewer, triager and checker role files include that single definition.
 [prompts/util/cost-and-design.md](../../prompts/util/cost-and-design.md) points to the new definition owner.
 [prompts/util/triage-classes.md](../../prompts/util/triage-classes.md) retains classification and the FIX-NOW exception.
 
-[prompts/util/issue-form.md](../../prompts/util/issue-form.md) replaces its priority-skill pointer with the canonical priority-rule owner.
+[prompts/util/issue-form.md](../../prompts/util/issue-form.md) replaces its priority-skill [pointer](73-instruction-layer-foundation.md#instruction-pointer) with the canonical priority-rule owner.
 The issue-form fragment removes the work-tracking source note that supplies no worker instruction.
 [prompts/skills/code-canon.md](../../prompts/skills/code-canon.md) removes the design-canon source note after the complete migration rule.
 The migration rule itself remains unchanged.
@@ -197,6 +225,7 @@ The migration rule itself remains unchanged.
 [CHANGELOG-RULES.md](../../CHANGELOG-RULES.md) records the operator's 2026-10-07 choices as provenance.
 No rule is copied into [prompts/README.md](../../prompts/README.md) or [CHANGELOG-RULES.md](../../CHANGELOG-RULES.md).
 
+<a id="warden-s-boundary"></a>
 ### 4.5 Warden's boundary
 
 `DECISION` Warden reviewers use a read-only copy of the pull request.
@@ -210,8 +239,9 @@ Warden's posting responsibility does not grant the reviewer agent permission to 
 The reviewer role's current one-targeted-test allowance does not apply inside Warden.
 The default compiled reviewer prompt states Warden's restrictions.
 The session variant preserves the lane reviewer's existing allowance.
-The session variant does not turn a Warden reviewer into a lane worker.
+The session variant does not turn a Warden reviewer into a [lane worker](75-subagent-profiles.md#lane-worker).
 
+<a id="implementation-tests"></a>
 ### 4.6 Implementation tests
 
 The implementation adds targeted regressions to
@@ -244,14 +274,16 @@ The implementation updates the existing Git-reference, triage-definition and rep
 The definition test checks that reviewer, triager and checker receive the same cost-defect text once.
 The implementation retains requirement-preservation checks and the work-item reading requirement.
 
+<a id="rejected-alternatives"></a>
 ## 5. Rejected alternatives
 
 - **Verbatim shared-rule copies under `prompts/util/`:** rejected because the operator chose one canonical home under `rules/`.
 - **Shared-rule owners under `prompts/util/`:** rejected because the operator chose shared instruction files under `rules/`.
-- **The whole session foundation in every role pack:** rejected because Warden must receive shared rules without session-only instructions.
+- **The whole [session foundation](75-subagent-profiles.md#session-foundation) in every [role pack](#role-pack):** rejected because Warden must receive [shared rules](#shared-rule) without session-only instructions.
 - **An isolated lane-worker home by default:** rejected because the operator chose normal Codex sessions with House Rules and skills.
 - **One blanket loading ban for every worker:** rejected because lane sessions must load House Rules while Warden uses a complete supplied pack.
 
+<a id="implementation-scope"></a>
 ## 6. Implementation scope
 
 The proposed new shared-rule files are `rules/git.md` and `rules/priority-labels.md`.
@@ -260,7 +292,7 @@ The proposed role-specific fragment is `prompts/util/cost-defect.md`.
 The shared writing owner remains [rules/writing.md](../../rules/writing.md).
 The Git split changes [rules/delivery.md](../../rules/delivery.md).
 The shared-rule split updates index loading and existing rule consumers together.
-The smaller-core design owns the index rename and installed pointer changes.
+The smaller-core design owns the index rename and installed [pointer](73-instruction-layer-foundation.md#instruction-pointer) changes.
 
 The role changes cover all five files under `prompts/roles/`.
 The utility changes cover [prompts/util/cost-and-design.md](../../prompts/util/cost-and-design.md),
@@ -275,10 +307,11 @@ The one-step assembly design owns named-commit building and the caller's variant
 
 The prior copied-fragment size estimates no longer describe this design.
 The implementation reports bytes for both compiled variants from the actual compiler output.
-The implementation also reports the shared rules loaded by normal sessions.
-Those measurements must distinguish the live session rules from the named-commit role prompt.
+The implementation also reports the [shared rules](#shared-rule) loaded by normal sessions.
+Those measurements must distinguish the live [session rules](#session-rule) from the named-commit role prompt.
 The design adds no runtime store, index, cache, queue or mirror.
 
+<a id="verification"></a>
 ## 7. Verification
 
 These checks are implementation acceptance criteria, not completed results of this document revision.
@@ -290,8 +323,8 @@ The local document-revision gate is [scripts/test_sync.py](../../scripts/test_sy
 **Lane canary:** run one implementer, three reviewers, one triager, one fixer and one checker on a small seeded change in normal Codex sessions.
 Use the named-commit compiler from the one-step assembly design.
 Use the session variant of each role prompt.
-Use a disposable fixture for the live session rule checkout; do not edit the operator's installed rules.
-Give the fixture's live shared rules a distinct marker from the role-prompt commit.
+Use a disposable fixture for the live [session rule](#session-rule) checkout; do not edit the operator's installed rules.
+Give the fixture's live [shared rules](#shared-rule) a distinct marker from the role-prompt commit.
 
 The lane canary passes when tool logs show the expected session loading path and the named-commit role prompt.
 Live House Rules reads are expected for normal sessions.
@@ -301,11 +334,11 @@ The checker must call itself CHECKER.
 Reviewer, triager and checker outputs must preserve their `VERDICT:` first line.
 Implementer and fixer outputs must preserve their final-message contract.
 
-Run triager and checker with a repository rules part that says the target repository has no rules of its own.
+Run triager and checker with a [repository rules part](#supplied-rule-parts) that says the [target repository](77-one-step-pack-assembly.md#target-repository) has no rules of its own.
 Those workers must not report missing rules.
 Run a triager with `--no-target`.
-That triager must report the absent repository rules part once without searching for rule files.
-The fixture pointer at `<test-repository>/AGENTS.md` must use the smaller-core design's chosen pointer shape.
+That triager must report the absent [repository rules part](#supplied-rule-parts) once without searching for rule files.
+The fixture [pointer](73-instruction-layer-foundation.md#instruction-pointer) at `<test-repository>/AGENTS.md` must use the smaller-core design's chosen [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape.
 
 **Warden canary:** use the default role variants after Warden deploys staging for `rules/`.
 All required includes must resolve from the qualified commit.
@@ -314,34 +347,38 @@ The reviewer must retain the read-only and network restrictions from §4.5.
 The Warden service's review must be readable by the Mac lane scripts for a local fix round.
 Self-reports alone do not prove the loading or isolation behavior.
 
+<a id="rollout-and-dependencies"></a>
 ## 8. Rollout and dependencies
 
 The prior rollout based on temporary copies is removed.
 Deployment follows these dependencies:
 
-1. Confirm that Warden has deployed the staging change for `rules/` before enabling direct shared-rule includes there.
+**Procedure: deploy shared-rule loading**
+
+1. **Confirm that Warden** has deployed the staging change for `rules/` before enabling direct shared-rule includes there.
    Widen the staged-path guard only with that deployment evidence.
-2. Land the shared-rule owners and update their consumers together.
+2. **Land the shared-rule owners** and update their consumers together.
    Coordinate the shared-rule loading list with the smaller-core design's index changes.
    Do not introduce a temporary copied-rule path.
-3. Integrate the two compiler variants with the one-step assembly design's named-commit builder.
-   The lane runner selects the session variant.
+3. **Integrate the two compiler variants** with the one-step assembly design's named-commit builder.
+   The [lane runner](77-one-step-pack-assembly.md#lane-runner) selects the session variant.
    Warden selects the default complete variant.
-4. Run the lane and Warden canaries from §7 before moving the callers to the new role-prompt commit.
+4. **Run the lane and Warden canaries** from §7 before moving the callers to the new role-prompt commit.
    The live lane-session checkout remains a separate source of session instructions.
 
 The [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77)
-owns drafting its matching Warden compiler change after the lane-runner test passes and with operator approval.
+owns drafting its matching Warden compiler change after the [lane-runner](77-one-step-pack-assembly.md#lane-runner) test passes and with operator approval.
 This design does not create a second Warden rollout or assume that staging deployment proves compiler deployment.
 
+<a id="interfaces-with-the-other-designs"></a>
 ## 9. Interfaces with the other designs
 
 - **[Smaller always-loaded core](https://github.com/symbiotic-sh/house-rules/issues/73):** owns `house-rules/INDEX.md`,
-  the pointer files and its own canary.
+  the [pointer](73-instruction-layer-foundation.md#instruction-pointer) files and its own canary.
   This design supplies the shared-rule owners that its index loads.
-- **[Specialist subagents](https://github.com/symbiotic-sh/house-rules/issues/75):** owns specialist execution,
+- **[Specialist](75-subagent-profiles.md#specialist) [subagents](75-subagent-profiles.md#subagent) ([source](https://github.com/symbiotic-sh/house-rules/issues/75)):** owns [specialist](75-subagent-profiles.md#specialist) execution,
   including separate Claude safe-mode processes, skill-text injection and its Model Context Protocol test and fallback.
-  Specialist packs use the shared owners without assuming that safe mode loads session skills.
+  [Specialist packs](75-subagent-profiles.md#specialist-pack) use the shared owners without assuming that safe mode loads session skills.
 - **[Review skill](https://github.com/symbiotic-sh/house-rules/issues/76):** owns the `change-review` skill,
   the fixed review format, the operator question format and one reviewer by default.
   This design supplies the reviewer role's shared writing rules and claim labels.
@@ -349,27 +386,29 @@ This design does not create a second Warden rollout or assume that staging deplo
   revision headers, repository rules assembly and caller integration for the two loading paths.
   Lane review panels use that builder rather than scripts taken from the live checkout.
 
+<a id="decisions"></a>
 ## 10. Decisions
 
 Each item records the operator's choice on 2026-10-07.
 
-1. **2026-10-07 — One shared home:** writing rules with claim labels, Git rules and priority labels live in separate files under `rules/`.
+- **1.** **2026-10-07 — One shared home:** writing rules with claim labels, Git rules and priority labels live in separate files under `rules/`.
    Rule text is not copied under `prompts/util/`.
-2. **2026-10-07 — Load shared rules for every agent:** sessions and subagents load shared rules through the House Rules index.
+- **2.** **2026-10-07 — Load [shared rules](#shared-rule) for every agent:** sessions and [subagents](75-subagent-profiles.md#subagent) load [shared rules](#shared-rule) through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
    Warden role prompts include the canonical files with `@rule house-rules:rules/<file>.md` lines.
-3. **2026-10-07 — Keep session rules separate:** instructions for talking to the operator, formatting questions and running lanes stay in their own files.
+- **3.** **2026-10-07 — Keep [session rules](#session-rule) separate:** instructions for talking to the operator, formatting questions and running lanes stay in their own files.
    Warden role prompts do not include those files.
-4. **2026-10-07 — Normal lane sessions:** lane workers use the operator's normal Codex home with the House Rules block, skills and guardian escalation path.
+- **4.** **2026-10-07 — Normal lane sessions:** [lane workers](75-subagent-profiles.md#lane-worker) use the operator's normal Codex home with the [House Rules block](73-instruction-layer-foundation.md#house-rules-block), skills and guardian escalation path.
    One role file serves lane sessions and Warden; lane prompts omit shared-rule includes already supplied by the session.
-5. **2026-10-07 — State the pin limit:** lane-session rules come from the live House Rules checkout.
+- **5.** **2026-10-07 — State the pin limit:** lane-session rules come from the live House Rules checkout.
    Only the role prompt is built from a named commit, as defined by the one-step assembly design.
-6. **2026-10-07 — Keep Warden read-only:** Warden reviewers use a read-only pull-request copy, contact only the model provider and run no builds or tests.
+- **6.** **2026-10-07 — Keep Warden read-only:** Warden reviewers use a read-only pull-request copy, contact only the model provider and run no builds or tests.
    Continuous integration runs builds and tests; Warden posts reviews for the Mac lane scripts to read and fix locally.
-7. **2026-10-07 — Stage canonical rules:** Warden stages `rules/` from the qualified commit through the change identified as `9f1568b`.
+- **7.** **2026-10-07 — Stage canonical rules:** Warden stages `rules/` from the qualified commit through the change identified as `9f1568b`.
    The House Rules staged-path guard widens to `rules/` once that change is deployed.
 
 Decisions owned by other designs remain the short cross-references in §9.
 
+<a id="open-points"></a>
 ## 11. Open points
 
 - **Warden staging deployment:** close this point with deployment evidence for `9f1568b`
@@ -377,3 +416,63 @@ Decisions owned by other designs remain the short cross-references in §9.
   The recorded merge alone does not establish deployment.
 
 The recorded operator answers leave no unanswered operator choice for this design.
+
+<!-- spec-docs:navigation document="complete-worker-packs" -->
+# Complete worker role packs
+
+<!-- Generated by spec-docs; edit authored declarations. -->
+
+## Overview
+
+Record complete role prompts and their two shared-rule loading paths.
+
+**Audience:** Maintainers and implementers reading the historical design and its recorded decisions.
+
+**Scope:** Shared-rule ownership, role instructions, supplied repository rules and canaries.
+
+**Non-goals:** Named-commit assembly, specialist launching and index rename implementation.
+
+## Document map
+
+- [Complete worker role packs](74-complete-worker-packs.md#complete-worker-role-packs) — Read the historical status and source work item for this design.
+- [1. Result](74-complete-worker-packs.md#result) — Record complete role prompts and their two shared-rule loading paths.
+- [2. Terms](74-complete-worker-packs.md#terms) — Resolve the defined names and root placeholders used in this design.
+- [3. Current behavior verified for this revision](74-complete-worker-packs.md#current-behavior-verified-for-this-revision) — Inspect the cited implementation baseline and the limits of inherited evidence.
+- [4. Design](74-complete-worker-packs.md#design) — Share rule owners across session and compiled loading paths without copied fragments.
+- [5. Rejected alternatives](74-complete-worker-packs.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
+- [6. Implementation scope](74-complete-worker-packs.md#implementation-scope) — Find the proposed file changes, persistent additions and excluded work.
+- [7. Verification](74-complete-worker-packs.md#verification) — Find the required tests and canaries, with their evidence limits.
+- [8. Rollout and dependencies](74-complete-worker-packs.md#rollout-and-dependencies) — Deploy shared-rule staging, compiler variants and canaries in dependency order.
+- [9. Interfaces with the other designs](74-complete-worker-packs.md#interfaces-with-the-other-designs) — Find the neighboring design that owns each integration boundary.
+- [10. Decisions](74-complete-worker-packs.md#decisions) — Read the recorded operator and lead choices with their stated authority.
+- [11. Open points](74-complete-worker-packs.md#open-points) — Find the remaining implementation evidence; no operator choice is open.
+
+## Entity index
+
+- [Open citation](74-complete-worker-packs.md#open-citation) (`complete-worker-packs.open-citation`) — Open citation: an instruction to read a rule absent from both the compiled prompt and
+the session's declared House Rules loading path.
+- [Role pack](74-complete-worker-packs.md#role-pack) (`complete-worker-packs.role-pack`) — Role pack: the compiled output of skills/pr-ready/scripts/prompt.py
+for a role file under prompts/roles/.
+- [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator,
+formatting operator questions or running lanes.
+Warden role prompts do not include session-rule files.
+- [Shared rule](74-complete-worker-packs.md#shared-rule) (`complete-worker-packs.shared-rule`) — Shared rule: a rule every agent needs, with one owner under rules/.
+Writing rules, claim labels, Git rules and priority labels are shared rules.
+- [Supplied rule parts](74-complete-worker-packs.md#supplied-rule-parts) (`complete-worker-packs.supplied-rule-parts`) — Repository rules part and task part: the supplied parts defined by the
+one-step assembly design.
+The repository rules part holds the target repository's own rules or the line
+“Repository rules: this repository has no rules of its own.”
+The task part holds the work item's Decisions and Pre-flight sections.
+- [House Rules block](73-instruction-layer-foundation.md#house-rules-block) (`instruction-layer-foundation.house-rules-block`) — House Rules block: the managed pointer between <!-- house-rules:begin --> and <!-- house-rules:end -->.
+<HOUSE_RULES_ROOT>/INSTALL-AGENTS.md §3 defines the block.
+- [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: <HOUSE_RULES_ROOT>/INDEX.md, which owns shared loading instructions.
+- [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer) (`instruction-layer-foundation.instruction-pointer`) — Pointer: a tool or repository instruction file that tells the agent to read the shared index.
+- [Lane runner](77-one-step-pack-assembly.md#lane-runner) (`one-step-pack-assembly.lane-runner`) — Lane runner: the operator's scripts outside House Rules that launch local workers.
+- [Target repository](77-one-step-pack-assembly.md#target-repository) (`one-step-pack-assembly.target-repository`) — Target: the repository checkout on which a worker works or performs a review.
+- [Dispatcher](75-subagent-profiles.md#dispatcher) (`subagent-profiles.dispatcher`) — Dispatcher: the session or script that starts a subagent and writes its task.
+- [Lane worker](75-subagent-profiles.md#lane-worker) (`subagent-profiles.lane-worker`) — Lane worker: an implementer, fixer or lane reviewer running as a normal session with a role prompt on top.
+- [Session foundation](75-subagent-profiles.md#session-foundation) (`subagent-profiles.session-foundation`) — Foundation: the normal session instructions defined by the smaller-core design (#73).
+- [Specialist agent](75-subagent-profiles.md#specialist) (`subagent-profiles.specialist`) — Specialist: a separate process whose only task rule source is a compiled pack.
+- [Specialist pack](75-subagent-profiles.md#specialist-pack) (`subagent-profiles.specialist-pack`) — Specialist pack: a role prompt, required shared rules, optional lens and skill text, repository rules and task, built from a named House Rules commit.
+- [Subagent](75-subagent-profiles.md#subagent) (`subagent-profiles.subagent`) — Subagent: an agent started through the Claude Agent tool, Codex spawn_agent, or a separate command-line process.
+<!-- /spec-docs:navigation -->

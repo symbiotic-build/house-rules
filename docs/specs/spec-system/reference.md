@@ -285,7 +285,7 @@ The format reference owns syntax and literal comparison.
 The authoring skill owns authoring and reader procedures.
 Design lifecycle skills own outline, approval and closeout.
 
-The prompt compiler and review preparer own context integration.
+The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) and review preparer own context integration.
 Review lenses own meaning and whole-[scenario](sources.md#scenario) examination.
 The structure reference owns paths; the index and changelog own loading and adoption rationale.
 The generated [entity index](sources.md#entity-index) replaces a separate hand-maintained glossary.
