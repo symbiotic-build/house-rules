@@ -31,6 +31,8 @@ Rules.
   (assertions, symbols, tight edit-compile loops) or a named debug-only invariant. Reusing
   compiled outputs across gates: skill `ci-build-optimization`.
 - `///` docs on public items.
+- Property and sequence tests use `proptest`; fuzzing uses `cargo-fuzz`. When each applies:
+  [Test discipline](../../prompts/skills/test-discipline.md#systems-that-keep-durable-state).
 
 ## Repo tooling
 

@@ -134,6 +134,9 @@ to [design-flow](../skills/design-flow/SKILL.md).
 - Link requirements and acceptance tests reciprocally. Changed requirements and directly
   referenced facts expose affected tests for re-review, including relevant base material.
   Removing a requirement needs a resolving decision reference.
+- For a system that keeps durable state, state its system-level and operation-level
+  invariants as requirements, each linked to the test that checks it
+  ([Test discipline](../prompts/skills/test-discipline.md#systems-that-keep-durable-state)).
 - Give each stopping mechanism a failure declaration: trigger, retained or changed state,
   caller-visible result, recovery action or its explicit absence, required actor and
   authority, and verification links. Explain ordinary behavior before failure paths.
