@@ -301,6 +301,21 @@ class CorpusTests(unittest.TestCase):
             edit(self.paths, SETTINGS, '| specified |', f'| {status} |')
             self.assertNotIn('D02', self.codes())
 
+    def test_context_rewrites_html_encoded_anchors_with_attribute_escaping(self):
+        for prefix in ('', '> '):
+            with self.subTest(container=bool(prefix)):
+                self.paths = self.clean.copy()
+                self.paths[ACCEPTANCE] += (
+                    '\n' + prefix + '<div>\n' + prefix + '<a id="limits&amp;bounds&quot;quoted"></a>\n'
+                    + prefix + '</div>\n\n[Limits](#limits%26bounds%22quoted)\n'
+                    + '\nInline <a id="inline&amp;bounds&quot;quoted"></a> anchor.\n\n'
+                    + '[Inline](#inline%26bounds%22quoted)\n').encode()
+                text = self.context().content.decode()
+                self.assertIn(prefix + '<a id="pack-0-limits&amp;bounds&quot;quoted"></a>', text)
+                self.assertIn('[Limits](#pack-0-limits%26bounds%22quoted)', text)
+                self.assertIn('<a id="pack-0-inline&amp;bounds&quot;quoted"></a>', text)
+                self.assertIn('[Inline](#pack-0-inline%26bounds%22quoted)', text)
+
     def test_context_rewrites_only_links_to_included_destinations(self):
         self.paths[ACCEPTANCE] += b'\n> <div>\n> <a id="proof"></a>\n> Preserved evidence.\n> <a\n> id="proof-lines"></a>\n> </div>\n\n[Proof](#proof).\n'
         ctx = self.context()
@@ -358,6 +373,54 @@ class CorpusTests(unittest.TestCase):
                 self.paths = self.clean.copy()
                 metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0]['sections'][0].update(summary=summary))
                 self.red_green('D36')
+
+    def test_diagnostics_locate_document_text_without_echoing_it(self):
+        marker = 'private-fixture-' + 'marker-123'
+        for mode, code in (('escape', 'D05'), ('value', 'D10'), ('ambiguous', 'W04'),
+                           ('rejected', 'D13'), ('symbol', 'D14'), ('duplicate-field', 'D02'),
+                           ('unknown-field', 'D02'), ('fact-status', 'D02'), ('fact-anchor', 'D08'),
+                           ('fact-duplicate', 'D03'), ('fact-fields', 'D02'), ('anchor', 'D03')):
+            with self.subTest(mode=mode):
+                self.paths = self.clean.copy()
+                if mode == 'escape':
+                    self.paths[ACCEPTANCE] += f'\n[Outside](../../../../{marker})\n'.encode()
+                elif mode == 'value':
+                    edit(self.paths, SETTINGS, '| 1,024 |', f'| {marker} |')
+                    self.paths[ACCEPTANCE] += f'\n[999 {marker}](settings.md#commit-capacity-default)\n'.encode()
+                elif mode == 'ambiguous':
+                    metadata(self.paths, s.JSON_PATHS[0], lambda v: (
+                        v['entities']['example.writer']['forms'].append(marker),
+                        v['entities']['example.acceptance']['forms'].append(marker)))
+                    self.paths[ACCEPTANCE] += f'\n{marker}\n'.encode()
+                elif mode == 'rejected':
+                    metadata(self.paths, s.JSON_PATHS[0], lambda v:
+                        v['entities']['example.writer']['rejected_forms'].append(
+                            dict(text=marker, replacement=marker + '-replacement', reason='Synthetic example.')))
+                    self.paths[ACCEPTANCE] += f'\n{marker}\n'.encode()
+                elif mode == 'symbol':
+                    metadata(self.paths, s.JSON_PATHS[0], lambda v:
+                        v['entities']['example.commit-capacity']['symbols'].append(marker))
+                elif mode in ('duplicate-field', 'unknown-field'):
+                    self.paths[ACCEPTANCE] += (f'\n**{marker}:** Synthetic field.\n' *
+                                              (2 if mode == 'duplicate-field' else 1)).encode()
+                elif mode == 'anchor':
+                    self.paths[ACCEPTANCE] += (f'\n<a id="{marker}"></a>\n' * 2).encode()
+                else:
+                    row = f'| <a id="synthetic-row"></a>{marker} | 3 | specified | [Fixture](#fixture-decision) |'
+                    if mode == 'fact-status':
+                        row = row.replace('specified', 'invalid')
+                    elif mode == 'fact-anchor':
+                        row = row.replace('<a id="synthetic-row"></a>', '')
+                    elif mode == 'fact-fields':
+                        row = row.replace('[Fixture](#fixture-decision)', '')
+                    elif mode == 'fact-duplicate':
+                        row += '\n' + row.replace('synthetic-row', 'second-row')
+                    edit(self.paths, SETTINGS, '| <a id="commit-capacity-default"></a>default | 1,024 | provisional | [Capacity qualification](#open-questions) |',
+                         '| <a id="commit-capacity-default"></a>default | 1,024 | provisional | [Capacity qualification](#open-questions) |\n' + row)
+                diagnostics = s.check(corpus(self.paths))
+                self.assertTrue(any(d.code == code for d in diagnostics.items))
+                self.assertFalse(marker in json.dumps(diagnostics.to_dict()),
+                                 'document text escaped into diagnostics')
 
     def test_three_repeated_sentences_fail_with_whitespace_normalization(self):
         sentence = 'The displayed capacity comes from the single declared batch value.'
@@ -1060,6 +1123,45 @@ class CorpusTests(unittest.TestCase):
                     self.assertIn('authority#decision', ctx.manifest['included'])
                 self.assertIn(b'Qualify candidate capacity', ctx.content)
 
+    def test_added_home_selects_owning_document_approval_and_decision_dependencies(self):
+        def separate_documents(value):
+            doc = value['documents'][0]
+            doc.update(status='draft', scenarios=[], gaps=corpus(self.clean).contract['roles'])
+            del doc['approval']
+            settings = doc['sections'].pop()
+            doc['sections'][0]['explanatory_dependencies'] = []
+            authority = copy.deepcopy(doc)
+            authority.update(id='settings', title='Settings authority', status='approved',
+                             approval=dict(authority='fixture', decision='settings#fixture-decision'),
+                             navigation=dict(path='docs/generated/settings.md'),
+                             sections=[settings, dict(id='decision', path=SETTINGS, anchor='fixture-decision',
+                                 roles=[], summary='Record approval authority.', prerequisites=[],
+                                 explanatory_dependencies=[dict(section='settings#questions', reason='Qualify this approval.')]),
+                                 dict(id='questions', path=SETTINGS, anchor='open-questions', roles=[],
+                                      summary='Qualify candidate capacity.', prerequisites=[], explanatory_dependencies=[])])
+            settings.update(prerequisites=[], roles=corpus(self.clean).contract['roles'])
+            value['documents'].append(authority)
+            doc['sections'].append(dict(id='writer-only', path=ACCEPTANCE, anchor='writer', roles=[],
+                summary='Select the writer policy.', prerequisites=[], explanatory_dependencies=[]))
+        metadata(self.paths, s.JSON_PATHS[1], separate_documents)
+        def move_homes(value):
+            for entity in value['entities'].values():
+                entity['scope'].append('settings')
+                if entity['home']['section'] == 'example-demo#settings':
+                    entity['home']['section'] = 'settings#settings'
+        metadata(self.paths, s.JSON_PATHS[0], move_homes)
+        edit(self.paths, SETTINGS, '**Reason:** It covers homes, literal values, shared defaults and [acceptance](acceptance.md#acceptance) links.',
+             '**Reason:** Approval uses [call capacity](#call-capacity).')
+        edit(self.paths, ACCEPTANCE, 'The writer processes write requests.',
+             'The writer processes write requests using [commit capacity](settings.md#commit-capacity).')
+        refresh(self.paths)
+        ctx = self.context(dict(version=1, sections=['example-demo#writer-only']))
+        self.assertIn('settings#fixture-decision', ctx.manifest['included'])
+        self.assertIn('settings#questions', ctx.manifest['included'])
+        self.assertIn('example.call-capacity', ctx.manifest['included'])
+        # The added Acceptance home links a byte policy, but its links do not expand homes.
+        self.assertNotIn('example.log-group-limit', ctx.manifest['included'])
+
     def test_ordinary_links_in_added_home_do_not_expand_context(self):
         # Narrow the assigned range to Writer. Its home links Acceptance, which is
         # registered but must not join source context merely because it is linked.
@@ -1462,6 +1564,28 @@ class SnapshotTests(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(['git', '-C', str(self.root), *args], stdin=subprocess.DEVNULL, capture_output=True, check=True).stdout
+
+    def test_repeated_sentence_diagnostic_never_echoes_credential_url(self):
+        username, password = 'fixture' + '-user', 'fixture' + '-password'
+        sentence = f'The synthetic endpoint https://{username}:{password}@example.invalid/path is used only for this example.'
+        target = self.root / ACCEPTANCE
+        target.write_text(target.read_text() + ('\n' + sentence + '\n') * 3)
+        diagnostics = s.check(s.load_corpus(s.Snapshot.from_git(self.root, fixture=True)))
+        repeated = [d for d in diagnostics.errors if d.code == 'D35']
+        self.assertEqual(len(repeated), 1)
+        self.assertEqual(repeated[0].path, ACCEPTANCE)
+        self.assertGreater(repeated[0].line, 0)
+        self.assertIn('3 times', repeated[0].message)
+        self.assertIn('develop the example where introduced', repeated[0].message)
+        outputs = [str(s.SpecDocsError(diagnostics)), json.dumps(diagnostics.to_dict())]
+        for format_args in ([], ['--json']):
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = s.main(['check', '--root', str(self.root), '--fixture', *format_args])
+            self.assertEqual(status, 1)
+            outputs.extend([stdout.getvalue(), stderr.getvalue()])
+        self.assertFalse(any(value in output for value in (username, password, sentence) for output in outputs),
+                         'source prose escaped into checker diagnostics')
 
     def test_rejected_urls_never_expose_credentials_in_diagnostics_or_cli(self):
         # Synthetic values are assembled at runtime and never printed by assertions.

@@ -1,4 +1,5 @@
 """Exercise the dependency-free runner through its real command line."""
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -86,3 +87,38 @@ class JUnitRunnerTests(unittest.TestCase):
         report = ET.parse(root / 'report.xml').getroot()
         self.assertEqual(report.get('tests'), '2')
         self.assertEqual([case.get('name') for case in report], ['test_pass', 'test_pass'])
+
+    def test_fallback_keeps_equal_package_names_in_distinct_source_roots(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            labels = []
+            for name in ('one', 'two'):
+                package = root / name / 'tests'
+                package.mkdir(parents=True)
+                (package / '__init__.py').write_text('')
+                (package / 'helper.py').write_text(f'VALUE = {name!r}\n')
+                (package / 'test_sample.py').write_text(
+                    'import unittest\nfrom pathlib import Path\nfrom .helper import VALUE\n'
+                    'loaded = Path(__file__).with_suffix(".loaded")\n'
+                    'with loaded.open("a") as record: record.write("loaded\\n")\n'
+                    'class Suite(unittest.TestCase):\n'
+                    ' def test_first(self):\n'
+                    f'  self.assertEqual(VALUE, {name!r})\n'
+                    '  with Path(__file__).with_suffix(".ran").open("a") as record: record.write("first\\n")\n'
+                    ' def test_second(self): pass\n')
+                labels.extend(f'{name}/tests/test_sample.py::Suite::{method}'
+                              for method in ('test_first', 'test_second', 'test_first'))
+            (root / 'selectors.json').write_text(json.dumps(labels))
+            result = subprocess.run([sys.executable, '-B', str(RUNNER), '--report', 'report.xml',
+                                     '--selectors-file', 'selectors.json'], cwd=root,
+                                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = ET.parse(root / 'report.xml').getroot()
+            self.assertEqual(report.get('tests'), '4')
+            classes = {case.get('classname') for case in report}
+            self.assertEqual(len(classes), 2)
+            for name in ('one', 'two'):
+                package = root / name / 'tests'
+                self.assertEqual((package / 'test_sample.loaded').read_text(), 'loaded\n')
+                self.assertEqual((package / 'test_sample.ran').read_text(), 'first\n')
+                self.assertEqual(sum(case.get('file') == f'{name}/tests/test_sample.py' for case in report), 2)

@@ -7,6 +7,7 @@ from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 import hashlib
 import fcntl
+from html import escape, unescape
 from html.parser import HTMLParser
 import importlib.metadata
 import json
@@ -406,12 +407,12 @@ def parse_markdown(path, text, diagnostics):
                     if key == "Entities in this example":
                         continue  # Adjacent links annotate each block; they are not declaration fields.
                     if key in heading.fields:
-                        diagnostics.add("D02", f"malformed declaration: duplicate field '{key}'", path, token.map[0] + 1)
+                        diagnostics.add("D02", "malformed declaration: duplicate field; keep one declaration per field", path, token.map[0] + 1)
                     heading.fields[key] = (visible(token.children).split(":", 1)[-1].strip(), inline_links.get(id(token), []))
                     heading.field_tokens[key] = token
     for identity, positions in destinations.items():
         if len(positions) > 1:
-            diagnostics.add("D03", f"duplicate identity '{identity}'; first at {path}:{positions[0] + 1}", path, positions[1] + 1)
+            diagnostics.add("D03", f"duplicate anchor identity; first at {path}:{positions[0] + 1}", path, positions[1] + 1)
     return Markdown(path, text, tokens, headings, dict(destinations), links, rows, inline_links, generated)
 
 
@@ -750,7 +751,7 @@ def resolve_links(corpus):
                 path = posixpath.normpath(posixpath.join(posixpath.dirname(md.path), unquote(parsed.path))) if parsed.path else md.path
                 anchor = unquote(parsed.fragment)
                 if not safe_path(path) or path in corpus.source.problems:
-                    corpus.diagnostics.add("D05", f"source '{path}' is outside the declared input set: link escape or nonregular input", md.path, link.line + 1)
+                    corpus.diagnostics.add("D05", "link target is outside the declared input set: link escape or nonregular input", md.path, link.line + 1)
                 elif (path not in corpus.source.files and path not in corpus.source.tracked) or (anchor and path in targets and len(targets[path].anchors.get(anchor, [])) != 1):
                     raise ValueError("missing local target")
                 else:
@@ -804,16 +805,17 @@ def assemble_declarations(corpus):
                 key, value, status, basis = values
                 identity = owner["id"] + "#" + key
                 if status not in corpus.contract['fact_statuses']:
-                    d.add('D02', f"fact '{identity}' Status must be one of: " + ', '.join(corpus.contract['fact_statuses']), md.path, line + 1)
+                    d.add('D02', "fact row Status must be one of: " + ', '.join(corpus.contract['fact_statuses']), md.path, line + 1)
                 ids = [a for t in cells[0].children or [] if t.type == "html_inline" for a in anchors(t.content)[0]]
                 all_ids = [a for cell in cells for t in cell.children or [] if t.type == "html_inline" for a in anchors(t.content)[0]]
                 if len(ids) != 1 or len(all_ids) != 1 or len(md.anchors.get(ids[0], [])) != 1:
-                    d.add("D08", f"fact '{identity}' needs exactly one home anchor in its declaring row", md.path, line + 1)
+                    d.add("D08", "fact row needs exactly one home anchor in its Key cell", md.path, line + 1)
                     continue
                 if identity in corpus.facts:
-                    d.add("D03", f"duplicate identity '{identity}'; first at {corpus.facts[identity]['path']}", md.path, line + 1)
+                    first = corpus.facts[identity]
+                    d.add("D03", f"duplicate fact identity; first at {first['path']}:{first['line'] + 1}", md.path, line + 1)
                 if not key or not value or not status or not basis or not md.inline_links.get(id(cells[3])):
-                    d.add("D02", f"malformed declaration: fact '{identity}' needs Key, Value, Status and linked Basis", md.path, line + 1)
+                    d.add("D02", "malformed declaration: fact row needs Key, Value, Status and linked Basis", md.path, line + 1)
                 qualifications = []
                 for token in md.tokens:
                     if token.type == "inline" and token.map and owner["start"] < token.map[0] < owner["end"] and not (line <= token.map[0] <= line):
@@ -1052,7 +1054,7 @@ def check(corpus, base=None, _freshness=True):
             if entity["kind"] == rule["kind"]:
                 for value in entity[rule["field"]]:
                     if not pattern.fullmatch(value):
-                        d.add("D14", f"symbol '{value}' violates naming rule '{rule['id']}'", ep)
+                        d.add("D14", f"entity '{entity['id']}' has a form or symbol violating naming rule '{rule['id']}'; correct its {rule['field']} entry", ep)
     for entity in corpus.entities.values():
         for symbol in entity["symbols"]:
             if symbol in symbols:
@@ -1068,7 +1070,7 @@ def check(corpus, base=None, _freshness=True):
             if fact:
                 value_bearing = link.code_label or any(character.isdigit() for character in link.label)
                 if value_bearing and normalize_literal(link.label, corpus.contract) != normalize_literal(fact["value"], corpus.contract):
-                    d.add("D10", f"value link for '{fact['id']}' differs: home {fact['value']!r}, link {link.label!r}", md.path, link.line + 1)
+                    d.add("D10", f"value link differs from home at {fact['path']}:{fact['line'] + 1}; align the label with the canonical value", md.path, link.line + 1)
         check_uses(corpus, md, d)
         check_blockquotes(md, d)
         check_prose(corpus, md, d)
@@ -1083,7 +1085,7 @@ def check(corpus, base=None, _freshness=True):
         elif kind == "Scenario":
             optional.update(("Requirements", "Tests"))
         for unknown in sorted(fields.keys() - set(required) - optional):
-            d.add("D02", f"malformed declaration: '{identity}' has unknown field '{unknown}'", declaration["path"], declaration["heading"].start + 1)
+            d.add("D02", "malformed declaration: unknown field; use the declared field names", declaration["path"], declaration["heading"].field_tokens[unknown].map[0] + 1)
         for name in required:
             if not fields.get(name, ("", []))[0].strip():
                 code = "D30" if kind == "Failure state" else "D02"
@@ -1409,7 +1411,7 @@ def check_uses(corpus, md, diagnostics, missing=None):
                 if len(choices) == 1:
                     entity_ids = choices
                 else:
-                    diagnostics.add("W04", f"Possible technical use needs review: '{text[span[0]:span[1]]}'", md.path, line + 1)
+                    diagnostics.add("W04", "Possible technical use needs review: ambiguous registered form; link the intended home", md.path, line + 1)
                     continue
             identity = next(iter(entity_ids))
             entity = corpus.entities[identity]
@@ -1446,7 +1448,7 @@ def check_uses(corpus, md, diagnostics, missing=None):
             for entity in corpus.entities.values():
                 for rejected in entity["rejected_forms"]:
                     if isinstance(rejected, dict) and isinstance(rejected.get("text"), str) and phrase_pattern(rejected["text"]).search(text):
-                        diagnostics.add("D13", f"rejected form '{rejected['text']}'; use '{rejected.get('replacement', '')}'", md.path, line + 1)
+                        diagnostics.add("D13", f"rejected form for entity '{entity['id']}'; use its registered replacement", md.path, line + 1)
 
 
 def sentences(children):
@@ -1518,7 +1520,7 @@ def check_chapters(corpus, sections, diagnostics):
     for sentence, locations in occurrences.items():
         if len(locations) >= 3:
             path, line = locations[0]
-            diagnostics.add("D35", f"sentence repeats {len(locations)} times in this document: {sentence!r}; develop the example where introduced",
+            diagnostics.add("D35", f"sentence repeats {len(locations)} times in this document; develop the example where introduced",
                             path, line)
 
 
@@ -1953,6 +1955,10 @@ def select_context(corpus, assignment):
             add_range(entity["path"], home, ("base:" if label == "base" else "") + identity, "entity owned or used in " + selector, label=label)
             # Only declared dependencies of an added home expand, not its ordinary links.
             home_section = selected_corpus.sections[entity["home"]["section"]]
+            if label == primary_label:
+                document = corpus.documents[home_section["document"]]
+                if document.get("approval"):
+                    add_decision(document["approval"]["decision"], "applicable approval decision")
             for dep in home_section["explanatory_dependencies"]:
                 if label == primary_label:
                     add_section(dep["section"], "declared dependency of home " + identity + ": " + dep["reason"])
@@ -2042,11 +2048,11 @@ def context_source(corpus, item, targets):
         if token.type == 'html_block':
             mapping = positions.get(id(token))
             for match in re.finditer(r'<a\s+id="([^"<>]+)"\s*></a>', token.content):
-                target = targets.get((label, path, match[1]))
+                target = targets.get((label, path, unescape(match[1])))
                 if target:
                     if mapping is None:
                         fail('D27', 'cannot rewrite included anchor: source positions are unavailable', path, 2)
-                    edits.append((mapping[match.start(1)], mapping[match.end(1) - 1] + 1, target))
+                    edits.append((mapping[match.start(1)], mapping[match.end(1) - 1] + 1, escape(target, quote=True)))
         if token.type != 'inline':
             continue
         mapping = positions.get(id(token))
@@ -2059,7 +2065,7 @@ def context_source(corpus, item, targets):
             if child.type == 'html_inline':
                 ids, bad = anchors(raw)
                 target = targets.get((label, path, ids[0])) if len(ids) == 1 and not bad else None
-                replacement = f'<a id="{target}">' if target else None
+                replacement = f'<a id="{escape(target, quote=True)}">' if target else None
             elif child.type == 'link_open':
                 parsed = urlsplit(child.attrGet('href') or '')
                 destination = posixpath.normpath(posixpath.join(posixpath.dirname(path), unquote(parsed.path))) if parsed.path else path

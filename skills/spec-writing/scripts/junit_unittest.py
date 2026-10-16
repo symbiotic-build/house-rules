@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import sys
 import time
+from types import ModuleType
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -93,6 +94,7 @@ class JUnitResult(unittest.TextTestResult):
 def selected_suite(root, labels):
     """Load cited Python files once and combine their selected tests in one suite."""
     modules = {}
+    package_roots = {}
     suite = unittest.TestSuite()
     for label in dict.fromkeys(labels):
         path, selector = label.split('::', 1)
@@ -106,8 +108,14 @@ def selected_suite(root, labels):
                 package_root = package_root.parent
             try:
                 if len(parts) > 1:
-                    sys.path.insert(0, str(package_root))
-                    module = importlib.import_module('.'.join(parts))
+                    # Scope package identities by source root, preserving relative imports.
+                    if package_root not in package_roots:
+                        name = '_selector_root_' + str(len(package_roots))
+                        namespace = ModuleType(name)
+                        namespace.__path__ = [str(package_root)]
+                        sys.modules[name] = namespace
+                        package_roots[package_root] = name
+                    module = importlib.import_module('.'.join([package_roots[package_root], *parts]))
                 else:
                     # Distinct names keep standalone files with equal stems separate.
                     name = '_selector_' + str(len(modules))

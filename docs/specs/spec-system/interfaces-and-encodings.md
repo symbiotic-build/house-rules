@@ -52,17 +52,17 @@ Diagnostics identify a failed structural condition and the repair that lets chec
 For the tour's deliberate mutation, text output is:
 
 ```text
-spec-docs: error D10 docs/example.md:46: value link for 'example.batcher#capacity' differs: home '2', link '3'
+spec-docs: error D10 docs/example.md:49: value link differs from home at docs/example.md:46; align the label with the canonical value
 spec-docs: 1 error, 0 warnings
 ```
 
 The same check with `--json` returns:
 
 ```json
-{"errors": [{"code": "D10", "line": 46, "message": "value link for 'example.batcher#capacity' differs: home '2', link '3'", "path": "docs/example.md", "severity": "error"}], "ok": false, "warnings": []}
+{"errors": [{"code": "D10", "line": 49, "message": "value link differs from home at docs/example.md:46; align the label with the canonical value", "path": "docs/example.md", "severity": "error"}], "ok": false, "warnings": []}
 ```
 
-The line number belongs to the exact minimal source; preceding edits can change it. Both examples report a failed check and preserve the conflicting literals.
+The line numbers belong to the exact minimal source; preceding edits can change them. Both examples locate the conflicting link and home without copying document prose or values into diagnostics.
 
 For another diagnostic, a tour declares a prerequisite on a later admission section. Without a direct source link to that prerequisite, checking reports `D16`.
 Add `See [Admission](admission.md#admission) for the capacity rule` inside the tour's selected section. A generated map link alone does not satisfy this rule.
@@ -105,6 +105,25 @@ Other runners require a declared `batch` command that receives every full select
 The audit reads live files under its root. It has no staged or commit-execution switch. Use a checkout matching the accepted candidate for execution evidence. The [report and batch acceptance cases](acceptance-evidence.md#test-selector-reports) cover report outcomes, refusal, Python report generation and batched fallback.
 
 Inspection, analysis and demonstration cases omit Implementation and link their evidence. Their meaning and adequacy receive review under the [acceptance evidence distinction](acceptance-evidence.md#acceptance).
+
+<a id="selector-audit-interrupted"></a>
+### Failure state: interrupted selector batch
+
+An interrupted batch cannot establish passing acceptance evidence. Cleanup separates the audit's temporary resources from effects produced by tests.
+
+**Trigger:** A batch exceeds its timeout, a runner is interrupted, or the audit itself is interrupted.
+
+**Outcome:** A timeout or unsuccessful runner marks every selector in that batch failing. An interrupted audit ends unsuccessfully and may leave incomplete results; those results do not establish acceptance.
+
+**Retained state:** On timeout, the audit kills its child process group and closes its output pipes. Normal unwinding removes its temporary report directory. An interrupted audit may leave that directory or child processes behind. Effects produced by the tests remain; the audit does not roll them back.
+
+**Recovery:** Terminate any remaining audit child process group and remove its leftover temporary report directory. Recover test effects through the repository's own recovery procedure, then rerun the tests and audit. The audit supplies no recovery for test-owned effects.
+
+**Actor:** The audit performs normal cleanup. The caller recovers resources left by an interrupted audit; the repository's designated actor recovers test effects.
+
+**Authority:** The caller needs authority over its audit process group and temporary directory. Recovery of test effects requires the authority defined by the repository's own procedure.
+
+**Verification:** [Report and batch acceptance cases](acceptance-evidence.md#test-selector-reports).
 
 <a id="continuing-example-reference"></a>
 ## Bounded-batch lookup
