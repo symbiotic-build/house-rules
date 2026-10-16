@@ -2284,8 +2284,7 @@ class CommitPackTest(unittest.TestCase):
     def test_retry_instructions_distinguish_read_only_reviews_from_workers(self):
         design = (ROOT / "docs/design/77-one-step-pack-assembly.md").read_text()
         task_text = design.split("### Task text is data\n", 1)[1].split("### Target repository rules", 1)[0]
-        runner = design.split('<a id="changes-in-the-lane-runner"></a>', 1)[1].split('<a id="warden-adoption">', 1)[0]
-        step = next(line for line in runner.splitlines() if "A capacity retry for a read-only reviewer" in line)
+        step = design.split("### Changes in the lane runner\n", 1)[1].split("8. ", 1)[1].split("\n\n", 1)[0]
         for section in (task_text, step):
             with self.subTest(section=section):
                 self.assertIn("read-only reviewer", section)
