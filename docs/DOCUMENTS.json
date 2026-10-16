@@ -755,19 +755,10 @@
           "id": "house-rules-index-rename-and-pointer-files",
           "path": "docs/design/73-instruction-layer-foundation.md",
           "anchor": "house-rules-index-rename-and-pointer-files",
-          "roles": [],
-          "summary": "Read the historical status and source work item for this design.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "result",
-          "path": "docs/design/73-instruction-layer-foundation.md",
-          "anchor": "result",
           "roles": [
             "tour"
           ],
-          "summary": "Record the index rename and pointer-only loading change.",
+          "summary": "Read the historical status and source work item for this design.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -908,19 +899,10 @@
           "id": "complete-worker-role-packs",
           "path": "docs/design/74-complete-worker-packs.md",
           "anchor": "complete-worker-role-packs",
-          "roles": [],
-          "summary": "Read the historical status and source work item for this design.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "result",
-          "path": "docs/design/74-complete-worker-packs.md",
-          "anchor": "result",
           "roles": [
             "tour"
           ],
-          "summary": "Record complete role prompts and their two shared-rule loading paths.",
+          "summary": "Read the historical status and source work item for this design.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -1060,19 +1042,10 @@
           "id": "subagent-profiles-general-worker-and-specialist",
           "path": "docs/design/75-subagent-profiles.md",
           "anchor": "subagent-profiles-general-worker-and-specialist",
-          "roles": [],
-          "summary": "Read the historical status and source work item for this design.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "result",
-          "path": "docs/design/75-subagent-profiles.md",
-          "anchor": "result",
           "roles": [
             "tour"
           ],
-          "summary": "Record general-worker and specialist profiles and isolation qualification.",
+          "summary": "Read the historical status and source work item for this design.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -1217,19 +1190,10 @@
           "id": "a-review-entry-skill-and-operator-writing-only-for-documents",
           "path": "docs/design/76-review-entry-skill.md",
           "anchor": "a-review-entry-skill-and-operator-writing-only-for-documents",
-          "roles": [],
-          "summary": "Read the historical status and source work item for this design.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "result",
-          "path": "docs/design/76-review-entry-skill.md",
-          "anchor": "result",
           "roles": [
             "tour"
           ],
-          "summary": "Record a review entry skill and the narrowed document-writing trigger.",
+          "summary": "Read the historical status and source work item for this design.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -1368,19 +1332,10 @@
           "id": "one-step-pack-assembly-from-a-named-commit",
           "path": "docs/design/77-one-step-pack-assembly.md",
           "anchor": "one-step-pack-assembly-from-a-named-commit",
-          "roles": [],
-          "summary": "Read the historical status and source work item for this design.",
-          "prerequisites": [],
-          "explanatory_dependencies": []
-        },
-        {
-          "id": "result",
-          "path": "docs/design/77-one-step-pack-assembly.md",
-          "anchor": "result",
           "roles": [
             "tour"
           ],
-          "summary": "Record one-call prompt assembly from a named commit.",
+          "summary": "Read the historical status and source work item for this design.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },

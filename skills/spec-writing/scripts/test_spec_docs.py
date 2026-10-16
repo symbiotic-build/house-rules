@@ -272,8 +272,12 @@ class CorpusTests(unittest.TestCase):
             self.assertNotIn('D02', self.codes())
 
     def test_context_rewrites_only_links_to_included_destinations(self):
+        self.paths[ACCEPTANCE] += b'\n> <div>\n> <a id="proof"></a>\n> Preserved evidence.\n> <a\n> id="proof-lines"></a>\n> </div>\n\n[Proof](#proof).\n'
         ctx = self.context()
         text = ctx.content.decode()
+        self.assertIn('> <a id="pack-0-proof"></a>\n> Preserved evidence.', text)
+        self.assertIn('[Proof](#pack-0-proof)', text)
+        self.assertIn('> <a\n> id="pack-0-proof-lines"></a>', text)
         self.assertIn('[log group byte limit](#pack-1-log-group-limit)', text)
         self.assertIn('<a id="pack-1-log-group-limit"></a>', text)
         self.assertNotIn('](settings.md#log-group-limit)', text)
@@ -526,6 +530,16 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(text.splitlines().count('# Acceptance'), 1)
         self.assertFalse(text.endswith('\n\n'))
         self.assertTrue(s.check(c).ok)
+
+    def test_navigation_lists_registered_sections_once(self):
+        metadata(self.paths, s.JSON_PATHS[1], lambda value:
+                 value['documents'][0]['sections'].append(dict(
+                     id='writer', path=ACCEPTANCE, anchor='writer', roles=[],
+                     summary='Find the write owner.', prerequisites=[], explanatory_dependencies=[])))
+        output = s.project_navigation(corpus(self.paths))['docs/generated/example-demo.md'].decode()
+        navigation = output.split('## Entity index')[0]
+        self.assertEqual(navigation.count('](../example/acceptance.md#writer)'), 1)
+        self.assertIn('[Acceptance]', navigation)
 
     def test_navigation_lists_second_level_sections(self):
         output = self.paths['docs/generated/example-demo.md'].decode()
@@ -1547,6 +1561,35 @@ class SnapshotTests(unittest.TestCase):
         self.assertNotIn('D03', {d.code for d in s.check(candidate).errors})
         errors = s.check(candidate, base).errors
         self.assertTrue(any(d.code == 'D03' and 'retired' in d.message for d in errors), errors)
+
+    def test_retirement_includes_registration_without_anchor_edits(self):
+        target = self.root / ACCEPTANCE
+        original = target.read_text()
+        manifest = self.root / s.JSON_PATHS[1]
+        registered = manifest.read_bytes()
+        value = json.loads(registered)
+        value['inventory'] = [entry for entry in value['inventory'] if entry['path'] != ACCEPTANCE]
+        value['inventory'].append(dict(path=ACCEPTANCE, kind='preserved'))
+        value['documents'] = []
+        manifest.write_bytes(s.canonical(value))
+        self.git('checkout', '--orphan', 'adoption')
+        self.git('add', '.')
+        self.git('commit', '-qm', 'fixture: existing unregistered declarations')
+        manifest.write_bytes(registered)
+        self.git('add', s.JSON_PATHS[1])
+        self.git('commit', '-qm', 'fixture: register without anchor edits')
+        # Delete the registered source without adding any anchor lines.
+        target.unlink()
+        manifest.write_bytes(s.canonical(value))
+        self.git('add', '.')
+        self.git('commit', '-qm', 'fixture: delete registered source')
+        base = s.load_corpus(s.Snapshot.from_git(self.root, rev='HEAD', fixture=True))
+        target.write_text(original)
+        manifest.write_bytes(registered)
+        candidate = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        errors = s.check(candidate, base).errors
+        for identity in ('req-stale-revision', 'test-stale-revision'):
+            self.assertTrue(any(d.code == 'D03' and identity in d.message for d in errors), errors)
 
     def test_interrupted_multioutput_generation_is_visible_and_regenerable(self):
         manifest_path = self.root / s.JSON_PATHS[1]

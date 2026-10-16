@@ -133,17 +133,21 @@ Copy the complete example, change one displayed value and follow the diagnostic 
     > This checks documentation structure; it does not execute the described service or establish reader understanding.
     > A declared inspection is a plan until the inspector records actual observations.
 
-11. **Select reading material.** The tool returns the complete explanation and mandatory reference material for review.
+11. **Write the assignment.** The assignment names the complete chapter to review.
 
     > **Detail — assignment**
     >
-    > Write an assignment file outside the example corpus:
+    > Write this assignment file outside the example corpus:
     >
     > ```json
     > {"version": 1, "sections": ["example#main"]}
     > ```
     >
     > The version selects the assignment format. The section selector names the complete chapter, including its nested declarations.
+
+12. **Select reading material.** The tool returns the complete explanation and mandatory reference material for review.
+
+    > **Detail — selected input**
     >
     > ```sh
     > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py context --root /path/to/example --assignment /path/to/assignment.json
@@ -152,7 +156,7 @@ Copy the complete example, change one displayed value and follow the diagnostic 
     > The [context pack](agent-context.md#context-pack) includes that source once, the [complete registry](agent-context.md#complete-registry), metadata and [writing profile](writing-and-review-workflow.md#writing-profile).
     > Its manifest identifies the captured input and counts the pack's UTF-8 bytes.
 
-12. **Review the refusal.** A reviewer assesses what structural checking cannot prove.
+13. **Review the refusal.** A reviewer assesses what structural checking cannot prove.
 
     > **Detail — inspection questions**
     >

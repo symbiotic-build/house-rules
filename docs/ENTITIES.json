@@ -4,7 +4,7 @@
     "one-step-pack-assembly.worker-prompt-pack": {
       "kind": "data",
       "home": {
-        "section": "one-step-pack-assembly#terms-and-paths",
+        "section": "one-step-pack-assembly#design",
         "anchor": "worker-prompt-pack"
       },
       "scope": [
@@ -19,7 +19,7 @@
     "one-step-pack-assembly.pack-part": {
       "kind": "data",
       "home": {
-        "section": "one-step-pack-assembly#terms-and-paths",
+        "section": "one-step-pack-assembly#design",
         "anchor": "pack-part"
       },
       "scope": [
@@ -35,7 +35,7 @@
     "one-step-pack-assembly.prompt-revision-pin": {
       "kind": "data",
       "home": {
-        "section": "one-step-pack-assembly#terms-and-paths",
+        "section": "one-step-pack-assembly#design",
         "anchor": "prompt-revision-pin"
       },
       "scope": [
@@ -53,7 +53,7 @@
     "one-step-pack-assembly.prompt-manifest": {
       "kind": "data",
       "home": {
-        "section": "one-step-pack-assembly#terms-and-paths",
+        "section": "one-step-pack-assembly#design",
         "anchor": "prompt-manifest"
       },
       "scope": [
@@ -70,7 +70,7 @@
     "one-step-pack-assembly.include-once": {
       "kind": "mechanism",
       "home": {
-        "section": "one-step-pack-assembly#terms-and-paths",
+        "section": "one-step-pack-assembly#design",
         "anchor": "include-once"
       },
       "scope": [
@@ -85,7 +85,7 @@
     "one-step-pack-assembly.lane-runner": {
       "kind": "component",
       "home": {
-        "section": "one-step-pack-assembly#terms-and-paths",
+        "section": "one-step-pack-assembly#design",
         "anchor": "lane-runner"
       },
       "scope": [
@@ -104,7 +104,7 @@
     "one-step-pack-assembly.target-repository": {
       "kind": "component",
       "home": {
-        "section": "one-step-pack-assembly#terms-and-paths",
+        "section": "one-step-pack-assembly#design",
         "anchor": "target-repository"
       },
       "scope": [
@@ -122,7 +122,7 @@
     "one-step-pack-assembly.repository-loader": {
       "kind": "data",
       "home": {
-        "section": "one-step-pack-assembly#terms-and-paths",
+        "section": "one-step-pack-assembly#design",
         "anchor": "repository-loader"
       },
       "scope": [
@@ -138,7 +138,7 @@
     "instruction-layer-foundation.house-rules-block": {
       "kind": "data",
       "home": {
-        "section": "instruction-layer-foundation#terms",
+        "section": "instruction-layer-foundation#design",
         "anchor": "house-rules-block"
       },
       "scope": [
@@ -156,7 +156,7 @@
     "instruction-layer-foundation.house-rules-index": {
       "kind": "data",
       "home": {
-        "section": "instruction-layer-foundation#terms",
+        "section": "instruction-layer-foundation#design",
         "anchor": "house-rules-index"
       },
       "scope": [
@@ -176,7 +176,7 @@
     "instruction-layer-foundation.always-loaded-files": {
       "kind": "data",
       "home": {
-        "section": "instruction-layer-foundation#terms",
+        "section": "instruction-layer-foundation#design",
         "anchor": "always-loaded-files"
       },
       "scope": [
@@ -192,7 +192,7 @@
     "instruction-layer-foundation.instruction-pointer": {
       "kind": "data",
       "home": {
-        "section": "instruction-layer-foundation#terms",
+        "section": "instruction-layer-foundation#design",
         "anchor": "instruction-pointer"
       },
       "scope": [
@@ -214,7 +214,7 @@
     "subagent-profiles.dispatcher": {
       "kind": "actor",
       "home": {
-        "section": "subagent-profiles#terms",
+        "section": "subagent-profiles#design",
         "anchor": "dispatcher"
       },
       "scope": [
@@ -235,7 +235,7 @@
     "subagent-profiles.subagent": {
       "kind": "actor",
       "home": {
-        "section": "subagent-profiles#terms",
+        "section": "subagent-profiles#design",
         "anchor": "subagent"
       },
       "scope": [
@@ -253,7 +253,7 @@
     "subagent-profiles.in-process-subagent": {
       "kind": "actor",
       "home": {
-        "section": "subagent-profiles#terms",
+        "section": "subagent-profiles#design",
         "anchor": "in-process-subagent"
       },
       "scope": [
@@ -269,7 +269,7 @@
     "subagent-profiles.general-worker": {
       "kind": "actor",
       "home": {
-        "section": "subagent-profiles#terms",
+        "section": "subagent-profiles#design",
         "anchor": "general-worker"
       },
       "scope": [
@@ -285,7 +285,7 @@
     "subagent-profiles.lane-worker": {
       "kind": "actor",
       "home": {
-        "section": "subagent-profiles#terms",
+        "section": "subagent-profiles#design",
         "anchor": "lane-worker"
       },
       "scope": [
@@ -304,7 +304,7 @@
     "subagent-profiles.specialist": {
       "kind": "actor",
       "home": {
-        "section": "subagent-profiles#terms",
+        "section": "subagent-profiles#design",
         "anchor": "specialist"
       },
       "scope": [
@@ -324,7 +324,7 @@
     "subagent-profiles.specialist-pack": {
       "kind": "data",
       "home": {
-        "section": "subagent-profiles#terms",
+        "section": "subagent-profiles#design",
         "anchor": "specialist-pack"
       },
       "scope": [
@@ -342,7 +342,7 @@
     "subagent-profiles.specialist-home": {
       "kind": "component",
       "home": {
-        "section": "subagent-profiles#terms",
+        "section": "subagent-profiles#design",
         "anchor": "specialist-home"
       },
       "scope": [
@@ -374,7 +374,7 @@
     "subagent-profiles.session-foundation": {
       "kind": "concept",
       "home": {
-        "section": "subagent-profiles#terms",
+        "section": "subagent-profiles#design",
         "anchor": "session-foundation"
       },
       "scope": [
@@ -394,7 +394,7 @@
     "review-entry-skill.reviewer-pack": {
       "kind": "data",
       "home": {
-        "section": "review-entry-skill#terms",
+        "section": "review-entry-skill#design",
         "anchor": "reviewer-pack"
       },
       "scope": [
@@ -412,7 +412,7 @@
     "review-entry-skill.prompt-compiler": {
       "kind": "component",
       "home": {
-        "section": "review-entry-skill#terms",
+        "section": "review-entry-skill#design",
         "anchor": "prompt-compiler"
       },
       "scope": [
@@ -430,7 +430,7 @@
     "review-entry-skill.skill-description": {
       "kind": "data",
       "home": {
-        "section": "review-entry-skill#terms",
+        "section": "review-entry-skill#design",
         "anchor": "skill-description"
       },
       "scope": [
@@ -447,7 +447,7 @@
     "review-entry-skill.everyday-reply": {
       "kind": "concept",
       "home": {
-        "section": "review-entry-skill#terms",
+        "section": "review-entry-skill#design",
         "anchor": "everyday-reply"
       },
       "scope": [
@@ -463,7 +463,7 @@
     "review-entry-skill.operator-document": {
       "kind": "data",
       "home": {
-        "section": "review-entry-skill#terms",
+        "section": "review-entry-skill#design",
         "anchor": "operator-document"
       },
       "scope": [
@@ -480,7 +480,7 @@
     "review-entry-skill.canary-run": {
       "kind": "mechanism",
       "home": {
-        "section": "review-entry-skill#terms",
+        "section": "review-entry-skill#verification",
         "anchor": "canary-run-meaning"
       },
       "scope": [
@@ -497,7 +497,7 @@
     "complete-worker-packs.role-pack": {
       "kind": "data",
       "home": {
-        "section": "complete-worker-packs#terms",
+        "section": "complete-worker-packs#design",
         "anchor": "role-pack"
       },
       "scope": [
@@ -515,7 +515,7 @@
     "complete-worker-packs.shared-rule": {
       "kind": "concept",
       "home": {
-        "section": "complete-worker-packs#terms",
+        "section": "complete-worker-packs#design",
         "anchor": "shared-rule"
       },
       "scope": [
@@ -534,7 +534,7 @@
     "complete-worker-packs.session-rule": {
       "kind": "concept",
       "home": {
-        "section": "complete-worker-packs#terms",
+        "section": "complete-worker-packs#design",
         "anchor": "session-rule"
       },
       "scope": [
@@ -554,7 +554,7 @@
     "complete-worker-packs.open-citation": {
       "kind": "concept",
       "home": {
-        "section": "complete-worker-packs#terms",
+        "section": "complete-worker-packs#design",
         "anchor": "open-citation"
       },
       "scope": [
@@ -570,7 +570,7 @@
     "complete-worker-packs.supplied-rule-parts": {
       "kind": "data",
       "home": {
-        "section": "complete-worker-packs#terms",
+        "section": "complete-worker-packs#design",
         "anchor": "supplied-rule-parts"
       },
       "scope": [

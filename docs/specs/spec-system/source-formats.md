@@ -318,14 +318,44 @@ select_context(corpus, assignment)
 
 Capture and load both snapshots before attaching the comparison base and selecting input:
 
-```python
-base = load_corpus(Snapshot.from_git(root, rev="HEAD"), comparison=True)
-candidate = load_corpus(Snapshot.from_git(root))
-candidate.base = base
-assignment = {"version": 1, "sections": ["example#main"],
-              "required_test_reviews": ["example#test-capacity"]}
-context = select_context(candidate, assignment)
-```
+**Procedure: prepare comparison context**
+
+1. **Load the base snapshot.**
+
+   ```python
+   base = load_corpus(Snapshot.from_git(root, rev="HEAD"), comparison=True)
+   ```
+
+   - Reads the selected commit; comparison mode permits a base with neither metadata file.
+2. **Load the candidate snapshot.**
+
+   ```python
+   candidate = load_corpus(Snapshot.from_git(root))
+   ```
+
+   - Captures the working tree and parses its declared Markdown.
+3. **Attach the comparison base.**
+
+   ```python
+   candidate.base = base
+   ```
+
+   - Selection can now include separately labelled base evidence.
+4. **Construct the assignment.**
+
+   ```python
+   assignment = {"version": 1, "sections": ["example#main"],
+                 "required_test_reviews": ["example#test-capacity"]}
+   ```
+
+   - Names the complete section and the affected test to review.
+5. **Select the reading material.**
+
+   ```python
+   context = select_context(candidate, assignment)
+   ```
+
+   - Returns the mandatory context with its comparison evidence and byte accounting.
 
 This includes comparison evidence and enforces removal decisions and affected-test input. Add every affected test and any removal decisions reported by `requirement_changes(base, candidate)`. The report compares requirements by their permanent anchors, including moves between documents. It selects tests from both snapshots when a declaration or directly linked fact contract changes. It maintains no persistent suspect-link ledger.
 

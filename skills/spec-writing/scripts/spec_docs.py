@@ -897,7 +897,8 @@ def retired_identities(base):
     root, revision = base.source.root, base.source.revision
     paths = {p for p, kind in base.inventory.items() if kind in ("specification", "design")}
     # Historical manifests retain paths for documents deleted before this base.
-    for commit in git(root, "log", "--format=%H", revision, "--", "docs/DOCUMENTS.json").decode().splitlines():
+    manifest_commits = git(root, "log", "--format=%H", revision, "--", "docs/DOCUMENTS.json").decode().splitlines()
+    for commit in manifest_commits:
         if not git(root, "ls-tree", "--name-only", commit, "--", "docs/DOCUMENTS.json").strip():
             continue  # This history entry deletes the manifest; prior entries remain reachable.
         manifest = json.loads(git(root, "show", commit + ":docs/DOCUMENTS.json"))
@@ -907,6 +908,7 @@ def retired_identities(base):
     # Use a broad native filter; parsed declarations below decide accepted syntax.
     commits = dict.fromkeys(git(root, "log", "-m", "--format=%H", "-G", '<a.*id="(req|test)-',
                                revision, "--", *sorted(paths)).decode().splitlines())
+    commits.update(dict.fromkeys(manifest_commits))
     historical, parsed_blobs = set(), set()
     for commit in commits:
         if not git(root, "ls-tree", "--name-only", commit, "--", "docs/DOCUMENTS.json").strip():
@@ -1193,7 +1195,7 @@ def inline_spans(token, links):
 
 
 def inline_source_positions(md):
-    """Map unchanged inline source to file offsets, retaining Markdown delimiters.
+    """Map unchanged parsed source to file offsets, retaining Markdown delimiters.
 
     The parser removes list/quote prefixes and table separators. Locate each cell
     or content line in parser order; never guess when the raw spelling differs.
@@ -1205,7 +1207,7 @@ def inline_source_positions(md):
         offset += len(line)
     cursors, positions = {}, {}
     for token in md.tokens:
-        if token.type != 'inline' or not token.map:
+        if token.type not in ('inline', 'html_block') or not token.map:
             continue
         mapping, source_line = [], token.map[0]
         for part in token.content.splitlines(keepends=True):
@@ -1644,12 +1646,13 @@ def project_navigation(corpus):
         if document.get("gaps"):
             lines.extend(["**Declared gaps:** " + ", ".join(document["gaps"]), ""])
         lines.extend(["## Document map", "", "Use this map to choose the next explanation to read.", ""])
+        registered = {(section["path"], section["anchor"]) for section in sections}
         for section in sections:
             target = relative_link(path, section["path"], section["anchor"])
             lines.extend([f"- [{section['heading'].title}]({target}) — {section['summary']}"])
             md = corpus.markdown[section["path"]]
             for heading in md.headings:
-                if (heading.level == 2 and heading.anchor != section["anchor"]
+                if (heading.level == 2 and (md.path, heading.anchor) not in registered
                         and section["heading"].start <= heading.start < section["heading"].end
                         and not any(a <= heading.start < b for a, b in md.generated)):
                     if not heading.anchor:
@@ -2022,11 +2025,13 @@ def context_source(corpus, item, targets):
         if not token.map or not (item['start'] <= token.map[0] < item['end']):
             continue
         if token.type == 'html_block':
-            start = len(''.join(md.text.splitlines(keepends=True)[:token.map[0]]))
+            mapping = positions.get(id(token))
             for match in re.finditer(r'<a\s+id="([^"<>]+)"\s*></a>', token.content):
                 target = targets.get((label, path, match[1]))
                 if target:
-                    edits.append((start + match.start(), start + match.end(), f'<a id="{target}"></a>'))
+                    if mapping is None:
+                        fail('D27', 'cannot rewrite included anchor: source positions are unavailable', path, 2)
+                    edits.append((mapping[match.start(1)], mapping[match.end(1) - 1] + 1, target))
         if token.type != 'inline':
             continue
         mapping = positions.get(id(token))
