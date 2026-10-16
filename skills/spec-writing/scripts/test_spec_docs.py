@@ -718,6 +718,18 @@ class ContextSelectionTests(CorpusFixture, unittest.TestCase):
         pack = dict(baseline=ctx.manifest['baseline'], registry_digest=ctx.manifest['registry_digest'], included=[])
         self.context_error('D02', dict(assignment, pack=pack))
 
+    def test_changed_sections_compare_source_subtrees_without_line_number_noise(self):
+        base = corpus(self.paths)
+        self.paths[ACCEPTANCE] = b'Unregistered preamble.\n\n' + self.paths[ACCEPTANCE]
+        self.assertEqual(s.changed_sections(base, corpus(self.paths)), [])
+        edit(self.paths, ACCEPTANCE, '**Result:** Return', '**Result:** Report')
+        self.assertEqual(s.changed_sections(base, corpus(self.paths)), ['example-demo#acceptance'])
+        metadata(self.paths, 'docs/DOCUMENTS.json', lambda value: value['documents'][0]['sections'].append(
+            dict(id='writer-only', path=ACCEPTANCE, anchor='writer', roles=['mechanism'],
+                 summary='Process writes.', prerequisites=[], explanatory_dependencies=[])))
+        self.assertEqual(s.changed_sections(base, corpus(self.paths)),
+                         ['example-demo#acceptance', 'example-demo#writer-only'])
+
     def test_changed_fact_and_qualification_select_unchanged_linked_tests(self):
         base = corpus(self.paths)
         # The requirement explicitly references its canonical fact.

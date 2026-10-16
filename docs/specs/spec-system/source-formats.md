@@ -307,6 +307,7 @@ check(corpus, base=None)
 generate_navigation(corpus)
 link_missing(corpus, prune_repeats=False)
 requirement_changes(base, candidate)
+changed_sections(base, candidate)
 select_context(corpus, assignment)
 ```
 
@@ -315,6 +316,8 @@ select_context(corpus, assignment)
 `link_missing` likewise returns only source paths with proposed linking changes. Its default inserts missing direct links; an already-linked corpus returns an empty mapping. With `prune_repeats=True`, insertion precedes repeat pruning in memory. An already-converted corpus returns an empty mapping. The command validates these proposed bytes through the same replacement path.
 
 `requirement_changes` returns a `ChangeReport` whose `to_dict()` contains `changes`. Each change has `id`, `kind` (`new`, `changed` or `removed`), `base`, `candidate`, `tests`, `added_tests`, `removed_tests` and `changed_facts`. [Requirement declarations](requirements-tests-and-failures.md#requirement-declaration) remain full source text. Facts contain their identity plus base and candidate values, status, basis, linked evidence text and qualifications linked to the fact.
+
+`changed_sections` returns sorted candidate section selectors whose complete source subtrees differ from the base section with the same identity. New sections are included. Line-number shifts alone do not change a subtree. Only sections registered in the candidate manifest are eligible.
 
 Capture and load both snapshots before attaching the comparison base and selecting input:
 
@@ -407,6 +410,8 @@ If the requirement's old document no longer exists, the key still uses its base 
 The checker resolves the decision's structure; reviewers assess its authority.
 
 Each review-plan entry has `responsibilities` and optional `id`. Responsibilities use the contract vocabulary; their union must cover every required responsibility when a plan is supplied. Authoring may omit a plan. Normal review preparation supplies the plan and resolved base; direct compiler review requires `--target-base REV`. It derives required tests, while removal decisions remain explicit input.
+
+Only `prepare.py review` derives a missing assignment. It compares the merge base and reviewed head with `changed_sections`, using the head's [document manifest](documents-homes-and-values.md#document-manifest). Nonempty results become version-1 `sections`; existing selection adds affected tests from both snapshots and applicable decisions. Empty results produce no documentation pack and one line: `No registered documentation changed in this range.` Explicit `--assignment` behavior is unchanged. Direct `prompt.py` writer and reader packs still require explicit assignments. Derived context retains the existing byte accounting and size guards; oversized preparation fails with the selected section names instead of truncating documentation.
 
 `select_context` returns `Context`, exposing byte `content`, `size_bytes`, `manifest`, `diagnostics` and `to_dict()`. The dictionary form decodes content as UTF-8. Invalid selection raises `SpecDocsError` carrying diagnostics. The content contains manifest, [complete registry](agent-context.md#complete-registry), metadata, profile, optional change report and labelled source ranges. Ranges follow snapshot label, document array order, section array order and source line order, after overlap merging.
 
