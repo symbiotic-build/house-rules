@@ -1,5 +1,7 @@
 """Real selector integration on small local Git snapshots; no model or network calls."""
 import argparse
+import contextlib
+import io
 import importlib.util
 import json
 import os
@@ -344,6 +346,18 @@ class DocumentationContextTests(unittest.TestCase):
                                 env=environment, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(b'No registered documentation changed in this range.', result.stdout)
+
+    def test_python39_review_service_without_tool_environment_reviews_without_documentation_pack(self):
+        self.write(self.repo, 'source.py', 'value = 2\n')
+        base, self.revision = self.revision, self.commit(self.repo)
+        output, errors = io.StringIO(), io.StringIO()
+        environment = {key: value for key, value in os.environ.items() if key != 'REVIEW_PYTHON'}
+        with patch.dict(os.environ, environment, clear=True), patch.object(prepare.sys, 'version_info', (3, 9, 6)), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            code = prepare.main(['review', str(self.repo), '--base', base, '--no-fetch', '--rev', self.revision])
+        self.assertEqual(code, 0, errors.getvalue())
+        self.assertIn('Registered documentation context was not prepared', output.getvalue())
+        self.assertNotIn('# Complete registry', output.getvalue())
 
     def test_preparer_over_budget_explicit_context_fails(self):
         self.assignment_file.write_text(json.dumps({**ASSIGNMENT, "budget_bytes": 100}))

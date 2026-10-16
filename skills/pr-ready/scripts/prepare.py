@@ -526,7 +526,8 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     context_only = getattr(args, "context_only", False)
     context = None
     no_documentation_changes = False
-    if not documentation_prepared:
+    unavailable = getattr(args, "documentation_unavailable", False)
+    if not documentation_prepared and not unavailable:
         # Do not execute the live compiler during context-only legacy preparation.
         # Repositories declaring metadata must use the shared selector instead.
         registered = any(git(repo, "ls-tree", "--name-only", head, "--", path).strip()
@@ -567,6 +568,10 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         parts.append(documentation_part(context).decode("utf-8"))
     elif no_documentation_changes:
         parts.append("No registered documentation changed in this range.")
+    elif unavailable:
+        parts.append("Registered documentation context was not prepared: this preparer runs Python "
+                     f"{sys.version_info[0]}.{sys.version_info[1]} without REVIEW_PYTHON, and the shared checker needs 3.11 or later. "
+                     "Review changed documentation from the diff.")
     files = changed_files(repo, rng)
     entries = requirement_entries(repo, args, pr, issues, comments, texts, commits, files, url, head, missing, notices,
                                   documentation=documentation_prepared or context is not None or no_documentation_changes)
@@ -707,12 +712,15 @@ def main(argv=None, *, documentation_prepared=False):
         head = None
         if args.command == "review":
             head = git(repo, "rev-parse", "--verify", "--end-of-options", args.rev + "^{commit}").strip()
+            interpreter = os.environ.get("REVIEW_PYTHON")
             if not documentation_prepared and sys.version_info < (3, 11) and any(
                     git(repo, "ls-tree", "--name-only", head, "--", path).strip()
                     for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json")):
-                interpreter = os.environ.get("REVIEW_PYTHON")
-                if not interpreter:
+                if not interpreter and getattr(args, "assignment", None):
                     raise PrepareError("registered documentation requires the pinned tool environment; set REVIEW_PYTHON to its Python executable")
+                # A service without the pinned environment still reviews the code; the pack says what it lacks.
+                args.documentation_unavailable = not interpreter
+            if getattr(args, "documentation_unavailable", None) is False:
                 environment = noninteractive_env()
                 environment.pop("REVIEW_PYTHON", None)  # A misconfigured interpreter fails instead of recursing.
                 result = subprocess.run([interpreter, "-B", str(Path(__file__).resolve()),

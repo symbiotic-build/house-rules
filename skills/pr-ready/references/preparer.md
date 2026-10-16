@@ -111,7 +111,9 @@ set and checks a real documentation fixture and an extracted compiler.
 Use the specification tool's supported Python environment as described in its format
 contract. When `prepare.py review` runs on Python 3.9 or 3.10 with registered documentation,
 set `REVIEW_PYTHON` to that environment's Python executable. The preparer delegates to it;
-a missing or unsupported environment fails visibly without installing dependencies.
+an unsupported environment fails visibly without installing dependencies. Without
+`REVIEW_PYTHON` and without `--assignment`, the review proceeds without the documentation
+pack and states that in the prompt; with `--assignment`, it fails visibly.
 The panel accepts `REVIEW_PYTHON` for that interpreter and
 `REVIEW_SPEC_ASSIGNMENT` as an alternative to `--assignment`. These options select
 existing tooling and input; they install no dependencies or model configuration.
