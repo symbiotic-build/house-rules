@@ -525,6 +525,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         raise PrepareError("invalid lens name")
     context_only = getattr(args, "context_only", False)
     context = None
+    no_documentation_changes = False
     if not documentation_prepared:
         # Do not execute the live compiler during context-only legacy preparation.
         # Repositories declaring metadata must use the shared selector instead.
@@ -535,8 +536,11 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
             from prompt import Commit, WorkingTree, documentation_context, review_plan, PromptError
             try:
                 assignment = Path(assignment_path).read_bytes() if assignment_path else None
+                comparison_base = base if assignment_path else git(repo, "merge-base", base, head).strip()
                 with Commit(repo, head) as target:
-                    context = documentation_context(WorkingTree(HERE.parents[2]), target, assignment, base=base, plan=review_plan([lens]))
+                    context = documentation_context(WorkingTree(HERE.parents[2]), target, assignment, base=comparison_base,
+                                                    plan=review_plan([lens]), derive_assignment=assignment_path is None)
+                no_documentation_changes = registered and assignment_path is None and context is None
             except (PromptError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
                 raise PrepareError(str(exc)) from exc
     common, instructions = "", ""
@@ -561,9 +565,11 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     if context is not None:
         from prompt import documentation_part
         parts.append(documentation_part(context).decode("utf-8"))
+    elif no_documentation_changes:
+        parts.append("No registered documentation changed in this range.")
     files = changed_files(repo, rng)
     entries = requirement_entries(repo, args, pr, issues, comments, texts, commits, files, url, head, missing, notices,
-                                  documentation=documentation_prepared or context is not None)
+                                  documentation=documentation_prepared or context is not None or no_documentation_changes)
     if missing:
         notices.insert(0, "not found: " + ", ".join(dict.fromkeys(missing)))
     # Numstat is already collected; the remaining budget bounds structured reads
@@ -575,6 +581,11 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     if compiled_chars < 0 or (compiled_chars and not context_only):
         raise PrepareError("--compiled-chars requires context-only mode and a nonnegative count")
     limit = CODEX_LIMIT - compiled_chars
+    if args.cli == "codex" and context is not None and getattr(args, "assignment", None) is None:
+        mandatory_size = len(display(documentation_part(context).decode("utf-8")))
+        if mandatory_size > limit:
+            raise PrepareError(f"Size guard: limit {CODEX_LIMIT:,} characters; mandatory documentation requires {mandatory_size:,} characters.\n"
+                               "Documentation sections: " + ", ".join(context["manifest"]["assignment"]["sections"]))
     overhead = len(display("\n\n".join([*notices, *parts, requirements_part(entries, mode)]))) + 3
     budget = max(0, limit - overhead) if args.cli == "codex" else CODEX_LIMIT
     packed = mode == "pack"
@@ -611,6 +622,8 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
                 result = render()
         if len(result) > limit:
             history = "\n".join(trim_notes() or ["No requirement bodies eligible for trimming."])
+            if context is not None and getattr(args, "assignment", None) is None:
+                history += "\nDocumentation sections: " + ", ".join(context["manifest"]["assignment"]["sections"])
             raise PrepareError(
                 f"Size guard: limit {CODEX_LIMIT:,} characters; final size {len(result) + compiled_chars:,} characters after trimming. "
                 "Retained indexes, rules, task and author claims require a smaller input.\n"
@@ -694,6 +707,20 @@ def main(argv=None, *, documentation_prepared=False):
         head = None
         if args.command == "review":
             head = git(repo, "rev-parse", "--verify", "--end-of-options", args.rev + "^{commit}").strip()
+            if not documentation_prepared and sys.version_info < (3, 11) and any(
+                    git(repo, "ls-tree", "--name-only", head, "--", path).strip()
+                    for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json")):
+                interpreter = os.environ.get("REVIEW_PYTHON")
+                if not interpreter:
+                    raise PrepareError("registered documentation requires the pinned tool environment; set REVIEW_PYTHON to its Python executable")
+                environment = noninteractive_env()
+                environment.pop("REVIEW_PYTHON", None)  # A misconfigured interpreter fails instead of recursing.
+                result = subprocess.run([interpreter, "-B", str(Path(__file__).resolve()),
+                                         *(sys.argv[1:] if argv is None else argv), "--rev", head], env=environment,
+                                        stdin=subprocess.DEVNULL, capture_output=True)
+                sys.stdout.write(result.stdout.decode("utf-8"))
+                sys.stderr.write(redact(result.stderr.decode("utf-8")))
+                return result.returncode
         base, remote, fresh = resolve_base(repo, args.base, args.no_fetch)
         print(f"range: {base}...{head or 'HEAD'}", file=sys.stderr)
         if args.command == "base":

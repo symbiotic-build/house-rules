@@ -77,6 +77,18 @@ class CorpusTests(unittest.TestCase):
         self.assertIn(code, {d.code for d in caught.exception.diagnostics.errors})
         self.assertGreater(self.context().size_bytes, 0)
 
+    def test_changed_sections_compare_source_subtrees_without_line_number_noise(self):
+        base = corpus(self.paths)
+        self.paths[ACCEPTANCE] = b'Unregistered preamble.\n\n' + self.paths[ACCEPTANCE]
+        self.assertEqual(s.changed_sections(base, corpus(self.paths)), [])
+        edit(self.paths, ACCEPTANCE, '**Result:** Return', '**Result:** Report')
+        self.assertEqual(s.changed_sections(base, corpus(self.paths)), ['example-demo#acceptance'])
+        metadata(self.paths, 'docs/DOCUMENTS.json', lambda value: value['documents'][0]['sections'].append(
+            dict(id='writer-only', path=ACCEPTANCE, anchor='writer', roles=['mechanism'],
+                 summary='Process writes.', prerequisites=[], explanatory_dependencies=[])))
+        self.assertEqual(s.changed_sections(base, corpus(self.paths)),
+                         ['example-demo#acceptance', 'example-demo#writer-only'])
+
     def test_link_refuses_intersecting_first_use_edits(self):
         metadata(self.paths, 'docs/ENTITIES.json', lambda value: (
             value['entities']['example.writer'].update(forms=['prepared write']),
