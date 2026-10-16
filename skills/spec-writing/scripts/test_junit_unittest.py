@@ -88,6 +88,25 @@ class JUnitRunnerTests(unittest.TestCase):
         self.assertEqual(report.get('tests'), '2')
         self.assertEqual([case.get('name') for case in report], ['test_pass', 'test_pass'])
 
+    def test_fallback_packaged_test_imports_its_package_by_absolute_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / 'project' / 'tests'
+            package.mkdir(parents=True)
+            (package / '__init__.py').write_text('')
+            (package / 'helper.py').write_text('VALUE = 7\n')
+            (package / 'test_sample.py').write_text(
+                'import unittest\nfrom tests.helper import VALUE\n'
+                'class Suite(unittest.TestCase):\n'
+                ' def test_value(self): self.assertEqual(VALUE, 7)\n')
+            (root / 'selectors.json').write_text(json.dumps(['project/tests/test_sample.py::Suite::test_value']))
+            result = subprocess.run([sys.executable, '-B', str(RUNNER), '--report', 'report.xml',
+                                     '--selectors-file', 'selectors.json'], cwd=root,
+                                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = ET.parse(root / 'report.xml').getroot()
+            self.assertEqual((report.get('tests'), report.get('failures'), report.get('errors')), ('1', '0', '0'))
+
     def test_fallback_keeps_equal_package_names_in_distinct_source_roots(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

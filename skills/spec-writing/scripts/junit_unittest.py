@@ -108,7 +108,9 @@ def selected_suite(root, labels):
                 package_root = package_root.parent
             try:
                 if len(parts) > 1:
-                    # Scope package identities by source root, preserving relative imports.
+                    # Scope package identities by source root, preserving relative imports;
+                    # the root stays importable for absolute imports of the package.
+                    sys.path.insert(0, str(package_root))
                     if package_root not in package_roots:
                         name = '_selector_root_' + str(len(package_roots))
                         namespace = ModuleType(name)
