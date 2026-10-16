@@ -113,7 +113,7 @@ def selected_suite(root, labels):
                 raise ValueError(f"package '{parts[0]}' has conflicting roots '{previous}' and "
                                  f"'{package_root}'; supply runner reports")
         locations[path] = target, parts
-    sys.path[:0] = [str(path) for path in dict.fromkeys(package_roots.values())]
+    sys.path[:0] = [str(path) for path in dict.fromkeys([*package_roots.values(), root])]
     suite = unittest.TestSuite()
     for label in dict.fromkeys(labels):
         path, selector = label.split('::', 1)
