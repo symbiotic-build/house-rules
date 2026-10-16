@@ -50,7 +50,7 @@ Use this map to choose the next explanation to read.
 - [Terms and paths](77-one-step-pack-assembly.md#terms-and-paths) — Resolve compiler names, input parts and repository paths.
 - [Pre-flight](77-one-step-pack-assembly.md#pre-flight) — Read supplied work-item decisions and repository rules before implementation.
 - [Current behavior and evidence](77-one-step-pack-assembly.md#current-behavior-and-evidence) — Inspect the cited implementation baseline and the limits of inherited evidence.
-- [Design](77-one-step-pack-assembly.md#design) — Build ordered prompt inputs from Git objects and record exact pack provenance.
+- [Prompt compiler](77-one-step-pack-assembly.md#prompt-compiler) — Build ordered prompt inputs from Git objects and record exact pack provenance.
 - [Rejected alternatives](77-one-step-pack-assembly.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
 - [Size](77-one-step-pack-assembly.md#size) — Read the implementation estimate and the limits on claimed prompt savings.
 - [Rollout and pins](77-one-step-pack-assembly.md#rollout-and-pins) — Follow the dependency and qualification order before adoption.
@@ -77,8 +77,10 @@ Each technical term below links to its defining Markdown section.
 - [Repository loader](77-one-step-pack-assembly.md#repository-loader) (`one-step-pack-assembly.repository-loader`) — Loader: the target's pointer file, which directs a session to the House Rules index and the target's own rules.
 - [Target repository](77-one-step-pack-assembly.md#target-repository) (`one-step-pack-assembly.target-repository`) — Target: the repository checkout on which a worker works or performs a review.
 - [Worker prompt pack](77-one-step-pack-assembly.md#worker-prompt-pack) (`one-step-pack-assembly.worker-prompt-pack`) — Pack: the complete prompt text the dispatcher sends to a worker.
-- [Prompt compiler](76-review-entry-skill.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — The prompt compiler assembles complete worker instructions from a named House Rules commit.
+- [Prompt compiler](77-one-step-pack-assembly.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — The prompt compiler assembles complete worker instructions from a named House Rules commit.
 - [Reviewer pack](76-review-entry-skill.md#reviewer-pack) (`review-entry-skill.reviewer-pack`) — Reviewer pack: the criteria and report format compiled from prompts/roles/reviewer.md and its recursive @rule includes.
+- [Complete registry](../specs/spec-system/agent-context.md#complete-registry) (`spec-system.complete-registry`) — The complete registry is a generated record of every registered entity, its definition, home, names and literal facts in the selected corpus.
+- [Source snapshot](../specs/spec-system/checking-and-navigation.md#source-snapshot) (`spec-system.source-snapshot`) — A source snapshot is a captured set of repository paths, input bytes and source problems used by one documentation operation.
 - [Dispatcher](75-subagent-profiles.md#dispatcher) (`subagent-profiles.dispatcher`) — Dispatcher: the session or script that starts a subagent and writes its task.
 - [Lane worker](75-subagent-profiles.md#lane-worker) (`subagent-profiles.lane-worker`) — Lane worker: an implementer, fixer or lane reviewer running as a normal session with a role prompt on top.
 - [Session foundation](75-subagent-profiles.md#session-foundation) (`subagent-profiles.session-foundation`) — Foundation: the normal session instructions defined by the smaller-core design (#73).
@@ -92,7 +94,7 @@ Each technical term below links to its defining Markdown section.
 <a id="compiler-in-this-assembly-design"></a>
 ### Compiler in this assembly design
 
-**[Compiler](76-review-entry-skill.md#prompt-compiler):** [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py), which expands whole-file `@rule house-rules:<path>` includes.
+The [prompt compiler](#prompt-compiler) expands whole-file `@rule house-rules:<path>` includes. Its operating contract follows below.
 
 
 House Rules file paths in this document are complete repository-relative paths. A target file has the `<target>/` prefix. The House Rules [pointer](73-instruction-layer-foundation.md#instruction-pointer) is `house-rules/AGENTS.md`; the renamed [House Rules index](73-instruction-layer-foundation.md#house-rules-index) is `house-rules/INDEX.md`. Installed [pointers](73-instruction-layer-foundation.md#instruction-pointer) use `<codex-home>/AGENTS.md` or `<repository>/AGENTS.md`. The [pointer](73-instruction-layer-foundation.md#instruction-pointer) format and index rename belong to the [smaller-core design, issue #73](https://github.com/symbiotic-sh/house-rules/issues/73).
@@ -117,9 +119,12 @@ The [role-pack design, issue #74](https://github.com/symbiotic-sh/house-rules/is
 
 `ASSUMPTION` The operator's 2026-10-07 record reports that Warden added staging for `rules/` in commit `9f1568b` for [Warden issue #238](https://github.com/symbiotic-sh/warden/issues/238). Warden deployment was not checked in this run. This design does not assume that Warden stages only `prompts/` and `skills/pr-ready/`.
 
-<a id="design"></a>
-## Design
+<a id="prompt-compiler"></a>
+## Prompt compiler
 
+The prompt compiler assembles complete worker instructions from a named House Rules commit.
+
+Its implementation is [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py).
 The requirement records preserve this draft's proposed implementation contracts. Settled choices in [Decisions](#decisions) remain binding. Acceptance evidence remains planned.
 
 <a id="compiler-interface"></a>
@@ -139,7 +144,7 @@ This requirement defines compiler interface for implementation.
 
 **Tests:** [Invalid compiler inputs](#test-assembly-invalid-inputs), [Compiler runtime and target choice](#test-assembly-runtime), [Atomic artifact publication](#test-assembly-publication).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: assembly prompt source](#assembly-prompt-source), [Decision: task provenance](#task-provenance), [Decision: pack failure publication](#pack-failure-publication), [Compiler rule delivery](#assembly-shared-rule-delivery). Remaining implementation details are proposals.
 
@@ -189,12 +194,14 @@ This requirement defines reading from the commit for implementation.
 
 **Tests:** [Dirty edit and branch independence](#test-assembly-dirty-independence), [Replacement-ref protection](#test-assembly-replacement-refs), [Requested-path cost](#test-assembly-requested-paths).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: assembly prompt source](#assembly-prompt-source), [Decision: requested path reading](#requested-path-reading). Remaining implementation details are proposals.
 
 
-With `--rev`, the compiler resolves `COMMIT^{commit}` once through `git --no-replace-objects rev-parse --verify`. The compiler records the resolved full commit id. It reads only requested paths, feeding `<commit>:<path>` to one long-lived `git --no-replace-objects cat-file --batch` process per source repository as each include is discovered (lead decision L2). It validates each requested path's mode with a path-specific `git --no-replace-objects ls-tree -z <commit> -- <path>` lookup and checks the exact returned path. It never enumerates the whole tree. For K requested paths, native Git supplies K path lookups and one batch process for blob contents; the compiler adds include ordering and manifest records without processing unrelated tree entries.
+For core rule assembly with `--rev`, the compiler resolves `COMMIT^{commit}` once through `git --no-replace-objects rev-parse --verify`. The compiler records the resolved full commit id. It reads only requested paths, feeding `<commit>:<path>` to one long-lived `git --no-replace-objects cat-file --batch` process per source repository as each include is discovered (lead decision L2). It validates each requested path's mode with a path-specific `git --no-replace-objects ls-tree -z <commit> -- <path>` lookup and checks the exact returned path. It never enumerates the whole tree. For K requested paths, native Git supplies K path lookups and one batch process for blob contents; the compiler adds include ordering and manifest records without processing unrelated tree entries.
+
+Registered-document preparation separately uses the pinned shared documentation tool to capture the candidate and any comparison base. Its [source snapshot](../specs/spec-system/checking-and-navigation.md#source-snapshot) inventories each selected tree through Git. It loads Markdown, shared metadata and `.gitattributes`; code and asset links use the inventory without loading unrelated binaries. This inventory belongs to documentation preparation, outside the core rule reader’s requested-path guarantee. The [pinned-tool decision](../specs/spec-system/decisions-and-open-questions.md#toolchain-decision) governs the matching helper, profile and format contract. The [complete-input decision](../specs/spec-system/decisions-and-open-questions.md#context-decision) governs the [complete registry](../specs/spec-system/agent-context.md#complete-registry) and selected explanations from one snapshot.
 
 A valid path names a regular file with mode `100644` or `100755`. A symlink, submodule or directory fails compilation. Empty paths, NUL bytes, section references, absolute paths and `..` components fail compilation. An omitted shared-rule include must still name a valid file at the selected commit. A missing shared rule must not disappear silently.
 
@@ -217,7 +224,7 @@ This requirement defines compiler self-check for implementation.
 
 **Tests:** [Dirty edit and branch independence](#test-assembly-dirty-independence), [Invalid compiler inputs](#test-assembly-invalid-inputs), [Replacement-ref protection](#test-assembly-replacement-refs).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: assembly prompt source](#assembly-prompt-source). Remaining implementation details are proposals.
 
@@ -271,7 +278,7 @@ This requirement defines pack layout and [include-once](#include-once) for imple
 
 **Tests:** [First-include ordering](#test-assembly-include-once), [Manifest provenance](#test-assembly-manifest), [Role loading modes](#test-assembly-role-modes), [Part layout and literal tasks](#test-assembly-layout-and-tasks).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: literal task includes](#literal-task-includes), [Decision: single task join](#single-task-join), [Compiler rule delivery](#assembly-shared-rule-delivery). Remaining implementation details are proposals.
 
@@ -308,7 +315,7 @@ This requirement defines task text is data for implementation.
 
 **Tests:** [Part layout and literal tasks](#test-assembly-layout-and-tasks).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: literal task includes](#literal-task-includes), [Decision: worker capacity retries](#worker-capacity-retries). Remaining implementation details are proposals.
 
@@ -342,7 +349,7 @@ This requirement defines target repository rules for implementation.
 
 **Tests:** [Repository rule delivery](#test-assembly-target-rules).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: unchanged target rules](#unchanged-target-rules). Remaining implementation details are proposals.
 
@@ -391,7 +398,7 @@ This requirement defines manifest for implementation.
 
 **Tests:** [Manifest provenance](#test-assembly-manifest).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: task provenance](#task-provenance), [Decision: unchanged target rules](#unchanged-target-rules). Remaining implementation details are proposals.
 
@@ -453,7 +460,7 @@ This requirement defines python interface for implementation.
 
 **Tests:** [Compiler runtime and target choice](#test-assembly-runtime).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: assembly prompt source](#assembly-prompt-source). Remaining implementation details are proposals.
 
@@ -488,7 +495,7 @@ This requirement defines changes in House Rules for implementation.
 
 **Tests:** [Role loading modes](#test-assembly-role-modes), [Part layout and literal tasks](#test-assembly-layout-and-tasks), [Atomic artifact publication](#test-assembly-publication).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: assembly prompt source](#assembly-prompt-source), [Compiler rule delivery](#assembly-shared-rule-delivery). Remaining implementation details are proposals.
 
@@ -522,7 +529,7 @@ This requirement defines changes in the lane runner for implementation.
 
 **Tests:** [Dirty edit and branch independence](#test-assembly-lane-dirty), [Normal instruction and repository delivery](#test-assembly-lane-session), [Hash identity and panels](#test-assembly-lane-hashes).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: assembly lane sessions](#assembly-lane-sessions), [Decision: worker capacity retries](#worker-capacity-retries). Remaining implementation details are proposals.
 
@@ -557,7 +564,7 @@ This requirement defines warden adoption for implementation.
 
 **Tests:** [Hash identity and panels](#test-assembly-lane-hashes).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: warden adoption timing](#warden-adoption-timing), [Decision: assembly warden boundary](#assembly-warden-boundary). Remaining implementation details are proposals.
 
@@ -604,7 +611,7 @@ This requirement defines rollout and pins for implementation.
 
 **Tests:** [Dirty edit and branch independence](#test-assembly-lane-dirty), [Normal instruction and repository delivery](#test-assembly-lane-session), [Hash identity and panels](#test-assembly-lane-hashes).
 
-**Status:** [Proposed implementation](#design).
+**Status:** [Proposed implementation](#prompt-compiler).
 
 **Basis:** [Decision: warden adoption timing](#warden-adoption-timing), [Decision: assembly lane sessions](#assembly-lane-sessions). Remaining implementation details are proposals.
 
@@ -942,7 +949,7 @@ This planned case checks the retained requested paths criteria.
 
 **Inputs:** The implementation candidate and the setup described below.
 
-**Expected:** Requested-path reads use one long-lived batch process per source repository and no whole-tree enumeration. A fixture with an unrelated file records Git requests and confirms that only requested paths are read.
+**Expected:** Core rule assembly uses one long-lived batch process per source repository and no whole-tree enumeration. A fixture with an unrelated file records Git requests and confirms that only requested rule paths are read. Registered-document preparation separately inventories the candidate and any comparison-base tree through the pinned documentation tool, following the [source-snapshot contract](../specs/spec-system/checking-and-navigation.md#source-snapshot).
 
 
 Planned evidence for requested paths: [record observations against these criteria](#req-assembly-reading-from-the-commit).

@@ -146,7 +146,7 @@ Keep the reading map derived from authored declarations.
 
 Keep all consumers on the shared parsing and selection contract.
 
-**Actor:** Tool integrator and [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler).
+**Actor:** Tool integrator and [prompt compiler](../../design/77-one-step-pack-assembly.md#prompt-compiler).
 
 **Condition:** The tool is invoked directly or through an extracted compiler.
 

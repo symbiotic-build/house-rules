@@ -1,6 +1,8 @@
 """Small behavioral red/green fixtures for the shared documentation pipeline."""
 import copy
+from contextlib import redirect_stdout, redirect_stderr
 from dataclasses import replace
+import io
 import json
 import re
 from pathlib import Path
@@ -146,6 +148,19 @@ class CorpusTests(unittest.TestCase):
         self.assertIn(b'example%20guide.md#', self.paths[new])
         self.assertTrue(s.check(c).ok, s.check(c).errors)
         self.assertEqual(s.relative_link('docs/nav.md', 'docs/a b.md', 'a b'), 'a%20b.md#a%20b')
+
+    def test_navigation_escapes_visible_labels_in_every_entry(self):
+        title = 'Files [local] C:\\'
+        edit(self.paths, ACCEPTANCE, '\n# Acceptance\n', '\n# `Files [local] C:\\`\n')
+        edit(self.paths, ACCEPTANCE, '\n## Writer\n', '\n## `Files [local] C:\\`\n')
+        c = corpus(self.paths)
+        # Exercise the entity label independently from its naming contract.
+        c.entities['example.writer']['title'] = title
+        output = s.project_navigation(c)['docs/generated/example-demo.md'].decode()
+        md = s.parse_markdown('docs/generated/example-demo.md', output, s.Diagnostics())
+        links = [link for link in md.links if link.label == title]
+        self.assertEqual(len(links), 4)  # section, nested heading, prerequisite, entity
+        self.assertEqual({link.target.split('#')[-1] for link in links}, {'acceptance-section', 'writer'})
 
     def test_procedure_requires_each_direct_action_to_open_bold(self):
         self.paths[ACCEPTANCE] += b'\n**Procedure: inspect results**\n\n1. Read the result.\n2. **Check the state.** It remains intact.\n'
@@ -1384,6 +1399,24 @@ class SnapshotTests(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(['git', '-C', str(self.root), *args], stdin=subprocess.DEVNULL, capture_output=True, check=True).stdout
+
+    def test_rejected_urls_never_expose_credentials_in_diagnostics_or_cli(self):
+        # Synthetic values are assembled at runtime and never printed by assertions.
+        username, password = 'fixture' + '-user', 'fixture' + '-password'
+        target = self.root / ACCEPTANCE
+        target.write_text(target.read_text() + f'\n[Remote](ftp://{username}:{password}@example.invalid/file)\n')
+        c = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        diagnostics = s.check(c)
+        self.assertTrue(any(d.code == 'D06' for d in diagnostics.errors))
+        outputs = [str(s.SpecDocsError(diagnostics)), json.dumps(diagnostics.to_dict())]
+        for format_args in ([], ['--json']):
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with redirect_stdout(stdout), redirect_stderr(stderr):
+                status = s.main(['check', '--root', str(self.root), '--fixture', *format_args])
+            self.assertEqual(status, 1)
+            outputs.extend([stdout.getvalue(), stderr.getvalue()])
+        self.assertFalse(any(value in output for value in (username, password) for output in outputs),
+                         'credential-bearing destination escaped into checker diagnostics')
 
     def test_history_filter_covers_accepted_anchor_whitespace(self):
         target = self.root / ACCEPTANCE

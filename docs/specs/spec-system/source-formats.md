@@ -67,7 +67,7 @@ The runtime version identifies the metadata format, and the interpreter rows nam
 
 The caller supplies the House Rules revision outside corpus metadata. Record its full resolved Git commit ID in the consuming repository's existing tool configuration or the invocation's retained run inputs. There is no required pin filename or additional corpus file. Neither shared metadata envelope accepts a revision field.
 
-Invoke the helper from the checkout at that commit, with its matching runtime, lock, format contract and [writing profile](writing-and-review-workflow.md#writing-profile). The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) receives the same commit as its `--rev` argument and reads its matching helper. The documentation tool's own `--rev` instead selects a commit in the consuming repository; it does not select House Rules. Changing the House Rules pin requires selecting and preparing the matching installation again.
+Invoke the helper from the checkout at that commit, with its matching runtime, lock, format contract and [writing profile](writing-and-review-workflow.md#writing-profile). The [prompt compiler](../../design/77-one-step-pack-assembly.md#prompt-compiler) receives the same commit as its `--rev` argument and reads its matching helper. The documentation tool's own `--rev` instead selects a commit in the consuming repository; it does not select House Rules. Changing the House Rules pin requires selecting and preparing the matching installation again.
 
 <a id="metadata"></a>
 ## Metadata
@@ -416,4 +416,4 @@ Each range records `label`, `path`, `start`, `end`, `identities`, `reasons`, `di
 
 Included explicit anchors become `pack-N-anchor`, where `N` is the zero-based ordinal of each distinct snapshot-label/source-path pair in emitted range order. Links to those included anchors become fragments. Literal examples and destinations outside the selected ranges remain unchanged. Range digests and sizes describe original source bytes; the complete pack count includes rewritten bytes.
 
-The embedded manifest's `size_bytes` equals the complete content length, including itself. Before testing `budget_bytes`, the selector serializes the pack until its final byte length equals the embedded count. This budget bounds documentation bytes only; the [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) separately bounds its complete pack. Missing or excessive mandatory input returns an error instead of a prefix of the content.
+The embedded manifest's `size_bytes` equals the complete content length, including itself. Before testing `budget_bytes`, the selector serializes the pack until its final byte length equals the embedded count. This budget bounds documentation bytes only; the [prompt compiler](../../design/77-one-step-pack-assembly.md#prompt-compiler) separately bounds its complete pack. Missing or excessive mandatory input returns an error instead of a prefix of the content.

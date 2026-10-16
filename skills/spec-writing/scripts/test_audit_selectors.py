@@ -57,6 +57,19 @@ class SelectorAuditTests(unittest.TestCase):
         self.assertEqual(result, (0, 0, 1))
         self.assertIn('batch exited 1', output)
 
+    def test_fallback_loads_nested_packages_with_relative_imports_and_standalone_files(self):
+        labels = ['package/tests/sample.py::Suite::test_pass', 'standalone/sample.py::Suite::test_pass']
+        c = self.corpus(labels)
+        for directory in ('package', 'package/tests'):
+            (self.root / directory / '__init__.py').write_text('')
+        (self.root / 'package/helper.py').write_text('VALUE = 42\n')
+        (self.root / 'package/tests/helper.py').write_text('from ..helper import VALUE\n')
+        (self.root / 'package/tests/sample.py').write_text(
+            'import unittest\nfrom .helper import VALUE\nclass Suite(unittest.TestCase):\n'
+            ' def test_pass(self): self.assertEqual(VALUE, 42)\n')
+        result, output = self.audit(c)
+        self.assertEqual(result, (2, 0, 0), output)
+
     def test_timeout_does_not_drain_descendant_held_pipes(self):
         # A bounded fake reproduces a detached descendant retaining PIPE handles.
         from unittest.mock import MagicMock

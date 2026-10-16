@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run ordinary unittest arguments and write a standard-library JUnit report."""
 import argparse
+import importlib
 import importlib.util
 import inspect
 import json
@@ -98,13 +99,22 @@ def selected_suite(root, labels):
         target = root / path
         if path not in modules:
             sys.path[:0] = [str(target.parent), str(root)]
-            # A distinct name per path prevents collisions between equal file stems.
-            name = '_selector_' + str(len(modules))
-            spec = importlib.util.spec_from_file_location(name, target)
-            module = importlib.util.module_from_spec(spec)
-            sys.modules[name] = module
+            package_root = target.parent
+            parts = [target.stem]
+            while (package_root / '__init__.py').is_file():
+                parts.insert(0, package_root.name)
+                package_root = package_root.parent
             try:
-                spec.loader.exec_module(module)
+                if len(parts) > 1:
+                    sys.path.insert(0, str(package_root))
+                    module = importlib.import_module('.'.join(parts))
+                else:
+                    # Distinct names keep standalone files with equal stems separate.
+                    name = '_selector_' + str(len(modules))
+                    spec = importlib.util.spec_from_file_location(name, target)
+                    module = importlib.util.module_from_spec(spec)
+                    sys.modules[name] = module
+                    spec.loader.exec_module(module)
                 modules[path] = module
             except Exception as exc:
                 print(f'missing: cannot load {path}: {exc}', file=sys.stderr)

@@ -1371,7 +1371,7 @@
         {
           "id": "design",
           "path": "docs/design/77-one-step-pack-assembly.md",
-          "anchor": "design",
+          "anchor": "prompt-compiler",
           "roles": [
             "mechanism",
             "requirements",
@@ -1379,7 +1379,28 @@
           ],
           "summary": "Build ordered prompt inputs from Git objects and record exact pack provenance.",
           "prerequisites": [],
-          "explanatory_dependencies": []
+          "explanatory_dependencies": [
+            {
+              "section": "one-step-pack-assembly#decisions",
+              "reason": "Recorded operator and lead choices govern compiler operation."
+            },
+            {
+              "section": "complete-worker-packs#design",
+              "reason": "Shared-rule ownership and session loading belong to the role-pack design."
+            },
+            {
+              "section": "spec-system#checking",
+              "reason": "Registered-document preparation uses the pinned tool and source-snapshot inventory."
+            },
+            {
+              "section": "spec-system#context",
+              "reason": "Documentation dispatch needs complete selected explanations and context accounting."
+            },
+            {
+              "section": "spec-system#decisions",
+              "reason": "Pinned-tool and complete-input decisions govern the documentation integration."
+            }
+          ]
         },
         {
           "id": "rejected-alternatives",

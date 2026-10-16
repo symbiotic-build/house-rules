@@ -13,7 +13,7 @@ A plain request gets one reviewer; a panel starts only when the operator asks fo
 The review uses the lane and Warden report format unless the operator asks for something shorter.
 Review questions use the question format from the operator-writing skill.
 
-The change-review skill delivers the shared reviewer criteria through the [prompt compiler](#prompt-compiler).
+The change-review skill delivers the shared reviewer criteria through the [prompt compiler](77-one-step-pack-assembly.md#prompt-compiler).
 The change-review skill does not load the pr-ready push, CI or merge procedure for a plain review.
 The operator-writing skill loads for [operator documents](#operator-document), questions to the operator and GitHub text.
 [Everyday replies](#everyday-reply) follow the always-loaded writing rules in [rules/writing.md](../../rules/writing.md).
@@ -78,7 +78,7 @@ Each technical term below links to its defining Markdown section.
 - [Canary run](76-review-entry-skill.md#canary-run-meaning) (`review-entry-skill.canary-run`) — Canary run: a headless session whose tool log shows which files and skills the agent loaded.
 - [Everyday reply](76-review-entry-skill.md#everyday-reply) (`review-entry-skill.everyday-reply`) — Everyday reply: every chat reply, including answers, greetings, progress notes and reports.
 - [Operator document](76-review-entry-skill.md#operator-document) (`review-entry-skill.operator-document`) — Operator document: a Markdown file written for the operator (a brief, report, ledger, design or decision document), or GitHub text.
-- [Prompt compiler](76-review-entry-skill.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — The prompt compiler assembles complete worker instructions from a named House Rules commit.
+- [Prompt compiler](77-one-step-pack-assembly.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — The prompt compiler assembles complete worker instructions from a named House Rules commit.
 - [Reviewer pack](76-review-entry-skill.md#reviewer-pack) (`review-entry-skill.reviewer-pack`) — Reviewer pack: the criteria and report format compiled from prompts/roles/reviewer.md and its recursive @rule includes.
 - [Skill description](76-review-entry-skill.md#skill-description) (`review-entry-skill.skill-description`) — Description: the frontmatter description that each host shows when matching a task to a skill.
 - [Dispatcher](75-subagent-profiles.md#dispatcher) (`subagent-profiles.dispatcher`) — Dispatcher: the session or script that starts a subagent and writes its task.
@@ -145,14 +145,6 @@ The requirement records preserve this draft's proposed implementation contracts.
 [prompts/roles/reviewer.md](../../prompts/roles/reviewer.md) and its recursive `@rule` includes.
 Interactive, lane and Warden reviewers apply the same criteria and report format.
 Normal House Rules sessions already load [shared rules](74-complete-worker-packs.md#shared-rule); Warden reviewers receive those rules through role includes.
-
-<a id="prompt-compiler"></a>
-#### Prompt compiler
-
-The prompt compiler assembles complete worker instructions from a named House Rules commit.
-
-Its implementation is [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py).
-The [pack-assembly design](77-one-step-pack-assembly.md#one-step-pack-assembly-from-a-named-commit) explains its Git-object inputs.
 
 <a id="new-change-review-skill"></a>
 ##### New change-review skill
@@ -606,9 +598,9 @@ This requirement defines rollout and interfaces with the other designs for imple
    ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
    This implementation uses the same compiler contract as lane review panels and Warden role compilation.
    This implementation does not require a separate pinned checkout or compile from uncommitted files.
-- **3.** **[Foundation](75-subagent-profiles.md#session-foundation):** the foundation design owns the smaller always-loaded core and `INDEX.md`
+- **3.** **[Foundation](75-subagent-profiles.md#session-foundation):** the foundation design owns only the index rename and pointer shape under [Index-only direction](73-instruction-layer-foundation.md#index-only-direction)
    (foundation design (#73) ([source](https://github.com/symbiotic-sh/house-rules/pull/79))).
-   This implementation changes the index's skill triggers and the core's operator-writing pointer after the foundation lands.
+   Every rule file stays always loaded with its existing text and loading triggers. This review-entry implementation separately changes the index's skill triggers and the core's operator-writing pointer after the foundation lands.
 - **4.** **[Specialists](75-subagent-profiles.md#specialist):** the [specialist](75-subagent-profiles.md#specialist)-[subagent](75-subagent-profiles.md#subagent) design owns [specialist](75-subagent-profiles.md#specialist) hand-offs and safe-mode skill delivery
    ([specialist](75-subagent-profiles.md#specialist)-subagent design (#75) ([source](https://github.com/symbiotic-sh/house-rules/pull/81))).
    This implementation adds no [specialist launcher](75-subagent-profiles.md#specialist-launcher), isolated lane-worker home or new [specialist](75-subagent-profiles.md#specialist) policy.

@@ -756,7 +756,7 @@ def resolve_links(corpus):
                 else:
                     link.destination = path, anchor
             except ValueError:
-                corpus.diagnostics.add("D06", f"target '{link.target}' does not resolve", md.path, link.line + 1)
+                corpus.diagnostics.add("D06", "link target does not resolve", md.path, link.line + 1)
 
 
 def assemble_declarations(corpus):
@@ -952,7 +952,7 @@ def check(corpus, base=None, _freshness=True):
                 if link.destination and link.destination[0] == path:
                     anchor = link.destination[1]
                     if anchor and len(inbound.anchors.get(anchor, [])) != 1:
-                        d.add('D06', f"target '{link.target}' does not resolve", md.path, link.line + 1)
+                        d.add('D06', 'link target does not resolve', md.path, link.line + 1)
         for link in inbound.links:
             try:
                 target = urlsplit(link.target)
@@ -960,7 +960,7 @@ def check(corpus, base=None, _freshness=True):
                 if not target.scheme and not target.netloc and destination in declared:
                     anchor = unquote(target.fragment)
                     if anchor and len(corpus.markdown[destination].anchors.get(anchor, [])) != 1:
-                        d.add('D06', f"target '{link.target}' does not resolve", path, link.line + 1)
+                        d.add('D06', 'link target does not resolve', path, link.line + 1)
             except ValueError:
                 continue  # Non-document links remain outside this inbound-only check.
     ep, mp = JSON_PATHS
@@ -1615,6 +1615,12 @@ def relative_link(output, path, anchor=""):
     return quote(relative, safe="/") + ("#" + quote(anchor, safe="") if anchor else "")
 
 
+def markdown_link(label, target):
+    """Render a visible label literally inside a Markdown link."""
+    label = re.sub(r"([\\\[\]`*_<>!&])", r"\\\1", label)
+    return f"[{label}]({target})"
+
+
 def replace_region(text, start, end, body, path):
     if text.count(start) != 1 or text.count(end) != 1 or text.index(start) >= text.index(end):
         fail("D02", "malformed declaration: expected exactly one ordered marker pair", path)
@@ -1649,7 +1655,7 @@ def project_navigation(corpus):
         registered = {(section["path"], section["anchor"]) for section in sections}
         for section in sections:
             target = relative_link(path, section["path"], section["anchor"])
-            lines.extend([f"- [{section['heading'].title}]({target}) — {section['summary']}"])
+            lines.extend([f"- {markdown_link(section['heading'].title, target)} — {section['summary']}"])
             md = corpus.markdown[section["path"]]
             for heading in md.headings:
                 if (heading.level == 2 and (md.path, heading.anchor) not in registered
@@ -1657,14 +1663,14 @@ def project_navigation(corpus):
                         and not any(a <= heading.start < b for a, b in md.generated)):
                     if not heading.anchor:
                         fail("D02", "malformed declaration: mapped level-2 heading needs an explicit anchor", md.path)
-                    lines.append(f"  - [{heading.title}]({relative_link(path, md.path, heading.anchor)})")
+                    lines.append(f"  - {markdown_link(heading.title, relative_link(path, md.path, heading.anchor))}")
             if section["prerequisites"]:
                 prereqs = [corpus.sections[key] for key in section["prerequisites"]]
-                lines.append("  Prerequisites: " + ", ".join(f"[{s['heading'].title}]({relative_link(path, s['path'], s['anchor'])})" for s in prereqs) + ".")
+                lines.append("  Prerequisites: " + ", ".join(markdown_link(s['heading'].title, relative_link(path, s['path'], s['anchor'])) for s in prereqs) + ".")
         lines.extend(["", "## Entity index", "", "Each technical term below links to its defining Markdown section.", ""])
         for identity, entity in sorted(corpus.entities.items()):
             if document["id"] in entity["scope"]:
-                lines.extend([f"- [{entity['title']}]({relative_link(path, entity['path'], entity['anchor'])}) (`{identity}`) — {entity['meaning']}"])
+                lines.extend([f"- {markdown_link(entity['title'], relative_link(path, entity['path'], entity['anchor']))} (`{identity}`) — {entity['meaning']}"])
         body = "\n".join(lines) + "\n"
         if nav.get("region"):
             current = outputs.get(path, corpus.source.files.get(path, b"")).decode()

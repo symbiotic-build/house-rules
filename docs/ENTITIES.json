@@ -412,7 +412,7 @@
     "review-entry-skill.prompt-compiler": {
       "kind": "component",
       "home": {
-        "section": "review-entry-skill#design",
+        "section": "one-step-pack-assembly#design",
         "anchor": "prompt-compiler"
       },
       "scope": [
@@ -765,7 +765,8 @@
         "anchor": "source-snapshot"
       },
       "scope": [
-        "spec-system"
+        "spec-system",
+        "one-step-pack-assembly"
       ],
       "forms": [
         "source snapshot",
@@ -811,7 +812,8 @@
         "anchor": "complete-registry"
       },
       "scope": [
-        "spec-system"
+        "spec-system",
+        "one-step-pack-assembly"
       ],
       "forms": [
         "complete registry"

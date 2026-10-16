@@ -72,12 +72,12 @@ The pack includes recovery. An ordinary link from the added home to an unrelated
 | Home’s containing section declares recovery dependency | Recovery section |
 | Home links to an unrelated glossary | No further source |
 
-A comparison also includes the requirement change report and selected linked tests from the base and candidate. The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) derives affected test selectors from both snapshots. Supply each removal decision explicitly in `removal_decisions`; the [change-review explanation](requirements-tests-and-failures.md#change-review) covers authority review.
+A comparison also includes the requirement change report and selected linked tests from the base and candidate. The [prompt compiler](../../design/77-one-step-pack-assembly.md#prompt-compiler) derives affected test selectors from both snapshots. Supply each removal decision explicitly in `removal_decisions`; the [change-review explanation](requirements-tests-and-failures.md#change-review) covers authority review.
 
 <a id="dispatch-and-invalidation"></a>
 ## Dispatch and invalidation
 
-Preparation checks that the selected input is complete and fits before any agent starts. The shared [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) loads `spec_docs.py`, runtime metadata, dependency lock, format contract and profile from its selected House Rules revision. Running the compiler from a checkout or archive of that commit uses those matching files.
+Preparation checks that the selected input is complete and fits before any agent starts. The shared [prompt compiler](../../design/77-one-step-pack-assembly.md#prompt-compiler) loads `spec_docs.py`, runtime metadata, dependency lock, format contract and profile from its selected House Rules revision. Running the compiler from a checkout or archive of that commit uses those matching files.
 
 The selector reports the complete pack’s UTF-8 byte count, including the embedded manifest. Provenance records the baseline, source and registry digests, profile digest, input fingerprints, versions, assignment, included identities and range reasons. Range offsets are zero-based with an exclusive end; displayed source labels use one-based lines. These records let the [dispatcher](../../design/75-subagent-profiles.md#dispatcher) detect which captured input an agent received.
 
