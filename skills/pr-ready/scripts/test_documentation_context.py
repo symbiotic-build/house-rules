@@ -337,13 +337,13 @@ class DocumentationContextTests(unittest.TestCase):
         if not interpreter.exists():
             self.skipTest('system Python is unavailable')
         version = subprocess.run([str(interpreter), '-c', 'import sys; print(sys.version_info[:2] < (3, 11))'],
-                                 capture_output=True, check=True, timeout=5).stdout.strip()
+                                 stdin=subprocess.DEVNULL, capture_output=True, check=True, timeout=5).stdout.strip()
         if version != b'True':
             self.skipTest('system Python does not need the tool environment bridge')
         environment = dict(os.environ, REVIEW_PYTHON=sys.executable)
         result = subprocess.run([str(interpreter), '-B', str(ROOT / 'skills/pr-ready/scripts/prepare.py'),
                                  'review', str(self.repo), '--base', self.revision, '--no-fetch', '--context-only'],
-                                env=environment, capture_output=True, timeout=10)
+                                env=environment, stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn(b'No registered documentation changed in this range.', result.stdout)
 
