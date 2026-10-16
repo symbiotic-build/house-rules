@@ -8,7 +8,6 @@ import json
 from pathlib import Path
 import sys
 import time
-from types import ModuleType
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -95,30 +94,36 @@ def selected_suite(root, labels):
     """Load cited Python files once and combine their selected tests in one suite."""
     modules = {}
     package_roots = {}
+    locations = {}
+    # Resolve the whole batch before importing: neither side of a package-name
+    # conflict can safely use Python's single native module identity.
+    for label in dict.fromkeys(labels):
+        path = label.split('::', 1)[0]
+        if path in locations:
+            continue
+        target = root / path
+        package_root = target.parent
+        parts = [target.stem]
+        while (package_root / '__init__.py').is_file():
+            parts.insert(0, package_root.name)
+            package_root = package_root.parent
+        if len(parts) > 1:
+            previous = package_roots.setdefault(parts[0], package_root)
+            if previous != package_root:
+                raise ValueError(f"package '{parts[0]}' has conflicting roots '{previous}' and "
+                                 f"'{package_root}'; supply runner reports")
+        locations[path] = target, parts
+    sys.path[:0] = [str(path) for path in dict.fromkeys(package_roots.values())]
     suite = unittest.TestSuite()
     for label in dict.fromkeys(labels):
         path, selector = label.split('::', 1)
-        target = root / path
+        target, parts = locations[path]
         if path not in modules:
-            sys.path[:0] = [str(target.parent), str(root)]
-            package_root = target.parent
-            parts = [target.stem]
-            while (package_root / '__init__.py').is_file():
-                parts.insert(0, package_root.name)
-                package_root = package_root.parent
             try:
                 if len(parts) > 1:
-                    # Scope package identities by source root, preserving relative imports;
-                    # the root stays importable for absolute imports of the package.
-                    sys.path.insert(0, str(package_root))
-                    if package_root not in package_roots:
-                        name = '_selector_root_' + str(len(package_roots))
-                        namespace = ModuleType(name)
-                        namespace.__path__ = [str(package_root)]
-                        sys.modules[name] = namespace
-                        package_roots[package_root] = name
-                    module = importlib.import_module('.'.join([package_roots[package_root], *parts]))
+                    module = importlib.import_module('.'.join(parts))
                 else:
+                    sys.path[:0] = [str(target.parent), str(root)]
                     # Distinct names keep standalone files with equal stems separate.
                     name = '_selector_' + str(len(modules))
                     spec = importlib.util.spec_from_file_location(name, target)

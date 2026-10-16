@@ -98,6 +98,8 @@ The runner writes root-relative `file`, module-qualified `classname`, method `na
 
 Without explicit or declared reports, the audit batches all unique cited selectors of each runner once. Python uses one in-process unittest suite inside one child process, loading each file once. Loader errors or empty suites are missing selectors. Failures, errors or skips fail their selector.
 
+Python fallback imports packaged tests by their native dotted names with each package root on `sys.path`. Relative and absolute imports therefore share module identity. If cited files from different roots share a top-level package name, the batch is refused before loading either file. The diagnostic names the package and both roots and asks the caller to supply runner reports. The unsuccessful batch marks its selectors failing. Standalone files retain distinct `_selector_N` module names.
+
 Other runners require a declared `batch` command that receives every full selector in one invocation and writes a JUnit report at `{report}`. Absence of a batch declaration is an invocation error naming the report or batch fix. Children receive EOF on standard input. No path starts a process per selector.
 
 `--timeout-seconds` is a positive per-batch runaway ceiling, defaulting to 300 seconds. A timeout kills that batch's process group, closes output pipes without draining descendant-held handles and marks all its selectors failing. A runner that cannot start or exits unsuccessfully fails its batch visibly, even if it wrote passing cases. Successful batches use the same report matching as report mode. Each selector line records its outcome; each runner batch records runtime. The final line reports `passed`, `missing` and `failing` counts.

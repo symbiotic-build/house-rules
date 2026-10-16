@@ -1075,6 +1075,62 @@ class CorpusTests(unittest.TestCase):
         self.assertIn('example-demo#settings', ctx.manifest['included'])
         self.assertEqual(len(ctx.manifest['ranges']), 2)
 
+    def test_parent_selection_expands_nested_registered_dependencies(self):
+        # Only the nested section declares the external dependency. Exercise both
+        # snapshots: comparison tests can select the same parent subtree in base.
+        self.paths[ACCEPTANCE] += b'\n<a id="nested"></a>\n## Nested operation\n\nRead its recovery explanation.\n'
+        self.paths[SETTINGS] += b'\n<a id="recovery"></a>\n## Recovery explanation\n\nResolve the request before resubmission.\n'
+        def register(value):
+            doc = value['documents'][0]
+            doc.update(status='draft')
+            del doc['approval']
+            doc['sections'][0]['explanatory_dependencies'] = []
+            doc['sections'].extend([
+                dict(id='nested', path=ACCEPTANCE, anchor='nested', roles=[],
+                     summary='Explain recovery needs.', prerequisites=[], explanatory_dependencies=[
+                         dict(section='example-demo#recovery', reason='Explain request recovery.')]),
+                dict(id='recovery', path=SETTINGS, anchor='recovery', roles=[],
+                     summary='Recover a request.', prerequisites=[], explanatory_dependencies=[])])
+        metadata(self.paths, s.JSON_PATHS[1], register)
+        refresh(self.paths)
+        for label in ('candidate', 'base'):
+            with self.subTest(label=label):
+                ctx = self.context(dict(version=1, sections=['example-demo#acceptance'], label=label))
+                identity = ('base:' if label == 'base' else '') + 'example-demo#recovery'
+                self.assertIn(identity, ctx.manifest['included'])
+                self.assertTrue(any(r['label'] == label and identity in r['identities']
+                                    for r in ctx.manifest['ranges']))
+
+    def test_base_acceptance_selects_base_approval_and_its_dependencies(self):
+        # The approval is outside the acceptance subtree and differs in candidate.
+        def register(value):
+            doc = value['documents'][0]
+            doc['sections'][0]['explanatory_dependencies'] = []
+            doc['sections'].extend([
+                dict(id='decision', path=SETTINGS, anchor='fixture-decision', roles=[],
+                     summary='Record approval authority.', prerequisites=[], explanatory_dependencies=[
+                         dict(section='example-demo#questions', reason='Qualify this approval.')]),
+                dict(id='questions', path=SETTINGS, anchor='open-questions', roles=[],
+                     summary='Qualify candidate capacity.', prerequisites=[], explanatory_dependencies=[])])
+        metadata(self.paths, s.JSON_PATHS[1], register)
+        # Do not select the whole settings chapter incidentally through entities.
+        edit(self.paths, SETTINGS, '**Reason:** It covers homes, literal values, shared defaults and [acceptance](acceptance.md#acceptance) links.',
+             '**Reason:** Retain the base approval evidence.')
+        base = refresh(self.paths)
+        edit(self.paths, SETTINGS, 'Retain the base approval evidence.', 'Use the candidate approval evidence.')
+        edit(self.paths, ACCEPTANCE, '**Result:** Return `Conflict`', '**Result:** Report `Conflict`')
+        candidate = refresh(self.paths)
+        candidate.base = base
+        ctx = s.select_context(candidate, dict(version=1, sections=['example-demo#questions'],
+            required_test_reviews=['example-demo#test-stale-revision']))
+        for selector in ('fixture-decision', 'questions'):
+            self.assertIn('base:example-demo#' + selector, ctx.manifest['included'])
+        decision = next(r for r in ctx.manifest['ranges']
+                        if r['label'] == 'base' and 'base:example-demo#fixture-decision' in r['identities'])
+        source = base.markdown[decision['path']].range_bytes(decision['start'], decision['end'])
+        self.assertIn(b'Retain the base approval evidence.', source)
+        self.assertNotIn(b'Use the candidate approval evidence.', source)
+
     def test_automatic_decisions_expand_homes_and_dependencies_until_closure(self):
         for mode in ('approval', 'removal', 'approval-chain'):
             with self.subTest(mode=mode):

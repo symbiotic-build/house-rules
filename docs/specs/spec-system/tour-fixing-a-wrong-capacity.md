@@ -100,7 +100,8 @@ Copy the complete example, change one displayed value and follow the diagnostic 
    > python /path/to/house-rules/skills/spec-writing/scripts/spec_docs.py check --root /path/to/example
    > ```
    >
-   > The [documentation checker](checking-and-navigation.md#documentation-checker) reports `D10`: home text `2`, link text `3`, and the mutated source line.
+   > The [documentation checker](checking-and-navigation.md#documentation-checker) reports `D10` with the link’s location and the canonical row’s location.
+   > It tells the reader to align the link label with the canonical value.
    > It exits with status `1`. Generation also refuses that invalid source before replacing navigation.
 
 8. **Restore the displayed value.** Agreement returns without changing what the batch admits or retains.

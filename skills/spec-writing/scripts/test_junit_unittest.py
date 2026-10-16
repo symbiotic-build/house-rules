@@ -107,7 +107,28 @@ class JUnitRunnerTests(unittest.TestCase):
             report = ET.parse(root / 'report.xml').getroot()
             self.assertEqual((report.get('tests'), report.get('failures'), report.get('errors')), ('1', '0', '0'))
 
-    def test_fallback_keeps_equal_package_names_in_distinct_source_roots(self):
+    def test_fallback_relative_and_absolute_imports_share_helper_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            package = root / 'project' / 'tests'
+            package.mkdir(parents=True)
+            (package / '__init__.py').write_text('')
+            (package / 'helper.py').write_text('class Payload: pass\n')
+            (package / 'test_sample.py').write_text(
+                'import unittest\nfrom .helper import Payload\n'
+                'from tests.helper import Payload as AbsolutePayload\n'
+                'class Suite(unittest.TestCase):\n'
+                ' def test_identity(self): self.assertIs(Payload, AbsolutePayload)\n')
+            (root / 'selectors.json').write_text(json.dumps(['project/tests/test_sample.py::Suite::test_identity']))
+            result = subprocess.run([sys.executable, '-B', str(RUNNER), '--report', 'report.xml',
+                                     '--selectors-file', 'selectors.json'], cwd=root,
+                                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            report = ET.parse(root / 'report.xml').getroot()
+            self.assertEqual((report.get('tests'), report.get('failures'), report.get('errors')), ('1', '0', '0'))
+            self.assertEqual(report[0].get('classname'), 'tests.test_sample.Suite')
+
+    def test_fallback_refuses_equal_package_names_in_distinct_source_roots(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             labels = []
@@ -131,13 +152,10 @@ class JUnitRunnerTests(unittest.TestCase):
             result = subprocess.run([sys.executable, '-B', str(RUNNER), '--report', 'report.xml',
                                      '--selectors-file', 'selectors.json'], cwd=root,
                                     stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            report = ET.parse(root / 'report.xml').getroot()
-            self.assertEqual(report.get('tests'), '4')
-            classes = {case.get('classname') for case in report}
-            self.assertEqual(len(classes), 2)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            for detail in ("tests", str(root / 'one'), str(root / 'two'), 'supply runner reports'):
+                self.assertIn(detail, result.stderr)
             for name in ('one', 'two'):
                 package = root / name / 'tests'
-                self.assertEqual((package / 'test_sample.loaded').read_text(), 'loaded\n')
-                self.assertEqual((package / 'test_sample.ran').read_text(), 'first\n')
-                self.assertEqual(sum(case.get('file') == f'{name}/tests/test_sample.py' for case in report), 2)
+                self.assertFalse((package / 'test_sample.loaded').exists())
+                self.assertFalse((package / 'test_sample.ran').exists())

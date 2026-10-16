@@ -82,7 +82,7 @@ The documentation checker is the shared parser and validator for specification M
 
 The parser uses CommonMark with pipe tables enabled. It supplies tokens and source locations rather than requiring a second Markdown parser. Authored documents are parsed into one in-memory corpus used by checking, navigation and context selection. All commands therefore interpret the same declarations without a persistent database, cache or search index.
 
-For the batcher, a link to the capacity row can resolve while its displayed value remains wrong. Literal comparison reports `D10` for `3` against `2`, with the source path and line. A descriptive capacity link only navigates; it does not claim another literal. The [canonical fact](documents-homes-and-values.md#canonical-fact) home explains the comparison's limits.
+For the batcher, a link to the capacity row can resolve while its displayed value remains wrong. Literal comparison reports `D10` with the link’s location and the canonical row’s location, directing the reader to align the label with the canonical value. A descriptive capacity link only navigates; it does not claim another literal. The [canonical fact](documents-homes-and-values.md#canonical-fact) home explains the comparison's limits.
 
 Validation rejects duplicate JSON keys, unknown fields, unsupported versions, duplicate identities and malformed declarations. It also checks home completeness, scope, direct links and reciprocal requirement/test relationships. Local fragments need explicit destinations. External URLs receive syntax checks without network access, so a structural pass does not establish remote availability.
 

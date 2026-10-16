@@ -70,6 +70,18 @@ class SelectorAuditTests(unittest.TestCase):
         result, output = self.audit(c)
         self.assertEqual(result, (2, 0, 0), output)
 
+    def test_conflicting_package_roots_fail_fallback_selectors_visibly(self):
+        labels = [f'{name}/tests/sample.py::Suite::test_pass' for name in ('one', 'two')]
+        c = self.corpus(labels)
+        for name in ('one', 'two'):
+            (self.root / name / 'tests' / '__init__.py').write_text('')
+        result, output = self.audit(c)
+        self.assertEqual(result, (0, 0, 2), output)
+        for detail in ('tests', str(self.root / 'one'), str(self.root / 'two'), 'supply runner reports'):
+            self.assertIn(detail, output)
+        for label in labels:
+            self.assertIn('failing: ' + label, output)
+
     def test_timeout_does_not_drain_descendant_held_pipes(self):
         # A bounded fake reproduces a detached descendant retaining PIPE handles.
         from unittest.mock import MagicMock

@@ -1854,36 +1854,37 @@ def select_context(corpus, assignment):
         for responsibility in corpus.contract["review_responsibilities"]:
             if responsibility not in covered:
                 d.add("D26", f"review plan lacks required coverage '{responsibility}'", "assignment")
-    selected, ranges, included = set(), [], {}
+    ranges, included = [], {}
     pending = []
-    queued_decisions = set()
+    queued = set()
 
-    def add_range(path, heading, identity, reason, label=None):
-        start = heading.start - (1 if heading.anchor else 0)
-        ranges.append((label or primary_label, path, start, heading.end, identity, reason))
+    def add_range(path, heading, selector, reason, label=None, expand_homes=True):
+        label = label or primary_label
+        identity = ("base:" if label == "base" else "") + selector
         included.setdefault(identity, []).append(reason)
+        start = heading.start - (1 if heading.anchor else 0)
+        ranges.append((label, path, start, heading.end, identity, reason))
+        key = label, selector
+        if key not in queued:
+            queued.add(key)
+            pending.append((label, selector, path, heading, expand_homes))
 
-    def add_section(selector, reason):
-        if selector not in corpus.sections:
+    def add_section(selector, reason, label=None):
+        label = label or primary_label
+        selected_corpus = source_corpora[label]
+        if selector not in selected_corpus.sections:
             d.add("D06", f"target '{selector}' does not resolve", "assignment")
             return
-        section = corpus.sections[selector]
-        included.setdefault(selector, []).append(reason)
-        if selector not in selected:
-            selected.add(selector)
-            add_range(section["path"], section["heading"], selector, reason)
-            pending.append((primary_label, selector, section["path"], section["heading"]))
+        section = selected_corpus.sections[selector]
+        add_range(section["path"], section["heading"], selector, reason, label=label)
 
-    def add_decision(selector, reason):
-        location = corpus.locate(selector)
+    def add_decision(selector, reason, label=None):
+        label = label or primary_label
+        location = source_corpora[label].locate(selector)
         if not location:
             d.add("D06", f"target '{selector}' does not resolve", "assignment")
             return
-        if reason not in included.get(selector, []):
-            add_range(*location, selector, reason)
-        if selector not in queued_decisions:
-            queued_decisions.add(selector)
-            pending.append((primary_label, selector, *location))
+        add_range(*location, selector, reason, label=label)
 
     for selector in assignment["sections"]:
         add_section(selector, "assigned section")
@@ -1912,32 +1913,31 @@ def select_context(corpus, assignment):
                 add_decision(selector, "decision")
             else:
                 add_range(*location, selector, "changed requirement test")
-                pending.append((primary_label, selector, *location))
         if old_location:
-            add_range(*old_location, "base:" + selector, "linked test from base snapshot", label="base")
-            pending.append(("base", selector, *old_location))
+            add_range(*old_location, selector, "linked test from base snapshot", label="base")
     for selector in assignment.get("removal_decisions", {}).values():
         add_decision(selector, "requirement removal decision")
-    relevant = set()
     expanded_dependencies = set()
     while pending:
-        label, selector, path, h = pending.pop(0)
+        label, selector, path, h, expand_homes = pending.pop(0)
         selected_corpus = source_corpora[label]
-        section = selected_corpus.section_at(path, h.start)
-        if label == primary_label:
-            document = corpus.documents[section["document"]]
+        # Every included range enters the same closure, including homes and decisions.
+        # A home or decision also inherits its containing section's dependencies.
+        containing = selected_corpus.section_at(path, h.start)
+        sections = {section["selector"]: section for section in selected_corpus.sections.values()
+                    if section["path"] == path and h.start <= section["heading"].start < h.end}
+        sections[containing["selector"]] = containing
+        for section in sections.values():
+            document = selected_corpus.documents[section["document"]]
             if document.get("approval"):
-                add_decision(document["approval"]["decision"], "applicable approval decision")
-        section_key = (label, section["selector"])
-        if section_key not in expanded_dependencies:
-            expanded_dependencies.add(section_key)
-            for dep in section["explanatory_dependencies"]:
-                if label == primary_label:
-                    add_section(dep["section"], "declared dependency of " + selector + ": " + dep["reason"])
-                else:
-                    dependency = selected_corpus.sections[dep["section"]]
-                    add_range(dependency["path"], dependency["heading"], "base:" + dep["section"], "base declared dependency", label=label)
-                    pending.append((label, dep["section"], dependency["path"], dependency["heading"]))
+                add_decision(document["approval"]["decision"], "applicable approval decision", label=label)
+            section_key = label, section["selector"]
+            if section_key not in expanded_dependencies:
+                expanded_dependencies.add(section_key)
+                for dep in section["explanatory_dependencies"]:
+                    add_section(dep["section"], "declared dependency of " + section["selector"] + ": " + dep["reason"], label=label)
+        if not expand_homes:
+            continue
         md = selected_corpus.markdown[path]
         used = {identity for identity, entity in selected_corpus.entities.items()
                 if entity["path"] == path and h.start <= entity["start"] + 1 < h.end}
@@ -1947,25 +1947,13 @@ def select_context(corpus, assignment):
         destinations = {l.destination for l in md.links if h.start <= l.line < h.end}
         used.update(identity for identity, entity in selected_corpus.entities.items() if destinations & use_targets(selected_corpus, entity))
         for identity in sorted(used):
-            if (label, identity) in relevant:
+            if (label, identity) in queued:
                 continue
-            relevant.add((label, identity))
             entity = selected_corpus.entities[identity]
             home = next(h for h in selected_corpus.markdown[entity["path"]].headings if h.anchor == entity["anchor"])
-            add_range(entity["path"], home, ("base:" if label == "base" else "") + identity, "entity owned or used in " + selector, label=label)
-            # Only declared dependencies of an added home expand, not its ordinary links.
-            home_section = selected_corpus.sections[entity["home"]["section"]]
-            if label == primary_label:
-                document = corpus.documents[home_section["document"]]
-                if document.get("approval"):
-                    add_decision(document["approval"]["decision"], "applicable approval decision")
-            for dep in home_section["explanatory_dependencies"]:
-                if label == primary_label:
-                    add_section(dep["section"], "declared dependency of home " + identity + ": " + dep["reason"])
-                elif (label, dep["section"]) not in expanded_dependencies:
-                    dependency = selected_corpus.sections[dep["section"]]
-                    add_range(dependency["path"], dependency["heading"], "base:" + dep["section"], "base home dependency", label=label)
-                    pending.append((label, dep["section"], dependency["path"], dependency["heading"]))
+            # Homes enter approval/dependency closure without following ordinary links.
+            add_range(entity["path"], home, identity, "entity owned or used in " + selector,
+                      label=label, expand_homes=False)
     # Merge by lines, including overlap between complete homes and assigned sections.
     merged = []
     for label, path, start, end, identity, reason in sorted(ranges):

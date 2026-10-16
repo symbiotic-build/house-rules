@@ -32,6 +32,8 @@ The pack includes the [complete registry](#complete-registry), both metadata fil
 
 Selection provides complete explanations without turning every source link into another inclusion request. The caller chooses captured working-tree bytes, the complete Git index or a commit. Operations then share that captured input; an unstaged repair cannot change an index check.
 
+Every included source range contributes dependencies from all registered sections whose headings it contains, regardless of how the range was selected. Each document with included material also selects its approval decision from that material’s snapshot, retaining the snapshot label. Decisions expand through their dependencies. Repeat this closure until nothing new is added; deduplicate selectors by snapshot label and merge overlapping ranges.
+
 **Procedure: select the bounded-batch explanation**
 
 1. **Capture the input.** Read one snapshot and assemble its metadata and registry.
