@@ -80,7 +80,7 @@ class Commit:
 
     def git(self, *args):
         result = subprocess.run(["git", "--no-replace-objects", "-C", str(self.repo), *args],
-                                capture_output=True, timeout=5)
+                                stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
         if result.returncode:
             raise PromptError("Git " + args[0] + " failed: " + result.stderr.decode("utf-8", "replace").strip())
         return result.stdout

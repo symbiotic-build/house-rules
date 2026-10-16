@@ -1177,8 +1177,8 @@ class MinimalExampleTests(unittest.TestCase):
                 target = root / path
                 target.parent.mkdir(parents=True, exist_ok=True)
                 target.write_bytes(content)
-            subprocess.run(['git', 'init', '-q', directory], check=True)
-            subprocess.run(['git', '-C', directory, 'add', '.'], check=True)
+            subprocess.run(['git', 'init', '-q', directory], stdin=subprocess.DEVNULL, check=True)
+            subprocess.run(['git', '-C', directory, 'add', '.'], stdin=subprocess.DEVNULL, check=True)
             old = 'docs/example/settings.md'
             new = 'docs/example/batch-limits.md'
             (root / old).rename(root / new)
@@ -1221,8 +1221,8 @@ class MinimalExampleTests(unittest.TestCase):
                 destination = root / name
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 destination.write_bytes(data)
-            subprocess.run(['git', '-C', str(root), 'init', '-q'], check=True)
-            result = subprocess.run([__import__('sys').executable, '-B', s.__file__, 'check', '--root', str(root)], capture_output=True)
+            subprocess.run(['git', '-C', str(root), 'init', '-q'], stdin=subprocess.DEVNULL, check=True)
+            result = subprocess.run([__import__('sys').executable, '-B', s.__file__, 'check', '--root', str(root)], stdin=subprocess.DEVNULL, capture_output=True)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn(b'0 errors', result.stdout)
             self.assertFalse((root / 'rules/writing.md').exists())
@@ -1276,7 +1276,7 @@ class SnapshotTests(unittest.TestCase):
         print(f'fixture {self.id()}: completed in {time.monotonic() - self.started:.3f}s')
 
     def git(self, *args):
-        return subprocess.run(['git', '-C', str(self.root), *args], capture_output=True, check=True).stdout
+        return subprocess.run(['git', '-C', str(self.root), *args], stdin=subprocess.DEVNULL, capture_output=True, check=True).stdout
 
     def test_link_replacement_rejects_concurrent_source_edits_and_symlinks(self):
         target = self.root / ACCEPTANCE
@@ -1498,7 +1498,7 @@ class SnapshotTests(unittest.TestCase):
     def test_commands_share_the_same_checker_and_exit_codes(self):
         script = Path(s.__file__).resolve()
         def invoke(*args):
-            return subprocess.run([__import__('sys').executable, '-B', str(script), *args, '--root', str(self.root), '--fixture'], capture_output=True)
+            return subprocess.run([__import__('sys').executable, '-B', str(script), *args, '--root', str(self.root), '--fixture'], stdin=subprocess.DEVNULL, capture_output=True)
         self.assertEqual(invoke('check').returncode, 0)
         self.assertEqual(invoke('generate').returncode, 0)
         assignment = self.root / 'assignment.json'

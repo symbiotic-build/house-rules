@@ -69,7 +69,7 @@ class SyncTests(unittest.TestCase):
         self.addCleanup(patch.stop)
 
     def git(self, root, *args):
-        return subprocess.run(["git", "-C", str(root), *args], check=True,
+        return subprocess.run(["git", "-C", str(root), *args], stdin=subprocess.DEVNULL, check=True,
                               capture_output=True, text=True).stdout.strip()
 
     def write(self, path, text):

@@ -24,7 +24,7 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "check", "GIT_AUTHOR_EMAIL": "check@example.invali
 
 
 def run(args, cwd):
-    return subprocess.run(args, cwd=cwd, capture_output=True, text=True,
+    return subprocess.run(args, stdin=subprocess.DEVNULL, cwd=cwd, capture_output=True, text=True,
                           env={**os.environ, **GIT_ENV})
 
 

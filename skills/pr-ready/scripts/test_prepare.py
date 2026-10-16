@@ -132,7 +132,7 @@ print(json.dumps(value))
         original = self.git(self.repo, "rev-parse", "HEAD:src/core.py")
         baseline = self.review(context_only=True, format="diff", cli="grok")
         replacement = subprocess.run(["git", "-C", str(self.repo), "hash-object", "-w", "--stdin"],
-                                     input=b"Replacement canary\n", capture_output=True,
+                                     stdin=None, input=b"Replacement canary\n", capture_output=True,
                                      check=True, timeout=5).stdout.decode().strip()
         self.git(self.repo, "replace", original, replacement)
         self.assertEqual(self.review(context_only=True, format="diff", cli="grok"), baseline)
@@ -431,9 +431,9 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
     def test_non_utf8_paths_keep_the_actual_diff(self):
         path = os.fsdecode(b"src/non-utf8-\xff.py")
         # Build the real Git tree directly: macOS cannot create this filesystem name.
-        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.repo,
+        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], stdin=None, cwd=self.repo,
                               input=b"unique_non_utf8_marker = 1\n", capture_output=True, check=True).stdout.strip()
-        subprocess.run(["git", "update-index", "-z", "--index-info"], cwd=self.repo,
+        subprocess.run(["git", "update-index", "-z", "--index-info"], stdin=None, cwd=self.repo,
                        input=b"100644 " + blob + b"\t" + os.fsencode(path) + b"\0", check=True)
         self.git(self.repo, "commit", "-m", "Non UTF8 filename")
         files = prepare.changed_files(self.repo, "origin/trunk...HEAD")

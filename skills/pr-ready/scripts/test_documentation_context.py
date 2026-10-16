@@ -193,7 +193,7 @@ class DocumentationContextTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-I", "-B", str(self.rules / "skills/pr-ready/scripts/prompt.py"),
                                  "--repo", str(self.rules), "--rev", self.rule_revision, "--target", str(self.repo),
                                  "--assignment", str(self.assignment_file), "--out", str(output)],
-                                input=b"", capture_output=True, timeout=5)
+                                stdin=None, input=b"", capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn(b"D27", result.stderr)
         self.assertEqual(result.stdout, b"")
@@ -236,7 +236,7 @@ class DocumentationContextTests(unittest.TestCase):
         result = subprocess.run([sys.executable, "-I", "-B", str(extracted), "--repo", str(self.rules),
                                  "--rev", self.rule_revision, "--target", str(self.repo),
                                  "--target-rev", self.revision, "--assignment", str(self.assignment_file)],
-                                input=b"", capture_output=True, timeout=5)
+                                stdin=None, input=b"", capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, baseline)
 

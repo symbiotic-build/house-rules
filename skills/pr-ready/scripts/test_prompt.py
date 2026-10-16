@@ -21,7 +21,7 @@ ROOT = SCRIPT.parents[3]
 class PromptTest(unittest.TestCase):
     def run_prompt(self, *args, text="", script=SCRIPT, cwd=None):
         return subprocess.run(
-            [sys.executable, str(script), *args], input=text, capture_output=True,
+            [sys.executable, str(script), *args], stdin=None, input=text, capture_output=True,
             text=True, timeout=5, cwd=cwd,
         )
 
@@ -84,7 +84,7 @@ class PromptTest(unittest.TestCase):
         root, script = self.fixture()
         (root / "child.md").write_bytes(b"Title\r\n\r\nBody")
         result = subprocess.run(
-            [sys.executable, str(script)], input=b"Before\r\n@rule house-rules:child.md\r\nAfter\n",
+            [sys.executable, str(script)], stdin=None, input=b"Before\r\n@rule house-rules:child.md\r\nAfter\n",
             capture_output=True, timeout=5,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -2010,7 +2010,7 @@ class CommitPackTest(unittest.TestCase):
 
     def git(self, repo, *args, data=b""):
         result = subprocess.run(["git", "--no-replace-objects", "-C", str(repo), *args],
-                                input=data, capture_output=True, timeout=5)
+                                stdin=None, input=data, capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.decode().strip()
 
@@ -2167,7 +2167,7 @@ class CommitPackTest(unittest.TestCase):
                      ("--rev", self.rev, "common.md", "--role", "reviewer", "--no-target"),
                      ("--task-source", "orphan")):
             result = subprocess.run(["/usr/bin/python3", str(self.script), *map(str, args)],
-                                    input=b"", capture_output=True, timeout=5)
+                                    stdin=None, input=b"", capture_output=True, timeout=5)
             self.bad(result, "prompt:")
         self.assertFalse(self.manifest.exists())
 
@@ -2188,7 +2188,7 @@ class CommitPackTest(unittest.TestCase):
         for option in ("--rev", "--manifest"):
             with self.subTest(legacy_option=option):
                 result = subprocess.run(["/usr/bin/python3", "-B", str(self.script), option, ""],
-                                        input=b"Literal", capture_output=True, timeout=5)
+                                        stdin=None, input=b"Literal", capture_output=True, timeout=5)
                 self.bad(result, option + " must not be empty")
 
     def test_abbreviated_task_source_is_rejected_without_traceback(self):
@@ -2201,7 +2201,7 @@ class CommitPackTest(unittest.TestCase):
     def test_pack_refuses_standard_input_text_instead_of_dropping_it(self):
         result = subprocess.run(["/usr/bin/python3", str(self.script), "--rev", self.rev,
                                  "--role", "reviewer", "--no-target"],
-                                input=b"Unexpected task on stdin", capture_output=True, timeout=5)
+                                stdin=None, input=b"Unexpected task on stdin", capture_output=True, timeout=5)
         self.bad(result, "standard-input text cannot be combined with pack parts")
 
     def managed(self, own=True):
@@ -2322,7 +2322,7 @@ class CommitPackTest(unittest.TestCase):
     def test_legacy_commit_file_and_stdin_do_not_gain_revision_header(self):
         for args, data in ((["extra.md"], b""), ([], b"@rule house-rules:extra.md\n")):
             result = subprocess.run(["/usr/bin/python3", str(self.script), "--rev", self.rev, *args],
-                                    input=data, capture_output=True, timeout=5)
+                                    stdin=None, input=data, capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, b"Extra")
 

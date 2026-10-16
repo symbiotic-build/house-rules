@@ -109,7 +109,7 @@ def safe_path(path):
 
 
 def git(root, *args):
-    proc = subprocess.run(["git", "--no-replace-objects", "-C", str(root), *args], capture_output=True)
+    proc = subprocess.run(["git", "--no-replace-objects", "-C", str(root), *args], stdin=subprocess.DEVNULL, capture_output=True)
     if proc.returncode:
         fail("D27", f"cannot read Git snapshot '{root}': {proc.stderr.decode(errors='replace').strip()}",
              str(root), 2)
@@ -172,7 +172,7 @@ class Snapshot:
                     problems[path] = "input is not a regular file"
             if regular:
                 proc = subprocess.run(["git", "--no-replace-objects", "-C", str(root), "cat-file", "--batch"],
-                                      input=b"\n".join(oid for _, oid in regular) + b"\n",
+                                      stdin=None, input=b"\n".join(oid for _, oid in regular) + b"\n",
                                       capture_output=True)
                 if proc.returncode:
                     fail("D27", "cannot read Git objects: " + proc.stderr.decode(errors="replace"), exit_code=2)
