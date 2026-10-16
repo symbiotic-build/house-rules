@@ -11,7 +11,7 @@ Reproducible checking needs a fixed parser and fixed input bytes. The [tool envi
 <a id="tool-setup"></a>
 ### Preparing the tool
 
-Each repository using the tool pins a House Rules revision and prepares its isolated [tool environment](source-formats.md#tool-environment). House Rules owns the files that keep direct checking and agent preparation consistent:
+Each repository using the tool selects its [House Rules revision](source-formats.md#house-rules-revision) and prepares its isolated [tool environment](source-formats.md#tool-environment). House Rules owns the files that keep direct checking and agent preparation consistent:
 
 - [skills/spec-writing/scripts/requirements.in](../../../skills/spec-writing/scripts/requirements.in) names dependencies; [skills/spec-writing/scripts/requirements.lock](../../../skills/spec-writing/scripts/requirements.lock) pins wheel versions and hashes.
 - [skills/spec-writing/scripts/runtime.json](../../../skills/spec-writing/scripts/runtime.json) states the supported interpreter range.
@@ -90,7 +90,9 @@ Generated regions do not supply authored facts. Remote includes, expression eval
 
 The commands are `link`, `check`, `generate` and `context`. Local and staged `check` invocations use the same pinned tool that validates the complete corpus before publication. Review preparation calls `context` to select the registered documents.
 
-Run `link` before `check` when authoring. It inserts a direct home link only where the checker requires one and an exact accepted form identifies one entity. Matching ignores case, as accepted forms do. It excludes headings, code spans, literal blocks, generated regions and existing links. Ambiguous uses remain `D12` findings for the author; the command never chooses their meaning.
+Direct-link diagnostics depend on whether the registered use identifies one entity. An unambiguous registered form or exact symbol missing its required home link produces blocking `D12`. An ambiguous ordinary phrase without a link selecting one home produces advisory `W04` only. The warning does not block checking or context preparation; the author reviews the intended meaning and links its home if needed.
+
+Run `link` before `check` when authoring. It inserts required home links only for unambiguous accepted forms in ordinary body text. Matching ignores case, as accepted forms do. It excludes headings, code spans, literal blocks, generated regions and existing links. Symbols need author-supplied links; ambiguous phrases remain unchanged because the command cannot choose their meaning.
 
 Linking uses one captured working-tree snapshot and the same per-file replacement safety as generation. All proposed edits are reparsed before any replacement. Existing errors remain visible; new errors refuse replacement. An authored file edited after capture, a symlink or an unwritable destination stops replacement. An interrupted set can be repaired by running `link` again; already-linked uses stay unchanged.
 
@@ -136,11 +138,11 @@ Navigation is current only when its contents exactly match what generation would
 
 **Procedure: replace navigation from valid sources**
 
-1. **Validate the selected corpus.** Structural errors stop generation before any replacement.
+1. **Validate authored inputs.** Structural errors in declarations, metadata or authored links stop generation before any replacement.
 
    > **Detail — input validation**
    >
-   > The author must correct the batch's wrong capacity label before generation can build a valid map. Prose warnings remain advisory.
+   > The author must correct the batch's wrong capacity label before generation can build a valid map. Generation omits freshness checking of existing output: stale or partially replaced navigation is what it repairs. Prose warnings remain advisory.
 
 2. **Validate all proposed output.** Reparse the resulting candidate so invalid replacement bytes cannot enter the output set.
 
@@ -154,7 +156,7 @@ Navigation is current only when its contents exactly match what generation would
    >
    > The writer processes files in sorted path order through temporary files beside their destinations and atomic per-file replacement. This is not an atomic replacement of the whole set. If someone edits an authored destination after capture, generation refuses to overwrite it. The same check protects authored `.gitattributes` content. The writer checks destination components again for symlinks.
 
-A direct edit to generated text, outdated navigation or an interrupted partial set fails this comparison. Repair the canonical source or destination, then regenerate the complete output set. Mandatory agent input requires a checked snapshot; existing stale output cannot serve as a fallback.
+A direct edit to generated text, outdated navigation or an interrupted partial set makes `check` report `D17`. This freshness failure does not block `generate`, which replaces the complete output set from valid authored input. Repair authored-source or destination errors first if present, then regenerate. Mandatory agent input requires a checked snapshot; existing stale output cannot serve as a fallback.
 
 Reviewers examine whether the generated map helps readers find the authored explanations. A renderer remains a separate consumer with its own display contract and evidence. Repair renderer defects at that owner rather than editing generated exports.
 

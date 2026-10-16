@@ -92,7 +92,8 @@ class CorpusTests(unittest.TestCase):
         metadata(self.paths, s.JSON_PATHS[0], lambda v: v['entities']['example.acceptance']['forms'].append('writer'))
         self.paths[ACCEPTANCE] += b'\nwriter\n'
         self.assertEqual(s.link_missing(corpus(self.paths)), {})
-        self.assertIn('D12', self.codes())
+        self.assertIn('W04', {d.code for d in s.check(corpus(self.paths)).warnings})
+        self.assertNotIn('D12', self.codes())
 
     def test_link_preserves_markdown_and_links_forward_uses_in_lists_quotes_and_tables(self):
         extra = '\n> writer &amp; **writer**\n\n- writer and writer.\n\n| Item | Owner |\n|---|---|\n| writer | writer |\n| label \\| writer | writer |\n'
@@ -730,15 +731,38 @@ class CorpusTests(unittest.TestCase):
         self.assertTrue({'W01', 'W02'} <= {item.code for item in d.warnings})
         self.assertEqual(d.to_dict(), s.check(c).to_dict())
 
-    def test_ambiguous_registered_phrase_requires_author_link_instead_of_guessing(self):
+    def test_ambiguous_registered_phrase_warns_instead_of_guessing(self):
         metadata(self.paths, s.JSON_PATHS[0], lambda v: v['entities']['example.call-capacity']['forms'].append('commit capacity'))
         c = corpus(self.paths)
-        self.assertIn('D12', {d.code for d in s.check(c).errors})
-        self.assertIn('W04', {d.code for d in s.check(c).warnings})
+        diagnostics = s.check(c)
+        self.assertTrue(diagnostics.ok, diagnostics.errors)
+        self.assertIn('W04', {d.code for d in diagnostics.warnings})
+        self.assertNotIn('D12', {d.code for d in diagnostics.errors})
         self.assertEqual(s.link_missing(c), {})
-        self.assertTrue(s.check(corpus(self.clean)).ok)
         edit(self.paths, SETTINGS, 'Commit capacity bounds', '[Commit capacity](#commit-capacity) bounds')
-        self.assertTrue(s.check(refresh(self.paths)).ok)
+        diagnostics = s.check(refresh(self.paths))
+        self.assertTrue(diagnostics.ok, diagnostics.errors)
+        linked_line = self.paths[SETTINGS].decode().splitlines().index('[Commit capacity](#commit-capacity) bounds documents in one commit.') + 1
+        self.assertFalse(any(d.code == 'W04' and d.path == SETTINGS and d.line == linked_line
+                             for d in diagnostics.warnings))
+
+    def test_unambiguous_registered_form_and_symbol_require_home_links(self):
+        for text in ('writer', 'commit_max_documents'):
+            with self.subTest(text=text):
+                paths = self.clean.copy()
+                paths[ACCEPTANCE] += f'\n<a id="use"></a>\n## Use\n\n{text}\n'.encode()
+                diagnostics = s.check(corpus(paths))
+                self.assertEqual({d.code for d in diagnostics.errors}, {'D12'})
+                self.assertNotIn('W04', {d.code for d in diagnostics.warnings})
+                outputs = s.link_missing(corpus(paths))
+                if text == 'writer':
+                    self.assertIn('[writer](#writer)', outputs[ACCEPTANCE].decode())
+                    paths.update(outputs)
+                else:
+                    self.assertEqual(outputs, {})  # Code symbols need an author link.
+                    edit(paths, ACCEPTANCE, '\ncommit_max_documents\n',
+                         '\n[commit_max_documents](settings.md#commit-capacity)\n')
+                self.assertTrue(s.check(refresh(paths)).ok)
 
     def test_context_contains_entire_registry_exact_bytes_and_unique_ranges(self):
         ctx = self.context()
@@ -1157,6 +1181,37 @@ class SnapshotTests(unittest.TestCase):
         (self.root / s.JSON_PATHS[0]).unlink()
         with patch('builtins.print'):
             self.assertEqual(s.main(args), 2)
+
+    def test_text_diagnostic_counts_agree_for_zero_one_and_many(self):
+        target = self.root / ACCEPTANCE
+        original = target.read_text()
+        for command in ('check', 'link'):
+            for count in (0, 1, 2):
+                with self.subTest(command=command, count=count):
+                    target.write_text(original + '\n`writer`\n' * count)
+                    with patch('builtins.print') as output:
+                        self.assertEqual(s.main([command, '--root', str(self.root), '--fixture']), int(count > 0))
+                    noun = 'error' if count == 1 else 'errors'
+                    self.assertIn(f'spec-docs: {count} {noun}, 0 warnings',
+                                  [call.args[0] for call in output.call_args_list])
+        target.write_text(original + '\n' + ' '.join(['word'] * 29) + '.\n')
+        for command in ('check', 'link'):
+            with self.subTest(command=command, warnings=1):
+                with patch('builtins.print') as output:
+                    self.assertEqual(s.main([command, '--root', str(self.root), '--fixture']), 0)
+                self.assertIn('spec-docs: 0 errors, 1 warning',
+                              [call.args[0] for call in output.call_args_list])
+
+    def test_generation_replaces_stale_navigation_before_checking_freshness(self):
+        target = self.root / 'docs/generated/example-demo.md'
+        expected = target.read_bytes()
+        target.write_bytes(expected + b'Stale manual output.\n')
+        c = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        self.assertEqual({d.code for d in s.check(c).errors}, {'D17'})
+        with patch('builtins.print'):
+            self.assertEqual(s.main(['generate', '--root', str(self.root), '--fixture']), 0)
+        self.assertEqual(target.read_bytes(), expected)
+        self.assertTrue(s.check(s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))).ok)
 
     def test_literal_trace_examples_do_not_reserve_historical_identities(self):
         target = self.root / SETTINGS

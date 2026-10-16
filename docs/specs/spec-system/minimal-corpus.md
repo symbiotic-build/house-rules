@@ -3,6 +3,8 @@
 
 This corpus lets a reader reproduce a complete checked contract in an independent repository. Its three files form an unapproved draft: a [document manifest](documents-homes-and-values.md#document-manifest), an [entity index](documents-homes-and-values.md#entity-index) and one Markdown source.
 
+The caller supplies the [House Rules revision](source-formats.md#house-rules-revision) outside these files.
+
 The displayed source is copied exactly from [skills/spec-writing/scripts/fixtures/minimal/docs/example.md](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md) and its sibling metadata. The draft has no approval entry. Copying it requires no fixture mode and grants no approval or batch implementation.
 
 <a id="example-documents"></a>

@@ -52,7 +52,7 @@ For the tour's deliberate mutation, text output is:
 
 ```text
 spec-docs: error D10 docs/example.md:46: value link for 'example.batcher#capacity' differs: home '2', link '3'
-spec-docs: 1 errors, 0 warnings
+spec-docs: 1 error, 0 warnings
 ```
 
 The same check with `--json` returns:
@@ -72,7 +72,7 @@ Codes `D09`, `D19`, `D20` and `D23` are retired. Warning `W03` is also retired. 
 
 Warnings guide review without changing command success or blocking pack preparation. Review every remaining warning group and state whether it reveals a concrete problem or why its wording is retained.
 
-Unambiguous registered phrases and exact symbols receive blocking checks. Ambiguous phrases produce `W04` rather than a guessed identity. Unlinked literal restatements and unregistered technical meanings require [semantic review](writing-and-review-workflow.md#semantic-review). A warning becomes a finding only when review demonstrates the contradiction or reader problem.
+The [direct-link behavior](checking-and-navigation.md#documentation-checker) distinguishes blocking missing links from advisory phrase ambiguity. Unlinked literal restatements and unregistered technical meanings require [semantic review](writing-and-review-workflow.md#semantic-review). A warning becomes a finding only when review demonstrates the contradiction or reader problem.
 
 <a id="selector-audit"></a>
 ## Selector audit

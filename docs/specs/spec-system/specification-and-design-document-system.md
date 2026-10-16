@@ -1,7 +1,7 @@
 <a id="overview"></a>
 # Specification and design-document system
 
-The specification and design-document system helps authors keep technical contracts in Markdown and give readers checked navigation to their explanations. The shared Python tool also prepares complete reading material for assigned agents. Checking can confirm that a test link exists. Reviewers determine whether the linked case proves the required behavior.
+The specification and design-document system helps authors keep technical contracts in Markdown and give readers checked navigation to their explanations. The shared Python tool also prepares complete reading material for assigned agents. The tool checks structure; reviewers assess meaning. For example, checking confirms that a test link exists, while reviewers determine whether the linked case proves the required behavior.
 
 Which authored inputs become navigation and complete agent reading material?
 

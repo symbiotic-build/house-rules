@@ -87,7 +87,8 @@ unsettled questions, without reopening a settled choice merely because it is unf
    - Recheck surrounding explanations, scenarios and reading order.
    - Apply the existing design-flow approval boundary.
 
-Use the shared checker from the repository's pinned House Rules revision. Setup and
+Use the shared checker from the caller-supplied [House Rules revision](../../docs/specs/spec-system/source-formats.md#house-rules-revision).
+Record that resolved commit outside corpus metadata as the reference specifies. Setup and
 command arguments follow the format contract. Do not copy the implementation into the
 consumer repository. Inspect diagnostics before changing prose: structural errors and
 readability warnings have different authority under the specifications and writing rules.

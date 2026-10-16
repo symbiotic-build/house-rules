@@ -21,7 +21,7 @@ Before assigning body sections, create anchored chapter openings and declare mis
    Each stopping path states retained state, caller result, recovery and authority.
 
 4. **Link missing uses.** Run `link` and resolve the remaining direct-link findings.
-   The author chooses a home for each ambiguous use.
+   The author reviews ambiguous uses under the [direct-link behavior](checking-and-navigation.md#documentation-checker).
 5. **Regenerate navigation.** Rebuild the map and term index from the corrected source.
    The refreshed map can accompany the next assignment.
 6. **Check the source.** Run the pinned structural checker.

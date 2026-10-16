@@ -69,6 +69,12 @@ class Diagnostics:
     def ok(self):
         return not self.errors
 
+    def summary(self):
+        """Format diagnostic counts with singular agreement."""
+        return 'spec-docs: ' + ', '.join(
+            f'{len(items)} {noun}' + ('' if len(items) == 1 else 's')
+            for items, noun in ((self.errors, 'error'), (self.warnings, 'warning')))
+
     def to_dict(self):
         return {"errors": [asdict(d) for d in self.errors],
                 "warnings": [asdict(d) for d in self.warnings], "ok": self.ok}
@@ -1304,8 +1310,6 @@ def check_uses(corpus, md, diagnostics, missing=None):
                     entity_ids = choices
                 else:
                     diagnostics.add("W04", f"Possible technical use needs review: '{text[span[0]:span[1]]}'", md.path, line + 1)
-                    if not is_heading:
-                        diagnostics.add('D12', f"ambiguous use '{text[span[0]:span[1]]}' needs an author-selected direct home link", md.path, line + 1)
                     continue
             identity = next(iter(entity_ids))
             entity = corpus.entities[identity]
@@ -2010,7 +2014,7 @@ def main(argv=None):
                 print('spec-docs: linked ' + (', '.join(sorted(outputs)) or 'no changes'))
                 for item in sorted(set(diagnostics.items)):
                     print(item)
-                print(f'spec-docs: {len(diagnostics.errors)} errors, {len(diagnostics.warnings)} warnings')
+                print(diagnostics.summary())
             return 0 if diagnostics.ok else (2 if any(d.code == 'D27' for d in diagnostics.errors) else 1)
         if args.command == "context":
             if assignment is None:
@@ -2035,7 +2039,7 @@ def main(argv=None):
         else:
             for item in sorted(set(diagnostics.items)):
                 print(item)
-            print(f"spec-docs: {len(diagnostics.errors)} errors, {len(diagnostics.warnings)} warnings")
+            print(diagnostics.summary())
         return 0 if diagnostics.ok else (2 if any(d.code == "D27" for d in diagnostics.errors) else 1)
     except SpecDocsError as exc:
         if args.json:

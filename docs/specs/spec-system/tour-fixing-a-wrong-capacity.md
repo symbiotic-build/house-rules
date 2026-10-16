@@ -25,16 +25,17 @@ Copy the complete example, change one displayed value and follow the diagnostic 
    > **Detail — definition and value**
    >
    > The [batcher home](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher) defines the component and its refusal behavior.
-   > The home declares its operative capacity once:
+   > The home declares its operative capacity once. Its candidate capacity remains unadopted pending the linked question:
    >
    > ```markdown
    > | Key | Value | Status | Basis |
    > |---|---|---|---|
    > | <a id="capacity"></a>capacity | 2 | specified | [Teaching decision](#decision) |
+   > | <a id="candidate-capacity"></a>candidate-capacity | 3 | provisional | [Capacity trial](#questions) |
    > ```
    >
    > The value counts admitted items in one batch. Status identifies the chosen teaching value; Basis links its decision.
-   > The separate candidate row is provisional and does not change that operative value.
+   > The candidate row is provisional and does not change that operative value.
 
 3. **Inspect the name binding.** The metadata points to that existing explanation rather than copying its meaning.
 

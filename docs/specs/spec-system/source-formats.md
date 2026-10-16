@@ -19,7 +19,7 @@ python skills/spec-writing/scripts/spec_docs.py context --root REPOSITORY --assi
 
 The default captures working-tree Markdown and metadata, including unignored new files. `--staged` reads the complete index. `--rev REV` reads the resolved commit. These last two switches are mutually exclusive. `--base REV` adds a comparison base for requirement changes; a base before adoption can contain neither metadata file, but partial metadata remains invalid.
 
-`link` writes only to the captured working tree. It refuses `--staged`, `--rev`, `--base` and `--assignment`. It inserts missing unambiguous accepted-form links in ordinary body text; headings, code, generated regions and existing links remain unchanged. Ambiguity stays an author-resolved `D12`. Run `link` before `check`, then regenerate stale navigation.
+`link` writes only to the captured working tree. It refuses `--staged`, `--rev`, `--base` and `--assignment`. Its insertions and remaining diagnostics follow the [direct-link behavior](checking-and-navigation.md#documentation-checker). Run `link` before `check`, then regenerate stale navigation.
 
 `--assignment FILE` supplies context selectors, affected-test review input and removal decisions. Context requires that option. `--format-contract FILE` selects an explicit format contract; the normal default belongs to the shared helper. `--json` emits structured output. `--fixture` permits synthetic `fixture` approval authority in test fixtures only.
 
@@ -37,7 +37,7 @@ Warnings do not change success. Text checking prints each source-addressed findi
 
 Linking returns `linked` paths plus `errors`, `warnings` and `ok`; text output reports changed paths and remaining diagnostics. Remaining errors produce exit `1` after safe insertions; invocation or I/O failures produce exit `2`. Context returns its complete text or, with `--json`, `content`, `size_bytes` and `manifest`.
 
-Generation validates all proposed bytes before replacing any destination. Replacement is atomic per file, not across the whole generated set. Every authored destination must still match captured bytes. Linking uses the same validation and replacement path, permits existing errors and refuses newly introduced errors. A stale generated region requires regeneration. An interrupted set requires regeneration; neither checking nor dispatch treats an old output as a successful substitute.
+[Navigation generation](checking-and-navigation.md#navigation-generation) validates authored inputs without requiring old output to be fresh, then validates all proposed bytes before replacing any destination. Replacement is atomic per file, not across the whole generated set. Every authored destination must still match captured bytes. Linking uses the same validation and replacement path, permits existing errors and refuses newly introduced errors. A stale generated region requires regeneration. An interrupted set requires regeneration; neither checking nor dispatch treats an old output as a successful substitute.
 
 Runtime metadata declares CPython `>=3.11,<3.15`. The owning [skills/spec-writing/scripts/runtime.json](../../../skills/spec-writing/scripts/runtime.json) and [skills/spec-writing/scripts/requirements.lock](../../../skills/spec-writing/scripts/requirements.lock) are checked at initialization. Installed `markdown-it-py` and `mdurl` versions must match the lock. The supported range is a compatibility contract, not a claim that every interpreter has been tested.
 
@@ -60,6 +60,12 @@ Use these runtime and wheel pins when preparing the shared tool. The [setup proc
 
 The runtime version identifies the metadata format, and the interpreter rows name its implementation and supported version range. The parser package supplies Markdown tokens; its URL dependency supports link parsing. The wheel hashes identify the distributions installed from the lock. Runtime validation checks the supported interpreter range and installed package versions. It does not hash the interpreter or package installer, keep interpreter allowlists or upgrade the installer implicitly.
 
+<a id="house-rules-revision"></a>
+### House Rules revision
+
+The caller supplies the House Rules revision outside corpus metadata. Record its full resolved Git commit ID in the consuming repository's existing tool configuration or the invocation's retained run inputs. There is no required pin filename or additional corpus file. Neither shared metadata envelope accepts a revision field.
+
+Invoke the helper from the checkout at that commit, with its matching runtime, lock, format contract and [writing profile](writing-and-review-workflow.md#writing-profile). The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) receives the same commit as its `--rev` argument and reads its matching helper. The documentation tool's own `--rev` instead selects a commit in the consuming repository; it does not select House Rules. Changing the House Rules pin requires selecting and preparing the matching installation again.
 
 <a id="metadata"></a>
 ## Metadata
@@ -223,7 +229,7 @@ Relations use precisely `Key | Predicate | Target | Basis` columns. Target conta
 
 Declarations have an immediately preceding explicit anchor and a heading beginning `Requirement:`, `Acceptance test:`, `Failure state:` or `Scenario:`. A permanent `test-` anchor also identifies an acceptance case when its heading omits the `Acceptance test:` prefix, such as `Inspection: full batch`. Requirement anchors use `req-` and test anchors use `test-`, followed by nonempty lower-case letters or digits separated by single hyphens. Preserve identities for unchanged obligations and cases.
 
-Failure-state and [scenario](requirements-tests-and-failures.md#scenario) anchors need only be nonempty unique explicit anchors; The prefixes shown in examples are conventions, not required syntax.
+Failure-state and [scenario](requirements-tests-and-failures.md#scenario) anchors need only be nonempty unique explicit anchors; the prefixes shown in examples are conventions, not required syntax.
 
 The parser ignores blockquoted `Detail — label` blocks when collecting declaration fields, including bold labels within them. Those blocks remain explanatory prose subject to ordinary link and writing checks.
 

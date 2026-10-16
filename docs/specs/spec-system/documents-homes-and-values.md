@@ -36,13 +36,16 @@ Assignment boundaries select source; level-2 headings separately determine where
 - Before a home in the same document, link every mention.
 - For a home in another document, link every mention because the manifest declares no order between documents.
 
-For example, Admission and Recovery each first mention the batcher with `[batcher](#batcher)`. Validation continues Admission’s first-use tracking. Selecting this title includes all three headings:
+When the batcher home precedes these sections, Admission and Recovery each first mention it with `[batcher](#batcher)`. Validation continues Admission’s first-use tracking. Selecting this title includes all three headings:
 
 ```markdown
 # Submission
 ## Admission
+The [batcher](#batcher) admits items until the batch fills.
 ### Validation
+The batcher checks each item.
 ## Recovery
+Start another batch with the [batcher](#batcher).
 ```
 
 Keep headings unnumbered and put links in the surrounding prose, never inside the headings themselves. Give a first-use link a short gloss when the reader needs its meaning to continue. Literal code and diagrams need direct home links in immediately adjacent prose; an **Entities in this example** paragraph is also accepted. An index or another use site cannot replace that destination.
@@ -59,6 +62,13 @@ Each home has an explicit anchor immediately before its heading. Its first sente
 The batcher's home explains what admission does before describing refusal. Its capacity row belongs there because readers need that value to understand when admission stops. A summary elsewhere links back instead of declaring another capacity. Excluded features remain in scope or non-goals text; exclusion alone creates no operational home.
 
 The [entity index](#entity-index) owns identity, kind, accepted and rejected names, scope and home location. Markdown owns meaning, facts and explanation. Generated navigation obtains the display title from the home heading and meaning from its definition sentence alone. Purpose sentences remain in the chapter where they can develop the explanation.
+
+<a id="entity-relations"></a>
+### Entity relations
+
+A relation table declares connections between entities. For example, `executor | performed-by | [Writer](#writer) | [Decision](#decision)` says the writer performs the owning mechanism. The [relation reference](source-formats.md#metadata) lists allowed predicates and target kinds. A relation can name the component performing admission or a setting that limits it.
+
+Each target must have its own registered home of the permitted kind. The small batch fixture keeps capacity as a fact and needs no extra setting home. Each relation supplies a supported predicate and linked basis. Exact columns and supported kinds belong to [Markdown declarations](source-formats.md#markdown-declarations).
 
 <a id="canonical-fact"></a>
 ### Canonical fact
@@ -82,10 +92,6 @@ Status is `specified`, `provisional`, `observed` or `unresolved`; provenance exp
 Status and linked basis qualify a value's authority. Put provisional conditions, observed limits, exceptions and resolution paths in a paragraph immediately before or after the fact table. Link that paragraph to the affected row. The tool captures linked qualification prose within the home in the generated registry and change report. For example: `Provisional: [capacity](#capacity) applies only to sequential submissions; concurrency needs an operator decision.`
 
 A second passage displaying the value must state the applicable condition too. For example: `Allow [2](example.md#capacity) items for sequential submissions only.` Add that concurrent submission still needs an operator decision. This preserves both the value link and its limitation.
-
-A relation table declares connections between entities. For example, `executor | performed-by | [Writer](#writer) | [Decision](#decision)` says the writer performs the owning mechanism. The [relation reference](source-formats.md#metadata) lists allowed predicates and target kinds. A relation can name the component performing admission or a setting that limits it.
-
-Each target must have its own registered home of the permitted kind. The small batch fixture keeps capacity as a fact and needs no extra setting home. Each relation supplies a supported predicate and linked basis. Exact columns and supported kinds belong to [Markdown declarations](source-formats.md#markdown-declarations).
 
 <a id="document-manifest"></a>
 ### Document manifest
