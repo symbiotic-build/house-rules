@@ -78,17 +78,31 @@ The [direct-link behavior](checking-and-navigation.md#documentation-checker) dis
 <a id="selector-audit"></a>
 ## Selector audit
 
-The selector audit establishes whether an acceptance case's executable references load and pass. Run `python skills/spec-writing/scripts/audit_selectors.py --root REPOSITORY` after a successful structural check. Add `--fixture` only for synthetic fixture authority.
+The selector audit checks executable acceptance references against results from the normal test run. Run `python skills/spec-writing/scripts/audit_selectors.py --root REPOSITORY --report 'reports/*.xml'` after a successful structural check. Repeat `--report` to combine reports. Add `--fixture` only for synthetic fixture authority.
 
-The audit lists each acceptance identity with its linked requirements. It executes every Implementation selector in a separate child process. The [runner declarations](source-formats.md#metadata) select commands for any language. Unmatched `.py` files use Python unittest with the audit interpreter. The label's file must exist under the selected root.
+The audit loads declarations and validates Implementation fields; the preceding structural check owns the complete corpus check. It also validates links between the corpus and preserved Markdown.
 
-For `tests/test_batches.py::Suite::test_full`, the built-in runner loads that file as a module and asks unittest to run `Suite.test_full`. It uses the audit interpreter and does not require `tests` to be an importable package. Both missing and failing outcomes fail acceptance. An unmatched non-Python file, absent selector, loader error or empty suite counts as missing. A declared runner reports a missing selector with exit `2`; failure to start its executable also counts as missing. Children receive EOF on standard input.
+The audit lists each acceptance identity and its linked requirements, then reports each Implementation selector as passed, missing or failing. A matching JUnit XML testcase passes only when it has no failure, error or skipped child. No matching case counts as missing. If several cases match, any failure, error or skip makes the selector failing. Acceptance requires zero missing and zero failing selectors. Repeated citations share one result and each citation contributes to the counts.
 
-A successful selector increments `passed`. A test failure, child error or exceeded ceiling increments `failing`. Each selector line records outcome and runtime. The final line reports `passed`, `missing` and `failing` counts; acceptance requires zero missing and zero failing selectors. A file link alone does not establish execution. Ordinary success output is summarized rather than reproduced as another log.
+Report paths and globs resolve from the repository root. Explicit `--report` arguments override per-runner `reports`. Every supplied pattern must match a readable report.
 
-`--timeout-seconds` is a positive per-selector runaway ceiling, defaulting to 30 seconds in this interface version. A timeout terminates the selector process group and fails visibly. This ceiling is not a recommended test duration: individual tests should finish in seconds. A declared command supplies the execution contract for other test frameworks.
+Malformed XML or a root other than `testsuite` or `testsuites` is an invocation error. A testcase must have `name` and `classname`. These errors name the report and ask the caller to regenerate it. An empty report is valid and leaves cited cases missing. Report mode never executes tests or silently falls back.
 
-The audit reads live executable files under its root after capturing documentation. It has no staged or commit-execution switch. Use a checkout matching the accepted candidate when claiming source-bound execution evidence. The [skills/spec-writing/scripts/test_audit_selectors.py::SelectorAuditTests::test_audit_distinguishes_pass_missing_and_failure](../../../skills/spec-writing/scripts/test_audit_selectors.py) exercises one passing, one missing and one failing selector, then repairs them to three passes. Its adjacent non-Python regression also covers a declared shell runner and a timeout.
+Reports must come from the accepted candidate's normal test run; the audit does not attest their freshness.
+
+For Python unittest, `tests/test_batches.py::Suite::test_full` matches `name="test_full"` and either `file="tests/test_batches.py"` with `classname="Suite"` or a module-qualified classname ending in `.Suite`, or, without `file`, `classname="tests.test_batches.Suite"`. Nested class components use dots in classname. File attributes use root-relative paths with `/` separators; a leading `./` is accepted. Declared runners can use the [testcase mapping](source-formats.md#metadata) for other frameworks. For Vitest, declare the report attributes that equal the file and full `describe > test name` selector. Spaces in these selectors are preserved.
+
+Generate Python reports without dependencies using `python skills/spec-writing/scripts/junit_unittest.py --report reports/spec-writing.xml discover -s skills/spec-writing/scripts -p 'test_*.py'`. The arguments after `--report PATH` are unchanged unittest arguments. Plain `python -m unittest discover` remains available locally.
+
+The runner writes root-relative `file`, module-qualified `classname`, method `name` and duration in seconds. Failure, error or skipped children include subtest and fixture errors. Each test execution gets its own testcase, including repeated runs of one test object. It preserves unittest's exit status and fails visibly if the report cannot be written. The XML report is a rebuildable test-run artifact, not an independent source of truth.
+
+Without explicit or declared reports, the audit batches all unique cited selectors of each runner once. Python uses one in-process unittest suite inside one child process, loading each file once. Loader errors or empty suites are missing selectors. Failures, errors or skips fail their selector.
+
+Other runners require a declared `batch` command that receives every full selector in one invocation and writes a JUnit report at `{report}`. Absence of a batch declaration is an invocation error naming the report or batch fix. Children receive EOF on standard input. No path starts a process per selector.
+
+`--timeout-seconds` is a positive per-batch runaway ceiling, defaulting to 300 seconds. A timeout terminates that batch's process group and marks all its selectors failing. A runner that cannot start or exits unsuccessfully fails its batch visibly, even if it wrote passing cases. Successful batches use the same report matching as report mode. Each selector line records its outcome; each runner batch records runtime. The final line reports `passed`, `missing` and `failing` counts.
+
+The audit reads live files under its root. It has no staged or commit-execution switch. Use a checkout matching the accepted candidate for execution evidence. The [report and batch acceptance cases](acceptance-evidence.md#test-selector-reports) cover report outcomes, refusal, Python report generation and batched fallback.
 
 Inspection, analysis and demonstration cases omit Implementation and link their evidence. Their meaning and adequacy receive review under the [acceptance evidence distinction](acceptance-evidence.md#acceptance).
 

@@ -558,18 +558,41 @@ def load_corpus(source, format_contract=None, *, comparison=False):
     else:
         patterns = set()
         for runner in runners:
-            if not shape(runner, ["pattern", "command"], [], diagnostics, mp, "test runner"):
+            if not shape(runner, ["pattern", "kind"], ["reports", "testcase", "batch"], diagnostics, mp, "test runner"):
                 continue
-            pattern, command = runner["pattern"], runner["command"]
-            if not safe_path(pattern) or not pattern.strip() or not strings(command) or not command:
-                diagnostics.add("D02", "malformed declaration: test runner pattern or command", mp)
+            pattern, kind = runner["pattern"], runner["kind"]
+            if not safe_path(pattern) or not pattern.strip() or kind not in ("unittest", "junit"):
+                diagnostics.add("D02", "malformed declaration: test runner pattern or kind", mp)
                 continue
             if pattern in patterns:
                 diagnostics.add("D02", "malformed declaration: duplicate test runner pattern", mp)
             patterns.add(pattern)
-            template = " ".join(command)
-            if "{file}" not in template or "{selector}" not in template or re.search(r"[{}]", template.replace("{file}", "").replace("{selector}", "")):
-                diagnostics.add("D02", "malformed declaration: test runner command requires only {file} and {selector} placeholders", mp)
+            reports = runner.get("reports")
+            if "reports" in runner and (not strings(reports) or not reports or not all(safe_path(path) for path in reports)):
+                diagnostics.add("D02", "malformed declaration: test runner reports must be nonempty relative paths or globs", mp)
+            mapping = runner.get("testcase")
+            if kind == "unittest" and ("testcase" in runner or "batch" in runner):
+                diagnostics.add("D02", "malformed declaration: unittest uses built-in testcase mapping and batch", mp)
+            if kind == "junit":
+                if (not isinstance(mapping, dict) or not mapping
+                        or not set(mapping) <= {"file", "classname", "name"}
+                        or not all(isinstance(value, str) and value for value in mapping.values())):
+                    diagnostics.add("D02", "malformed declaration: junit requires a testcase attribute mapping", mp)
+                else:
+                    template = " ".join(mapping.values())
+                    if ("{file}" not in template or "{selector}" not in template
+                            or re.search(r"[{}]", template.replace("{file}", "").replace("{selector}", ""))):
+                        diagnostics.add("D02", "malformed declaration: testcase mapping requires only {file} and {selector} placeholders", mp)
+            if "batch" in runner:
+                batch = runner["batch"]
+                if not strings(batch) or not batch:
+                    diagnostics.add("D02", "malformed declaration: test runner batch must be a nonempty argument array", mp)
+                else:
+                    template = " ".join(batch)
+                    if (batch.count("{selectors}") != 1 or "{report}" not in template
+                            or re.search(r"[{}]", template.replace("{report}", "").replace("{selectors}", ""))
+                            or any("{selectors}" in argument and argument != "{selectors}" for argument in batch)):
+                        diagnostics.add("D02", "malformed declaration: batch requires standalone {selectors} and {report} placeholders", mp)
     inventory = {}
     entries = corpus.manifest.get("inventory", [])
     if not isinstance(entries, list):
@@ -705,24 +728,6 @@ def load_corpus(source, format_contract=None, *, comparison=False):
             if type(corpus.profile.get("version")) is not int or corpus.profile["version"] != 1:
                 diagnostics.add("D02", "unsupported version: writing profile", PROFILE_PATH)
     resolve_links(corpus)
-    declared = set(corpus.markdown)
-    for path in sorted(source.tracked - declared):
-        if not path.lower().endswith('.md') or path not in source.files:
-            continue
-        text = read_text(source, path, diagnostics)
-        if text is None:
-            continue
-        inbound = parse_markdown(path, text, diagnostics)
-        for link in inbound.links:
-            try:
-                target = urlsplit(link.target)
-                destination = posixpath.normpath(posixpath.join(posixpath.dirname(path), unquote(target.path))) if target.path else path
-                if not target.scheme and not target.netloc and destination in declared:
-                    anchor = unquote(target.fragment)
-                    if anchor and len(corpus.markdown[destination].anchors.get(anchor, [])) != 1:
-                        diagnostics.add('D06', f"target '{link.target}' does not resolve", path, link.line + 1)
-            except ValueError:
-                continue  # Non-document links remain outside this inbound-only check.
     assemble_declarations(corpus)
     return corpus
 
@@ -739,13 +744,9 @@ def resolve_links(corpus):
                     continue
                 path = posixpath.normpath(posixpath.join(posixpath.dirname(md.path), unquote(parsed.path))) if parsed.path else md.path
                 anchor = unquote(parsed.fragment)
-                if anchor and path.lower().endswith(".md") and path not in targets and path in corpus.inventory:
-                    text = read_text(corpus.source, path, corpus.diagnostics)
-                    if text is not None:
-                        targets[path] = parse_markdown(path, text, corpus.diagnostics)
                 if not safe_path(path) or path in corpus.source.problems:
                     corpus.diagnostics.add("D05", f"source '{path}' is outside the declared input set: link escape or nonregular input", md.path, link.line + 1)
-                elif (path not in corpus.source.files and path not in corpus.source.tracked) or (anchor and path.lower().endswith(".md") and (path not in targets or len(targets[path].anchors.get(anchor, [])) != 1)):
+                elif (path not in corpus.source.files and path not in corpus.source.tracked) or (anchor and path in targets and len(targets[path].anchors.get(anchor, [])) != 1):
                     raise ValueError("missing local target")
                 else:
                     link.destination = path, anchor
@@ -870,7 +871,7 @@ def check_implementation(corpus, declaration, diagnostics):
             valid = False
             break
         path = posixpath.normpath(posixpath.join(posixpath.dirname(md.path), unquote(target.path)))
-        if (not separator or not selector or re.search(r"\s", selector)
+        if (not separator or not selector or selector != selector.strip()
                 or not target.path or target.scheme or target.netloc or target.query or target.fragment
                 or not safe_path(path) or file != path):
             valid = False
@@ -929,6 +930,33 @@ def retired_identities(base):
 def check(corpus, base=None, _freshness=True):
     """Check declarations and projections; return every available diagnostic."""
     d = Diagnostics(corpus.diagnostics.items[:])
+    source = corpus.source
+    declared = set(corpus.markdown)
+    for path in sorted(source.tracked - declared):
+        if not path.lower().endswith('.md') or path not in source.files:
+            continue
+        text = read_text(source, path, d)
+        if text is None:
+            continue
+        inbound = parse_markdown(path, text, d)
+        # Reuse this parse for links in both directions; declaration loading
+        # never needs to parse preserved Markdown just to validate anchors.
+        for md in corpus.markdown.values():
+            for link in md.links:
+                if link.destination and link.destination[0] == path:
+                    anchor = link.destination[1]
+                    if anchor and len(inbound.anchors.get(anchor, [])) != 1:
+                        d.add('D06', f"target '{link.target}' does not resolve", md.path, link.line + 1)
+        for link in inbound.links:
+            try:
+                target = urlsplit(link.target)
+                destination = posixpath.normpath(posixpath.join(posixpath.dirname(path), unquote(target.path))) if target.path else path
+                if not target.scheme and not target.netloc and destination in declared:
+                    anchor = unquote(target.fragment)
+                    if anchor and len(corpus.markdown[destination].anchors.get(anchor, [])) != 1:
+                        d.add('D06', f"target '{link.target}' does not resolve", path, link.line + 1)
+            except ValueError:
+                continue  # Non-document links remain outside this inbound-only check.
     ep, mp = JSON_PATHS
     for section in corpus.sections.values():
         for dep in section["explanatory_dependencies"]:

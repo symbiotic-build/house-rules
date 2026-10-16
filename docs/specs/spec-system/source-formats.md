@@ -132,23 +132,21 @@ A summary must add a reader outcome beyond its title. `D36` compares case-folded
 
 `D35` detects an authored sentence of at least eight whitespace-separated words repeated at least three times in one document. It normalizes whitespace. Generated regions, literal blocks, attributed quotations, table cells and declaration fields are excluded. Ordinary detail prose and list paragraphs remain in scope.
 
-The first envelope may also contain `test_runners`, an ordered array of entries with exactly `pattern` and `command`:
+The first envelope may also contain `test_runners`, an ordered array. Each entry requires `pattern` and `kind`, where kind is `unittest` or `junit`. Optional fields are `reports`, `testcase` and `batch`:
 
 ```json
-{"test_runners": [{"pattern": "tests/*.spec", "command": ["sh", "tests/run-selector.sh", "{file}", "{selector}"]}]}
+{"test_runners": [{"pattern": "tests/*.test.ts", "kind": "junit", "reports": ["reports/vitest.xml"], "testcase": {"classname": "{file}", "name": "{selector}"}, "batch": ["node", "tests/run-cited.mjs", "--report", "{report}", "{selectors}"]}]}
 ```
 
-`pattern` is a case-sensitive repository-relative shell-style glob; `*` can match `/`. Duplicate patterns are invalid.
+`pattern` is a case-sensitive repository-relative shell-style glob; `*` can match `/`. Duplicate patterns are invalid. The first matching entry wins. Unmatched `.py` files use Python unittest; unmatched other files count as missing. An omitted or empty array keeps that default.
 
-The first matching entry wins. Without a match, `.py` files use the built-in Python unittest runner; other files count as missing.
-An omitted or empty array therefore keeps the built-in default.
+`reports` is a nonempty array of root-relative report paths or globs. The `junit` kind requires `testcase`, a nonempty object whose keys are JUnit attributes `file`, `classname` or `name`. Its string values collectively contain both `{file}` and `{selector}` and no other braces.
 
-`command` is a nonempty argument array executed from the repository root without shell interpretation.
-It must contain both `{file}` and `{selector}` placeholders, with no other braces. Substitution preserves each argument, including paths with spaces.
+Matching compares every declared attribute exactly after substitution. A `file` attribute also accepts a leading `./`. The example maps Vitest's classname to the repository-relative file and name to the full `describe > test name`. Repositories whose reporter uses different attributes declare that mapping instead. The `unittest` kind uses the built-in mapping and does not accept `testcase` or `batch`.
 
-The repository supplies the runner executable and any script it names.
-A runner returns `0` for pass, `2` for a missing selector, and any other status for failure.
-The [audit reference](interfaces-and-encodings.md#selector-audit) defines runaway handling and outcome counts.
+`batch` is a nonempty argument array executed once from the repository root without shell interpretation. A standalone `{selectors}` expands into one argument per unique full `file::selector` citation, in first-citation order. `{report}` substitutes an absolute temporary JUnit output path.
+
+Both placeholders are required and no other braces are allowed. The repository supplies the executable and adapter that accepts these arguments. Exit zero admits the report; other statuses fail the entire batch. The [audit reference](interfaces-and-encodings.md#selector-audit) defines matching, error remedies and runaway handling.
 
 The second envelope belongs to [docs/ENTITIES.json](../../ENTITIES.json). Its `entities` object maps stable identities to records with exactly these keys:
 
@@ -250,7 +248,7 @@ Method is `test`, `inspection`, `analysis` or `demonstration`, ignoring case and
 **Implementation:** [tests/test_batches.py::Suite::test_full](../tests/test_batches.py), [tests/test_batches.py::Suite::test_empty](../tests/test_batches.py)
 ```
 
-In that illustrative field, each label starts with the repository-relative file and appends `::selector`. The resolved relative destination must be that same file, with no scheme, query or fragment. A selector is nonempty and whitespace-free; nested names can contain `::`. Static checking validates the grammar and file existence. The [selector audit](interfaces-and-encodings.md#selector-audit) executes the named selectors through the repository's declared runner or built-in Python default.
+In that illustrative field, each label starts with the repository-relative file and appends `::selector`. The resolved relative destination must be that same file, with no scheme, query or fragment. A selector is nonempty with no leading or trailing whitespace; nested names can contain `::`, and framework test names may contain spaces. Static checking validates the grammar and file existence. The [selector audit](interfaces-and-encodings.md#selector-audit) matches reported cases or batches the named selectors through the repository's declared runner or built-in Python default.
 
 Other methods omit Implementation and place linked evidence in an ordinary, unbolded paragraph after Expected. For example: `Evidence: [retained-state inspection](#failure-full).` Do not write `**Evidence:**`: that is an unknown declaration field. Evidence links target material inside the document set or repository. Label an unperformed inspection as planned; a completed inspection links its recorded observations. Evidence adequacy follows the [acceptance evidence distinction](acceptance-evidence.md#acceptance).
 

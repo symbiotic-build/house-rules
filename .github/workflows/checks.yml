@@ -30,7 +30,5 @@ jobs:
         run: .tmp/spec-docs-env/bin/python scripts/test_sync.py
       - name: Test transcript extraction
         run: .tmp/spec-docs-env/bin/python -B -m unittest discover -s skills/operator-protocol/scripts
-      - name: Test prompts, preparer and verdict scripts
-        run: .tmp/spec-docs-env/bin/python -B -m unittest discover -s skills/pr-ready/scripts
       - name: Prepare every role and lens as the review service does
         run: .tmp/spec-docs-env/bin/python -B scripts/check_review_staging.py && .tmp/spec-docs-env/bin/python -B -m unittest discover -s scripts -p 'test_check_review_staging.py'

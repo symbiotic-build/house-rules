@@ -78,7 +78,7 @@ Expose the evidence affected by a changed obligation.
 
 **Verification:** Change requirement fields, test links, fact qualifications and requirement presence across snapshots.
 
-**Tests:** [Reciprocal and changed-test review](acceptance-evidence.md#test-traceability).
+**Tests:** [Reciprocal and changed-test review](acceptance-evidence.md#test-traceability), [Selector reports and batched fallback](acceptance-evidence.md#test-selector-reports).
 
 **Status:** specified.
 

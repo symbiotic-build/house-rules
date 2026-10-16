@@ -568,16 +568,24 @@ class CorpusTests(unittest.TestCase):
             self.assertTrue(s.check(refresh(paths)).ok, value)
 
     def test_runner_declarations_validate_commands_and_patterns(self):
-        valid = dict(pattern='tests/*.spec', command=['sh', 'runner.sh', '{file}', '{selector}'])
+        valid = dict(pattern='tests/*.spec', kind='junit',
+                     testcase=dict(classname='{file}', name='{selector}'),
+                     batch=['runner', '{report}', '{selectors}'], reports=['reports/*.xml'])
         for invalid in (None, {}, [None], [dict(valid, pattern='../*.spec')],
-                        [dict(valid, command=[])], [dict(valid, command=['sh', '{file}'])],
-                        [dict(valid, command=['sh', '{file}', '{selector}', '{unknown}'])],
-                        [valid, valid]):
+                        [dict(valid, command=['old-runner'])], [dict(valid, kind='unknown')],
+                        [dict(valid, reports=[])], [dict(valid, reports=['../*.xml'])],
+                        [dict(valid, testcase={})], [dict(valid, testcase=dict(name='{unknown}'))],
+                        [dict(valid, testcase=dict(unknown='{file}::{selector}'))],
+                        [dict(valid, batch=[])], [dict(valid, batch=['runner', '{report}'])],
+                        [dict(valid, batch=['runner', '{report}', 'prefix{selectors}'])],
+                        [dict(valid, batch=['runner', '{report}', '{selectors}', '{unknown}'])],
+                        [dict(valid, kind='unittest')], [valid, valid]):
             paths = self.clean.copy()
             metadata(paths, s.JSON_PATHS[1], lambda value: value.update(test_runners=invalid))
             self.assertIn('D02', {item.code for item in s.check(corpus(paths)).errors})
-        metadata(self.paths, s.JSON_PATHS[1], lambda value: value.update(test_runners=[valid]))
-        self.assertTrue(s.check(refresh(self.paths)).ok)
+        for runner in (valid, dict(pattern='*.py', kind='unittest', reports=['reports/python.xml'])):
+            metadata(self.paths, s.JSON_PATHS[1], lambda value: value.update(test_runners=[runner]))
+            self.assertTrue(s.check(refresh(self.paths)).ok)
 
     def test_descriptive_fact_labels_and_code_only_literals(self):
         for label in ('declared limit', 'borrowing limit', '**declared limit**', '`1024`', '``1024``'):
@@ -1065,11 +1073,17 @@ class CorpusTests(unittest.TestCase):
         del self.paths['tests/other.py']
         self.red_green('D06')
 
+    def test_implementation_accepts_framework_names_with_spaces(self):
+        self.paths['tests/example.py'] = b'# synthetic test source\n'
+        self.implementation('[tests/example.py::batch > accepts full name](../../tests/example.py)')
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
     def test_implementation_requires_only_file_and_selector_links(self):
         invalid = ('None; no executable yet.', '', 'tests/example.py::test_refusal',
                    '[Executable test](../../tests/example.py)',
                    '[tests/example.py::](../../tests/example.py)',
-                   '[tests/example.py::test refusal](../../tests/example.py)',
+                   '[tests/example.py:: test_refusal](../../tests/example.py)',
+                   '[tests/example.py::test_refusal ](../../tests/example.py)',
                    '[tests/example.py::test_refusal](../../tests/example.py#test_refusal)',
                    '[tests/example.py::test_refusal](../../tests/example.py?test=refusal)',
                    '[tests/example.py::test_refusal](https://example.com/test.py)',
