@@ -133,7 +133,8 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         base = self.snapshot({path: "# Scope\n" for path in paths + ignored})
         self.snapshot({path: f"# Scope\n- Unique obligation for {path}.\n" for path in paths + ignored})
         report = self.report(base)
-        self.assertIn(f"added: {len(paths)};", report)
+        self.assertIn(f"added: {len(paths) - 1};", report)
+        self.assertIn("Provenance entries: 1", report)
         for path in paths:
             self.assertIn(json.dumps(path) + ":2", report)
         for path in ignored:
@@ -171,6 +172,7 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.github(self.pr(body))
         report = self.report(base, pr=1)
         self.assertNotIn("UNDECLARED", report)
+        self.assertIn("Declared changes (PR description line numbers)", report)
         self.assertIn("6: ## Rule changes\n7: Approved: retain records.\n8: ### Detail\n9: Keep this too.", report)
         self.assertNotIn("Fake", report)
         self.assertNotIn("Unrelated.", report)
@@ -178,6 +180,118 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(status, 0, err)
         self.assertIn("No protected rule text changed.", out)
         self.assertIn("7: Approved: retain records.", out)
+
+    def test_summary_declarations(self):
+        base = self.snapshot({"rules/source.md": "# Scope\n"})
+        self.snapshot({"rules/source.md": "# Scope\nAlways retain records.\n"})
+        summary = self.root / "summary.md"
+        summary.write_text("Local review\n## Rule changes\nAdd a retention rule.\n### Detail\nKeep evidence.\n## Tests\nNot a declaration.\n")
+        for context_only in (True, False):
+            with self.subTest(context_only=context_only):
+                args = ["review", str(self.repo), "--base", base, "--no-fetch", "--summary", str(summary)]
+                if context_only:
+                    args.append("--context-only")
+                else:
+                    self.github(self.pr("An automatically discovered PR without declarations."))
+                status, out, err = self.invoke(*args)
+                self.assertEqual(status, 0, err)
+                report = out.split("## Rule text changes", 1)[1].split("# 4. Requirements", 1)[0]
+                self.assertNotIn("UNDECLARED", report)
+                self.assertIn("Declared changes (--summary text line numbers)", report)
+                self.assertIn("2: ## Rule changes\n3: Add a retention rule.\n4: ### Detail\n5: Keep evidence.", report)
+                self.assertNotIn("Not a declaration.", report)
+        status, out, err = self.context(self.git(self.repo, "rev-parse", "HEAD"), summary=summary)
+        self.assertEqual(status, 0, err)
+        self.assertIn("Declared changes (--summary text line numbers)", out)
+        self.assertIn("3: Add a retention rule.", out)
+        summary.write_text("Review without declarations.\n")
+        self.assertIn("UNDECLARED RULE CHANGES: --summary text", self.report(base, summary=summary))
+
+    def test_pr_declarations_override_summary(self):
+        base = self.snapshot({"rules/source.md": "# Scope\n"})
+        self.snapshot({"rules/source.md": "# Scope\nAlways retain records.\n"})
+        summary = self.root / "summary.md"
+        summary.write_text("## Rule changes\nSummary declaration must not be selected.\n")
+        for body in ("Intro\n## Rule changes\nPR declaration.\n", "No declaration."):
+            with self.subTest(body=body):
+                self.github(self.pr(body))
+                report = self.report(base, pr=1, summary=summary)
+                self.assertIn("Declared changes (PR description line numbers)", report)
+                self.assertNotIn("Summary declaration", report)
+                if "## Rule changes" in body:
+                    self.assertIn("3: PR declaration.", report)
+                    self.assertNotIn("UNDECLARED", report)
+                else:
+                    self.assertIn("UNDECLARED RULE CHANGES: PR description", report)
+
+    def test_provenance_does_not_pair_with_rules(self):
+        rule = "Keep the audit record."
+        for number, entry in enumerate((rule, 'Approved removal: “' + rule + '”')):
+            with self.subTest(entry=entry):
+                source = f"# Scope {number}\n"
+                base = self.snapshot({"rules/source.md": source + "- " + rule + "\n",
+                                      "CHANGELOG-RULES.md": "# Approval\n"})
+                self.snapshot({"rules/source.md": source, "CHANGELOG-RULES.md": "# Approval\n" + entry + "\n"})
+                report = self.report(base)
+                self.assertIn("removed: 1; added: 0; changed: 0; moved: 0", report)
+                self.assertIn("Provenance entries: 1", report)
+                rules, provenance = report.split("### Provenance entries", 1)
+                self.assertIn('Old: "rules/source.md":2', rules)
+                self.assertIn('New: "CHANGELOG-RULES.md":2', provenance)
+                self.assertIn(entry, provenance)
+                # A provenance removal must never become a rule's old side either.
+                base = self.git(self.repo, "rev-parse", "HEAD")
+                self.snapshot({"rules/source.md": source + "- " + rule + "\n", "CHANGELOG-RULES.md": "# Approval\n"})
+                report = self.report(base)
+                self.assertIn("removed: 0; added: 1; changed: 0; moved: 0", report)
+                self.assertIn("Provenance entries: 1", report)
+
+    def test_configured_provenance(self):
+        policy = dict(version=1, extra_provenance_paths=["history/**/*.md", "docs/history.md"])
+        base = self.snapshot({".rule-changes.json": json.dumps(policy),
+                              "history/approval.md": "# Approval\n- Never skip validation.\n- Retain evidence.\n",
+                              "history/archive.md": "# Archive\n", "docs/history.md": "# Ignored\n"})
+        self.snapshot({".rule-changes.json": json.dumps(dict(version=1)),
+                       "history/approval.md": "# Approval\n- Avoid skipping validation.\n- Retain evidence.\n",
+                       "docs/history.md": "# Ignored\nIgnored provenance.\n"})
+        report = self.report(base)
+        self.assertIn("removed: 0; added: 0; changed: 0; moved: 0", report)
+        self.assertIn("Provenance entries: 2", report)
+        self.assertNotIn("Retain evidence.", report)
+        self.assertNotIn("Ignored provenance.", report)
+        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2], (0, ""))
+        # Exact provenance copies at different locations are separate entries, not moves.
+        self.snapshot({"history/approval.md": "# Approval\n- Retain evidence.\n",
+                       "history/archive.md": "# Archive\n- Never skip validation.\n"})
+        report = self.report(base)
+        self.assertIn("removed: 0; added: 0; changed: 0; moved: 0", report)
+        self.assertIn("Provenance entries: 2", report)
+        # Both complete text and all provenance locations obey the existing size guard.
+        policy["max_report_chars"] = 1
+        base = self.snapshot({".rule-changes.json": json.dumps(policy)})
+        self.snapshot({"history/archive.md": "# Archive\n"})
+        status, out, err = self.context(base)
+        self.assertEqual(status, 1, err)
+        self.assertIn("FAILED CLOSED", out)
+        self.assertIn('RC1 provenance removed: old "history/archive.md":2', out)
+
+    def test_quoted_sentences_stay_whole(self):
+        for opening, closing in (('"', '"'), ("'", "'"), ('“', '”'), ('‘', '’')):
+            with self.subTest(opening=opening):
+                quoted = opening + "Don't drop records.\nNever skip validation!" + closing
+                text = "The operator said " + quoted + "."
+                base = self.snapshot({"rules/source.md": "# Scope\n" + text + "\nReport every failure.\n"})
+                self.snapshot({"rules/source.md": "# Scope\n"})
+                report = self.report(base)
+                self.assertIn("removed: 2; added: 0; changed: 0; moved: 0", report)
+                self.assertIn(" ".join(text.split()), report)
+                self.assertIn('Old: "rules/source.md":2', report)
+                self.assertIn('Old: "rules/source.md":4', report)
+        base = self.snapshot({"rules/source.md": "# Scope\nDon't drop records. Keep `literal. code` intact.\nUnmatched “quote. Still split.\n"})
+        self.snapshot({"rules/source.md": "# Scope\n"})
+        report = self.report(base)
+        self.assertIn("removed: 4;", report)
+        self.assertIn("Keep `literal. code` intact.", report)
 
     def test_oversize(self):
         policy = json.dumps(dict(version=1, max_report_chars=1))
@@ -194,6 +308,8 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
     def test_invalid_inputs(self):
         for policy in ({"version": 2}, {"version": 1, "extra_protected_paths": ["../outside.md"]},
                        {"version": 1, "extra_protected_paths": "rules.md"},
+                       {"version": 1, "extra_provenance_paths": "history.md"},
+                       {"version": 1, "extra_provenance_paths": ["../outside.md"]},
                        {"version": 1, "max_report_chars": 0}, {"version": 1, "unexpected": 1}):
             with self.subTest(policy=policy):
                 base = self.snapshot({".rule-changes.json": json.dumps(policy)})

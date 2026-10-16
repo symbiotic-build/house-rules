@@ -89,6 +89,13 @@ Wrap this rule across lines without changing its words.
 - Report every failure.
 ```
 
+**Head: CHANGELOG-RULES.md**
+
+```markdown
+# Approval
+Approved removal: “Keep the audit record. Retain the approval.”
+```
+
 **Procedure: prepare and audit the edit**
 
 1. **Prepare the review.** The report contains a removal, a change with both texts and a move with both locations.
@@ -96,7 +103,10 @@ Wrap this rule across lines without changing its words.
    - The changed text is `Never skip validation.` → `Avoid skipping validation.`
    - The moved text is `Report every failure.`
    - The re-wrap produces no item.
-2. **Read the declared changes.** A description section headed `## Rule changes` appears beside the detected items with its original line numbers.
+   - The changelog quotation stays whole in Provenance entries; the rule remains removed.
+2. **Read the declared changes.** The selected source's `## Rule changes` section appears with its original line numbers.
+   - Use the PR body when a PR is given; otherwise use the `--summary` text.
+   - The report names the selected source.
    - Without that section, the report prominently flags an undeclared change.
 3. **Audit every item.** The normal panel gains the rule-preservation lens.
    - Without cited approval, the removal and weakening are Blocking findings.
@@ -117,12 +127,19 @@ The review base is the merge base of the resolved base and head, matching the pr
 The report names both immutable revisions. Working-tree edits do not affect it.
 
 List items and table rows are individual units. Paragraph sentences are individual units.
+Sentence punctuation inside matched straight or typographic quotation marks never splits a unit.
+This includes single and double quotation marks; apostrophes within words are not quotation boundaries.
+Unmatched quotation marks do not shield sentence boundaries.
 
 Fenced code blocks are whole units. Headings describe section scope and are location metadata.
 Units retain file, first source line and heading ancestry. Whitespace and Markdown line wrapping normalize away.
 List markers and table separator rows carry no rule text. Text inside a unit retains punctuation and strength words.
 
-Exact copies in the same file and section cancel first, including repeated occurrences.
+Provenance files record why rules changed. Their text never pairs with rules or other provenance units as moves or changes.
+Exact copies in the same provenance file and section cancel; remaining units appear as added or removed in a separate `Provenance entries` part.
+Those entries retain identities, locations and text, but do not enter rule totals or trigger the rule-preservation lens.
+
+For rule units, exact copies in the same file and section cancel first, including repeated occurrences.
 Remaining identical copies pair as moves across files or sections.
 Remaining pairs above the configured similarity threshold become changes, in descending similarity order.
 Ties use same-file preference, then old and new source order: path, line, section and text.
@@ -133,7 +150,11 @@ Every item receives a stable report-local identity and class, old/new locations 
 Absent sides display `(none)`. Totals include all four classes.
 No-change output is one line: `No protected rule text changed.`
 The report precedes the change in full preparation and context-only preparation.
-The description's Rule changes section is copied verbatim with original line numbers, including any subsections.
+
+The declared-changes source is the PR body when `--pr` is given; otherwise it is the supplied `--summary` text.
+An automatically discovered PR does not override that summary.
+Commit titles and messages are not declaration sources. A missing summary supplies no declarations.
+The report names the source and copies its Rule changes section verbatim with original line numbers, including subsections.
 A non-empty report without that section prominently says `UNDECLARED RULE CHANGES`.
 
 <a id="review-disposition"></a>
@@ -184,11 +205,11 @@ Expose every changed unit without treating a lexical match as approval.
 
 **Condition:** A review compares base and head.
 
-**Result:** Produce the [rule-change report](#rule-change-report) using the [rule-change configuration](#configuration), including declarations and deterministic pairing.
+**Result:** Produce the [rule-change report](#rule-change-report) using the [rule-change configuration](#configuration), including source-labelled declarations, quotation-aware units, separate provenance entries and deterministic rule pairing.
 
 **Verification:** Real Git fixture comparisons.
 
-**Tests:** [Detection](#test-rule-report-detection), [coverage](#test-rule-report-coverage), [declarations](#test-rule-report-declarations), [failure behavior](#test-rule-report-failure).
+**Tests:** [Detection](#test-rule-report-detection), [coverage](#test-rule-report-coverage), [declarations](#test-rule-report-declarations), [provenance](#test-rule-report-provenance), [quotations](#test-rule-report-quotations), [failure behavior](#test-rule-report-failure).
 
 **Status:** specified.
 
@@ -203,7 +224,7 @@ Require a meaning audit rather than sample sentence locks.
 
 **Condition:** A report is non-empty.
 
-**Result:** Every reviewer supplies a [review disposition](#review-disposition) per item. Removed, changed or moved items require the rule-preservation lens alongside the normal panel.
+**Result:** Every reviewer supplies a [review disposition](#review-disposition) per item. Removed, changed or moved rule items require the rule-preservation lens alongside the normal panel.
 
 **Verification:** Dispatch fixture and prompt inspection.
 
@@ -279,7 +300,8 @@ The [rule-change report](#rule-change-report) and [review disposition](#review-d
 ### Rule-change configuration
 
 Rule-change configuration is optional versioned JSON at `.rule-changes.json` in the review base commit.
-It extends coverage without replacing defaults. Files under `docs/` remain excluded even when an extension matches them.
+It extends coverage and provenance classification without replacing defaults. Files under `docs/` remain excluded even when an extension matches them.
+Provenance classification also protects matching paths; no separate coverage declaration is needed.
 A new configuration first takes effect after it reaches the base; candidate-only configuration is not active policy.
 Unknown fields, unsupported versions, malformed patterns and invalid limits fail preparation visibly.
 
@@ -287,17 +309,19 @@ Unknown fields, unsupported versions, malformed patterns and invalid limits fail
 |---|---|---|
 | version | 1 | Accepted format |
 | extra_protected_paths | [] | Additional repository-relative globs |
+| extra_provenance_paths | [] | Additional provenance globs |
 | max_report_chars | 80000 | Complete report character allowance |
 | similarity_threshold | 0.6 | Minimum changed-pair similarity |
 
 Default protected paths are `INDEX.md`, `STRUCTURE.md`, `PREFERENCES.md`, `INSTALL-AGENTS.md`, `AGENTS.md`, `CHANGELOG-RULES.md`,
 `rules/**/*.md`, `prompts/**/*.md`, `skills/**/*.md`, `.agents/rules.md` and `CONTEXT.md`.
+`CHANGELOG-RULES.md` is the default provenance path.
 Glob `**/` matches zero or more directories; `*` matches within one path segment.
 Only regular UTF-8 protected files are accepted. Invalid encoding or nonregular protected inputs fail visibly.
 
 The [preparer](../../../skills/pr-ready/scripts/prepare.py) exposes `review --context-only` for the report and
 `rule-lenses CHECKOUT --base BASE --rev HEAD --no-fetch` for dispatch.
-The selector prints `rule-preservation` only when a removed, changed or moved item exists.
+The selector prints `rule-preservation` only when a removed, changed or moved rule item exists.
 The lane [panel](../../../skills/pr-ready/scripts/review-panel.sh) adds that lens without replacing the requested reviewers.
 The service must run the same selector from its pinned preparer, add the lens from its compiled pack, and honor nonzero preparation status.
 There is no automatic service adoption in this repository.
@@ -350,11 +374,41 @@ Declarations checks the caller-visible result.
 
 **Requirements:** [Required behavior](#req-rule-report).
 
-**Inputs:** A description with and without the Rule changes section.
+**Inputs:** PR bodies and local summaries with and without the Rule changes section, including simultaneous PR and summary input.
 
-**Expected:** The original section and line numbers appear; missing declaration is prominent.
+**Expected:** The selected source, original section and line numbers appear; missing declaration is prominent. The PR body takes precedence over a summary.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_missing_declaration](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_declaration](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_missing_declaration](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_declaration](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_summary_declarations](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_pr_declarations_override_summary](../../../skills/pr-ready/scripts/test_rule_changes.py)
+
+<a id="test-rule-report-provenance"></a>
+### Provenance
+
+Provenance comparisons preserve rule removals and approval evidence separately.
+
+**Method:** test.
+
+**Requirements:** [Required behavior](#req-rule-report).
+
+**Inputs:** Removed rules quoted in changelog entries, configured provenance paths, and provenance edits or removals.
+
+**Expected:** Rules remain removed; provenance entries never pair as moves or changes. Base configuration governs additional provenance paths.
+
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_provenance_does_not_pair_with_rules](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_configured_provenance](../../../skills/pr-ready/scripts/test_rule_changes.py)
+
+<a id="test-rule-report-quotations"></a>
+### Quotations
+
+Quotation checks preserve complete quoted sentences and their source locations.
+
+**Method:** test.
+
+**Requirements:** [Required behavior](#req-rule-report).
+
+**Inputs:** Matched straight and typographic quotes, apostrophes, inline code and unmatched quotes.
+
+**Expected:** Matched quotations stay whole; sentences outside them still split at the correct source lines.
+
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_quoted_sentences_stay_whole](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-failure"></a>
 ### Failure behavior

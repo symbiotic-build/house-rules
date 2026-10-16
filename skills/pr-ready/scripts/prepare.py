@@ -43,7 +43,8 @@ class PrepareError(Exception):
 RULE_PATHS = ("INDEX.md", "STRUCTURE.md", "PREFERENCES.md", "INSTALL-AGENTS.md", "AGENTS.md",
               "CHANGELOG-RULES.md", "rules/**/*.md", "prompts/**/*.md", "skills/**/*.md",
               ".agents/rules.md", "CONTEXT.md")
-RULE_DEFAULTS = dict(version=1, extra_protected_paths=[], max_report_chars=80_000,
+RULE_PROVENANCE_PATHS = ("CHANGELOG-RULES.md",)
+RULE_DEFAULTS = dict(version=1, extra_protected_paths=[], extra_provenance_paths=[], max_report_chars=80_000,
                      similarity_threshold=0.6)
 
 
@@ -106,11 +107,13 @@ def rule_policy(repo, base, tree):
             raise PrepareError(f"invalid {path}: expected version 1")
         policy.update(configured)
     if (not isinstance(policy["extra_protected_paths"], list)
+            or not isinstance(policy["extra_provenance_paths"], list)
             or type(policy["max_report_chars"]) is not int or policy["max_report_chars"] < 1
             or type(policy["similarity_threshold"]) not in (int, float)
             or not 0 < policy["similarity_threshold"] <= 1):
         raise PrepareError("invalid .rule-changes.json: paths, limit or similarity threshold")
-    patterns = [rule_glob(pattern) for pattern in (*RULE_PATHS, *policy["extra_protected_paths"])]
+    patterns = [rule_glob(pattern) for pattern in (*RULE_PATHS, *policy["extra_protected_paths"],
+                                                 *policy["extra_provenance_paths"])]
     return policy, patterns
 
 
@@ -130,9 +133,11 @@ def rule_units(path, text):
             return
         value = "\n".join(row for _, row in pending)
         if pending_kind == "paragraph":
-            # Sentence punctuation inside inline code is literal, not a boundary.
+            # Matched code and quotation spans retain their sentence punctuation.
             masked = list(value)
-            for match in re.finditer(r"(`+).*?\1", value, re.S):
+            spans = (r'''(`+).*?\1|"(?:\\.|[^"\\])*"|'''
+                     r"(?<!\w)'(?:\\.|'(?=\w)|[^'\\])*'(?!\w)|“[^”]*”|‘.*?’(?!\w)")
+            for match in re.finditer(spans, value, re.S):
                 for index in range(match.start(), match.end()):
                     if masked[index] in ".!?":
                         masked[index] = "x"
@@ -214,11 +219,11 @@ def rule_key(unit):
     return unit["path"], unit["line"], unit["section"], unit["text"]
 
 
-def pair_rule_units(old, new, threshold):
+def pair_rule_units(old, new, threshold, *, provenance=False):
     """Cancel local copies, match moves, then greedily pair by similarity with stable ties."""
     old, new = sorted(old, key=rule_key), sorted(new, key=rule_key)
     old_left, new_left, changes = set(range(len(old))), set(range(len(new))), []
-    for local in (True, False):
+    for local in ((True,) if provenance else (True, False)):
         available = {}
         for j in sorted(new_left):
             unit = new[j]
@@ -233,19 +238,20 @@ def pair_rule_units(old, new, threshold):
                 new_left.remove(j)
                 if not local:
                     changes.append(dict(kind="moved", old=old[i], new=new[j]))
-    candidates = []
-    for i in sorted(old_left):
-        for j in sorted(new_left):
-            similarity = SequenceMatcher(None, old[i]["text"], new[j]["text"], autojunk=False).ratio()
-            if similarity >= threshold:
-                candidates.append((-similarity, old[i]["path"] != new[j]["path"], i, j))
-    for _, _, i, j in sorted(candidates):
-        if i in old_left and j in new_left:
-            old_left.remove(i)
-            new_left.remove(j)
-            changes.append(dict(kind="changed", old=old[i], new=new[j]))
-    changes.extend(dict(kind="removed", old=old[i], new=None) for i in sorted(old_left))
-    changes.extend(dict(kind="added", old=None, new=new[j]) for j in sorted(new_left))
+    if not provenance:
+        candidates = []
+        for i in sorted(old_left):
+            for j in sorted(new_left):
+                similarity = SequenceMatcher(None, old[i]["text"], new[j]["text"], autojunk=False).ratio()
+                if similarity >= threshold:
+                    candidates.append((-similarity, old[i]["path"] != new[j]["path"], i, j))
+        for _, _, i, j in sorted(candidates):
+            if i in old_left and j in new_left:
+                old_left.remove(i)
+                new_left.remove(j)
+                changes.append(dict(kind="changed", old=old[i], new=new[j]))
+    changes.extend(dict(kind="removed", old=old[i], new=None, provenance=provenance) for i in sorted(old_left))
+    changes.extend(dict(kind="added", old=None, new=new[j], provenance=provenance) for j in sorted(new_left))
     return sorted(changes, key=lambda item: (rule_key(item["old"] or item["new"]), item["kind"]))
 
 
@@ -253,9 +259,11 @@ def rule_changes(repo, base, head):
     base = git(repo, "merge-base", base, head).strip()
     old_tree, new_tree = rule_tree(repo, base), rule_tree(repo, head)
     policy, patterns = rule_policy(repo, base, old_tree)
+    provenance_patterns = [rule_glob(pattern) for pattern in (*RULE_PROVENANCE_PATHS,
+                                                             *policy["extra_provenance_paths"])]
     paths = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z",
                 base, head).split("\0")
-    old, new = [], []
+    old, new, provenance_old, provenance_new = [], [], [], []
     for path in sorted(set(paths) - {""}):
         if path.startswith("docs/") or not any(pattern.fullmatch(path) for pattern in patterns):
             continue
@@ -263,9 +271,16 @@ def rule_changes(repo, base, head):
         after = rule_blob(repo, head, path, new_tree) if path in new_tree else ""
         if " ".join(before.split()) == " ".join(after.split()):
             continue
-        old.extend(rule_units(path, before))
-        new.extend(rule_units(path, after))
-    return pair_rule_units(old, new, policy["similarity_threshold"]), policy, base
+        before_units, after_units = rule_units(path, before), rule_units(path, after)
+        if any(pattern.fullmatch(path) for pattern in provenance_patterns):
+            provenance_old.extend(before_units)
+            provenance_new.extend(after_units)
+        else:
+            old.extend(before_units)
+            new.extend(after_units)
+    changes = pair_rule_units(old, new, policy["similarity_threshold"])
+    changes.extend(pair_rule_units(provenance_old, provenance_new, policy["similarity_threshold"], provenance=True))
+    return changes, policy, base
 
 
 def declared_rule_changes(body):
@@ -296,25 +311,31 @@ def rule_location(unit):
     return f'{json.dumps(unit["path"], ensure_ascii=False)}:{unit["line"]} — {json.dumps(unit["section"], ensure_ascii=False)}'
 
 
-def rule_report(changes, policy, base, head, pr_body):
+def rule_report(changes, policy, base, head, declaration_text, declaration_source):
+    declared = declared_rule_changes(declaration_text)
+    declaration_heading = f"### Declared changes ({declaration_source} line numbers)"
     if not changes:
-        declared = declared_rule_changes(pr_body)
         declaration = "\n".join(f"{number}: {line}" for number, line in declared)
         return "No protected rule text changed." + (
-            "\n\n### Declared changes (PR description line numbers)\n" + declaration if declared else "")
+            "\n\n" + declaration_heading + "\n" + declaration if declared else "")
     out = ["## Rule text changes", f"Base: `{base}`; head: `{head}`",
-           "; ".join(f"{kind}: {sum(item['kind'] == kind for item in changes)}"
+           "; ".join(f"{kind}: {sum(item['kind'] == kind and not item.get('provenance') for item in changes)}"
                      for kind in ("removed", "added", "changed", "moved"))]
-    declared = declared_rule_changes(pr_body)
+    out.append(f"Provenance entries: {sum(bool(item.get('provenance')) for item in changes)}")
     if not declared:
-        out.append("UNDECLARED RULE CHANGES: PR description has no ## Rule changes section. Blocking.")
-    out.extend(["", "### Declared changes (PR description line numbers)"])
+        out.append(f"UNDECLARED RULE CHANGES: {declaration_source} has no ## Rule changes section. Blocking.")
+    out.extend(["", declaration_heading])
     out.extend([f"{number}: {line}" for number, line in declared] or ["(none)"])
-    index = [f"- RC{number} {item['kind']}: old {rule_location(item['old'])}; new {rule_location(item['new'])}"
+    index = [f"- RC{number} {'provenance ' if item.get('provenance') else ''}{item['kind']}: old {rule_location(item['old'])}; new {rule_location(item['new'])}"
              for number, item in enumerate(changes, 1)]
     detail = []
+    provenance_started = False
     for number, item in enumerate(changes, 1):
-        detail.extend(["", f"### RC{number} {item['kind']}"])
+        if item.get("provenance") and not provenance_started:
+            detail.extend(["", "### Provenance entries"])
+            provenance_started = True
+        heading = "####" if item.get("provenance") else "###"
+        detail.extend(["", f"{heading} RC{number} {item['kind']}"])
         for side in ("old", "new"):
             unit = item[side]
             value = unit["text"] if unit else "(none)"
@@ -816,7 +837,9 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", lens):
         raise PrepareError("invalid lens name")
     changes, policy, rule_base = rule_changes(repo, base, head)
-    report = rule_report(changes, policy, rule_base, head, pr.get("body") or "")
+    declaration_text = (pr.get("body") or "") if args.pr else summary if args.summary else ""
+    declaration_source = "PR description" if args.pr else "--summary text"
+    report = rule_report(changes, policy, rule_base, head, declaration_text, declaration_source)
     context_only = getattr(args, "context_only", False)
     registered = not documentation_prepared and any(
         git(repo, "ls-tree", "--name-only", head, "--", path).strip()
@@ -993,8 +1016,8 @@ def main(argv=None, *, documentation_prepared=False):
         print(f"range: {base}...{head or 'HEAD'}", file=sys.stderr)
         if args.command == "rule-lenses":
             changes, policy, rule_base = rule_changes(repo, base, head)
-            rule_report(changes, policy, rule_base, head, "")
-            if any(item["kind"] in ("removed", "changed", "moved") for item in changes):
+            rule_report(changes, policy, rule_base, head, "", "--summary text")
+            if any(not item.get("provenance") and item["kind"] in ("removed", "changed", "moved") for item in changes):
                 print("rule-preservation")
         elif args.command == "base":
             print(base)
