@@ -1036,6 +1036,7 @@ def check(corpus, base=None, _freshness=True):
                 if value_bearing and normalize_literal(link.label, corpus.contract) != normalize_literal(fact["value"], corpus.contract):
                     d.add("D10", f"value link for '{fact['id']}' differs: home {fact['value']!r}, link {link.label!r}", md.path, link.line + 1)
         check_uses(corpus, md, d)
+        check_blockquotes(md, d)
         check_prose(corpus, md, d)
     for identity, declaration in corpus.declarations.items():
         kind, fields = declaration["kind"], declaration["fields"]
@@ -1481,6 +1482,22 @@ def check_chapters(corpus, sections, diagnostics):
             path, line = locations[0]
             diagnostics.add("D35", f"sentence repeats {len(locations)} times in this document: {sentence!r}; develop the example where introduced",
                             path, line)
+
+
+def check_blockquotes(md, diagnostics):
+    """Warn where native quote ranges contain lines missing a quote prefix."""
+    lines, depth = md.text.splitlines(), 0
+    for token in md.tokens:
+        if token.type == 'blockquote_close':
+            depth -= 1
+        elif token.type == 'blockquote_open':
+            depth += 1
+            for line in range(*token.map):
+                # List markers can precede quotes, including nested quotes in lists.
+                prefix = re.match(r'^(?:[ \t]+|>|(?:[-+*]|\d+[.)])[ \t]+)*', lines[line])[0]
+                if prefix.count('>') < depth:
+                    diagnostics.add('W07', 'Lazy blockquote continuation: prefix every line of the quote with >',
+                                    md.path, line + 1)
 
 
 def check_prose(corpus, md, diagnostics):

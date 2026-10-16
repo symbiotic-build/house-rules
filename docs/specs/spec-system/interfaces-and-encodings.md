@@ -47,6 +47,7 @@ Diagnostics identify a failed structural condition and the repair that lets chec
 | W04 | warning | Ambiguous registered phrase | Review intended meaning | [Ambiguous phrases](../../../skills/spec-writing/scripts/test_spec_docs.py "skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_ambiguous_registered_phrase_warns_instead_of_guessing") |
 | W05 | warning | Possible prose-profile violation | Inspect the passage | [Prose warnings](../../../skills/spec-writing/scripts/test_spec_docs.py "skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_suspected_multi_action_and_long_cells_warn") |
 | W06 | warning | Predecessor-only prerequisites | Review conceptual dependencies | [Prerequisite chains](../../../skills/spec-writing/scripts/test_spec_docs.py "skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_predecessor_only_prerequisites_warn_above_five_sections") |
+| W07 | warning | Lazy blockquote continuation | Prefix every line of the quote with > | [Explicit quote prefixes](../../../skills/spec-writing/scripts/test_spec_docs.py "skills/spec-writing/scripts/test_spec_docs.py::CorpusTests::test_blockquote_lazy_continuations_warn_with_source_lines_and_remedy") |
 
 For the tour's deliberate mutation, text output is:
 

@@ -995,6 +995,46 @@ class CorpusTests(unittest.TestCase):
         edit(quoted, SETTINGS, 'The fixture author must resolve the candidate capacity before adoption.', f'The fixture author must resolve the candidate capacity before adoption.\n\n> {long}\n>\n> — A synthetic source\n')
         self.assertNotIn('W01', {d.code for d in s.check(refresh(quoted)).warnings})
 
+    def test_blockquote_lazy_continuations_warn_with_source_lines_and_remedy(self):
+        cases = (
+            ('> **Detail — values**\n> First line.\nContinuation.\nAnother continuation.\n', [2, 3]),
+            ('> A quotation.\nContinuation.\n> — Synthetic source\n', [1]),
+            ('> > Nested quotation.\n> Nested continuation.\nOuter continuation.\n', [1, 2]),
+            ('- > Quotation in a list.\n  Continuation.\n', [1]),
+            ('> First line.\n> Continuation.\n>\n> Next paragraph.\n', []),
+            ('> > Nested quotation.\n> > Continuation.\n', []),
+            ('- > Quotation in a list.\n  > Continuation.\n', []),
+            ('> Quotation.\n\nOrdinary paragraph.\n', []),
+            ('> Quotation.\n\n    Literal text.\n', []),
+            ('```markdown\n> Literal quotation.\nLiteral continuation.\n```\n', []),
+            ('    > Literal quotation.\n    Literal continuation.\n', []),
+            ('> ```text\n> Literal text.\n> ```\n', []),
+        )
+        for text, offsets in cases:
+            with self.subTest(text=text):
+                paths = self.clean.copy()
+                paths[SETTINGS] += ('\n' + text).encode()
+                first = len(paths[SETTINGS].decode().splitlines()) - len(text.splitlines()) + 1
+                result = s.check(refresh(paths))
+                warnings = [d for d in result.warnings if d.code == 'W07']
+                self.assertTrue(result.ok, result.errors)
+                self.assertEqual([(d.path, d.line) for d in warnings],
+                                 [(SETTINGS, first + offset) for offset in offsets])
+                self.assertTrue(all('prefix every line of the quote with >' in d.message for d in warnings))
+
+    def test_link_and_generate_preserve_explicit_blockquote_prefixes(self):
+        self.paths[ACCEPTANCE] += '\n<a id="ownership"></a>\n## Ownership\n\n> **Detail — ownership**\n> The writer handles this example.\n> More detail follows.\n>\n> A separate paragraph.\n'.encode()
+        outputs = s.link_missing(corpus(self.paths))
+        self.assertIn(b'> The [writer](#writer)', outputs[ACCEPTANCE])
+        self.paths.update(outputs)
+        linked = self.paths[ACCEPTANCE]
+        c = refresh(self.paths)
+        self.assertEqual(self.paths[ACCEPTANCE], linked)
+        self.assertTrue(s.check(c).ok, s.check(c).errors)
+        self.assertNotIn('W07', {d.code for d in s.check(c).warnings})
+        self.assertEqual(s.link_missing(c), {})
+        self.assertEqual(s.generate_navigation(c), s.generate_navigation(corpus(self.paths)))
+
     def test_sentence_counter_preserves_decimals_and_code_punctuation(self):
         tokens = s.MarkdownIt('commonmark').parse('Use 1.25 and `x. y! z?`. Next is 42. Done.')
         inline = next(t for t in tokens if t.type == 'inline')

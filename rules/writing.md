@@ -142,7 +142,8 @@ ASD-STE100 conformance. The checker reads this block; do not maintain a second l
   table. Descriptive enumerations use bullets or compact tables. Operator decision options
   are exempt.
 - Keep required instructions beside the action that needs them. Put informational detail
-  in an ordinary blockquote labelled **Detail — descriptive label**.
+  in an ordinary blockquote labelled **Detail — descriptive label**. Every line of a
+  detail block carries the `>` prefix.
 
 Before:
 
