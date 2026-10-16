@@ -78,8 +78,16 @@ Repositories with `docs/ENTITIES.json` and `docs/DOCUMENTS.json` use the shared
 Supply `--assignment FILE` to `prompt.py` pack mode, `prepare.py review`, or
 `review-panel.sh`. The file uses the format contract's versioned assignment schema and
 explicit section selectors. A repository with only one metadata file fails preparation.
-Missing assignments, invalid sources, unknown selectors and excessive mandatory context
-also fail before a pack is published. Use assignment `required_test_reviews` rather than
+Missing assignments fail in `prompt.py` pack mode, including writer and reader packs.
+Without an assignment, `prepare.py review` uses the shared checker's source comparison
+to assign every head-registered section changed since the range's merge base.
+Existing selection adds tests linked to changed requirements and applicable decisions.
+If no registered section changed, it omits the documentation pack and states one line:
+`No registered documentation changed in this range.` Explicit assignments keep their behavior.
+Invalid sources, unknown selectors and excessive mandatory context
+fail before a pack is published. Derived context uses the existing size guards;
+an oversized review names its selected sections and fails without truncating documentation.
+Use assignment `required_test_reviews` rather than
 the legacy `--spec` and `--tests` options for these repositories.
 
 The compiler's manifest contains a `documentation` record with the selector's manifest,
@@ -101,6 +109,11 @@ The staging check therefore copies `skills/spec-writing/` alongside the existing
 set and checks a real documentation fixture and an extracted compiler.
 
 Use the specification tool's supported Python environment as described in its format
-contract. The panel accepts `REVIEW_PYTHON` for that interpreter and
+contract. When `prepare.py review` runs on Python 3.9 or 3.10 with registered documentation,
+set `REVIEW_PYTHON` to that environment's Python executable. The preparer delegates to it;
+an unsupported environment fails visibly without installing dependencies. Without
+`REVIEW_PYTHON` and without `--assignment`, the review proceeds without the documentation
+pack and states that in the prompt; with `--assignment`, it fails visibly.
+The panel accepts `REVIEW_PYTHON` for that interpreter and
 `REVIEW_SPEC_ASSIGNMENT` as an alternative to `--assignment`. These options select
 existing tooling and input; they install no dependencies or model configuration.

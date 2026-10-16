@@ -844,16 +844,20 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     registered = not documentation_prepared and any(
         git(repo, "ls-tree", "--name-only", head, "--", path).strip()
         for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json"))
-    needs_documentation = not documentation_prepared and (registered or getattr(args, "assignment", None))
-    context, common, instructions = None, "", ""
+    assignment_path = getattr(args, "assignment", None)
+    unavailable = getattr(args, "documentation_unavailable", False)
+    needs_documentation = not documentation_prepared and not unavailable and (registered or assignment_path)
+    context, sections, common, instructions = None, None, "", ""
     if not context_only or needs_documentation:
         if not context_only:
             lens_settings(lens)
         # Compilation stays with its owner. The standalone reporting path never
         # imports a sibling, and context-only legacy preparation needs none.
-        request = dict(repo=str(repo), head=head, base=base, lens=lens, full=not context_only,
-                       documentation=bool(needs_documentation),
-                       assignment=str(args.assignment) if getattr(args, "assignment", None) else None)
+        # Without an explicit assignment, review derives one from changes since the merge base.
+        comparison_base = base if assignment_path else git(repo, "merge-base", base, head).strip()
+        request = dict(repo=str(repo), head=head, base=comparison_base, lens=lens, full=not context_only,
+                       documentation=bool(needs_documentation), derive=not assignment_path,
+                       assignment=str(assignment_path) if assignment_path else None)
         compiled = run(repo, sys.executable, "-I", "-B", str(HERE / "prompt.py"),
                        "--preparer-context", json.dumps(request))
         if compiled.returncode:
@@ -861,6 +865,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         try:
             result = json.loads(compiled.stdout)
             common, instructions, context = result["common"], result["instructions"], result["documentation"]
+            sections = result.get("sections")
         except (ValueError, KeyError, TypeError) as exc:
             raise PrepareError("invalid review compiler response") from exc
     mode = args.format or ("structured" if args.cli == "codex" else "pack")
@@ -873,10 +878,16 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         parts = [f"The checkout under review is {repo}; read its files by absolute path.", *parts[2:]]
     if context is not None:
         parts.append(context)
+    elif needs_documentation and not assignment_path:
+        parts.append("No registered documentation changed in this range.")
+    elif unavailable:
+        parts.append("Registered documentation context was not prepared: this preparer runs Python "
+                     f"{sys.version_info[0]}.{sys.version_info[1]} without REVIEW_PYTHON, and the shared checker needs 3.11 or later. "
+                     "Review changed documentation from the diff.")
     parts.append(report)
     files = changed_files(repo, rng)
     entries = requirement_entries(repo, args, pr, issues, comments, texts, commits, files, url, head, missing, notices,
-                                  documentation=documentation_prepared or context is not None)
+                                  documentation=documentation_prepared or bool(needs_documentation))
     if missing:
         notices.insert(0, "not found: " + ", ".join(dict.fromkeys(missing)))
     # Numstat is already collected; the remaining budget bounds structured reads
@@ -888,6 +899,11 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     if compiled_chars < 0 or (compiled_chars and not context_only):
         raise PrepareError("--compiled-chars requires context-only mode and a nonnegative count")
     limit = CODEX_LIMIT - compiled_chars
+    if args.cli == "codex" and context is not None and getattr(args, "assignment", None) is None:
+        mandatory_size = len(display(context))
+        if mandatory_size > limit:
+            raise PrepareError(f"Size guard: limit {CODEX_LIMIT:,} characters; mandatory documentation requires {mandatory_size:,} characters.\n"
+                               "Documentation sections: " + ", ".join(sections or []))
     overhead = len(display("\n\n".join([*notices, *parts, requirements_part(entries, mode)]))) + 3
     budget = max(0, limit - overhead) if args.cli == "codex" else CODEX_LIMIT
     packed = mode == "pack"
@@ -924,6 +940,8 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
                 result = render()
         if len(result) > limit:
             history = "\n".join(trim_notes() or ["No requirement bodies eligible for trimming."])
+            if context is not None and getattr(args, "assignment", None) is None:
+                history += "\nDocumentation sections: " + ", ".join(sections or [])
             raise PrepareError(
                 f"Size guard: limit {CODEX_LIMIT:,} characters; final size {len(result) + compiled_chars:,} characters after trimming. "
                 "Retained indexes, rules, task and author claims require a smaller input.\n"
@@ -1012,6 +1030,23 @@ def main(argv=None, *, documentation_prepared=False):
         head = None
         if args.command in ("review", "rule-lenses"):
             head = git(repo, "rev-parse", "--verify", "--end-of-options", args.rev + "^{commit}").strip()
+            interpreter = os.environ.get("REVIEW_PYTHON")
+            if not documentation_prepared and sys.version_info < (3, 11) and any(
+                    git(repo, "ls-tree", "--name-only", head, "--", path).strip()
+                    for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json")):
+                if not interpreter and getattr(args, "assignment", None):
+                    raise PrepareError("registered documentation requires the pinned tool environment; set REVIEW_PYTHON to its Python executable")
+                # A service without the pinned environment still reviews the code; the pack says what it lacks.
+                args.documentation_unavailable = not interpreter
+            if getattr(args, "documentation_unavailable", None) is False:
+                environment = noninteractive_env()
+                environment.pop("REVIEW_PYTHON", None)  # A misconfigured interpreter fails instead of recursing.
+                result = subprocess.run([interpreter, "-B", str(Path(__file__).resolve()),
+                                         *(sys.argv[1:] if argv is None else argv), "--rev", head], env=environment,
+                                        stdin=subprocess.DEVNULL, capture_output=True)
+                sys.stdout.write(result.stdout.decode("utf-8"))
+                sys.stderr.write(redact(result.stderr.decode("utf-8")))
+                return result.returncode
         base, remote, fresh = resolve_base(repo, args.base, args.no_fetch)
         print(f"range: {base}...{head or 'HEAD'}", file=sys.stderr)
         if args.command == "rule-lenses":
