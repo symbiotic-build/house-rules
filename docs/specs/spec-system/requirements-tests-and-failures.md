@@ -1,7 +1,7 @@
 <a id="behavior-and-change"></a>
 # Requirements, tests and failures
 
-Authors connect required behavior to evidence so reviewers can detect violations and reassess later changes. The bounded batch supplies one concrete obligation: a full batch returns `Full` and retains its items. Its declarations connect that result to verification without creating a separate traceability store.
+Authors connect required behavior to evidence so reviewers can detect violations and reassess later changes. This chapter explains the records that connect obligations, evidence, action sequences and recovery, then shows how changes select evidence for review.
 
 <a id="behavior-and-evidence"></a>
 ## Behavior and evidence
@@ -17,6 +17,29 @@ In the bounded-batch example, the actor is the batcher. When a submitted item wo
 
 The record supplies Actor, Condition, Result, Verification, Tests, Status and Basis. Its opening explains why the obligation exists. Put the condition before the result in normative English. A quality bound also states operating conditions, measurement and pass condition; literal comparison alone cannot establish any bound's validity.
 
+The following Markdown encodes that obligation and links its [acceptance test](#acceptance-test):
+
+```markdown
+<a id="req-capacity"></a>
+### Requirement: refuse a full batch
+
+This obligation preserves existing items when a caller exceeds the batch capacity.
+
+**Actor:** [Batcher](#batcher).
+
+**Condition:** A submitted item would exceed [2](#capacity) items.
+
+**Result:** Return `Full` without changing the batch.
+
+**Verification:** Inspect the batch after refusal.
+
+**Tests:** [Full batch](#test-capacity).
+
+**Status:** specified.
+
+**Basis:** [Teaching decision](#decision).
+```
+
 Every requirement links at least one [acceptance test](#acceptance-test), and each linked case points back to the same requirement. Missing targets, absent relationships and one-sided relationships fail checking. These links establish structural traceability; reviewers still determine whether the case proves the result. Implementation unit tests need no individual documentation requirement unless they serve as declared acceptance evidence.
 
 The explicit anchor starts with `req-` followed by a nonempty kebab-case suffix of lowercase letters and digits. It is permanent and repository-unique across specifications and designs. Preserve it when moving or revising the same obligation. A split or replacement that introduces a new obligation receives a new identity; retired identities remain unavailable for reuse.
@@ -30,7 +53,26 @@ The batcher's inspection case starts with a full batch and one additional item. 
 
 Each case supplies Method, Requirements, Inputs and Expected. Its permanent anchor starts with `test-` and follows the same suffix and uniqueness rules as a [requirement declaration](#requirement-declaration). Moving a case preserves its identity; replacing it with a different case does not permit reuse of a retired anchor.
 
-Method `test` requires an Implementation field containing executable file-and-selector links. Static checking verifies the link grammar and file destination. The selector audit then executes every declared selector and reports passed, missing and failing counts. Acceptance requires zero missing or failing selectors; a resolvable source file alone does not prove execution.
+The [acceptance test](#acceptance-test) uses this Markdown, with its evidence in an ordinary paragraph:
+
+```markdown
+<a id="test-capacity"></a>
+## Acceptance test: full batch
+
+This inspection checks that refusal preserves the existing items.
+
+**Method:** inspection.
+
+**Requirements:** [Capacity refusal](#req-capacity).
+
+**Inputs:** A full batch and one additional item.
+
+**Expected:** `Full` and the same retained items.
+
+Evidence: [retained-state inspection](#failure-full).
+```
+
+Method `test` requires an Implementation field linking a file and a named test inside it, such as `Suite::test_full`. Static checking verifies link grammar and file existence. Execution and acceptance counts follow the [Selector audit](interfaces-and-encodings.md#selector-audit) contract.
 
 Methods `inspection`, `analysis` and `demonstration` have linked evidence instead of an Implementation field. That evidence can be a review lens or a run record appropriate to the method. The checker can establish that a link exists, but reviewers establish whether the evidence supports the pass condition. The exact encoding belongs to [Markdown declarations](source-formats.md#markdown-declarations).
 
@@ -45,7 +87,35 @@ For the batcher, a scenario could admit items until the batch fills, attempt one
 
 The [document manifest](documents-homes-and-values.md#document-manifest) names whole scenarios for assignment. Selection includes their containing explanation and the sections containing linked obligations and cases, including cases reached through requirements. A whole-scenario assignment therefore gives the reviewer more than a fragment describing the final error. Selection details belong to [Agent context](agent-context.md#agent-context).
 
-Write each action and its visible result as a procedure step, with exact payloads in labelled detail beneath the action. When actions are concurrent, name the branches and synchronization points. Sequential numbering must not turn independent branches into a serial execution. A completed competing action followed by a later submission is sequential, even if its effect makes the submission fail.
+Write actions under `**Procedure: <title>**`, with at least two numbered items and a bold action at each item's start. Put exact payloads in `> **Detail — <label>**` blockquotes beneath the action. Here is a selectable [scenario](#scenario) with those forms:
+
+```markdown
+<a id="scenario-refusal"></a>
+### Scenario: submit beyond capacity
+
+Follow admission through refusal and retained-state inspection.
+
+**Purpose:** Inspect admission at capacity.
+
+**Inputs:** An empty batch and three items.
+
+**Expected:** Two items retained; the third refused.
+
+**Requirements:** [Capacity refusal](#req-capacity).
+
+**Tests:** [Full batch](#test-capacity).
+
+**Procedure: fill and inspect the batch**
+
+1. **Submit two items.** Both are admitted.
+
+   > **Detail — admitted state**
+   > The batch now contains those two items.
+2. **Submit the third item.** The caller receives `Full`.
+   The same two items remain in the batch.
+```
+
+When actions are concurrent, name the branches and synchronization points. Sequential numbering must not turn independent branches into a serial execution. A completed competing action followed by a later submission is sequential, even if its effect makes the submission fail.
 
 <a id="failure-declaration"></a>
 ### Failure declaration
@@ -82,9 +152,9 @@ The checker requires the declared fields and resolving verification links. Revie
 <a id="change-review"></a>
 ## Reviewing a changed contract
 
-A contract change can invalidate evidence even when the evidence’s text stays the same. A changed [requirement declaration](#requirement-declaration) brings its linked [acceptance tests](#acceptance-test) into review even when those cases did not change. A directly referenced [canonical fact](documents-homes-and-values.md#canonical-fact) can trigger the same selection.
+Supply `--base REV` to compare the candidate snapshot with an earlier Git revision and produce a requirement change report. A contract change can invalidate evidence even when the evidence’s text stays the same. A changed [requirement declaration](#requirement-declaration) brings its linked [acceptance tests](#acceptance-test) into review even when those cases did not change. A directly referenced [canonical fact](documents-homes-and-values.md#canonical-fact) can trigger the same selection.
 
-Correcting only a link displaying `3` to the capacity row's `2` repairs a literal mismatch. Changing the row itself changes the admission contract. If a requirement directly references that row, comparison reports the affected requirement and its tests. The comparison also observes status, basis, the source linked as evidence, and qualifications linked to the fact. Those can change a claim while its literal stays the same.
+Correcting only a link displaying `3` to the capacity row's `2` repairs a literal mismatch. Changing the row itself changes the admission contract. If a requirement directly references that row, comparison reports the affected requirement and its tests. Changes to status, basis, linked evidence or linked qualifications also select the affected requirement and its tests. These can change a claim while its literal stays the same.
 
 For example, capacity remains `2`, but its linked evidence changes from sequential-only inspection to a concurrency test. Comparison selects the requirement's tests again. Likewise, editing nearby prose linked to the capacity row can change the conditions those tests must cover.
 
@@ -94,6 +164,6 @@ Review input must include every selected case from both snapshots. Removing a re
 
 When a Git-backed base is supplied, checking derives retired requirement and test anchors from that base's reachable history. It reads historical manifests to find declared contract paths, then parses relevant distinct blobs. Literal code examples do not reserve identities because only actual declaration headings count. Without a Git-backed base, reviewers check historical reuse themselves.
 
-The underlying Git work consists of native history selection, tree inventory and blob reads. Parsing historical declarations earns its cost by detecting reuse across removed files and earlier versions. The change report is rebuilt from Markdown, metadata and Git; it adds no identity ledger, approval stamp or persistent traceability cache.
+The tool reads historical file lists and contents directly from Git. It parses those declarations to detect identity reuse across removed files and earlier versions. The change report is rebuilt from Markdown, metadata and Git; it adds no identity ledger, approval stamp or persistent traceability cache.
 
-The [Writing and review workflow](writing-and-review-workflow.md#authoring-and-review) chapter explains how the editor integrates accepted resolutions. After a contract change, affected authors recheck surrounding explanations and complete [scenarios](#scenario) using regenerated input. A stale assignment receives `D24` and no pack. Regenerate the assignment from the current snapshot before dispatch.
+The [Writing and review workflow](writing-and-review-workflow.md#authoring-and-review) chapter explains how the editor integrates accepted resolutions. After a contract change, affected authors recheck surrounding explanations and complete [scenarios](#scenario) using regenerated input. The [Agent context](agent-context.md#dispatch-and-invalidation) chapter explains when that input must be regenerated.

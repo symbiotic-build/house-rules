@@ -1181,7 +1181,12 @@ def check_uses(corpus, md, diagnostics):
             # A literal requires its own neighboring annotation, even on a later use.
             code_use = any(begin <= span[0] and span[1] <= end for begin, end in code_spans)
             if literal or code_use:
-                neighbors = [t for t in md.tokens if t.type == "inline" and t.map and t.content.startswith("**Entities in this example:**") and (t.map[1] <= line and not any(x.strip() for x in md.text.splitlines()[t.map[1]:line]) or token.map[1] <= t.map[0] and not any(x.strip() for x in md.text.splitlines()[token.map[1]:t.map[0]]))]
+                def adjacent(start, end):
+                    return not any(line.strip(" >\t") for line in md.text.splitlines()[start:end])
+
+                neighbors = [t for t in md.tokens if t.type == "inline" and t.map
+                             and (t.map[1] <= line and adjacent(t.map[1], line)
+                                  or token.map[1] <= t.map[0] and adjacent(token.map[1], t.map[0]))]
                 matched_link |= any(link.destination in use_targets(corpus, entity) for n in neighbors for link in md.inline_links.get(id(n), []))
             needs_link = forward or (local, identity) not in seen or literal or code_use
             if wrong_link or (needs_link and not matched_link):
@@ -1393,8 +1398,8 @@ def project_navigation(corpus):
             current = outputs.get(path, corpus.source.files.get(path, b"")).decode()
             start = START.format(document=nav["region"])
             rendered = replace_region(current, start, END, body, path).decode()
-            # Place the region from the parsed source, immediately after the entry
-            # title's opening paragraph. Generated headings never select that paragraph.
+            # Keep all authored introductory content together, up to the first
+            # heading after the title. Generated headings never end the introduction.
             md = corpus.markdown[path]
             title = next((h for h in md.headings if h.level == 1 and
                           not any(a <= h.start < b for a, b in md.generated)), None)
@@ -1403,17 +1408,11 @@ def project_navigation(corpus):
                             and not any(a <= token.map[0] < b for a, b in md.generated)), None)
             if opening is None:
                 fail("D02", "malformed declaration: navigation entry needs a title and opening paragraph", path)
-            opening_end = opening.map[1]
-            diagram = next((token for token in md.tokens if token.type == "fence" and token.info == "mermaid"
-                            and title.start < token.map[0] < title.intro_end
-                            and not any(a <= token.map[0] < b for a, b in md.generated)), None)
-            if diagram is not None:
-                opening_end = diagram.map[1]
-                annotation = next((token for token in md.tokens if token.type == "inline" and token.map
-                                   and token.map[0] >= opening_end and token.content.startswith("**Entities in this example:**")
-                                   and not any(line.strip() for line in md.text.splitlines()[opening_end:token.map[0]])), None)
-                if annotation is not None:
-                    opening_end = annotation.map[1]
+            following = next((h for h in md.headings if h.start == title.intro_end), None)
+            intro_end = title.intro_end - (1 if following and following.anchor else 0)
+            opening_end = max(token.map[1] for token in md.tokens if token.map
+                              and title.start < token.map[0] < intro_end
+                              and not any(a <= token.map[0] < b for a, b in md.generated))
             insertion = sum(len(line) for line in md.text.splitlines(keepends=True)[:opening_end])
             first, last = current.index(start), current.index(END) + len(END)
             region = rendered[rendered.index(start):rendered.index(END) + len(END)]

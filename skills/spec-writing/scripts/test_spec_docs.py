@@ -141,6 +141,37 @@ class CorpusTests(unittest.TestCase):
         self.assertLess(text.index('```mermaid'), text.index('## Overview'))
         self.assertTrue(s.check(c).ok)
 
+    def test_navigation_keeps_complete_introduction_together(self):
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0].update(
+            navigation={'path': ACCEPTANCE, 'region': 'example-demo'}))
+        self.paths.pop('docs/generated/example-demo.md')
+        original = 'This tour follows a refusal before explaining its limits.'
+        for diagram in ('', '\n\nWhat does the tool check?\n\n```mermaid\nflowchart TD\n    A[Source] --> B[Check]\n```'):
+            with self.subTest(diagram=bool(diagram)):
+                paths = self.paths.copy()
+                edit(paths, ACCEPTANCE, original,
+                     original + diagram + '\n\nRead these prerequisites before the tour.')
+                paths[ACCEPTANCE] += ('\n' + s.START.format(document='example-demo') + '\n' + s.END + '\n').encode()
+                refresh(paths)
+                text = paths[ACCEPTANCE].decode()
+                self.assertLess(text.index('Read these prerequisites'), text.index('## Overview'))
+                self.assertEqual(s.generate_navigation(corpus(paths))[ACCEPTANCE], paths[ACCEPTANCE])
+                self.assertTrue(s.check(corpus(paths)).ok)
+
+    def test_literal_home_links_can_be_in_adjacent_explanatory_prose(self):
+        for quote in ('', '> '):
+            with self.subTest(quote=quote):
+                self.paths = self.clean.copy()
+                example = ('[Writer](#writer) is the actor shown below.\n\n```text\nwriter\n```\n')
+                example = '\n'.join(quote + line for line in example.splitlines()) + '\n\n'
+                edit(self.paths, ACCEPTANCE, '**Procedure: demonstrate', example + '**Procedure: demonstrate')
+                self.assertNotIn('D12', self.codes())
+                refresh(self.paths)
+                self.assertTrue(s.check(corpus(self.paths)).ok)
+                # A link for one block cannot cover a later block across unrelated prose.
+                self.paths[ACCEPTANCE] += b'\nUnrelated explanation.\n\n```text\nwriter\n```\n'
+                self.assertIn('D12', self.codes())
+
     def test_every_role_preserves_contract_order(self):
         for role in ('requirements', 'decisions', 'questions', 'reference', 'acceptance'):
             with self.subTest(role=role):
@@ -247,13 +278,14 @@ class CorpusTests(unittest.TestCase):
         self.assertEqual(change[0]['added_tests'], [])
         self.assertEqual(change[0]['removed_tests'], [])
 
-    def test_navigation_region_follows_title_and_opening_paragraph(self):
+    def test_navigation_region_follows_introduction_before_first_subheading(self):
         metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0].update(navigation={'path': ACCEPTANCE, 'region': 'example-demo'}))
         del self.paths['docs/generated/example-demo.md']
         self.paths[ACCEPTANCE] += ('\n' + s.START.format(document='example-demo') + '\nold\n' + s.END + '\n').encode()
         c = refresh(self.paths)
         text = self.paths[ACCEPTANCE].decode()
-        self.assertLess(text.index(s.START.format(document='example-demo')), text.index('**Procedure:'))
+        self.assertLess(text.index('**Procedure:'), text.index(s.START.format(document='example-demo')))
+        self.assertLess(text.index(s.END), text.index('<a id="writer"></a>'))
         self.assertEqual(text.splitlines().count('# Acceptance'), 1)
         self.assertFalse(text.endswith('\n\n'))
         self.assertTrue(s.check(c).ok)

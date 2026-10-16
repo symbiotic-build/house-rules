@@ -1,7 +1,7 @@
 <a id="agent-context"></a>
 # Agent context
 
-An assignment gives a writer or reviewer the source needed to explain one part of the system. Selection combines compulsory repository reference material with complete explanations from one captured version. For the bounded batch, `example#main` selects the chapter containing capacity `2`, the `Full` refusal and its recovery. A link displaying `3` instead of the declared capacity prevents preparation with `D10`.
+An assignment gives a writer or reviewer the source needed to explain one part of the system. Selection combines compulsory repository reference material with complete explanations from one captured version.
 
 <a id="complete-registry"></a>
 ## Complete registry
@@ -10,7 +10,7 @@ The complete registry is a generated record of every [registered entity](documen
 
 The registry combines the [entity index](documents-homes-and-values.md#entity-index) with definitions and declarations from Markdown homes. Each entry includes identity, kind, scope, accepted forms, symbols, rejected forms, source location and the first definition sentence. Its facts retain their values, Status, Basis and qualifications. The [minimal corpus](minimal-corpus.md#example-entities) therefore contributes `example.batcher` and its capacity even when another section is assigned.
 
-The registry is mandatory; selection does not reduce it to the entities mentioned in the assignment. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) marks unrelated entries as reference material for a fresh reader. Reference material cannot supply a missing explanation in the chapters being reviewed. The registry is rebuilt from authored sources; it requires no separate database or maintained mirror.
+The registry is mandatory; selection does not reduce it to the entities mentioned in the assignment. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) states in the reader’s task instructions that entries unrelated to the assignment are vocabulary reference material. The registry entries themselves have no separate reference marker. Reference material cannot supply a missing explanation in the chapters being reviewed. The registry is rebuilt from authored sources; it requires no separate database or maintained mirror.
 
 <a id="context-pack"></a>
 ## Context pack
@@ -51,7 +51,7 @@ Selection provides complete explanations without turning every source link into 
    > Each dependency identifies the section whose explanation the assignment needs.
    > Reading prerequisites guide navigation; they are not automatic context dependencies.
 4. **Include relevant homes.** Add complete homes for entities owned or used in the selected material.
-   The batcher's home carries its capacity, obligation and refusal together.
+   The batcher's home contains its capacity, obligation and refusal together.
 
    > **Detail — selection boundary**
    > Uses include recognized registered names and direct links to homes or their facts.
@@ -67,7 +67,7 @@ The pack includes recovery. An ordinary link from the added home to an unrelated
 |---|---|
 | Assignment to submission | Submission section |
 | Submission uses batcher | Complete batcher home |
-| Home declares recovery dependency | Recovery section |
+| Home’s containing section declares recovery dependency | Recovery section |
 | Home links ordinary glossary | No further source |
 
 A comparison also includes the requirement change report and selected linked tests from the base and candidate. The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) derives affected test selectors from both snapshots. A removal decision remains explicit assignment input; a resolving link establishes existence, not decision authority.
@@ -75,11 +75,13 @@ A comparison also includes the requirement change report and selected linked tes
 <a id="dispatch-and-invalidation"></a>
 ## Dispatch and invalidation
 
-Preparation checks that the selected input is complete and fits before any agent starts. The shared [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) loads the helper, runtime metadata, dependency lock, format contract and profile from its selected House Rules revision. An extracted compiler carries those matching inputs.
+Preparation checks that the selected input is complete and fits before any agent starts. The shared [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) loads `spec_docs.py`, runtime metadata, dependency lock, format contract and profile from its selected House Rules revision. Running the compiler from a checkout or archive of that commit uses those matching files.
 
-The selector reports exact UTF-8 bytes, including its embedded manifest. Provenance records the baseline, source and registry digests, profile digest, input fingerprints, versions, assignment, included identities and range reasons. Range offsets are zero-based with an exclusive end; displayed source labels use one-based lines. These records let the [dispatcher](../../design/75-subagent-profiles.md#dispatcher) detect which captured input an agent received.
+The selector reports the complete pack’s UTF-8 byte count, including the embedded manifest. Provenance records the baseline, source and registry digests, profile digest, input fingerprints, versions, assignment, included identities and range reasons. Range offsets are zero-based with an exclusive end; displayed source labels use one-based lines. These records let the [dispatcher](../../design/75-subagent-profiles.md#dispatcher) detect which captured input an agent received.
 
-The assignment's `budget_bytes` bounds the documentation content. The compiler's separate byte budget bounds its assembled rules, documentation and task. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) reserves response allowance within its execution budget before assigning optional material. None of these limits authorizes truncating mandatory documentation.
+The selector compares documentation size with the assignment's `budget_bytes` limit.
+
+Two caller limits apply afterward. The compiler checks its assembled rules, documentation and task against a separate byte limit. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher), which starts the agent, reserves room for the response within its execution token limit. Optional material uses only the remainder. Every layer refuses excessive mandatory input rather than truncating it.
 
 For example, a documentation pack uses `6 000` bytes against an assignment limit of `8 000` bytes.
 Adding rules and task uses another `4 000` bytes, so the compiler compares `10 000` bytes against its `12 000` byte limit.

@@ -32,7 +32,7 @@ Make each document provide the explanations its audience needs.
 
 Keep each registered meaning reachable at one complete source home.
 
-**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and home owners.
+**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and authors responsible for defining sections.
 
 **Condition:** [Registered entities](documents-homes-and-values.md#registered-entity), facts, names or symbols appear in a corpus.
 
@@ -112,7 +112,7 @@ Let callers distinguish invalid documents from failed invocation or input access
 
 **Condition:** A caller checks, generates or selects a corpus.
 
-**Result:** Use one captured source model. Report deterministic uncapped diagnostics and the declared exit status; warnings remain non-blocking. Refuse invalid input without fallback parsing.
+**Result:** Capture input bytes once. Use the same parsed corpus for checking, generation and context selection. Report deterministic uncapped diagnostics and the declared exit status; warnings remain non-blocking. Refuse invalid input without fallback parsing.
 
 **Verification:** Exercise malformed input, path boundaries, multiple defects, warning-only input and command failures.
 
@@ -188,7 +188,7 @@ Give an agent enough source to understand its explicit assignment.
 
 **Condition:** A writer or reviewer assignment is prepared.
 
-**Result:** Include compulsory registry, metadata, profile and complete selected explanations from one snapshot. Expand declared dependencies and deduplicate ranges. Refuse unknown scope, stale baselines, missing mandatory input and excessive byte size before dispatch.
+**Result:** Include compulsory registry, metadata, profile and complete selected explanations from one snapshot. Expand declared dependencies and deduplicate ranges. Refuse unknown selectors (`D06`) and invalid scope (`D07`) before dispatch. Refuse stale baselines (`D24`), missing input (`D27`) and excessive size (`D25`).
 
 **Verification:** Exercise example#main, unknown selectors, whole [scenarios](requirements-tests-and-failures.md#scenario), dependency cycles, range overlaps and exact byte budgets.
 
@@ -245,7 +245,7 @@ Preserve existing contract meaning while qualifying changes through normal use.
 
 **Condition:** Existing material adopts the system or House Rules behavior changes.
 
-**Result:** Account for source rules, distinctions, qualifications and settled decisions. Replace competing current contracts together and validate branch-pinned real authoring and review before merge.
+**Result:** Account for source rules, distinctions, qualifications and settled decisions. Replace competing current contracts together and run normal authoring and review against the exact candidate commit before merging.
 
 **Verification:** Inspect the conversion inventory and source-bound normal-run evidence.
 

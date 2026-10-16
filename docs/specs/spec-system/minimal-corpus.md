@@ -1,16 +1,14 @@
 <a id="minimal-example"></a>
 # Minimal corpus
 
-This corpus lets a reader reproduce a complete checked contract in an independent repository. Its three files form an unapproved draft: a [document manifest](documents-homes-and-values.md#document-manifest), an [entity index](documents-homes-and-values.md#entity-index) and one Markdown source. The example declares a batch capacity of `2` items, returns `Full` for an extra item and lets the caller recover with a new batch.
+This corpus lets a reader reproduce a complete checked contract in an independent repository. Its three files form an unapproved draft: a [document manifest](documents-homes-and-values.md#document-manifest), an [entity index](documents-homes-and-values.md#entity-index) and one Markdown source.
 
 The displayed source is copied exactly from [skills/spec-writing/scripts/fixtures/minimal/docs/example.md](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md) and its sibling metadata. The draft has no approval entry. Copying it requires no fixture mode and grants no approval or batch implementation.
 
 <a id="example-documents"></a>
 ## Document manifest input
 
-This file registers the complete example and its reading path. Save these bytes as `docs/DOCUMENTS.json` in the independent repository.
-
-**Entities in this example:** [Scenario](requirements-tests-and-failures.md#scenario).
+Save this complete manifest as `docs/DOCUMENTS.json` in the independent repository. Its [scenario](requirements-tests-and-failures.md#scenario) list is empty:
 
 ```json
 {
@@ -100,9 +98,7 @@ This file gives the batcher one identity and home. Save it as `docs/ENTITIES.jso
 <a id="example-example"></a>
 ## Markdown input
 
-This source explains the batcher's behavior and connects its obligation to inspection evidence. Save it as `docs/example.md`; its generated region is already fresh.
-
-**Entities in this example:** [Entity index](documents-homes-and-values.md#entity-index), [acceptance test](requirements-tests-and-failures.md#acceptance-test).
+Save this source as `docs/example.md`; its navigation is already fresh. It includes a generated [entity index](documents-homes-and-values.md#entity-index) and an [acceptance test](requirements-tests-and-failures.md#acceptance-test) with inspection evidence:
 
 ```markdown
 <a id="example"></a>
@@ -225,40 +221,21 @@ This inspection checks that refusal preserves the existing items.
 Evidence: [retained-state inspection](#failure-full).
 ```
 
-The capacity row declares `2`, counted in admitted items per batch. Its `specified` status is supported by the teaching decision. A full batch rejects the next item with `Full`; refusal leaves existing items unchanged. Recovery belongs to the submitting caller, who may start another batch.
-
-The requirement's Tests field and the acceptance case's Requirements field point back to one another. Method `inspection` names retained-state evidence and has no Implementation field. It describes what must be inspected; it does not assert that a production batcher test ran. The generated map and definition remain rebuildable from the three authored inputs.
+The explicit fact anchor is inside its Key cell, and Basis links the teaching decision. Tests and Requirements link reciprocally. Method `inspection` omits Implementation and puts the evidence link in an unbolded paragraph.
 
 <a id="example-checking"></a>
 ## Generate and check
 
-These operations reproduce a clean check, an intentional literal mismatch and its repair. Use the shared helper from its pinned location; the independent repository needs no checker copy or local writing-profile file.
+Initialize and verify the three files with the shared tool; no local checker copy or profile file is needed. Here `HELPER` names the pinned `spec_docs.py` path and `REPOSITORY` names an independent empty directory. Use Python from the tool's locked environment. Save the three files there before running:
 
-Initialize an empty independent repository with `git init -q`. In these commands, `HELPER` names the pinned shared helper and `REPOSITORY` names that directory. Use the Python environment containing the tool's locked dependencies.
+```sh
+git -C REPOSITORY init -q
+python HELPER generate --root REPOSITORY
+python HELPER check --root REPOSITORY
+```
 
-**Procedure: reproduce the capacity mismatch**
-
-1. **Write the corpus.** Save the three files shown above.
-   The helper captures new, unignored files without staging them.
-2. **Check the source:** `python HELPER check --root REPOSITORY`.
-   The draft reports `0 errors, 0 warnings` and exit `0`.
-3. **Generate navigation:** `python HELPER generate --root REPOSITORY`.
-   The command reports `docs/example.md` and exit `0`.
-4. **Change the display.** Replace `Submit up to [2](#capacity)` with `Submit up to [3](#capacity)`.
-   The home value remains unchanged.
-5. **Check the mismatch:** `python HELPER check --root REPOSITORY`.
-   The comparison reports `D10` and exit `1`.
-
-   > **Detail — refused comparison**
-   > The home is `2`, while the link displays `3`.
-   > Both refer to admitted items per batch; only the displayed literal changed.
-6. **Repair the display.** Restore `[2](#capacity)` in the authored source.
-   The link again shows the home value.
-7. **Regenerate navigation:** `python HELPER generate --root REPOSITORY`.
-   The command succeeds from the repaired source.
-8. **Check the repair:** `python HELPER check --root REPOSITORY`.
-   The corpus reports `0 errors, 0 warnings` and exit `0`.
+Generation reports `docs/example.md` and exits `0`; checking reports `0 errors, 0 warnings` and exits `0`. The [capacity correction](tour-fixing-a-wrong-capacity.md#capacity-repair) owns the deliberate mutation and repair walkthrough.
 
 An assignment file containing `{"version":1,"sections":["example#main"]}` selects the complete chapter. Run `python HELPER context --root REPOSITORY --assignment FILE` to emit its registry, metadata, profile, source and provenance.
 
-The [skills/spec-writing/scripts/test_spec_docs.py::MinimalExampleTests::test_published_example_is_the_checked_fixture_in_an_independent_repository](../../../skills/spec-writing/scripts/test_spec_docs.py) compares these three fenced inputs byte-for-byte with the fixture and checks them outside House Rules. The [literal acceptance case](acceptance-evidence.md#test-literals) names its executable selector. This proves the documentation path; it does not execute the illustrated batch service.
+The [skills/spec-writing/scripts/test_spec_docs.py::MinimalExampleTests::test_published_example_is_the_checked_fixture_in_an_independent_repository](../../../skills/spec-writing/scripts/test_spec_docs.py) compares these three fenced inputs byte-for-byte with the fixture and checks them outside House Rules. The [literal acceptance case](acceptance-evidence.md#test-literals) names its executable selector. Its observed run is reported under the [evidence distinction](acceptance-evidence.md#acceptance).

@@ -92,11 +92,21 @@ readability warnings have different authority under the specifications and writi
 ## Explain behavior to readers
 
 Build the reading path under [rules/specifications.md](../../rules/specifications.md#reader-progression):
-write the opening and diagram question, generate the map, then write one real tour.
+write the complete introduction and diagram question, generate the map after that
+introduction, then write one real tour. Check that no generated region splits the opening
+from its explanation or prerequisites.
 Choose its example before assigning chapters. Show its relevant values or snippet at each
 concept's introduction and revisit it in reference and acceptance. For batch admission,
 show `capacity = 4` and a fifth item's refusal beside the capacity definition; never append
 "In the batch example, capacity applies" as a chapter-ending formula.
+Apply the reader-progression rule to chapter openings: state the new reading outcome,
+then use the continuing example only where it explains a new concept. Replace an opening
+recap such as "The batch holds two items and returns Full" with "Assign source ownership
+and assess what structural checks leave to review."
+Inventory outside procedures before writing; summarize their needed behavior or declare
+them as opening prerequisites. Explain borrowed behaviors before their tool or standard
+names. During assembly, consolidate repeated distinctions into one linked home and show
+complete examples for reference formats and diagnostic repairs.
 Read only the map, then only map and tour, to check that each stopping point makes sense.
 
 Write section openings under the purpose and entity-definition rule in

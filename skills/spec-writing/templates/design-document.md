@@ -26,7 +26,9 @@ flowchart TD
 
 [Put purpose, audience, scope and non-goals in the manifest. Write purpose as a statement
 of what the system does; generate this region immediately
-following the authored opening paragraph. State the diagram's question before the diagram.
+following the complete authored introduction, including the diagram's explanation and
+prerequisites. Summarize needed outside procedures or name them as opening prerequisites.
+State the diagram's question before the diagram.
 The map is followed by tour, mechanisms, requirements, decisions, open questions, reference,
 then acceptance. Combine adjacent roles only; preserve their internal order.]
 
@@ -50,7 +52,9 @@ Use "Batch admission" with capacity, validation and refusal sections, not a chap
 term. Name each chapter file from its title slug. Write a useful reader-outcome summary
 and only conceptual prerequisites; follow the outline procedure for examples and checks.
 Show the continuing example's relevant snippet or values where each concept is introduced,
-not as a closing formula. Apply the reader-progression rule to section openings.]
+not as an opening recap or closing formula. Open with what this chapter adds.
+Explain borrowed behaviors before tool or standard names. Keep repeated distinctions in
+one linked home. Apply the reader-progression rule to section openings.]
 
 <a id="entity-home"></a>
 ### Entity home

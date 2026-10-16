@@ -13,13 +13,24 @@ to [design-flow](../skills/design-flow/SKILL.md).
   requirements; decisions with rejected alternatives; open questions; reference; acceptance.
   Every role is present or explicitly inapplicable with a reason. Short documents may
   combine adjacent roles in one section while preserving that order within it.
-- Start with the map: an opening paragraph, one diagram with its question stated before
-  it, then generated overview, chapter map and term index. Write the manifest purpose as a
-  statement of what the system does. Continue with a tour in plain
+- Keep the complete introduction together: opening paragraphs, one diagram with its question
+  stated before it, its explanation and audience prerequisites. Put the generated overview,
+  chapter map and term index after that introduction, before the first following heading.
+  Write the manifest purpose as a statement of what the system does. Continue with a tour in plain
   steps, mechanisms, and exact reference in lookup form. Readers can stop after each part.
 - Carry one real example from the tour through mechanisms to the reference and acceptance.
   Show its relevant snippet or values where each concept is introduced. Never append the
-  example as a repeated closing formula. When explanation is deferred, name and link it.
+  example as an opening recap or repeated closing formula. A chapter opening says what
+  this chapter adds. Before: "The batch holds two items and returns Full for the third."
+  After, in a review chapter: "Assign source ownership and assess what structural checks
+  leave to review." When explanation is deferred, name and link it.
+- For an outside procedure, summarize what the reader needs in one or two sentences, or
+  name it explicitly as a prerequisite in the opening's audience statement. Readers must
+  not discover an unexplained prerequisite midway through the document.
+- Explain a borrowed behavior before naming its tool or standard as a supporting reference.
+  Define necessary technical terms at first use; otherwise use the plain statement.
+- Give each repeated distinction or procedure one home and link it elsewhere. Diagnostic
+  remedies name the concrete repair for each cause; navigation formats show complete bullets.
 - A mechanism chapter covers one coherent part of how the system works that a reader can
   understand on its own, usually several related concepts and their homes. Never split
   chapters by term. Several entity homes may share a chapter, each in its own section.
@@ -70,8 +81,9 @@ to [design-flow](../skills/design-flow/SKILL.md).
 - Give a first-use link a short gloss when its meaning is needed to continue reading.
   Label repository-file links with their repository path. Named-section links use the
   section name. Implementation links append their selector to the path.
-- Use adjacent **Entities in this example** links for literal code, signatures and
-  diagrams. Repeat them for each literal block before a home. An index, glossary or
+- Give literal code, signatures and diagrams direct home links in immediately adjacent
+  explanatory prose or an **Entities in this example** paragraph. Each literal block needs
+  its own adjacent links, including before the home. An index, glossary or
   another use site never substitutes for the home.
 
 <a id="section-names"></a>

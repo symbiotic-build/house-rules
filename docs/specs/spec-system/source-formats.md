@@ -1,14 +1,14 @@
 <a id="source-format"></a>
 # Source formats
 
-This chapter specifies the encodings that connect authored Markdown, shared metadata and callable tooling. Use it after the mechanisms to construct or inspect a corpus without guessing field names. The [minimal corpus](minimal-corpus.md#minimal-example) supplies complete inputs for capacity `2`, refusal `Full` and assignment `example#main`.
+This chapter specifies the encodings that connect authored Markdown, shared metadata and callable tooling. Use it after the mechanisms to construct or inspect a corpus without guessing field names. The [minimal corpus](minimal-corpus.md#minimal-example) supplies complete copyable inputs.
 
 Markdown uses CommonMark with pipe tables. JSON keys are case-sensitive; duplicate and unknown keys are errors. The [skills/spec-writing/references/format-contract.json](../../../skills/spec-writing/references/format-contract.json) contains the same vocabularies as this chapter. The separate prose profile belongs to [rules/writing.md](../../../rules/writing.md).
 
 <a id="sources-and-commands"></a>
 ## Sources and commands
 
-These commands select which source is checked, projected or delivered to an agent. Invoke the shared helper with its owning runtime inputs; invoking it does not install packages.
+These commands select which source is checked, used for navigation or delivered to an agent. Invoke the shared helper with its owning runtime inputs; invoking it does not install packages.
 
 ```text
 python skills/spec-writing/scripts/spec_docs.py check --root REPOSITORY
@@ -69,9 +69,7 @@ Metadata identifies the files and homes that source selection can use. The two v
 {"version": 1, "entities": {}, "naming_rules": []}
 ```
 
-The first envelope belongs to [docs/DOCUMENTS.json](../../DOCUMENTS.json). An inventory entry has `path` and `kind`, with optional `reason`; `other` requires a nonempty reason. A document has the required fields shown below. The `approval`, `gaps` and `unresolved_contracts` fields are optional. This draft has no approval:
-
-**Entities in this example:** [Scenario](requirements-tests-and-failures.md#scenario).
+The first envelope belongs to [docs/DOCUMENTS.json](../../DOCUMENTS.json). An inventory entry has `path` and `kind`, with optional `reason`; `other` requires a nonempty reason. A document has the required fields shown below. The `approval`, `gaps` and `unresolved_contracts` fields are optional. The draft below has no approval and registers no separate [scenarios](requirements-tests-and-failures.md#scenario):
 
 ```json
 {
@@ -95,17 +93,15 @@ The first envelope belongs to [docs/DOCUMENTS.json](../../DOCUMENTS.json). An in
 }
 ```
 
-To approve an eligible completed document under delegated authority, change its status and add the following approval entry:
+In the full document entry above, `main` is the section identity and `example` is the anchor starting its complete heading subtree. Each `roles` element declares a content category inside that subtree, in reading order. `summary` states the reader's outcome. Empty prerequisite and dependency arrays request no additional material.
+
+Approval eligibility requires the opening’s [design-flow prerequisite](../../../skills/design-flow/SKILL.md). For an eligible completed document, change status and add its approval entry:
 
 ```json
 {"status": "approved", "approval": {"authority": "delegated", "decision": "example#decision"}}
 ```
 
-The decision must record the actual delegation. Copying this shape does not confer authority.
-This shape uses the teaching document's identity.
- `main` is its registered section identity; `example` is the explicit anchor that starts its source subtree. Each `roles` element describes content inside that subtree, in reading order. `summary` tells readers what they can do there.
-
-The example's empty prerequisite and dependency arrays make no claim that other material is needed.
+The linked decision must record the actual delegation; copying this entry grants no authority.
 
 `navigation.region`, when present, equals the document identity and selects markers inside an authored source file. Without `region`, `navigation.path` names a whole output under `docs/generated/`. Approval needs an `authority` and a resolving `document#anchor` decision. Production authorities are `operator` and `delegated`; `fixture` requires fixture mode and never authorizes production behavior.
 
@@ -113,7 +109,7 @@ The example's empty prerequisite and dependency arrays make no claim that other 
 
 Sections are ordered objects with exactly `id`, `path`, `anchor`, `roles`, `summary`, `prerequisites` and `explanatory_dependencies`. A dependency has exactly `section` and `reason`. Prerequisites and dependency targets use registered `document#section` selectors. [Scenarios](requirements-tests-and-failures.md#scenario) use declaration selectors; a nonempty scenarios array must name existing scenario declarations.
 
-Every chapter opening belongs to a registered subtree. In a multi-file document, the filename equals the first heading's slug plus `.md`. Slugs case-fold words, remove punctuation, join words with hyphens and replace underscores with hyphens. A single-file document keeps its document filename. There is no abbreviation map.
+Every chapter opening belongs to a registered subtree. In a multi-file document, the filename equals the first heading's slug plus `.md`. Slugs case-fold words, remove punctuation, join words with hyphens and replace underscores with hyphens. Derive the filename directly from the title without abbreviating words. A single-file document keeps its document filename.
 
 A summary must add a reader outcome beyond its title. `D36` compares case-folded words after removing punctuation and a leading “Understand”, “Learn about”, “Read about” or “Overview of”. A summary with no remaining word beyond the title fails. For more than five sections, `W06` warns when all prerequisites form only a predecessor chain after an empty first list.
 
@@ -154,10 +150,8 @@ The `home` selects the batcher's complete heading subtree. `scope` lists documen
 
 Naming rules check a selected entity kind's accepted forms or symbols. Each record has `id`, `kind`, `field`, `pattern` and `message`. `field` is `forms` or `symbols`; `pattern` is a Python regular expression applied with full-match semantics. Invalid expressions fail visibly, and duplicate rule identities are errors.
 
-These compact tables list the vocabularies and required declaration fields. The [machine-readable contract](../../../skills/spec-writing/references/format-contract.json) supplies the complete JSON reference.
-Roles preserve their listed reading order; a design can also use the design-specific roles.
-
-**Entities in this example:** [Scenario](requirements-tests-and-failures.md#scenario).
+These compact tables list the vocabularies and required declaration fields. The [machine-readable contract](../../../skills/spec-writing/references/format-contract.json) supplies the JSON vocabularies. Decision fields follow the authoring rules rather than a `decision_fields` JSON key.
+Roles preserve their listed reading order; a design can also use the design-specific roles. The table includes [scenario](requirements-tests-and-failures.md#scenario) fields.
 
 | Field | Allowed values or required fields |
 |---|---|
@@ -170,6 +164,7 @@ Roles preserve their listed reading order; a design can also use the design-spec
 | `test_fields` | `Method`, `Requirements`, `Inputs`, `Expected` |
 | `failure_fields` | `Trigger`, `Outcome`, `Retained state`, `Recovery`, `Authority`, `Verification` |
 | `scenario_fields` | `Purpose`, `Inputs`, `Expected` |
+| Decision fields | `Choice`, `Authority`, `Reason`, `Rejected alternatives` |
 | `review_responsibilities` | `technical`, `readability`, `design/cost`, `failure/recovery`, [`whole-scenario`](requirements-tests-and-failures.md#scenario) |
 
 | Relation predicate | Permitted target kinds |
@@ -195,7 +190,7 @@ Markdown declarations make a contract's values and evidence addressable without 
 A batcher prevents overfilling by accepting items only while its batch has room.
 ```
 
-Use the empty `id` anchor form shown above with the intended identity; `name` does not substitute for `id`. Generated regions cannot supply authored homes. The home extends through its heading subtree, and its first definition sentence enters generated navigation and registry output.
+Use the empty `id` anchor form shown above with the intended identity; `name` does not substitute for `id`. Generated regions cannot supply authored homes. The home extends through its heading subtree, and its first definition sentence enters generated navigation and registry output. If that sentence mentions another registered term, give it the required direct home link. Generated definitions contain visible text only; source links are checked before generation.
 
 Facts use precisely `Key | Value | Status | Basis` columns. Each Key cell contains its key text and exactly one explicit anchor; the row has no other anchor. The fact identity combines owner identity and key, such as `example.batcher#capacity`, while links target the row's `capacity` anchor.
 
@@ -217,7 +212,7 @@ Declarations have an immediately preceding explicit anchor and a heading beginni
 
 Required bold fields appear once per declaration heading. Each field occupies a separate paragraph. For example, `**Result:** Return Full without changing the batch.` Requirements link tests through `Tests`; acceptance cases link back through `Requirements`. A failure's `Authority` identifies the recovery actor and authority. Explicitly absent recovery also explains its consequence. Review checks these meanings beyond field presence.
 
-The vocabulary tables list required fields. Acceptance cases may add `Implementation`; [failure declarations](requirements-tests-and-failures.md#failure-declaration) may add `Actor`; scenarios may add `Requirements` and `Tests`. No other declaration fields are accepted. Decisions use separate headings and one `Rejected alternatives` field containing all rejected options and reasons.
+The vocabulary tables list required fields. Acceptance cases may add `Implementation`; [failure declarations](requirements-tests-and-failures.md#failure-declaration) may add `Actor`; scenarios may add `Requirements` and `Tests`. No other declaration fields are accepted. Decisions use separate anchored headings, such as `## Decisions` for one choice or `### Decision: <title>` for each of several choices. Each supplies Choice, Authority, Reason and one Rejected alternatives field containing all rejected options and reasons. These are authoring requirements; the checker resolves decision anchors but does not classify decisions as declaration records.
 
 Method is `test`, `inspection`, `analysis` or `demonstration`, ignoring case and an optional final period. Exactly Method `test` requires Implementation. Its field contains only plain-text Markdown links separated by comma and whitespace, with no final punctuation.
 
@@ -227,9 +222,9 @@ Method is `test`, `inspection`, `analysis` or `demonstration`, ignoring case and
 
 In that illustrative field, each label starts with the repository-relative file and appends `::selector`. The resolved relative destination must be that same file, with no scheme, query or fragment. A selector is nonempty and whitespace-free; nested names can contain `::`. Static checking validates the grammar and file existence. The [selector audit](interfaces-and-encodings.md#selector-audit) executes the named selectors through the repository's declared runner or built-in Python default.
 
-Other methods omit Implementation and include linked evidence such as a review lens or run record. A resolving link is necessary but does not establish adequate evidence. The bounded-batch acceptance case uses inspection of retained state instead of claiming executable batch implementation.
+Other methods omit Implementation and place linked evidence in an ordinary, unbolded paragraph after Expected. For example: `Evidence: [retained-state inspection](#failure-full).` Do not write `**Evidence:**`: that is an unknown declaration field. Evidence adequacy follows the [acceptance evidence distinction](acceptance-evidence.md#acceptance).
 
-Literal blocks and inline code need adjacent home annotations for their registered uses. The prefix is `**Entities in this example:**`. Each block before a home has its own annotation; one annotation cannot license a later block. These annotations are not declaration fields. First-use scope, forward links and unnumbered headings follow the [Direct links](../../../rules/specifications.md#direct-links).
+Literal blocks and inline code need direct home links for registered uses in an immediately adjacent paragraph. Natural explanatory prose works; `**Entities in this example:**` is an optional label for the same links. Each block needs its own adjacent links; unrelated intervening prose prevents reuse. Quote-only blank lines count as blank inside a blockquote. These annotations are not declaration fields. First-use scope, forward links and unnumbered headings follow the [Direct links](../../../rules/specifications.md#direct-links).
 
 <a id="navigation"></a>
 ## Navigation
@@ -244,28 +239,37 @@ Navigation markers tell the generator where derived reading material belongs. Th
 
 The marker pair must occur exactly once in order. Its document identity matches `navigation.region`.
 
-The generator emits a notice, then `## Overview`, the manifest purpose, and bold Audience, Scope and Non-goals paragraphs in that order.
-It adds a bold Declared gaps paragraph when needed, preserving the gap array order.
+The first generated line is `<!-- Generated by spec-docs; edit authored declarations. -->`, followed by a blank line. Next come `## Overview`, the manifest purpose, then bold Audience, Scope and Non-goals paragraphs. A bold Declared gaps paragraph follows when needed, preserving array order.
 
-Next comes `## Document map` with its introductory sentence, then section bullets in manifest order.
-Each bullet is `[heading](relative-path#anchor) — summary` prefixed by `- `.
-Its anchored level-2 headings follow in source order as nested bullets prefixed by two spaces.
+Under `## Document map`, the exact introductory sentence is `Use this map to choose the next explanation to read.` Section bullets follow manifest order. Each includes its heading link and summary. Anchored level-2 headings follow as nested bullets, indented two spaces. A final indented `Prerequisites: ` line lists links in array order, separated by comma and space, ending with a period.
 
-A final indented `Prerequisites: ` line lists prerequisite links in their declared array order, separated by comma and space, ending with a period.
+The generated [entity index](documents-homes-and-values.md#entity-index) uses this heading:
 
-The generated [entity index](documents-homes-and-values.md#entity-index) follows under [`## Entity index`](documents-homes-and-values.md#entity-index), with an introductory sentence and one bullet per scoped entity, sorted lexically by entity identity.
-Each entity bullet is `[home heading](relative-path#anchor) (` followed by its identity in a code span, then `) — definition sentence`.
+```markdown
+## Entity index
+```
 
-Headings and paragraphs have blank lines between them; adjacent bullets do not. Output uses LF newlines and ends with one newline. Map links select authored destinations, including anchored level-2 headings within each section subtree. The region omits a duplicate entry title; a whole-file output begins with the document title as a level-1 heading.
+The exact introductory sentence is `Each technical term below links to its defining Markdown section.` Bullets follow lexical entity-identity order. These are complete examples of map and entity bullets:
 
-Place the region after the entry's opening paragraph and introductory Mermaid diagram with its adjacent home annotation. Without that diagram, placement follows the opening paragraph. The generator derives the insertion point from parsed authored content rather than generated headings.
+```markdown
+- [Bounded batches](example.md#example) — Follow submission and inspect its evidence.
+  - [Batcher](example.md#batcher)
+
+- [Batcher](example.md#batcher) (`example.batcher`) — A batcher prevents overfilling by accepting items only while its batch has room.
+```
+
+Link paths are relative to the directory containing the navigation file. An inline region in `docs/example.md` therefore links to `example.md#batcher`, including its own basename.
+
+Headings and paragraphs have blank lines between them; adjacent bullets do not. Generated body output uses LF newlines and ends with one newline. No blank line separates the final entity bullet from the closing region marker. The region omits a duplicate entry title; a whole-file output begins with the document title as a level-1 heading.
+
+Place the region after the complete introduction, before the first following authored heading and its anchor. Introduction content includes all opening paragraphs, the diagram, its explanation and prerequisites. The generator finds this boundary from parsed authored content, ignoring headings in the old generated region.
 
 Whole-file destinations live under `docs/generated/`. Their generated-file attributes appear between `# spec-docs:generated` and `# /spec-docs:generated` in `.gitattributes`. Each line uses a quoted repository path followed by `linguist-generated=true`. A source file containing a region is not marked wholly generated.
 
 <a id="callable-core-and-context-assignment"></a>
 ## Callable core and context assignment
 
-The callable interface lets integrators reuse the parsed model for checking, projection and selection. Import the shared module from its owning scripts directory; a consumer does not copy it into a private implementation.
+The callable interface lets integrators reuse the parsed model for checking, [navigation generation](checking-and-navigation.md#navigation-generation) and selection. Import the shared module from its owning scripts directory; a consumer does not copy it into a private implementation.
 
 ```python
 Snapshot.from_mapping(paths, fixture=False)
@@ -277,7 +281,7 @@ requirement_changes(base, candidate)
 select_context(corpus, assignment)
 ```
 
-`paths` maps repository paths to strings or bytes. Loading parses declared Markdown once. `comparison=True` permits a base with neither metadata file; it does not permit partial metadata or missing metadata in ordinary checking. `check` returns `Diagnostics`, exposing `errors`, `warnings`, `ok` and `to_dict()`. Projection returns proposed path-to-bytes output without writing it.
+`paths` maps repository paths to strings or bytes. Loading parses declared Markdown once. `comparison=True` permits a base with neither metadata file; it does not permit partial metadata or missing metadata in ordinary checking. `check` returns `Diagnostics`, exposing `errors`, `warnings`, `ok` and `to_dict()`. [Navigation generation](checking-and-navigation.md#navigation-generation) returns proposed path-to-bytes output without writing it.
 
 `requirement_changes` returns a `ChangeReport` whose `to_dict()` contains `changes`. Each change has `id`, `kind` (`new`, `changed` or `removed`), `base`, `candidate`, `tests`, `added_tests`, `removed_tests` and `changed_facts`. [Requirement declarations](requirements-tests-and-failures.md#requirement-declaration) remain full source text. Facts contain their identity plus base and candidate values, status, basis, linked evidence text and qualifications linked to the fact.
 
@@ -304,4 +308,4 @@ The manifest contains `version`, `tool_version`, `format_version`, `profile_vers
 
 Each range records `label`, `path`, `start`, `end`, `identities`, `reasons`, `digest` and `size_bytes`. Offsets count zero-based lines with an exclusive end; the digest is SHA-256 of that range's UTF-8 bytes. `input_fingerprints` maps metadata and declared source paths to SHA-256 digests. The source digest covers the captured content map, not a hash of every unrelated asset.
 
-The embedded manifest's `size_bytes` equals the complete content length, including itself. The selector reaches that value before testing `budget_bytes`. This budget bounds documentation bytes only; the [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) separately bounds its complete pack. Missing or excessive mandatory input returns an error instead of a prefix of the content.
+The embedded manifest's `size_bytes` equals the complete content length, including itself. Before testing `budget_bytes`, the selector serializes the pack until its final byte length equals the embedded count. This budget bounds documentation bytes only; the [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) separately bounds its complete pack. Missing or excessive mandatory input returns an error instead of a prefix of the content.

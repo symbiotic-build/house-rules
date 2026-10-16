@@ -1,7 +1,7 @@
 <a id="checking-and-navigation"></a>
 # Checking and navigation
 
-Checking exposes invalid source before generation turns its declarations into navigation. For the bounded batch, checking reports `D10` when a link displays `3` while capacity is `2`. After the author repairs that label, generation can rebuild the map from the corrected contract.
+Checking exposes invalid source before generation turns its declarations into navigation. This chapter explains the pinned installation, captured inputs, checker results and safe replacement of generated files.
 
 <a id="toolchain-and-inputs"></a>
 ## Toolchain and input boundaries
@@ -11,10 +11,14 @@ Reproducible checking needs a fixed parser and fixed input bytes. The [tool envi
 <a id="tool-setup"></a>
 ### Preparing the tool
 
-Prepare one isolated installation so direct checking and agent preparation use the same parser.
-Each consumer pins the House Rules revision containing the shared [tool environment](source-formats.md#tool-environment) and its runtime inputs.
-The owner supplies dependency input, hash lock, runtime metadata, format contract and prose profile.
-The [installation reference](source-formats.md#tool-environment) lists exact pins after the mechanism chapters.
+Each repository using the tool pins a House Rules revision and prepares its isolated [tool environment](source-formats.md#tool-environment). House Rules owns the files that keep direct checking and agent preparation consistent:
+
+- [skills/spec-writing/scripts/requirements.in](../../../skills/spec-writing/scripts/requirements.in) names dependencies; [skills/spec-writing/scripts/requirements.lock](../../../skills/spec-writing/scripts/requirements.lock) pins wheel versions and hashes.
+- [skills/spec-writing/scripts/runtime.json](../../../skills/spec-writing/scripts/runtime.json) states the supported interpreter range.
+- [skills/spec-writing/references/format-contract.json](../../../skills/spec-writing/references/format-contract.json) defines source vocabularies.
+- [rules/writing.md](../../../rules/writing.md) supplies advisory prose targets.
+
+The [installation reference](source-formats.md#tool-environment) lists exact pins.
 
 **Procedure: prepare the shared installation**
 
@@ -60,23 +64,23 @@ A source snapshot is a captured set of repository paths, input bytes and source 
 
 A commit selection reads the named commit's tree and blobs. A staged selection reads the complete index, including unchanged entries. Authoring reads captured working-tree bytes, including eligible untracked paths. Conflicting snapshot switches fail instead of combining modes. Thus a corrected working-tree capacity label cannot hide a staged label that still displays `3`.
 
-The tool inventories paths through Git and loads Markdown, shared metadata and `.gitattributes` as bytes. That file can contain authored attributes beside generated entries. Code and asset links use the inventory for existence and regular-file checks; unrelated binaries are not loaded. Local content inputs must be regular UTF-8 files within repository boundaries. Missing inputs, invalid encoding, symlinks, unmerged index entries and path escapes remain visible failures.
+The tool inventories paths through Git and loads Markdown, shared metadata and `.gitattributes` as bytes. This Git configuration file controls treatment of repository paths. Its generated entries mark standalone navigation files with `linguist-generated=true`, alongside any authored attributes. Code and asset links use the inventory for existence and regular-file checks; unrelated binaries are not loaded. Local content inputs must be regular UTF-8 files within repository boundaries. Missing inputs, invalid encoding, symlinks, unmerged index entries and path escapes remain visible failures.
 
 Capture fixes the bytes used by later parsing and selection. It does not make sequential working-tree reads a filesystem transaction. Commit or staged selection supplies the corresponding Git snapshot when that distinction matters. Subsequent edits do not alter already captured content.
 
-The existing assignment output records revision or digest, input fingerprints, registry digest, tool and profile versions, assignment identities and inclusion reasons. Base and candidate material have separate labels. A changed registry or home makes earlier packs stale; affected authors receive regenerated input and recheck their surrounding explanation. The later [Agent context](agent-context.md#agent-context) chapter owns selection and byte-budget behavior.
+The [Agent context](agent-context.md#agent-context) chapter explains assignment provenance and regeneration after source changes.
 
 <a id="checking-and-replacement"></a>
 ## Checking and replacement
 
-Validation must succeed before generated navigation can replace existing output. The [documentation checker](#documentation-checker) examines the complete selected corpus. [Navigation generation](#navigation-generation) then projects valid declarations into rebuildable Markdown.
+Validation must succeed before generated navigation can replace existing output. The [documentation checker](#documentation-checker) examines the complete selected corpus. [Navigation generation](#navigation-generation) then builds Markdown from valid declarations.
 
 <a id="documentation-checker"></a>
 ### Documentation checker
 
 The documentation checker is the shared parser and validator for specification Markdown and metadata from one selected snapshot. It detects structural errors before invalid declarations can become generated navigation or mandatory agent input.
 
-The parser uses CommonMark with pipe tables enabled. It supplies tokens and source locations rather than requiring a second Markdown parser. Authored documents are parsed into one in-memory corpus used by checking, navigation and context selection. This model earns its cost by making all three operations interpret the same declarations; it adds no persistent database, cache or search index.
+The parser uses CommonMark with pipe tables enabled. It supplies tokens and source locations rather than requiring a second Markdown parser. Authored documents are parsed into one in-memory corpus used by checking, navigation and context selection. All three operations therefore interpret the same declarations without a persistent database, cache or search index.
 
 For the batcher, a link to the capacity row can resolve while its displayed value remains wrong. Literal comparison reports `D10` for `3` against `2`, with the source path and line. A descriptive capacity link only navigates; it does not claim another literal. The [canonical fact](documents-homes-and-values.md#canonical-fact) home explains the comparison's limits.
 
@@ -118,13 +122,13 @@ This refusal exposes invalid selected material so the owner can repair its sourc
 <a id="navigation-generation"></a>
 ### Navigation generation
 
-Navigation generation is the deterministic projection of declared document metadata and entity homes into reading aids. It gives readers an overview, a document map and an index of meanings without adding authored claims.
+Navigation generation builds the same reading aids from the same declared document metadata and entity homes. It gives readers an overview, a document map and an index of meanings without adding authored claims.
 
 The [document manifest](documents-homes-and-values.md#document-manifest) chooses the destination and reading order. The map links section titles and nested level-2 headings to their source anchors, with summaries and prerequisites. The generated view of the [entity index](documents-homes-and-values.md#entity-index) displays each home heading and definition sentence. For the batcher, readers can reach admission and its capacity row rather than relying on an exported paraphrase.
 
-A standalone output uses a declared path under generated documentation. An inline output replaces one marked region in an authored document. The region appears after the entry opening and any introductory diagram with its adjacent entity links. Standalone generated files receive the generated-file attribute through [generated attributes](source-formats.md#navigation); mixed authored documents retain their normal treatment.
+A standalone output uses a declared path under generated documentation. An inline output replaces one marked region in an authored document. The region follows the complete introduction, including its diagram, explanation and audience prerequisites. Standalone generated files receive the generated-file attribute through [generated attributes](source-formats.md#navigation); mixed authored documents retain their normal treatment.
 
-Freshness means that generated bytes exactly match the projection of captured sources.
+Navigation is current only when its contents exactly match what generation would produce from the captured sources.
 
 **Procedure: replace navigation from valid sources**
 
@@ -132,7 +136,7 @@ Freshness means that generated bytes exactly match the projection of captured so
 
    > **Detail — input validation**
    >
-   > The author must correct the batch's wrong capacity label before generation can project a valid map. Prose warnings remain advisory.
+   > The author must correct the batch's wrong capacity label before generation can build a valid map. Prose warnings remain advisory.
 
 2. **Validate all proposed output.** Reparse the resulting candidate so invalid replacement bytes cannot enter the output set.
 
@@ -155,7 +159,7 @@ Reviewers examine whether the generated map helps readers find the authored expl
 
 This refusal keeps a stale or partly replaced output set from passing as current navigation.
 
-**Trigger:** Projected bytes differ, a destination cannot be replaced, a mixed authored destination changed after capture, or generation stops partway through the set.
+**Trigger:** Generated bytes differ, a destination cannot be replaced, a mixed authored destination changed after capture, or generation stops partway through the set.
 
 **Outcome:** Freshness or generation fails visibly; mandatory agent input cannot use the unchecked set.
 

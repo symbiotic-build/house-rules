@@ -3,30 +3,25 @@
 
 This tour shows how an author turns a bounded-batch contract into checked reading material for review. A deliberately wrong link reveals which source owns the capacity. Repairing that link leaves the batch's behavior intact and lets the author rebuild navigation and prepare the complete assignment.
 
-The [minimal corpus](minimal-corpus.md#minimal-example) supplies the exact three authored files used here. Its [batcher](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher) accepts items until its batch reaches [2](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#capacity) items. A third item receives `Full`; the existing items remain unchanged. The [refusal explanation](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#failure-full) authorizes the submitting caller to submit the refused item in a new batch.
-
-That refusal belongs to the teaching contract. The documentation error introduced below belongs to the text describing it. Running the checker does not submit items to a batcher; it checks the authored declarations and links. The example's inspection describes the required retained-state check without providing an executable service.
+The [minimal corpus](minimal-corpus.md#minimal-example) supplies the exact three authored files. `Full` is the teaching service's refusal; `D10` is the documentation diagnostic for a wrong displayed value.
 
 <a id="capacity-repair"></a>
 ## The capacity correction
 
-Follow this path to see each authored input become checked navigation and complete review material. Document roles are named content categories, such as tour and requirements. The draft lists missing categories in `gaps`. Once its explanations exist, the author replaces those gaps with the complete teaching contract from the [minimal corpus](minimal-corpus.md#minimal-example).
+Create the three source files, introduce one wrong value link, and repair the reported error.
 
-The command examples use `python` from the pinned House Rules [tool environment](source-formats.md#tool-environment). Their placeholder roots denote the House Rules checkout and an independent example repository with Git initialized. The [toolchain explanation](checking-and-navigation.md#toolchain-and-inputs) supplies setup details.
+The command examples use `python` from the pinned House Rules repository's [tool environment](source-formats.md#tool-environment). Their placeholder roots denote the House Rules checkout and an independent example repository with Git initialized. The [toolchain explanation](checking-and-navigation.md#toolchain-and-inputs) supplies setup details.
 
 **Procedure: author, break and repair the bounded-batch contract**
 
-1. **Register a draft.** The author gives the document a place in the reading map before adding its technical declarations.
+1. **Register the source.** Copy the [manifest input](minimal-corpus.md#example-documents) and create its title and opening in `docs/example.md`.
 
    > **Detail — source registration**
    >
-   > The [document manifest](documents-homes-and-values.md#document-manifest), stored in [docs/DOCUMENTS.json](../../DOCUMENTS.json), registers document `example`.
-   > Its section `main` selects the title anchor `example` in the new example source, whose repository path is `docs/example.md`.
-   > The combined selector `example#main` therefore selects that title's complete subtree.
-   > The manifest classifies the source as a specification and declares unfinished roles as gaps.
-   >
-   > The [entity index](documents-homes-and-values.md#entity-index), stored in [docs/ENTITIES.json](../../ENTITIES.json), initially contains no entities.
-   > The draft registers no unfinished entity. It declares its missing content explicitly, for example `"gaps": ["requirements", "acceptance"]`.
+   > The [document manifest](documents-homes-and-values.md#document-manifest) registers document `example` and section `main` at title anchor `example`.
+   > The selector `example#main` names that title's complete subtree.
+   > Keep [docs/ENTITIES.json](../../ENTITIES.json) empty until the component's definition exists; the [entity index](documents-homes-and-values.md#entity-index) records completed homes.
+   > Complete the remaining content below before generating from this full manifest.
 
 2. **Write the batcher's home.** The author gives readers one place to learn what the component does and find its capacity.
 
@@ -45,21 +40,67 @@ The command examples use `python` from the pinned House Rules [tool environment]
    > Status `specified` identifies it as the teaching contract's chosen value.
    > The linked decision explains that teaching basis; it is not a measurement or production approval.
    >
-   > **Entities in this example:** [batcher and capacity](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher), [canonical fact](documents-homes-and-values.md#canonical-fact).
 
 3. **Complete the refusal contract and its evidence.** The author explains what happens to a submitted item when the batch is full.
 
    > **Detail — obligation, refusal and inspection**
    >
-   > The [requirement declaration](requirements-tests-and-failures.md#requirement-declaration), a record of observable required behavior, uses anchor `req-capacity` in the example.
-   > It requires the batcher to return `Full` without changing a full batch.
-   > The [failure declaration](requirements-tests-and-failures.md#failure-declaration) records the trigger, unchanged items and caller's new-batch recovery.
+   > The [requirement declaration](requirements-tests-and-failures.md#requirement-declaration) states the obligation; the [failure declaration](requirements-tests-and-failures.md#failure-declaration) records retained state and recovery. The [acceptance test](requirements-tests-and-failures.md#acceptance-test) links back to the obligation. Write these declarations:
    >
-   > The [acceptance test](requirements-tests-and-failures.md#acceptance-test) uses anchor `test-capacity` and Method `inspection`.
-   > It checks a full batch plus one additional item and expects `Full` with the same retained items.
-   > The requirement links to that case, and the case links back to the requirement.
-   > These steps describe edits to the exact files shown later in the [minimal corpus](minimal-corpus.md#minimal-example).
-   > Its decision, question statement and reference replace the corresponding draft gaps.
+   > ```markdown
+   > <a id="req-capacity"></a>
+   > ### Requirement: refuse a full batch
+   >
+   > This obligation preserves existing items when a caller exceeds the batch capacity.
+   >
+   > **Actor:** [Batcher](#batcher).
+   >
+   > **Condition:** A submitted item would exceed [2](#capacity) items.
+   >
+   > **Result:** Return `Full` without changing the batch.
+   >
+   > **Verification:** Inspect the batch after refusal.
+   >
+   > **Tests:** [Full batch](#test-capacity).
+   >
+   > **Status:** specified.
+   >
+   > **Basis:** [Teaching decision](#decision).
+   >
+   > <a id="failure-full"></a>
+   > ### Failure state: full batch
+   >
+   > This refusal tells the caller how to submit an item after the batch fills.
+   >
+   > **Trigger:** Submission would exceed [2](#capacity) items.
+   >
+   > **Outcome:** The caller receives `Full`.
+   >
+   > **Retained state:** Existing items remain unchanged.
+   >
+   > **Recovery:** Submit the item in a new batch.
+   >
+   > **Authority:** The submitting caller may start a new batch.
+   >
+   > **Verification:** [Full batch](#test-capacity).
+   >
+   > <a id="test-capacity"></a>
+   > ## Acceptance test: full batch
+   >
+   > This inspection checks that refusal preserves the existing items.
+   >
+   > **Method:** inspection.
+   >
+   > **Requirements:** [Capacity refusal](#req-capacity).
+   >
+   > **Inputs:** A full batch and one additional item.
+   >
+   > **Expected:** `Full` and the same retained items.
+   >
+   > Evidence: [retained-state inspection](#failure-full).
+   > ```
+   >
+   > Copy the decision, question statement and reference from the [Markdown input](minimal-corpus.md#example-example) as well.
 
 4. **Register the completed home.** The author binds the component's name to the explanation that now exists.
 
@@ -91,7 +132,7 @@ The command examples use `python` from the pinned House Rules [tool environment]
 
    > **Detail — deliberate mutation**
    >
-   > In the example source, replace the label `2` with `3` in this line:
+   > In the [batcher example](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher), replace the label `2` with `3` in this line:
    >
    > ```markdown
    > Submit up to [3](#capacity); a full batch retains its items on refusal.
@@ -100,7 +141,6 @@ The command examples use `python` from the pinned House Rules [tool environment]
    > Keep the capacity table unchanged.
    > The displayed `3` is the deliberate defect, not a proposed capacity change.
    >
-   > **Entities in this example:** [batcher and capacity](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher).
 
 7. **Check the mutated source.** The author receives a diagnostic identifying the conflicting value link.
 
@@ -120,17 +160,14 @@ The command examples use `python` from the pinned House Rules [tool environment]
 
    > **Detail — source repair**
    >
-   > Replace the wrong line with:
+   > Restore the [batcher example](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher) line:
    >
    > ```markdown
    > Submit up to [2](#capacity); a full batch retains its items on refusal.
    > ```
    >
-   > The capacity remains `2` items.
-   > The requirement still returns `Full` for an additional item when the batch is full.
-   > The caller still recovers by using a new batch.
+   > Only the displayed label changed.
    >
-   > **Entities in this example:** [batcher and capacity](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher).
 
 9. **Regenerate navigation.** The tool accepts the repaired source and replaces the declared navigation region.
 
@@ -153,8 +190,7 @@ The command examples use `python` from the pinned House Rules [tool environment]
     > ```
     >
     > The checked fixture returns `0 errors, 0 warnings` and exit status `0`.
-    > That result establishes structural consistency for these inputs.
-    > It does not establish that the prose teaches refusal well or that an implementation preserves items.
+    > Interpret that result under the [acceptance evidence distinction](acceptance-evidence.md#acceptance).
 
 11. **Select complete reading material.** The author assigns the example section, and the tool returns its checked source with the mandatory reference material.
 
@@ -179,7 +215,6 @@ The command examples use `python` from the pinned House Rules [tool environment]
     > Its manifest reports exact UTF-8 byte counts and fingerprints for the captured input.
     > The [agent-context chapter](agent-context.md#snapshot-and-selection) explains selection and snapshot boundaries.
     >
-    > **Entities in this example:** [context pack](agent-context.md#context-pack), [addressable section](documents-homes-and-values.md#addressable-section).
 
 12. **Review the refusal and repair.** Reviewers use the complete explanation to assess whether the author has described the behavior and evidence adequately.
 
@@ -188,9 +223,8 @@ The command examples use `python` from the pinned House Rules [tool environment]
     > A reviewer checks that `Full` means the new item was refused and the existing items remain unchanged.
     > The reviewer also checks who can start a new batch and whether the inspection proves the retained-state obligation.
     > [Semantic review](writing-and-review-workflow.md#semantic-review) supplies that responsibility beyond structural checking.
-    > The existing [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) uses the matching shared selector to include this material in worker instructions.
-    > Its [dispatch explanation](agent-context.md#dispatch-and-invalidation) covers the complete pack's rules, task and response allowance.
+
 
 Selection has its own visible refusals. An assignment using `example#missing` reports `D06`, because no registered section has that selector. An otherwise valid assignment with `budget_bytes` set to `1` reports `D25`, because one byte cannot hold the mandatory material. Neither result returns a shortened [context pack](agent-context.md#context-pack); the author corrects the selector or narrows a legitimate assignment before preparing it again.
 
-The repaired example is ready for review because its source agrees with its chosen capacity and its complete explanations can be selected together. The [documents, homes and values chapter](documents-homes-and-values.md#shared-contract) next explains how the authored sources make that agreement checkable. The [requirements, tests and failures chapter](requirements-tests-and-failures.md#behavior-and-change) explains how the refusal connects to its evidence.
+The [documents, homes and values chapter](documents-homes-and-values.md#shared-contract) next explains how the authored sources make that agreement checkable. The [requirements, tests and failures chapter](requirements-tests-and-failures.md#behavior-and-change) explains how the refusal connects to its evidence.

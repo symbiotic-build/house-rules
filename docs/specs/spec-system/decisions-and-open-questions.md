@@ -1,7 +1,7 @@
 <a id="decisions"></a>
 # Decisions and open questions
 
-These choices explain why the system keeps authored Markdown and shared metadata authoritative. They bind implementation and review; the alternatives record design trade-offs rather than measured performance. The bounded-batch example uses the chosen declarations to express capacity `2`, check a wrong displayed `3` and prepare `example#main`.
+These choices explain why the system keeps authored Markdown and shared metadata authoritative. They bind implementation and review; the alternatives record design trade-offs rather than measured performance.
 
 <a id="settled-choices"></a>
 ## Settled choices and alternatives
@@ -20,9 +20,11 @@ The following records preserve the decisions that determine source authority, ch
 
 **Rejected alternatives:** Markdoc adds a JavaScript runtime while leaving registry and context selection work. AsciiDoc and Antora change the source format. MyST, Sphinx and Sphinx-Needs change the authoring and publication contract. A separate requirement store adds writable authority that these declarations do not need.
 
-The design borrows definition identity and disambiguation from Bikeshed, and maps and reuse principles from DITA. It borrows explicit applicability from independently identified information modules. These ideas inform source organization without adopting their publication machinery.
+Each definition has a stable identity, and links identify the intended definition when names overlap; this follows the definition-linking behavior associated with Bikeshed. A map assembles independently identified explanations in reading order, following the organization and reuse approach associated with DITA.
 
-Doorstop and StrictDoc supply the design's named comparison for reciprocal requirement–test links and change-impact review. This system derives those relationships from Markdown and Git snapshots. The choice does not assert that either compared tool requires exclusively non-Markdown authoring. It rejects adding another requirement store for this system's needs.
+Applicability is explicit: the batcher’s `scope: ["example"]` limits its name to that document. Independently identified information modules, as in S1000D, provide the comparison for declaring where content applies. These are source-organization ideas; this system adopts no publication machinery from those tools.
+
+Requirements and tests link in both directions, and a changed contract brings its tests back into review. Doorstop and StrictDoc are comparisons for these traceability behaviors. Here Markdown and Git snapshots supply the relationships without another writable requirement store.
 
 Vale is not a required dependency. An existing installation can serve other writing needs, but it does not replace home resolution, literal comparison or snapshot selection. The design adds no terminology exporter or second vocabulary authority.
 
@@ -60,13 +62,13 @@ Vale is not a required dependency. An existing installation can serve other writ
 
 **Reason:** `example#main` must contain the batcher's refusal and recovery with its capacity, rather than a trimmed fragment that changes the reader's understanding.
 
-**Rejected alternatives:** Optional registry inclusion, recursive traversal of ordinary home links and truncated source bodies break completeness or selection boundaries. A verified rebase is not available. Persistent mirrors and approval hashes duplicate existing authority.
+**Rejected alternatives:** Optional registry inclusion, recursive traversal of ordinary home links and truncated source bodies break completeness or selection boundaries. Changing an old pack’s baseline without rebuilding it cannot establish that its dependencies still match the new snapshot; regenerate the pack instead. Persistent mirrors and approval hashes duplicate existing authority.
 
 <a id="writing-decision"></a>
 ### Decision: explicit advisory prose targets
 
 
-**Choice:** Use the versioned profile in the shared writing rules. Apply ISO 80000-1 prose number formatting and ISO 8601 dates and times; keep approximate prose checks advisory.
+**Choice:** Use the versioned profile in the shared writing rules. Group prose digits in threes with spaces and use a decimal dot, for example `1 234.5` (ISO 80000-1). Write dates as `2026-10-16`, times as `14:05 UTC`, and timestamps as `2026-10-16 14:05 UTC` (ISO 8601). Keep approximate prose checks advisory.
 
 **Authority:** Operator-approved design and number-format selection dated 2026-10-16.
 
@@ -80,7 +82,7 @@ Vale is not a required dependency. An existing installation can serve other writ
 
 **Choice:** Run normal authoring and review paths with an exact branch revision before merge. Keep renderer acceptance in its owning repository.
 
-**Authority:** Operator decision to validate branch-pinned real use before merge, dated 2026-10-16.
+**Authority:** Operator decision to run normal authoring and review at the exact candidate commit before merge, dated 2026-10-16.
 
 **Reason:** A branch override can exercise new rules and tools without merging them merely to create a test environment.
 
@@ -91,4 +93,4 @@ Vale is not a required dependency. An existing installation can serve other writ
 
 No implementation choice remains open in this contract. The settled choices above govern source authority and tool behavior; the [source formats](source-formats.md#source-format) define current encodings. The [writing and review workflow](writing-and-review-workflow.md#authoring-and-review) explains how to qualify their use.
 
-Acceptance still needs actual run evidence. A declared selector, linked review lens or planned reader procedure is not a completed result. If review finds a source disagreement beyond the recorded rulings, the lead records its evidence and responsible decision owner before accepting a resolution.
+Acceptance follows the [evidence distinction](acceptance-evidence.md#acceptance). If review finds a source disagreement beyond the recorded rulings, the lead records its evidence and responsible decision owner before accepting a resolution.
