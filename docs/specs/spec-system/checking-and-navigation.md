@@ -11,7 +11,7 @@ Reproducible checking needs a fixed parser and fixed input bytes. The [tool envi
 <a id="tool-setup"></a>
 ### Preparing the tool
 
-Each repository using the tool selects its [House Rules revision](source-formats.md#house-rules-revision) and prepares its isolated [tool environment](source-formats.md#tool-environment). House Rules owns the files that keep direct checking and agent preparation consistent:
+Each repository using the tool selects its [House Rules revision](source-formats.md#house-rules-revision) and prepares its isolated tool environment. House Rules owns the files that keep direct checking and agent preparation consistent:
 
 - [skills/spec-writing/scripts/requirements.in](../../../skills/spec-writing/scripts/requirements.in) names dependencies; [skills/spec-writing/scripts/requirements.lock](../../../skills/spec-writing/scripts/requirements.lock) pins wheel versions and hashes.
 - [skills/spec-writing/scripts/runtime.json](../../../skills/spec-writing/scripts/runtime.json) states the supported interpreter range.
@@ -92,9 +92,15 @@ The commands are `link`, `check`, `generate` and `context`. Local and staged `ch
 
 Direct-link diagnostics depend on whether the registered use identifies one entity. An unambiguous registered form or exact symbol missing its required home link produces blocking `D12`. An ambiguous ordinary phrase without a link selecting one home produces advisory `W04` only. The warning does not block checking or context preparation; the author reviews the intended meaning and links its home if needed.
 
-Run `link` before `check` when authoring. It inserts required home links only for unambiguous accepted forms in ordinary body text. Matching ignores case, as accepted forms do. It excludes headings, code spans, literal blocks, generated regions and existing links. Symbols need author-supplied links; ambiguous phrases remain unchanged because the command cannot choose their meaning.
+Run `link` before `check` when authoring. It inserts the first required home link per level-2 section for unambiguous accepted forms in ordinary body text. Home order does not change that scope. Matching ignores case. It excludes headings, code spans, literal blocks, generated regions and existing links. Symbols need author-supplied links; ambiguous phrases remain unchanged because the command cannot choose their meaning.
 
-Linking uses one captured working-tree snapshot and the same per-file replacement safety as generation. All proposed edits are reparsed before any replacement. Existing errors remain visible; new errors refuse replacement. An authored file edited after capture, a symlink or an unwritable destination stops replacement. An interrupted set can be repaired by running `link` again; already-linked uses stay unchanged.
+Use `link --prune-repeats` to convert documents written under the older rule requiring links at every use before the home. After inserting missing links, it keeps the first direct link to each home within each level-2 scope. Later matching links become their label text, preserving label formatting. Level-3 and deeper subsections share that scope; different homes retain separate first links.
+
+Pruning preserves headings, tables, literal blocks, generated regions and **Entities in this example** lines. It also preserves adjacent home annotations required by literal examples. Labels containing a digit or consisting of one code span remain linked. Labels must match an accepted form of the target entity, ignoring case; deliberate author wording remains linked. Each first registered use retains its required link, even after a deliberately worded link.
+
+For example, a later `[writer](#writer)` becomes `writer`, while `[the author](#writer)` remains unchanged.
+
+Linking uses one captured working-tree snapshot and the same per-file replacement safety as generation. All proposed edits are reparsed before any replacement. Existing errors remain visible; new errors refuse replacement. An authored file edited after capture, a symlink or an unwritable destination stops replacement. An interrupted set can be repaired by running `link` again. Without `--prune-repeats`, the command preserves all existing links, including repeated links.
 
 Diagnostics identify severity, code, path, line and explanation. They are deduplicated and deterministically ordered without a count cap. Checking reports every available finding; malformed environment or input can stop processing before further findings are available. Warning counts never turn a valid structural result into failure.
 

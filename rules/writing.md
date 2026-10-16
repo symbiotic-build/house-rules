@@ -27,7 +27,8 @@ happened, why it matters and what to do, in that order.
   condition and consequence, or claim and example. Put unrelated assertions in a list,
   not a paragraph. Short related sentences stay in one paragraph.
 - Active voice, simple tense. Name who does what.
-- One term per concept. Define it once at first use, then never use a synonym.
+- One term per concept and one meaning per term. Define it once at first use, then never
+  use a synonym or reuse its accepted form for another concept.
 - No unexplained acronyms, internal labels or IDs as a replacement for meaning. An ID may
   follow the plain description, never replace it.
 - In newly designed or redesigned internal storage, schemas and protocols, use readable

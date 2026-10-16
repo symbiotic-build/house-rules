@@ -84,6 +84,60 @@ class CorpusTests(unittest.TestCase):
         self.assertTrue(s.check(corpus(self.paths)).ok)
         self.assertEqual(s.link_missing(corpus(self.paths)), {})
 
+    def test_link_prunes_repeats_per_level_two_scope_preserving_label_markup(self):
+        self.paths[ACCEPTANCE] += b'\n<a id="repeats"></a>\n## Repeats\n\n[writer](#writer), [**Writer**](acceptance.md#writer).\n\n### Deeper\n\n[writer](#writer).\n\n<a id="next-scope"></a>\n## Next scope\n\n[writer](#writer), [writer](#writer).\n'
+        before = self.paths[ACCEPTANCE]
+        self.assertEqual(s.link_missing(corpus(self.paths)), {})
+        self.paths.update(s.link_missing(corpus(self.paths), prune_repeats=True))
+        self.assertNotEqual(before, self.paths[ACCEPTANCE])
+        self.assertIn(b'[writer](#writer), **Writer**.', self.paths[ACCEPTANCE])
+        self.assertIn(b'### Deeper\n\nwriter.', self.paths[ACCEPTANCE])
+        self.assertIn(b'## Next scope\n\n[writer](#writer), writer.', self.paths[ACCEPTANCE])
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+        self.assertEqual(s.link_missing(corpus(self.paths), prune_repeats=True), {})
+
+    def test_link_pruning_exclusions(self):
+        cases = {
+            'headings': '### [writer](#writer)\n',
+            'tables': '| Owner |\n|---|\n| [writer](#writer) |\n',
+            'fenced literals': '```markdown\n[writer](#writer)\n```\n',
+            'indented literals': '    [writer](#writer)\n',
+            'example annotations': '**Entities in this example:** [writer](#writer).\n',
+            'digit labels': '[writer 2](#writer).\n',
+            'code labels': '[`writer`](#writer).\n',
+            'deliberate wording': '[the author](#writer).\n',
+            'inline literals': '`[writer](#writer)`\n',
+        }
+        # Registered numeric forms prove that the value exclusion precedes form matching.
+        metadata(self.paths, s.JSON_PATHS[0], lambda v: v['entities']['example.writer']['forms'].append('writer 2'))
+        for name, protected in cases.items():
+            with self.subTest(exclusion=name):
+                paths = self.paths.copy()
+                paths[ACCEPTANCE] += ('\n<a id="protected"></a>\n## Protected\n\n[writer](#writer).\n\n' + protected
+                                      + '\nA separate paragraph intervenes.\n\n[writer](#writer).\n').encode()
+                outputs = s.link_missing(corpus(paths), prune_repeats=True)
+                self.assertIn(protected.encode(), outputs[ACCEPTANCE])
+                self.assertTrue(outputs[ACCEPTANCE].endswith(b'\nwriter.\n'))
+
+    def test_link_pruning_keeps_literal_annotations_and_distinct_fact_homes(self):
+        self.paths[ACCEPTANCE] += b'\n<a id="annotations"></a>\n## Annotations\n\n[writer](#writer).\n\n```text\nwriter\n```\n\nThe [writer](#writer) handles this example.\n\n[commit capacity](settings.md#commit-capacity), [commit capacity](settings.md#commit-capacity-default), [commit capacity](settings.md#commit-capacity-default).\n'
+        self.paths.update(s.link_missing(corpus(self.paths), prune_repeats=True))
+        self.assertIn(b'The [writer](#writer) handles this example.', self.paths[ACCEPTANCE])
+        self.assertIn(b'[commit capacity](settings.md#commit-capacity), [commit capacity](settings.md#commit-capacity-default), commit capacity.', self.paths[ACCEPTANCE])
+        self.assertTrue(s.check(refresh(self.paths)).ok, s.check(corpus(self.paths)).errors)
+
+    def test_link_pruning_includes_newly_inserted_first_links(self):
+        self.paths[ACCEPTANCE] += b'\n<a id="missing-first"></a>\n## Missing first\n\nwriter, [writer](#writer).\n'
+        self.paths.update(s.link_missing(corpus(self.paths), prune_repeats=True))
+        self.assertTrue(self.paths[ACCEPTANCE].endswith(b'[writer](#writer), writer.\n'))
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
+    def test_link_pruning_keeps_first_registered_use_after_deliberate_wording(self):
+        self.paths[ACCEPTANCE] += b'\n<a id="wording"></a>\n## Wording\n\n[the author](#writer), [writer](#writer), [writer](#writer).\n'
+        self.paths.update(s.link_missing(corpus(self.paths), prune_repeats=True))
+        self.assertTrue(self.paths[ACCEPTANCE].endswith(b'[the author](#writer), [writer](#writer), writer.\n'))
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+
     def test_link_leaves_headings_code_literals_existing_links_and_ambiguity(self):
         self.paths[ACCEPTANCE] += b'\n### Writer\n\n`writer`\n\n```text\nwriter\n```\n\n[writer](#acceptance)\n'
         before = self.paths[ACCEPTANCE]
@@ -95,16 +149,17 @@ class CorpusTests(unittest.TestCase):
         self.assertIn('W04', {d.code for d in s.check(corpus(self.paths)).warnings})
         self.assertNotIn('D12', self.codes())
 
-    def test_link_preserves_markdown_and_links_forward_uses_in_lists_quotes_and_tables(self):
-        extra = '\n> writer &amp; **writer**\n\n- writer and writer.\n\n| Item | Owner |\n|---|---|\n| writer | writer |\n| label \\| writer | writer |\n'
+    def test_link_preserves_markdown_and_links_only_first_uses_in_lists_quotes_and_tables(self):
+        extra = '\n## More uses\n\n> writer &amp; **writer**\n\n- writer and writer.\n\n## Table uses\n\n| Item | Owner |\n|---|---|\n| label \\| writer | writer |\n| [writer](#writer) | writer |\n'
         edit(self.paths, ACCEPTANCE, '<a id="writer"></a>', extra + '\n<a id="writer"></a>')
         self.paths.update(s.link_missing(corpus(self.paths)))
         text = self.paths[ACCEPTANCE].decode()
-        self.assertIn('> [writer](#writer) &amp; **[writer](#writer)**', text)
-        self.assertIn('- [writer](#writer) and [writer](#writer).', text)
-        self.assertIn('| [writer](#writer) | [writer](#writer) |', text)
-        self.assertIn('| label \\| [writer](#writer) | [writer](#writer) |', text)
+        self.assertIn('> [writer](#writer) &amp; **writer**', text)
+        self.assertIn('- writer and writer.', text)
+        self.assertIn('| label \\| [writer](#writer) | writer |', text)
+        self.assertIn('| [writer](#writer) | writer |', text)
         self.assertNotIn('D12', self.codes())
+        self.assertEqual(s.link_missing(corpus(self.paths)), {})
 
     def test_declaration_ignores_blockquoted_detail_fields_only(self):
         edit(self.paths, ACCEPTANCE, '**Purpose:** Follow',
@@ -584,13 +639,54 @@ class CorpusTests(unittest.TestCase):
         edit(self.paths, ACCEPTANCE, 'The [writer](#writer) performs', 'The writer performs')
         self.red_green("D12")
 
-    def test_one_link_cannot_license_another_forward_use_in_same_paragraph(self):
+    def test_later_link_does_not_satisfy_first_use_in_same_paragraph(self):
         edit(self.paths, ACCEPTANCE, 'The [writer](#writer) performs', 'The writer asks the [writer](#writer) and performs')
         self.red_green("D12")
 
-    def test_repeated_forward_uses_each_need_home_links(self):
-        edit(self.paths, ACCEPTANCE, 'defines the refusal.', 'defines the refusal.\n   The writer refuses it.')
-        self.red_green("D12")
+    def test_repeated_uses_before_home_share_level_two_first_use_scope(self):
+        edit(self.paths, ACCEPTANCE, 'defines the refusal.',
+             'defines the refusal. The writer refuses it.\n\n### More detail\n\nThe writer retains it.')
+        self.assertNotIn('D12', self.codes())
+        self.assertEqual(s.link_missing(corpus(self.paths)), {})
+
+    def test_repeated_uses_of_home_in_another_document_share_first_use_scope(self):
+        other = 'docs/other.md'
+        def add_document(value):
+            document = copy.deepcopy(value['documents'][0])
+            document.update(id='other', status='draft', scenarios=[],
+                            navigation={'path': 'docs/generated/other.md'},
+                            sections=[{'id': 'main', 'path': other, 'anchor': 'other',
+                                       'roles': ['tour', 'mechanism', 'requirements', 'decisions', 'questions', 'reference', 'acceptance'],
+                                       'summary': 'Follow requests across document boundaries.',
+                                       'prerequisites': [], 'explanatory_dependencies': []}])
+            document.pop('approval')
+            value['documents'].append(document)
+            value['inventory'].append({'path': other, 'kind': 'specification'})
+        metadata(self.paths, s.JSON_PATHS[1], add_document)
+        metadata(self.paths, s.JSON_PATHS[0], lambda v: v['entities']['example.writer']['scope'].append('other'))
+        self.paths[other] = b'<a id="other"></a>\n# Other\n\nThe [writer](example/acceptance.md#writer) checks it. The writer retains it.\n\n### Detail\n\nThe writer refuses it.\n'
+        checked = s.check(refresh(self.paths))
+        self.assertTrue(checked.ok, checked.errors)
+        self.assertEqual(s.link_missing(corpus(self.paths)), {})
+        self.paths[other] += b'\n## Next use\n\nThe writer checks it. The writer retains it.\n'
+        self.assertEqual(len(self.codes_for('D12')), 1)
+        self.paths.update(s.link_missing(corpus(self.paths)))
+        self.assertIn(b'The [writer](example/acceptance.md#writer) checks it. The writer retains it.', self.paths[other])
+        self.assertNotIn('D12', self.codes())
+        self.assertEqual(s.link_missing(corpus(self.paths)), {})
+
+    def test_link_preserves_authored_repeated_links_before_and_after_home(self):
+        for path, target in ((ACCEPTANCE, '#writer'), (SETTINGS, 'acceptance.md#writer')):
+            with self.subTest(path=path):
+                self.paths = self.clean.copy()
+                extra = f'\n## More uses\n\nwriter and [writer]({target}) and [writer]({target}).\n'
+                if path == ACCEPTANCE:
+                    edit(self.paths, path, '<a id="writer"></a>', extra + '\n<a id="writer"></a>')
+                else:
+                    self.paths[path] += extra.encode()
+                self.paths.update(s.link_missing(corpus(self.paths)))
+                self.assertIn(f'[writer]({target}) and [writer]({target}) and [writer]({target}).'.encode(), self.paths[path])
+                self.assertEqual(s.link_missing(corpus(self.paths)), {})
 
     def test_subsections_share_level_two_first_use_scope(self):
         edit(self.paths, ACCEPTANCE, '### Relations', 'The [writer](#writer) checks it.\n\n### More\n\nThe writer refuses it.\n\n#### Detail\n\nThe writer retains it.\n\n### Relations')
@@ -1155,6 +1251,31 @@ class SnapshotTests(unittest.TestCase):
         target.symlink_to(self.root / SETTINGS)
         with self.assertRaisesRegex(s.SpecDocsError, 'symlink destination'):
             s.write_outputs(c, outputs, repair=True)
+
+    def test_link_pruning_command_uses_replacement_safety_and_is_idempotent(self):
+        target = self.root / ACCEPTANCE
+        target.write_text(target.read_text() + '\n[writer](#writer), [writer](#writer).\n')
+        c = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        outputs = s.link_missing(c, prune_repeats=True)
+        target.write_text(target.read_text() + '\nAn authored edit.\n')
+        with self.assertRaisesRegex(s.SpecDocsError, 'authored destination differs'):
+            s.write_outputs(c, outputs, repair=True)
+        original = target.read_text()
+        target.unlink()
+        target.symlink_to(self.root / SETTINGS)
+        with self.assertRaisesRegex(s.SpecDocsError, 'symlink destination'):
+            s.write_outputs(c, outputs, repair=True)
+        target.unlink()
+        target.write_text(original)
+        args = ['link', '--prune-repeats', '--root', str(self.root), '--fixture', '--json']
+        for expected in ([ACCEPTANCE], []):
+            with patch('builtins.print') as output:
+                self.assertEqual(s.main(args), 0)
+                self.assertEqual(json.loads(output.call_args[0][0])['linked'], expected)
+        self.assertIn('writer, writer.', target.read_text())
+        for command in ('check', 'generate', 'context'):
+            with patch('builtins.print'):
+                self.assertEqual(s.main([command, '--prune-repeats', '--root', str(self.root)]), 2)
 
     def test_link_command_writes_repairs_reports_remaining_errors_and_is_idempotent(self):
         target = self.root / ACCEPTANCE

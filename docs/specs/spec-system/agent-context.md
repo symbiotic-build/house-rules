@@ -40,7 +40,7 @@ Selection provides complete explanations without turning every source link into 
    > **Detail — snapshot labels**
    > A commit baseline is its resolved commit identity. Other snapshots use the digest of their captured content.
    > Candidate material and comparison-base material retain separate labels.
-2. **Resolve the assignment.** Select `example#main` with any requested decisions or [scenarios](requirements-tests-and-failures.md#scenario).
+2. **Resolve the assignment.** Select the assigned sections with any requested decisions or [scenarios](requirements-tests-and-failures.md#scenario).
    Unknown selectors stop selection instead of selecting every home.
 
    > **Detail — scenario scope**
@@ -81,11 +81,11 @@ Preparation checks that the selected input is complete and fits before any agent
 
 The selector reports the complete pack’s UTF-8 byte count, including the embedded manifest. Provenance records the baseline, source and registry digests, profile digest, input fingerprints, versions, assignment, included identities and range reasons. Range offsets are zero-based with an exclusive end; displayed source labels use one-based lines. These records let the [dispatcher](../../design/75-subagent-profiles.md#dispatcher) detect which captured input an agent received.
 
-The selector enforces only the documentation pack’s `budget_bytes` limit. After it returns, two external callers enforce their own limits. The compiler checks its assembled rules, documentation and task against a separate byte limit. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher), which starts the agent, reserves room for the response within its execution token limit. Optional material uses only the remainder. Every layer refuses excessive mandatory input rather than truncating it.
+The selector enforces only the documentation pack’s `budget_bytes` limit. After it returns, two external callers enforce their own limits. The compiler checks its assembled rules, documentation and task against a separate byte limit. The dispatcher, which starts the agent, reserves room for the response within its execution token limit. Optional material uses only the remainder. Every layer refuses excessive mandatory input rather than truncating it.
 
 For example, a documentation pack uses `6 000` bytes against an assignment limit of `8 000` bytes.
 Adding rules and task uses another `4 000` bytes, so the compiler compares `10 000` bytes against its `12 000` byte limit.
-Suppose the [dispatcher](../../design/75-subagent-profiles.md#dispatcher) converts those bytes to `2 500` input tokens and reserves `1 500` response tokens.
+Suppose the dispatcher converts those bytes to `2 500` input tokens and reserves `1 500` response tokens.
 Against `5 000` execution tokens, it has `1 000` tokens left for optional material.
 These illustrative limits use different accounting units; no byte-to-token conversion is assumed by the selector.
 

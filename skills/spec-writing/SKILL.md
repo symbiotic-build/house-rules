@@ -77,6 +77,10 @@ unsettled questions, without reopening a settled choice merely because it is unf
    - Propose changes to another owner's facts instead of introducing replacement definitions.
 4. **Review the assembled document.**
    - Run the pinned shared tool's `link` command to insert missing unambiguous body links.
+   - For documents written under the older linking rule, use `link --prune-repeats` to convert repeated links to plain labels.
+     It keeps the first direct link per home and level-2 scope; deeper subsections share that scope.
+     It preserves headings, tables, literals, generated regions, **Entities in this example** lines and required adjacent literal annotations.
+     Value-bearing labels and deliberate wording outside accepted forms stay linked. Snapshot and replacement safety match `link`.
    - Resolve remaining `D12` findings, regenerate navigation and run `check`.
    - Inspect the resulting map, link density and tables as a reader.
    - Review technical meaning, design and cost, failure and recovery, and whole scenarios.

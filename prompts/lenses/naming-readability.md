@@ -25,8 +25,15 @@ heuristic warning alone is not a defect. Identify the demonstrated reader proble
 consequence. Preserve conditions, exceptions, uncertainty and consequences when suggesting
 shorter wording. Check that provisional facts retain qualifications, observed facts retain
 evidence and operating conditions, and unresolved facts retain their resolution paths.
+Check the reader-progression qualification rule at the first description of each mechanism
+or value. Flag an unresolved formula, provisional limit or unavailable behavior presented
+as implementable before a later caveat.
 Check unlinked restatements and ordinary words given unstated technical meanings; a
 successful literal-value link check does not establish those meanings.
+Check each registered accepted form for a single meaning across chapters and link labels.
+When a second concept borrows the bare form, require a distinct term and index guidance
+rejecting that bare form for the second concept. Check the sentence's intended meaning,
+not only whether its link resolves.
 
 @rule house-rules:rules/specifications.md
 

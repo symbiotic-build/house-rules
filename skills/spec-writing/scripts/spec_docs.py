@@ -1213,12 +1213,13 @@ def apply_edits(text, edits):
     return text.encode()
 
 
-def link_missing(corpus):
+def link_missing(corpus, *, prune_repeats=False):
     """Insert only required, unambiguous accepted forms in ordinary body text.
 
     Use the checker's use ordering. A native inline parse with a temporary marker
     confirms the raw match's visible position before mapping it to file bytes.
     Unmappable spellings remain visible D12 findings rather than risky edits.
+    Optional repeat pruning runs after insertion, before shared replacement checks.
     """
     outputs = {}
     parser = MarkdownIt('commonmark').enable('table')
@@ -1248,6 +1249,66 @@ def link_missing(corpus):
                 target = quote(path, safe='/') + '#' + quote(entity['anchor'], safe='')
                 edits.append((start, end, f'[{form}]({target})'))
                 break
+        if edits:
+            outputs[md.path] = apply_edits(md.text, edits)
+    if prune_repeats:
+        projected = load_corpus(Snapshot(dict(corpus.source.files, **outputs), corpus.source.tracked,
+                                        corpus.source.problems, fixture=corpus.source.fixture), corpus.contract)
+        outputs.update(prune_repeated_links(projected))
+    return outputs
+
+
+def prune_repeated_links(corpus):
+    """Keep the first direct link per home and level-2 scope in authored text."""
+    homes = {target: entity for entity in corpus.entities.values()
+             for target in use_targets(corpus, entity)}
+    outputs = {}
+    for md in corpus.markdown.values():
+        seen, edits = set(), []
+        positions = inline_source_positions(md)
+        # Literal examples still require their own adjacent home annotations.
+        annotations = set()
+        for token in md.tokens:
+            texts = ([token.content] if token.type in ('fence', 'code_block') else
+                     [child.content for child in token.children or [] if child.type == 'code_inline'])
+            targets = {target for text in texts for hit in recognized(corpus, text)
+                       for target in use_targets(corpus, corpus.entities[hit[2]])}
+            if token.map and targets:
+                annotations.update(id(link) for link in neighboring_links(md, token)
+                                   if link.destination in targets)
+        for index, token in enumerate(md.tokens):
+            if (token.type != 'inline' or not token.map
+                    or any(a <= token.map[0] < b for a, b in md.generated)
+                    or index and md.tokens[index - 1].type == 'heading_open'):
+                continue
+            scope = md.use_section_at(token.map[0])
+            table = index and md.tokens[index - 1].type in ('th_open', 'td_open')
+            example = visible(token.children).lstrip().startswith('Entities in this example:')
+            links = iter(md.inline_links.get(id(token), []))
+            for child in token.children or []:
+                if child.type != 'link_open':
+                    continue
+                link = next(links)
+                entity = homes.get(link.destination)
+                if entity is None:
+                    continue
+                if not any(hit[2] == entity['id'] for hit in recognized(corpus, link.label)):
+                    continue  # Deliberate wording cannot satisfy a later registered first use.
+                key = (scope.start if scope else -1, link.destination)
+                repeated = key in seen
+                seen.add(key)
+                if (not repeated or table or example or id(link) in annotations
+                        or link.code_label or any(character.isdigit() for character in link.label)
+                        or link.label.casefold() not in {form.casefold() for form in entity['forms']}):
+                    continue
+                mapping = positions.get(id(token))
+                span, label = child.meta.get('source_span'), child.meta.get('label_span')
+                if mapping is None or span is None or label is None:
+                    fail('D27', 'cannot prune repeated link: inline source positions are unavailable', md.path, 2)
+                begin, end = span
+                label_begin, label_end = label
+                label_source = md.text[mapping[label_begin]:mapping[label_end]]
+                edits.append((mapping[begin], mapping[end - 1] + 1, label_source))
         if edits:
             outputs[md.path] = apply_edits(md.text, edits)
     return outputs
@@ -1320,8 +1381,6 @@ def check_uses(corpus, md, diagnostics, missing=None):
             if heading and heading.anchor == entity["anchor"] and md.path == entity["path"] and (line == heading.start or token is intro):
                 seen.add((local, identity))
                 continue
-            entity_section = corpus.sections.get(entity["home"]["section"])
-            forward = entity_section is None or entity_section["document"] != section["document"] or (entity_section["order"], entity["start"]) > (section["order"], line)
             links = md.inline_links.get(id(token), [])
             matched_link = False
             wrong_link = False
@@ -1334,9 +1393,9 @@ def check_uses(corpus, md, diagnostics, missing=None):
             # A literal requires its own neighboring annotation, even on a later use.
             if literal or code_use:
                 matched_link |= any(link.destination in use_targets(corpus, entity) for link in neighboring_links(md, token))
-            needs_link = forward or (local, identity) not in seen or literal or code_use
+            needs_link = (local, identity) not in seen or literal or code_use
             if wrong_link or (needs_link and not matched_link):
-                reason = "wrong-target" if wrong_link else "forward-use" if forward and (local, identity) in seen else "first-use"
+                reason = "wrong-target" if wrong_link else "first-use"
                 diagnostics.add("D12", f"use of '{identity}' needs a direct home link: {reason}", md.path, line + 1)
                 if (missing is not None and not wrong_link and not literal and not code_use
                         and section['document'] in entity['scope']
@@ -1987,9 +2046,13 @@ def main(argv=None):
     parser.add_argument("--fixture", action="store_true")
     parser.add_argument("--format-contract", type=Path, default=REFERENCE)
     parser.add_argument("--json", action="store_true")
+    parser.add_argument("--prune-repeats", action="store_true",
+                        help="with link, convert repeated accepted home links to plain labels")
     args = parser.parse_args(argv)
     try:
         validate_runtime()
+        if args.prune_repeats and args.command != 'link':
+            fail('D02', 'malformed invocation: --prune-repeats requires link', exit_code=2)
         if args.command == 'link' and (args.staged or args.rev or args.base or args.assignment):
             fail('D02', 'malformed invocation: link requires the working tree without comparison or assignment', exit_code=2)
         source = Snapshot.from_git(args.root, args.staged, args.rev, args.fixture)
@@ -2004,7 +2067,7 @@ def main(argv=None):
         base = load_corpus(Snapshot.from_git(args.root, rev=args.base, fixture=args.fixture), args.format_contract, comparison=True) if args.base else None
         corpus.base = base
         if args.command == 'link':
-            outputs = link_missing(corpus)
+            outputs = link_missing(corpus, prune_repeats=args.prune_repeats)
             write_outputs(corpus, outputs, repair=True)
             diagnostics = check(load_corpus(Snapshot(dict(source.files, **outputs), source.tracked, source.problems, fixture=source.fixture), corpus.contract))
             result = dict(diagnostics.to_dict(), linked=sorted(outputs))

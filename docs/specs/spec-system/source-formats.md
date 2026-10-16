@@ -21,6 +21,8 @@ The default captures working-tree Markdown and metadata, including unignored new
 
 `link` writes only to the captured working tree. It refuses `--staged`, `--rev`, `--base` and `--assignment`. Its insertions and remaining diagnostics follow the [direct-link behavior](checking-and-navigation.md#documentation-checker). Run `link` before `check`, then regenerate stale navigation.
 
+`link --prune-repeats` also converts repeated accepted-form links from documents written under the older linking rule. Other commands refuse `--prune-repeats`. The direct-link behavior defines its scope and exclusions; replacement safety is unchanged.
+
 `--assignment FILE` supplies context selectors, affected-test review input and removal decisions. Context requires that option. `--format-contract FILE` selects an explicit format contract; the normal default belongs to the shared helper. `--json` emits structured output. `--fixture` permits synthetic `fixture` approval authority in test fixtures only.
 
 Every candidate Markdown file needs an inventory classification. Paths use forward slashes and are repository-relative, with no empty, `.` or `..` components. Source text is UTF-8. Symlinks and nonregular source inputs are refused. Code and asset links use file inventory for existence checks without loading unrelated binary bytes. External URLs receive syntax checks without network access.
@@ -169,7 +171,7 @@ Naming rules check a selected entity kind's accepted forms or symbols. Each reco
 
 These compact tables list the vocabularies and required declaration fields. The [machine-readable contract](../../../skills/spec-writing/references/format-contract.json) supplies the JSON vocabularies. Write Choice, Authority, Reason and Rejected alternatives in Markdown; do not add a metadata key for them. Reviewers check their meaning.
 
-The seven required roles preserve their listed order. Design-specific roles may interleave anywhere without changing the relative order of those seven roles. For example, `mechanism`, `ownership`, `integration`, `requirements`, `decisions`, `alternatives`, `questions`, `rollout`, `work-packages`, `reference`, `acceptance`, `acceptance-evidence` is a valid continuation after `tour`. The table includes [scenario](requirements-tests-and-failures.md#scenario) fields.
+The seven required roles preserve their listed order. Design-specific roles may interleave anywhere without changing the relative order of those seven roles. For example, `mechanism`, `ownership`, `integration`, `requirements`, `decisions`, `alternatives`, `questions`, `rollout`, `work-packages`, `reference`, `acceptance`, `acceptance-evidence` is a valid continuation after `tour`. The table includes scenario fields.
 
 | Field | Allowed values or required fields |
 |---|---|
@@ -205,7 +207,7 @@ A fact’s Status must belong to `fact_statuses`: `specified`, `provisional`, `o
 
 Markdown declarations make a contract's values and evidence addressable without moving their meaning into metadata. The batcher uses an explicit home anchor followed immediately by its heading and definition.
 
-Literal blocks and inline code need direct home links for registered uses in an immediately adjacent paragraph. Natural explanatory prose works; `**Entities in this example:**` is an optional label for the same links. Each block needs its own adjacent links; unrelated intervening prose prevents reuse. Quote-only blank lines count as blank inside a blockquote. These annotations are not declaration fields. First-use scope, forward links and unnumbered headings follow the [Direct links](../../../rules/specifications.md#direct-links).
+Literal blocks and inline code need direct home links for registered uses in an immediately adjacent paragraph. Natural explanatory prose works; `**Entities in this example:**` is an optional label for the same links. Each block needs its own adjacent links; unrelated intervening prose prevents reuse. Quote-only blank lines count as blank inside a blockquote. These annotations are not declaration fields. First-use scope and unnumbered headings follow the [Direct links](../../../rules/specifications.md#direct-links).
 
 ```markdown
 <a id="batcher"></a>
@@ -230,7 +232,7 @@ Normalization removes surrounding space and supported group separators within in
 
 Relations use precisely `Key | Predicate | Target | Basis` columns. Target contains one direct link to a registered home of a kind permitted for that predicate. Basis contains a link. The relation table specifies the allowed `performed-by`, `protected-by`, `limited-by` and `precedes` targets.
 
-**Entities in this example:** [Acceptance test](requirements-tests-and-failures.md#acceptance-test), [scenario](requirements-tests-and-failures.md#scenario).
+An [acceptance test](requirements-tests-and-failures.md#acceptance-test) records evidence for an obligation; a [scenario](requirements-tests-and-failures.md#scenario) traces related actions. Both use the declaration encoding below.
 
 Declarations have an immediately preceding explicit anchor and a heading beginning `Requirement:`, `Acceptance test:`, `Failure state:` or `Scenario:`. A permanent `test-` anchor also identifies an acceptance case when its heading omits the `Acceptance test:` prefix, such as `Inspection: full batch`. Requirement anchors use `req-` and test anchors use `test-`, followed by nonempty lower-case letters or digits separated by single hyphens. Preserve identities for unchanged obligations and cases.
 
@@ -305,14 +307,14 @@ Snapshot.from_git(root, staged=False, rev=None, fixture=False)
 load_corpus(source, format_contract=None, *, comparison=False)
 check(corpus, base=None)
 generate_navigation(corpus)
-link_missing(corpus)
+link_missing(corpus, prune_repeats=False)
 requirement_changes(base, candidate)
 select_context(corpus, assignment)
 ```
 
-`paths` maps repository paths to strings or bytes. Loading parses declared Markdown once. `comparison=True` permits a base with neither metadata file; it does not permit partial metadata or missing metadata in ordinary checking. `check` returns `Diagnostics`, exposing `errors`, `warnings`, `ok` and `to_dict()`. [Navigation generation](checking-and-navigation.md#navigation-generation) returns proposed path-to-bytes output without writing it.
+`paths` maps repository paths to strings or bytes. Loading parses declared Markdown once. `comparison=True` permits a base with neither metadata file; it does not permit partial metadata or missing metadata in ordinary checking. `check` returns `Diagnostics`, exposing `errors`, `warnings`, `ok` and `to_dict()`. Navigation generation returns proposed path-to-bytes output without writing it.
 
-`link_missing` likewise returns only source paths whose missing direct links can be inserted safely. An already-linked corpus returns an empty mapping.
+`link_missing` likewise returns only source paths with proposed linking changes. Its default inserts missing direct links; an already-linked corpus returns an empty mapping. With `prune_repeats=True`, insertion precedes repeat pruning in memory. An already-converted corpus returns an empty mapping. The command validates these proposed bytes through the same replacement path.
 
 `requirement_changes` returns a `ChangeReport` whose `to_dict()` contains `changes`. Each change has `id`, `kind` (`new`, `changed` or `removed`), `base`, `candidate`, `tests`, `added_tests`, `removed_tests` and `changed_facts`. [Requirement declarations](requirements-tests-and-failures.md#requirement-declaration) remain full source text. Facts contain their identity plus base and candidate values, status, basis, linked evidence text and qualifications linked to the fact.
 

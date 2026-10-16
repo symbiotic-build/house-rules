@@ -32,11 +32,11 @@ A subtree starts at its heading's anchor and ends before the next heading of equ
 
 Assignment boundaries select source; level-2 headings separately determine where first-use links restart. The direct-link cases are:
 
-- After a home in the same document, link the first use under each level-2 heading. Deeper headings continue that scope.
-- Before a home in the same document, link every mention.
-- For a home in another document, link every mention because the manifest declares no order between documents.
+- Link the first use under each level-2 heading, whether its home is ahead, behind or in another document.
+- Deeper headings continue that scope; later uses in the same section stay plain.
+- Tables may repeat links. Each literal block keeps its own adjacent home links.
 
-When the batcher home precedes these sections, Admission and Recovery each first mention it with `[batcher](#batcher)`. Validation continues Admission’s first-use tracking. Selecting this title includes all three headings:
+Admission and Recovery each first mention the batcher with `[batcher](#batcher)`, wherever its home appears. Validation continues Admission’s first-use tracking. Selecting this title includes all three headings:
 
 ```markdown
 # Submission
@@ -89,7 +89,7 @@ Comparison uses visible literal text after trimming surrounding space and normal
 
 Status is `specified`, `provisional`, `observed` or `unresolved`; provenance explanations belong in Basis or adjacent prose. Provisional or unresolved rows link their open question in Basis and state applicability before the table. The [minimal corpus](minimal-corpus.md#example-example) shows a candidate capacity that is not an executable limit.
 
-Status and linked basis qualify a value's authority. Put provisional conditions, observed limits, exceptions and resolution paths in a paragraph immediately before or after the fact table. Link that paragraph to the affected row. The tool captures linked qualification prose within the home in the generated registry and change report. For example: `Provisional: [capacity](#capacity) applies only to sequential submissions; concurrency needs an operator decision.`
+Status and linked basis qualify a value's authority. Put provisional conditions, observed limits, exceptions and resolution paths before the fact table. Qualify a mechanism or value at its first description, before a reader could treat it as implementable. Link that paragraph to the affected row. The tool captures linked qualification prose within the home in the generated registry and change report. For example: `Provisional: [capacity](#capacity) applies only to sequential submissions; concurrency needs an operator decision.`
 
 A second passage displaying the value must state the applicable condition too. For example: `Allow [2](example.md#capacity) items for sequential submissions only.` Add that concurrent submission still needs an operator decision. This preserves both the value link and its limitation.
 
@@ -132,7 +132,9 @@ The index version identifies its JSON shape, while the path identifies the repos
 | <a id="index-version"></a>version | 1 | specified | [docs/ENTITIES.json](../../ENTITIES.json) |
 | <a id="index-path"></a>path | docs/ENTITIES.json | specified | [docs/ENTITIES.json](../../ENTITIES.json) |
 
-Accepted phrases and home titles match whole phrases without regard to case. Symbols match exactly, and plural forms must be listed explicitly. Rejected forms supply a replacement and reason. Naming patterns apply to structured forms or symbols of a declared kind; they do not extract arbitrary identifiers from prose.
+Accepted phrases and home titles match whole phrases without regard to case. Symbols match exactly. List plural forms explicitly for both phrases and symbols. Rejected forms supply a replacement and reason. Naming patterns apply to structured forms or symbols of a declared kind; they do not extract arbitrary identifiers from prose.
+
+An accepted form keeps one meaning across chapters, including link labels. For example, reserve `record` for the application object and use `commit-log record` for its encoded log unit. The second concept's index entry lists bare `record` in `rejected_forms`, with replacement `commit-log record` and reason "distinguish the encoded log unit from the application object". A link to the log unit does not make `record` an acceptable label for that second meaning.
 
 For the batcher, an accepted name should lead to the home containing admission and refusal, not to a glossary paraphrase. A rule that cannot be expressed as a field pattern remains a linked requirement. Code-only identifiers stay with their implementation or reference owner unless readers need a separately defined technical meaning.
 

@@ -12,7 +12,7 @@ Before assigning body sections, create anchored chapter openings and declare mis
 
 **Procedure: write an implementable explanation**
 
-1. **Review the outline.** Establish the reader, purpose, scope and coherent chapter tasks.
+1. **Review the outline.** Establish the reader, purpose, scope and coherent chapter tasks around one continuing example.
    The outline gives each assigned chapter a clear reading outcome.
 2. **Explain ordinary behavior.** Define each entity beside the continuing example.
    The reader learns its purpose before encountering refusal or recovery.

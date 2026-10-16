@@ -32,11 +32,11 @@ Make each document provide the explanations its audience needs.
 
 Keep each registered meaning reachable at one complete source home.
 
-**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and authors responsible for defining sections.
+**Actor:** Documentation checker and authors responsible for defining sections.
 
 **Condition:** [Registered entities](documents-homes-and-values.md#registered-entity), facts, names or symbols appear in a corpus.
 
-**Result:** Require unique complete homes, valid document scope and direct first-use and forward-use links. Reject forbidden names and violations of declared naming patterns.
+**Result:** Require unique complete homes, valid document scope and direct first-use links per level-2 section regardless of home order. Reject forbidden names and violations of declared naming patterns.
 
 **Verification:** Mutate home anchors, scope, reading order, accepted names and destinations.
 
@@ -51,7 +51,7 @@ Keep each registered meaning reachable at one complete source home.
 
 Prevent a linked display from contradicting the declared value.
 
-**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker).
+**Actor:** Documentation checker.
 
 **Condition:** A fact row or a link to its anchor is checked.
 
@@ -70,7 +70,7 @@ Prevent a linked display from contradicting the declared value.
 
 Expose the evidence affected by a changed obligation.
 
-**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and review preparer.
+**Actor:** Documentation checker and review preparer.
 
 **Condition:** Requirements and acceptance cases are checked, with an optional comparison base.
 
@@ -89,7 +89,7 @@ Expose the evidence affected by a changed obligation.
 
 Make the consequences of a stopping path reviewable.
 
-**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and semantic reviewer.
+**Actor:** Documentation checker and semantic reviewer.
 
 **Condition:** A mechanism can refuse, stop or remain blocked.
 
@@ -108,7 +108,7 @@ Make the consequences of a stopping path reviewable.
 
 Let callers distinguish invalid documents from failed invocation or input access.
 
-**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker).
+**Actor:** Documentation checker.
 
 **Condition:** A caller checks, generates or selects a corpus.
 
@@ -127,7 +127,7 @@ Let callers distinguish invalid documents from failed invocation or input access
 
 Keep the reading map derived from authored declarations.
 
-**Actor:** [Navigation generation](checking-and-navigation.md#navigation-generation) and [documentation checker](checking-and-navigation.md#documentation-checker).
+**Actor:** [Navigation generation](checking-and-navigation.md#navigation-generation) and documentation checker.
 
 **Condition:** A caller generates navigation or checks its freshness.
 
@@ -165,7 +165,7 @@ Keep all consumers on the shared parsing and selection contract.
 
 Make a selected source version independent of later working-tree changes.
 
-**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler).
+**Actor:** Documentation checker and prompt compiler.
 
 **Condition:** A caller chooses working-tree, staged or commit input.
 
@@ -184,7 +184,7 @@ Make a selected source version independent of later working-tree changes.
 
 Give an agent enough source to understand its explicit assignment.
 
-**Actor:** Documentation selector, [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) and [dispatcher](../../design/75-subagent-profiles.md#dispatcher).
+**Actor:** Documentation selector, prompt compiler and [dispatcher](../../design/75-subagent-profiles.md#dispatcher).
 
 **Condition:** A writer or reviewer assignment is prepared.
 
@@ -203,7 +203,7 @@ Give an agent enough source to understand its explicit assignment.
 
 Apply writing checks without deleting meaning to satisfy counters.
 
-**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and readability reviewer.
+**Actor:** Documentation checker and readability reviewer.
 
 **Condition:** Prose and ordered actions are checked.
 
@@ -222,7 +222,7 @@ Apply writing checks without deleting meaning to satisfy counters.
 
 Require evidence that the document can be understood without author coaching.
 
-**Actor:** [dispatcher](../../design/75-subagent-profiles.md#dispatcher), editor and reviewers.
+**Actor:** Dispatcher, editor and reviewers.
 
 **Condition:** The system prepares or accepts authoring and review assignments.
 

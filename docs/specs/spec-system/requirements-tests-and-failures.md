@@ -17,7 +17,7 @@ In the bounded-batch example, the actor is the batcher. When a submitted item wo
 
 The record supplies Actor, Condition, Result, Verification, Tests, Status and Basis. Its opening explains why the obligation exists. Put the condition before the result in normative English. A quality bound limits a measurable property. For example, require response time below `100 ms` at `10` requests per second, and name the timing measurement. Literal comparison checks the displayed limit, not whether an implementation meets it.
 
-The following Markdown encodes that obligation and links its [acceptance test](#acceptance-test):
+The following Markdown encodes that obligation and links its acceptance test:
 
 ```markdown
 <a id="req-capacity"></a>
@@ -40,7 +40,7 @@ This obligation preserves existing items when a caller exceeds the batch capacit
 **Basis:** [Teaching decision](#decision).
 ```
 
-Every requirement links at least one [acceptance test](#acceptance-test), and each linked case points back to the same requirement. Missing targets, absent relationships and one-sided relationships fail checking. These links establish structural traceability; reviewers still determine whether the case proves the result. Implementation unit tests need no individual documentation requirement unless they serve as declared acceptance evidence.
+Every requirement links at least one acceptance test, and each linked case points back to the same requirement. Missing targets, absent relationships and one-sided relationships fail checking. These links establish structural traceability; reviewers still determine whether the case proves the result. Implementation unit tests need no individual documentation requirement unless they serve as declared acceptance evidence.
 
 The explicit anchor starts with `req-` followed by a nonempty kebab-case suffix of lowercase letters and digits. It is permanent and repository-unique across specifications and designs. Preserve it when moving or revising the same obligation. A split or replacement that introduces a new obligation receives a new identity; retired identities remain unavailable for reuse.
 
@@ -51,9 +51,9 @@ An acceptance test is an identified verification case with a method, inputs and 
 
 The batcher's inspection case starts with a full batch and one additional item. Its expected result is `Full` and the same retained items. The linked evidence explains the retained-state inspection so the reviewer can assess that expectation. A tour showing refusal does not become an acceptance test without the declared method and requirement relationship.
 
-Each case supplies Method, Requirements, Inputs and Expected. Its permanent anchor starts with `test-` and follows the same suffix and uniqueness rules as a [requirement declaration](#requirement-declaration). Moving a case preserves its identity; replacing it with a different case does not permit reuse of a retired anchor.
+Each case supplies Method, Requirements, Inputs and Expected. Its permanent anchor starts with `test-` and follows the same suffix and uniqueness rules as a requirement declaration. Moving a case preserves its identity; replacing it with a different case does not permit reuse of a retired anchor.
 
-The [acceptance test](#acceptance-test) uses this Markdown, with its evidence in an ordinary paragraph:
+The acceptance test uses this Markdown, with its evidence in an ordinary paragraph:
 
 ```markdown
 <a id="test-capacity"></a>
@@ -74,7 +74,7 @@ Planned evidence: [retained-state inspection](#failure-full).
 
 Method `test` requires an Implementation field linking a file and a named test inside it, such as `Suite::test_full`. Static checking verifies link grammar and file existence. The [Selector audit](interfaces-and-encodings.md#selector-audit) reference defines supported selectors, execution limits and outcome counts.
 
-Methods `inspection`, `analysis` and `demonstration` link evidence inside the document set or repository instead of an Implementation field. A planned inspection can link its retained-state checklist; a completed inspection links the recorded observations. Name document-only cases Inspection or Analysis, keeping their permanent `test-` anchor. The checker can establish that a link exists, but reviewers establish whether the evidence supports the pass condition. The exact encoding belongs to [Markdown declarations](source-formats.md#markdown-declarations).
+Methods `inspection`, `analysis` and `demonstration` link evidence inside the document set or repository instead of an Implementation field. A planned inspection can link its retained-state checklist; a completed inspection links the recorded observations. Name document-only cases Inspection, Analysis or Demonstration, keeping their permanent `test-` anchor. The checker can establish that a link exists, but reviewers establish whether the evidence supports the pass condition. The exact encoding belongs to [Markdown declarations](source-formats.md#markdown-declarations).
 
 
 <a id="scenario"></a>
@@ -82,7 +82,7 @@ Methods `inspection`, `analysis` and `demonstration` link evidence inside the do
 
 A scenario is a declared sequence or branching set of actions with concrete inputs and caller-visible results. It makes a complete behavior trace selectable across the sections that explain it.
 
-For the batcher, a scenario could admit items until the batch fills, attempt one more item, and observe `Full` with earlier items retained. The [minimal corpus](minimal-corpus.md#example-documents) leaves its scenario list empty; its inspection case needs no separate scenario declaration. To make this trace selectable as a whole scenario, declare Purpose, Inputs and Expected, then link its [requirement declaration](#requirement-declaration) and [acceptance test](#acceptance-test). The [source formats](source-formats.md#markdown-declarations) define the record’s encoding.
+For the batcher, a scenario could admit items until the batch fills, attempt one more item, and observe `Full` with earlier items retained. The [minimal corpus](minimal-corpus.md#example-documents) leaves its scenario list empty; its inspection case needs no separate scenario declaration. To make this trace selectable as a whole scenario, declare Purpose, Inputs and Expected, then link its requirement declaration and acceptance test. The [source formats](source-formats.md#markdown-declarations) define the record’s encoding.
 
 The [document manifest](documents-homes-and-values.md#document-manifest) names whole scenarios for assignment. Selection includes their containing explanation and the sections containing linked obligations and cases, including cases reached through requirements. A whole-scenario assignment therefore gives the reviewer more than a fragment describing the final error. Selection details belong to [Agent context](agent-context.md#agent-context).
 

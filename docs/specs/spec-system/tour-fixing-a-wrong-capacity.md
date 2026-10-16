@@ -34,7 +34,7 @@ Copy the complete example, change one displayed value and follow the diagnostic 
    > | <a id="candidate-capacity"></a>candidate-capacity | 3 | provisional | [Capacity trial](#questions) |
    > ```
    >
-   > The value counts admitted items in one batch. Status identifies the chosen teaching value; Basis links its decision.
+   > The value counts admitted items in one batch. Status states the value’s qualification; Basis links its decision.
    > The candidate row is provisional and does not change that operative value.
 
 3. **Inspect the name binding.** The metadata points to that existing explanation rather than copying its meaning.
@@ -161,6 +161,6 @@ Copy the complete example, change one displayed value and follow the diagnostic 
     > Would the planned inspection reveal an accidental mutation?
     > The later [semantic review](writing-and-review-workflow.md#semantic-review) section explains that responsibility.
 
-Selection also refuses invalid assignments. Selector `example#missing` reports `D06` because no registered section has that identity. A one-byte `budget_bytes` limit reports `D25` because it cannot hold the mandatory material. Neither refusal returns a shortened [context pack](agent-context.md#context-pack); the caller repairs the assignment before trying again.
+Selection also refuses invalid assignments. Selector `example#missing` reports `D06` because no registered section has that identity. A one-byte `budget_bytes` limit reports `D25` because it cannot hold the mandatory material. Neither refusal returns a shortened context pack; the caller repairs the assignment before trying again.
 
 Next, [Documents, homes and values](documents-homes-and-values.md#shared-contract) explains how those authored sources make agreement checkable.

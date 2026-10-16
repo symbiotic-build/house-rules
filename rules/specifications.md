@@ -31,6 +31,10 @@ to [design-flow](../skills/design-flow/SKILL.md).
 - State the design in its own voice, including converted documents. Keep original-source
   commentary in one provenance section, quote the original explicitly and name it
   unambiguously, such as "the original draft's overview", never "the overview" or "the source".
+- When a mechanism or value is unresolved, provisional or unavailable, state that qualification
+  before or in the same sentence as its description. A later caveat cannot qualify an earlier
+  instruction. Before: "Combine ranked lists with weighted scores. The formula is unresolved."
+  After: "The scoring formula is unresolved; the proposed combiner would weight the ranked lists."
 - Explain a borrowed behavior before naming its tool or standard as a supporting reference.
   Define necessary technical terms at first use; otherwise use the plain statement.
 - Give each repeated distinction or procedure one home and link it elsewhere. Diagnostic
@@ -87,9 +91,8 @@ to [design-flow](../skills/design-flow/SKILL.md).
 ## Direct links
 
 - Link an entity or fact directly to its home at first use in the text of each level-2
-  section. Level-3 and deeper subsections share that scope; tables may repeat links.
-- Link every use before its home in manifest reading order. A home in another document
-  counts as ahead. After the home appears, later uses in the same section may be plain.
+  section, whether the home is ahead, behind or in another document. Level-3 and deeper
+  subsections share that scope. Later uses stay plain; tables may repeat links.
   Introductory definitions need no self-link. Never put a link inside a heading.
 - Give a first-use link a short gloss when its meaning is needed to continue reading.
   Label repository-file links with their repository path. Named-section links use the
@@ -123,7 +126,7 @@ to [design-flow](../skills/design-flow/SKILL.md).
   executes every Implementation selector; acceptance requires zero missing and failing ones.
   Inspection and analysis cases name evidence inside the document set or repository.
   Distinguish a planned inspection from a completed inspection with its recorded result.
-  Name document-only cases "Inspection:" or "Analysis:" with permanent `test-` anchors;
+  Name document-only cases "Inspection:", "Analysis:" or "Demonstration:" with permanent `test-` anchors;
   the general acceptance-case identity does not imply executable verification.
 - Keep Status and Basis on every requirement record. When they are identical across records,
   use short fields linking their shared explanation once rather than repeating that explanation.

@@ -70,7 +70,7 @@ The [shared index](#house-rules-index) moves from `AGENTS.md` to [INDEX.md](../.
 Its content stays unchanged except self-references to its filename.
 House Rules' own [AGENTS.md](../../AGENTS.md) becomes a [pointer](#instruction-pointer) to the index.
 It points to `.agents/rules.md` only if that file exists; this change does not create it.
-Global and managed-repository instruction files keep their existing wording and change only the [shared index](#house-rules-index) filename.
+Global and managed-repository instruction files keep their existing wording and change only the shared index filename.
 
 Every rule file stays always loaded exactly as before.
 No rule text moves, and [rules/core.md](../../rules/core.md) stays unchanged.
@@ -210,7 +210,7 @@ The earlier import probe is not part of this design's canary.
 <a id="references-and-tests"></a>
 ### References and tests
 
-Update every current reference that means the [shared index](#house-rules-index) from AGENTS.md to INDEX.md, preserving the surrounding wording.
+Update every current reference that means the shared index from AGENTS.md to INDEX.md, preserving the surrounding wording.
 References to repository or global [pointers](#instruction-pointer) keep the corresponding full instruction-file path.
 Historical citations name their pinned commit and retain that commit's filename.
 

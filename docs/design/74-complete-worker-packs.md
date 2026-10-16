@@ -80,7 +80,7 @@ Each technical term below links to its defining Markdown section.
 The five role files serve implementers, fixers, reviewers, triagers and checkers.
 Each role file supports two ways of loading House Rules.
 A normal lane session loads [shared rules](#shared-rule) and skills through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index), then receives its role prompt.
-A Warden reviewer receives the [shared rules](#shared-rule) in its compiled role prompt.
+A Warden reviewer receives the shared rules in its compiled role prompt.
 Both ways use the same rule owners under `rules/`.
 No verbatim rule copies are added under `prompts/util/`.
 
@@ -179,7 +179,7 @@ The proposed shared owners are:
 
 Session-only writing and question instructions move to a separate session-rule file.
 The proposed name is `rules/session-writing.md`.
-The [House Rules index](73-instruction-layer-foundation.md#house-rules-index) loads that file for normal sessions.
+The House Rules index loads that file for normal sessions.
 Warden role prompts never include that file or lane-running procedures.
 The split preserves the shared writing rules and their claim labels in [rules/writing.md](../../rules/writing.md).
 
@@ -233,12 +233,12 @@ The one-step assembly design also removes the need for a separate pinned checkou
 <a id="repository-and-task-rules"></a>
 ### Repository and task rules
 
-Role instructions name the [repository rules part](#supplied-rule-parts) and the [task part](#supplied-rule-parts) before work begins.
-The [dispatcher](75-subagent-profiles.md#dispatcher) writes the work item's Decisions and Pre-flight sections into the [task part](#supplied-rule-parts).
-The [dispatcher](75-subagent-profiles.md#dispatcher) supplies the [target repository](77-one-step-pack-assembly.md#target-repository)'s own rules through the [repository rules part](#supplied-rule-parts).
-No role asks the worker to search the [target repository](77-one-step-pack-assembly.md#target-repository) or its parent directories for rule files.
+Role instructions name the [repository rules part](#supplied-rule-parts) and the task part before work begins.
+The dispatcher writes the work item's Decisions and Pre-flight sections into the task part.
+The dispatcher supplies the [target repository](77-one-step-pack-assembly.md#target-repository)'s own rules through the repository rules part.
+No role asks the worker to search the target repository or its parent directories for rule files.
 
-A repository rules part that says the [target repository](77-one-step-pack-assembly.md#target-repository) has no rules of its own is complete.
+A repository rules part that says the target repository has no rules of its own is complete.
 The worker does not report missing rules in that case.
 A prompt built with `--no-target` has no repository rules part.
 The worker reports that absence once and continues with the supplied task.
@@ -263,7 +263,7 @@ The implementer role drops the open merge-eligibility [pointer](73-instruction-l
 [prompts/roles/fixer.md](../../prompts/roles/fixer.md) uses the same Git owner through its implementer include.
 The fixer keeps the one-new-commit contract and pushed-history protection.
 The fixer inherits shared-rule includes through the implementer role instead of repeating them.
-The compiler therefore emits each [shared rule](#shared-rule) once without a new deduplication mechanism.
+The compiler therefore emits each shared rule once without a new deduplication mechanism.
 
 [prompts/roles/reviewer.md](../../prompts/roles/reviewer.md) includes the shared writing rules for its default compile.
 The reviewer role separates Warden's static review from the lane reviewer's existing targeted-test allowance.
@@ -304,7 +304,7 @@ Warden's posting responsibility does not grant the reviewer agent permission to 
 The reviewer role's current one-targeted-test allowance does not apply inside Warden.
 The default compiled reviewer prompt states Warden's restrictions.
 The session variant preserves the lane reviewer's existing allowance.
-The session variant does not turn a Warden reviewer into a [lane worker](75-subagent-profiles.md#lane-worker).
+The session variant does not turn a Warden reviewer into a lane worker.
 
 <a id="implementation-tests"></a>
 ### Implementation tests
@@ -396,7 +396,7 @@ Deployment follows these dependencies:
    The live lane-session checkout remains a separate source of session instructions.
 
 The [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77)
-owns drafting its matching Warden compiler change after the [lane-runner](77-one-step-pack-assembly.md#lane-runner) test passes and with operator approval.
+owns drafting its matching Warden compiler change after the lane-runner test passes and with operator approval.
 This design does not create a second Warden rollout or assume that staging deployment proves compiler deployment.
 
 <a id="decisions"></a>
@@ -406,7 +406,7 @@ Each item records the operator's choice on 2026-10-07.
 
 - **1.** **2026-10-07 — One shared home:** writing rules with claim labels, Git rules and priority labels live in separate files under `rules/`.
    Rule text is not copied under `prompts/util/`.
-- **2.** **2026-10-07 — Load [shared rules](#shared-rule) for every agent:** sessions and [subagents](75-subagent-profiles.md#subagent) load [shared rules](#shared-rule) through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
+- **2.** **2026-10-07 — Load [shared rules](#shared-rule) for every agent:** sessions and [subagents](75-subagent-profiles.md#subagent) load shared rules through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
    Warden role prompts include the canonical files with `@rule house-rules:rules/<file>.md` lines.
 - **3.** **2026-10-07 — Keep [session rules](#session-rule) separate:** instructions for talking to the operator, formatting questions and running lanes stay in their own files.
    Warden role prompts do not include those files.
@@ -471,7 +471,7 @@ Implementer and fixer outputs must preserve their final-message contract.
 Run triager and checker with a [repository rules part](#supplied-rule-parts) that says the [target repository](77-one-step-pack-assembly.md#target-repository) has no rules of its own.
 Those workers must not report missing rules.
 Run a triager with `--no-target`.
-That triager must report the absent [repository rules part](#supplied-rule-parts) once without searching for rule files.
+That triager must report the absent repository rules part once without searching for rule files.
 The fixture [pointer](73-instruction-layer-foundation.md#instruction-pointer) at `<test-repository>/AGENTS.md` must use the smaller-core design's chosen [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape.
 
 **Warden canary:** use the default role variants after Warden deploys staging for `rules/`.
