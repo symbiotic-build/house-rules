@@ -277,7 +277,7 @@ monospace code-block example, shown only under a fully written question list.
 ## Shared-rule owners and complete worker packs
 
 Operator direction: 2026-10-07, recorded in
-[complete worker role packs §10](docs/design/74-complete-worker-packs.md#decisions).
+[complete worker role packs §10](docs/design/74-complete-worker-packs.md).
 Writing with claim labels, Git rules and priority labels each have one shared owner under `rules/`.
 Normal lane sessions load those owners through the index and retain their session rules and skills.
 Warden packs include the shared owners directly and exclude session-only writing and lane procedures.

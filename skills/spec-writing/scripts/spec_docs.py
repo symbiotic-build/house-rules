@@ -905,8 +905,8 @@ def retired_identities(base):
         paths.update(e["path"] for e in manifest.get("inventory", []) if e.get("kind") in ("specification", "design"))
     if not paths:
         return set()
-    # Use a broad native filter; parsed declarations below decide accepted syntax.
-    commits = dict.fromkeys(git(root, "log", "-m", "--format=%H", "-G", '<a.*id="(req|test)-',
+    # Heading-only promotions also create identities; inspect every document change.
+    commits = dict.fromkeys(git(root, "log", "-m", "--format=%H",
                                revision, "--", *sorted(paths)).decode().splitlines())
     commits.update(dict.fromkeys(manifest_commits))
     historical, parsed_blobs = set(), set()
@@ -1286,7 +1286,7 @@ def link_missing(corpus, *, prune_repeats=False):
                     continue
                 path = '' if entity['path'] == md.path else posixpath.relpath(entity['path'], posixpath.dirname(md.path) or '.')
                 target = quote(path, safe='/') + '#' + quote(entity['anchor'], safe='')
-                edits.append((start, end, f'[{form}]({target})'))
+                edits.append((start, end, markdown_link(form, target)))
                 break
         if edits:
             outputs[md.path] = apply_edits(md.text, edits, md.path)
@@ -1854,6 +1854,7 @@ def select_context(corpus, assignment):
                 d.add("D26", f"review plan lacks required coverage '{responsibility}'", "assignment")
     selected, ranges, included = set(), [], {}
     pending = []
+    queued_decisions = set()
 
     def add_range(path, heading, identity, reason, label=None):
         start = heading.start - (1 if heading.anchor else 0)
@@ -1870,6 +1871,17 @@ def select_context(corpus, assignment):
             selected.add(selector)
             add_range(section["path"], section["heading"], selector, reason)
             pending.append((primary_label, selector, section["path"], section["heading"]))
+
+    def add_decision(selector, reason):
+        location = corpus.locate(selector)
+        if not location:
+            d.add("D06", f"target '{selector}' does not resolve", "assignment")
+            return
+        if reason not in included.get(selector, []):
+            add_range(*location, selector, reason)
+        if selector not in queued_decisions:
+            queued_decisions.add(selector)
+            pending.append((primary_label, selector, *location))
 
     for selector in assignment["sections"]:
         add_section(selector, "assigned section")
@@ -1894,17 +1906,26 @@ def select_context(corpus, assignment):
         if not location and not old_location:
             d.add("D06", f"target '{selector}' does not resolve", "assignment")
         if location:
-            add_range(*location, selector, "decision" if selector in assignment.get("decisions", []) else "changed requirement test")
-            pending.append((primary_label, selector, *location))
+            if selector in assignment.get("decisions", []):
+                add_decision(selector, "decision")
+            else:
+                add_range(*location, selector, "changed requirement test")
+                pending.append((primary_label, selector, *location))
         if old_location:
             add_range(*old_location, "base:" + selector, "linked test from base snapshot", label="base")
             pending.append(("base", selector, *old_location))
+    for selector in assignment.get("removal_decisions", {}).values():
+        add_decision(selector, "requirement removal decision")
     relevant = set()
     expanded_dependencies = set()
     while pending:
         label, selector, path, h = pending.pop(0)
         selected_corpus = source_corpora[label]
         section = selected_corpus.section_at(path, h.start)
+        if label == primary_label:
+            document = corpus.documents[section["document"]]
+            if document.get("approval"):
+                add_decision(document["approval"]["decision"], "applicable approval decision")
         section_key = (label, section["selector"])
         if section_key not in expanded_dependencies:
             expanded_dependencies.add(section_key)
@@ -1939,18 +1960,6 @@ def select_context(corpus, assignment):
                     dependency = selected_corpus.sections[dep["section"]]
                     add_range(dependency["path"], dependency["heading"], "base:" + dep["section"], "base home dependency", label=label)
                     pending.append((label, dep["section"], dependency["path"], dependency["heading"]))
-    for document in corpus.documents.values():
-        if document.get("approval") and any(corpus.sections[s]["document"] == document["id"] for s in selected):
-            selector = document["approval"]["decision"]
-            location = corpus.locate(selector)
-            if location:
-                add_range(*location, selector, "applicable approval decision")
-    for selector in assignment.get("removal_decisions", {}).values():
-        location = corpus.locate(selector)
-        if not location:
-            d.add("D06", f"target '{selector}' does not resolve", "assignment")
-        else:
-            add_range(*location, selector, "requirement removal decision")
     # Merge by lines, including overlap between complete homes and assigned sections.
     merged = []
     for label, path, start, end, identity, reason in sorted(ranges):

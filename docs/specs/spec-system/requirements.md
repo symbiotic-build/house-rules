@@ -146,7 +146,7 @@ Keep the reading map derived from authored declarations.
 
 Keep all consumers on the shared parsing and selection contract.
 
-**Actor:** Tool integrator and [prompt compiler](../../design/77-one-step-pack-assembly.md#prompt-compiler).
+**Actor:** Tool integrator and [prompt compiler](../../design/77-one-step-pack-assembly.md).
 
 **Condition:** The tool is invoked directly or through an extracted compiler.
 
@@ -184,7 +184,7 @@ Make a selected source version independent of later working-tree changes.
 
 Give an agent enough source to understand its explicit assignment.
 
-**Actor:** Documentation selector, prompt compiler and [dispatcher](../../design/75-subagent-profiles.md#dispatcher).
+**Actor:** Documentation selector, prompt compiler and [dispatcher](../../design/75-subagent-profiles.md).
 
 **Condition:** A writer or reviewer assignment is prepared.
 

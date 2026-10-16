@@ -1,11 +1,11 @@
-<a id="a-review-entry-skill-and-operator-writing-only-for-documents"></a>
 # A review entry skill, and operator-writing only for documents
 
 Status: proposed implementation, incorporating the operator's decisions of 2026-10-07.
 
-
 Issue: [review entry skill (#76)](https://github.com/symbiotic-sh/house-rules/issues/76).
 Draft: [review entry design (#82)](https://github.com/symbiotic-sh/house-rules/pull/82).
+
+## Result
 
 A plain request to review code, a commit, a diff, a branch or a pull request loads the
 new `change-review` skill in Claude and Codex. The session reviews the change itself.
@@ -13,15 +13,63 @@ A plain request gets one reviewer; a panel starts only when the operator asks fo
 The review uses the lane and Warden report format unless the operator asks for something shorter.
 Review questions use the question format from the operator-writing skill.
 
-The change-review skill delivers the shared reviewer criteria through the [prompt compiler](77-one-step-pack-assembly.md#prompt-compiler).
+The change-review skill delivers the shared reviewer criteria through the prompt compiler.
 The change-review skill does not load the pr-ready push, CI or merge procedure for a plain review.
-The operator-writing skill loads for [operator documents](#operator-document), questions to the operator and GitHub text.
-[Everyday replies](#everyday-reply) follow the always-loaded writing rules in [rules/writing.md](../../rules/writing.md).
-The [foundation](75-subagent-profiles.md#session-foundation) design owns the always-loaded rules and the [House Rules index](73-instruction-layer-foundation.md#house-rules-index) rename
-(foundation design (#73) ([source](https://github.com/symbiotic-sh/house-rules/pull/79))).
+The operator-writing skill loads for operator documents, questions to the operator and GitHub text.
+Everyday replies follow the always-loaded writing rules in [rules/writing.md](../../rules/writing.md).
+The foundation design owns the always-loaded rules and the House Rules index rename
+([foundation design (#73)](https://github.com/symbiotic-sh/house-rules/pull/79)).
 
-This design puts review preparation and judgment behind one entry point.
-Which owner prepares the input that a reviewer consumes?
+## Terms
+
+- **Reviewer pack:** the criteria and report format compiled from
+  [prompts/roles/reviewer.md](../../prompts/roles/reviewer.md) and its recursive `@rule` includes.
+  Interactive, lane and Warden reviewers apply the same criteria and report format.
+  Normal House Rules sessions already load shared rules; Warden reviewers receive those rules through role includes.
+- **Prompt compiler:** [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py).
+  The pack-assembly design requires the compiler to read Git objects from a named House Rules commit
+  ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
+- **Foundation:** the always-loaded session rules owned by the foundation design.
+- **Index:** the proposed House Rules index at `<HOUSE_RULES_ROOT>/INDEX.md`.
+  The foundation design makes `<HOUSE_RULES_ROOT>/AGENTS.md` a pointer to that index and
+  `<HOUSE_RULES_ROOT>/.agents/rules.md`.
+- **Description:** the frontmatter description that each host shows when matching a task to a skill.
+- **Everyday reply:** every chat reply, including answers, greetings, progress notes and reports.
+  Every chat reply is an everyday reply for skill loading, including review reports and short status reports.
+  This includes review reports in the fixed report format.
+  A chat reply that asks the operator questions still follows the operator-writing question format.
+- **Operator document:** a Markdown file written for the operator (a brief, report, ledger, design or decision document),
+  or GitHub text. Chat replies are everyday replies for skill loading.
+- **Canary run:** a headless session whose tool log shows which files and skills the agent loaded.
+  Canary evidence comes from the tool log, never from the agent's own report.
+
+Paths below name complete repository-relative file paths unless a root placeholder identifies an installed file.
+The placeholder `<HOUSE_RULES_ROOT>` means the House Rules clone named by the session's loader.
+The placeholder `<HOUSE_RULES_COMMIT>` means the named commit selected for the review pack.
+
+## Current behavior and prior evidence
+
+`FACT` The current [House Rules index at <HOUSE_RULES_ROOT>/INDEX.md](../../INDEX.md)
+loads pr-ready for “Push preparation, review rounds, review fixes, or PR merges.”
+`FACT` The current [House Rules index at <HOUSE_RULES_ROOT>/INDEX.md](../../INDEX.md)
+loads operator-writing for “Any operator-facing text.”
+`FACT` The current [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py)
+reads include files from the checkout through `path.open`, rather than from Git objects.
+`FACT` The current [prompts/roles/reviewer.md](../../prompts/roles/reviewer.md)
+includes eight files through `@rule house-rules:` lines.
+`FACT` The current [prompts/util/review-report.md](../../prompts/util/review-report.md)
+requires a `VERDICT:` line followed by Blocking, Spec issues, Follow-ups, Non-blocking and Coverage sections.
+
+`ASSUMPTION` The earlier version of this design reports a 2026-10-07 load test against
+commit ce7b7af ([prior design](https://github.com/symbiotic-sh/house-rules/blob/5a7e3b9/docs/design/76-review-entry-skill.md)).
+`ASSUMPTION` The prior design reports that Claude loaded no review skill for a plain review request.
+`ASSUMPTION` The prior design reports that Codex loaded operator-writing and pr-ready, then read only three reviewer-pack files.
+`ASSUMPTION` The prior design reports that Codex loaded operator-writing even for “hello.”
+The revision does not treat those inherited load-test results as measurements verified in this run.
+`ASSESSMENT` Narrowing a skill description alone leaves the current loader's broader trigger in force.
+The implementation therefore changes the descriptions, index triggers and core writing pointer together.
+
+## Design
 
 ```mermaid
 flowchart TB
@@ -34,144 +82,14 @@ flowchart TB
   Q -- no --> E["Done"]
 ```
 
-**Entities in this example:** [Session rule](74-complete-worker-packs.md#session-rule).
+### 1. New change-review skill
 
-Readers need familiarity with Git commits, House Rules session loading and the linked compiler or installation interfaces. The requirement and acceptance records below preserve proposed work and its recorded decisions.
-
-<!-- spec-docs:navigation document="review-entry-skill" -->
-<!-- Generated by spec-docs; edit authored declarations. -->
-
-## Overview
-
-Record a review entry skill and the narrowed document-writing trigger.
-
-**Audience:** Maintainers and implementers reading the historical design and its recorded decisions.
-
-**Scope:** Plain review entry, shared criteria, writing triggers and load-test acceptance.
-
-**Non-goals:** Compiler implementation, specialist isolation and delivery orchestration.
-
-## Document map
-
-Use this map to choose the next explanation to read.
-
-- [A review entry skill, and operator-writing only for documents](76-review-entry-skill.md#a-review-entry-skill-and-operator-writing-only-for-documents) — Read the historical status and source work item for this design.
-- [Terms](76-review-entry-skill.md#terms) — Resolve the defined names and repository paths used in this design.
-- [Current behavior and prior evidence](76-review-entry-skill.md#current-behavior-and-prior-evidence) — Inspect the cited implementation baseline and the limits of inherited evidence.
-- [Design](76-review-entry-skill.md#design) — Deliver shared review criteria and align review and writing skill triggers.
-- [Rejected alternatives](76-review-entry-skill.md#rejected-alternatives) — Read the rejected or withdrawn approaches and their recorded reasons.
-- [Size and persistent state](76-review-entry-skill.md#size-and-persistent-state) — Separate estimated reading costs from the declared source and state changes.
-- [Rollout and interfaces with the other designs](76-review-entry-skill.md#rollout-and-interfaces-with-the-other-designs) — Coordinate rule ownership, compiler adoption, installation and qualification.
-- [Decisions](76-review-entry-skill.md#decisions) — Read the recorded operator and lead choices with their stated authority.
-- [Open points](76-review-entry-skill.md#open-points) — Find the remaining implementation evidence; no operator choice is open.
-- [Reference](76-review-entry-skill.md#reference) — Find exact interface owners.
-- [Verification](76-review-entry-skill.md#verification) — Find the required tests and canaries, with their evidence limits.
-
-## Entity index
-
-Each technical term below links to its defining Markdown section.
-
-- [Session rule](74-complete-worker-packs.md#session-rule) (`complete-worker-packs.session-rule`) — Session rule: a rule for a normal chat session, such as talking to the operator, formatting operator questions or running lanes.
-- [Shared rule](74-complete-worker-packs.md#shared-rule) (`complete-worker-packs.shared-rule`) — Shared rule: a rule every agent needs, with one owner under rules/.
-- [House Rules index](73-instruction-layer-foundation.md#house-rules-index) (`instruction-layer-foundation.house-rules-index`) — Index: INDEX.md, which owns shared loading instructions.
-- [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer) (`instruction-layer-foundation.instruction-pointer`) — Pointer: a tool or repository instruction file that tells the agent to read the shared index.
-- [Canary run](76-review-entry-skill.md#canary-run-meaning) (`review-entry-skill.canary-run`) — Canary run: a headless session whose tool log shows which files and skills the agent loaded.
-- [Everyday reply](76-review-entry-skill.md#everyday-reply) (`review-entry-skill.everyday-reply`) — Everyday reply: every chat reply, including answers, greetings, progress notes and reports.
-- [Operator document](76-review-entry-skill.md#operator-document) (`review-entry-skill.operator-document`) — Operator document: a Markdown file written for the operator (a brief, report, ledger, design or decision document), or GitHub text.
-- [Prompt compiler](77-one-step-pack-assembly.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — The prompt compiler assembles complete worker instructions from a named House Rules commit.
-- [Reviewer pack](76-review-entry-skill.md#reviewer-pack) (`review-entry-skill.reviewer-pack`) — Reviewer pack: the criteria and report format compiled from prompts/roles/reviewer.md and its recursive @rule includes.
-- [Skill description](76-review-entry-skill.md#skill-description) (`review-entry-skill.skill-description`) — Description: the frontmatter description that each host shows when matching a task to a skill.
-- [Dispatcher](75-subagent-profiles.md#dispatcher) (`subagent-profiles.dispatcher`) — Dispatcher: the session or script that starts a subagent and writes its task.
-- [Lane worker](75-subagent-profiles.md#lane-worker) (`subagent-profiles.lane-worker`) — Lane worker: an implementer, fixer or lane reviewer running as a normal session with a role prompt on top.
-- [Session foundation](75-subagent-profiles.md#session-foundation) (`subagent-profiles.session-foundation`) — Foundation: the normal session instructions defined by the smaller-core design (#73).
-- [Specialist agent](75-subagent-profiles.md#specialist) (`subagent-profiles.specialist`) — Specialist: a separate process whose only task rule source is a compiled pack.
-- [Launching a separate process](75-subagent-profiles.md#specialist-launcher) (`subagent-profiles.specialist-launcher`) — A specialist launcher is the proposed program that validates a compiled pack and starts an isolated tool process.
-- [Subagent](75-subagent-profiles.md#subagent) (`subagent-profiles.subagent`) — Subagent: an agent started through the Claude Agent tool, Codex spawn_agent, or a separate command-line process.
-<!-- /spec-docs:navigation -->
-
-<a id="terms"></a>
-## Terms
-
-
-<a id="foundation-in-this-review-design"></a>
-### Foundation in this review design
-
-**[Foundation](75-subagent-profiles.md#session-foundation):** the always-loaded [session rules](74-complete-worker-packs.md#session-rule) owned by the foundation design.
-
-<a id="index-in-this-review-design"></a>
-### Index in this review design
-
-**[Index](73-instruction-layer-foundation.md#house-rules-index):** the proposed [House Rules index](73-instruction-layer-foundation.md#house-rules-index) at `INDEX.md`.
-The foundation design makes `AGENTS.md` a [pointer](73-instruction-layer-foundation.md#instruction-pointer) to that index and
-`.agents/rules.md`.
-
-
-Paths below  name complete repository-relative file paths unless a root placeholder identifies an installed file.
-The placeholder `<HOUSE_RULES_ROOT>` means the House Rules clone named by the session's loader.
-The placeholder `<HOUSE_RULES_COMMIT>` means the named commit selected for the review pack.
-
-<a id="current-behavior-and-prior-evidence"></a>
-## Current behavior and prior evidence
-
-`FACT` The current [House Rules index](73-instruction-layer-foundation.md#house-rules-index) at INDEX.md ([INDEX.md](../../INDEX.md))
-loads pr-ready for “Push preparation, review rounds, review fixes, or PR merges.”
-`FACT` The current House Rules index at INDEX.md ([INDEX.md](../../INDEX.md))
-loads operator-writing for “Any operator-facing text.”
-`FACT` The current [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py)
-reads include files from the checkout through `path.open`, rather than from Git objects.
-`FACT` The current [prompts/roles/reviewer.md](../../prompts/roles/reviewer.md)
-includes eight files through `@rule house-rules:` lines.
-`FACT` The current [prompts/util/review-report.md](../../prompts/util/review-report.md)
-requires a `VERDICT:` line followed by Blocking, Spec issues, Follow-ups, Non-blocking and Coverage sections.
-
-`ASSUMPTION` The earlier version of this design reports a 2026-10-07 load test against
-commit ce7b7af ([prior design](https://github.com/symbiotic-sh/house-rules/blob/5a7e3b9/docs/design/76-review-entry-skill.md)).
-`ASSUMPTION` The prior design reports that Claude loaded no review skill for a plain review request.
-`ASSUMPTION` The prior design reports that Codex loaded operator-writing and pr-ready, then read only three [reviewer-pack](#reviewer-pack) files.
-`ASSUMPTION` The prior design reports that Codex loaded operator-writing even for “hello.”
-The revision does not treat those inherited load-test results as measurements verified in this run.
-`ASSESSMENT` Narrowing a [skill description](#skill-description) alone leaves the current loader's broader trigger in force.
-The implementation therefore changes the descriptions, index triggers and core writing pointer together.
-
-<a id="design"></a>
-## Design
-
-The requirement records preserve this draft's proposed implementation contracts. Settled choices in [Decisions](#decisions) remain binding. Acceptance evidence remains planned.
-
-<a id="reviewer-pack"></a>
-### Reviewer pack
-
-**Reviewer pack:** the criteria and report format compiled from
-[prompts/roles/reviewer.md](../../prompts/roles/reviewer.md) and its recursive `@rule` includes.
-Interactive, lane and Warden reviewers apply the same criteria and report format.
-Normal House Rules sessions already load [shared rules](74-complete-worker-packs.md#shared-rule); Warden reviewers receive those rules through role includes.
-
-<a id="new-change-review-skill"></a>
-##### New change-review skill
-<a id="req-review-new-change-review-skill"></a>
-###### Requirement: New change-review skill
-
-This requirement defines new change-review skill for implementation.
-
-**Actor:** The implementer of this design.
-
-**Condition:** When implementing or qualifying this design.
-
-**Result:** The implementation adds the change-review skill at the complete repository-relative path
+The implementation adds the change-review skill at the complete repository-relative path
 `skills/change-review/SKILL.md`. The operator chose the name `change-review` on 2026-10-07.
 The change-review skill compiles the reviewer role instead of restating criteria or listing includes.
 New role includes therefore reach interactive reviews without a second rule owner.
 An explicit host command, such as Claude Code's `/code-review`, remains the operator's choice of tool.
 The change-review trigger covers review requests in plain words.
-
-**Verification:** Review the linked acceptance cases against this complete requirement.
-
-**Tests:** [Plain review](#test-review-plain), [Other wordings](#test-review-wordings), [Compiler unavailable](#test-review-compiler-refusal), [Short review and questions](#test-review-short-review), [Review text checks](#test-review-text).
-
-**Status:** [Proposed implementation](#design).
-
-**Basis:** [Review skill name](#review-skill-name), [Review prompt source](#review-prompt-source), [Rule ownership decision](#review-shared-rule-owner), [Plain review count](#plain-review-count), [Chat review format](#chat-review-format), [Review question format](#review-question-format).
-
 
 Proposed skill text:
 
@@ -187,7 +105,7 @@ license: MIT
 Review the change yourself against the shared lane and Warden reviewer criteria.
 This skill delivers the reviewer pack and adapts the pack to an interactive session.
 
-## Compile the reviewer pack
+## 1. Compile the reviewer pack
 
 Find the House Rules root from the session's pointer to `<HOUSE_RULES_ROOT>/INDEX.md`.
 Select a named House Rules commit for the review pack.
@@ -206,7 +124,7 @@ The pack-assembly design owns that option and its command syntax.
   Do not substitute live checkout files or an incomplete pack.
 - After compaction, compile the pack again from the same named commit.
 
-## Apply the pack in this session
+## 2. Apply the pack in this session
 
 - The session's already-loaded rules stay in force.
 - Perform a read-only review and run at most one targeted test to resolve a specific suspected finding.
@@ -219,69 +137,29 @@ The pack-assembly design owns that option and its command syntax.
 - A plain review request gets one reviewer.
   Start a panel only when the operator asks for a panel, through pr-ready.
 
-## After the review
+## 3. After the review
 
 Fixing findings, pushing, further dispatched review rounds and merging continue in skill pr-ready.
 A requested specialist hand-off follows the specialist-subagent design and the agent-lanes skill.
 The specialist receives a reviewer pack compiled from the same named commit.
 ````
 
-**Entities in this example:** [Shared rule](74-complete-worker-packs.md#shared-rule), [Instruction pointer](73-instruction-layer-foundation.md#instruction-pointer), [Reviewer pack](#reviewer-pack), [Dispatcher](75-subagent-profiles.md#dispatcher), [Specialist](75-subagent-profiles.md#specialist), [Subagent](75-subagent-profiles.md#subagent).
-
 `ASSESSMENT` Resolving the House Rules clone's HEAD once is the simplest default when no dispatcher supplies a commit.
 The resolved commit remains fixed through compaction, so edits or branch changes cannot alter the review pack.
 The skill adds no stored pack, pin file, cache or manifest of its own.
 The pack-assembly design owns Git-object compilation and the session option
 ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
-The [specialist](75-subagent-profiles.md#specialist)-subagent design owns [specialist](75-subagent-profiles.md#specialist) launching
-([specialist](75-subagent-profiles.md#specialist)-subagent design (#75) ([source](https://github.com/symbiotic-sh/house-rules/pull/81))).
-If the [specialist launcher](75-subagent-profiles.md#specialist-launcher) has not landed, omit the [specialist](75-subagent-profiles.md#specialist) hand-off paragraph from the implementation.
-The [specialist](75-subagent-profiles.md#specialist)-subagent implementation then adds the hand-off paragraph when its launcher lands.
+The specialist-subagent design owns specialist launching
+([specialist-subagent design (#75)](https://github.com/symbiotic-sh/house-rules/pull/81)).
+If the specialist launcher has not landed, omit the specialist hand-off paragraph from the implementation.
+The specialist-subagent implementation then adds the hand-off paragraph when its launcher lands.
 
-<a id="review-compiler-refusal"></a>
-###### Failure state: review compiler unavailable
+### 2. House Rules index at `<HOUSE_RULES_ROOT>/INDEX.md`
 
-**Trigger:** The reviewer-pack compiler invocation fails or is unavailable.
-
-**Retained state:** The session’s already-loaded rules remain in force. No live checkout files or incomplete pack replace the failed compilation. Other retained artifacts are unspecified.
-
-**Outcome:** The session reports the compiler error and stops the review.
-
-**Recovery:** Recovery after an unavailable compiler is unspecified; it is not a declared permanent absence of recovery.
-
-**Authority:** The design lead resolves the unspecified artifact and recovery contract here before implementation approval. The review request alone authorizes no external write.
-
-**Verification:** [Compiler unavailable](#test-review-compiler-refusal).
-
-<a id="skill-description"></a>
-### Skill description
-
-**Description:** the frontmatter description that each host shows when matching a task to a skill.
-
-<a id="house-rules-index-at-index-md"></a>
-#### Index triggers
-<a id="req-review-house-rules-index-at-index-md"></a>
-##### Requirement: Index triggers
-
-This requirement defines index triggers for implementation.
-
-**Actor:** The implementer of this design.
-
-**Condition:** When implementing or qualifying this design.
-
-**Result:** The [foundation](75-subagent-profiles.md#session-foundation) design owns the index rename and the common [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape for installed and repository loaders
-(foundation design (#73) ([source](https://github.com/symbiotic-sh/house-rules/pull/79))).
-This implementation changes the following triggers in `INDEX.md`.
+The foundation design owns the index rename and the common pointer shape for installed and repository loaders
+([foundation design (#73)](https://github.com/symbiotic-sh/house-rules/pull/79)).
+This implementation changes the following triggers in `<HOUSE_RULES_ROOT>/INDEX.md`.
 The index keeps skill-name order.
-
-**Verification:** Review the linked acceptance cases against this complete requirement.
-
-**Tests:** [Plain review](#test-review-plain), [Other wordings](#test-review-wordings), [Greeting](#test-review-greeting), [Document control](#test-review-document), [Orchestration control](#test-review-orchestration), [Review text checks](#test-review-text).
-
-**Status:** [Proposed implementation](#design).
-
-**Basis:** [Review skill name](#review-skill-name), [Review index owner](#review-index-owner).
-
 
 Add the review trigger after bench-discipline:
 
@@ -295,8 +173,6 @@ Replace the operator-writing trigger:
 - Operator documents (Markdown files written for the operator or GitHub text), or questions to the operator: load [operator-writing](skills/operator-writing/SKILL.md).
 ```
 
-**Entities in this example:** [Operator document](#operator-document).
-
 Replace the pr-ready trigger:
 
 ```markdown
@@ -304,77 +180,25 @@ Replace the pr-ready trigger:
 ```
 
 The proposed triggers retain the index's `: load` link format.
-The implementation applies the trigger changes to the renamed index, not the [pointer](73-instruction-layer-foundation.md#instruction-pointer)-only loader.
+The implementation applies the trigger changes to the renamed index, not the pointer-only loader.
 
-<a id="pr-ready-description"></a>
-### Pr-ready description
-<a id="req-review-pr-ready-description"></a>
-#### Requirement: Pr-ready description
+### 3. Pr-ready description
 
-This requirement defines pr-ready description for implementation.
-
-**Actor:** The implementer of this design.
-
-**Condition:** When implementing or qualifying this design.
-
-**Result:** The implementation changes the description in [skills/pr-ready/SKILL.md](../../skills/pr-ready/SKILL.md).
+The implementation changes the description in [skills/pr-ready/SKILL.md](../../skills/pr-ready/SKILL.md).
 The pr-ready skill keeps orchestration of gates, delivery, dispatched review rounds and fixes.
-
-**Verification:** Review the linked acceptance cases against this complete requirement.
-
-**Tests:** [Plain review](#test-review-plain), [Orchestration control](#test-review-orchestration), [Review text checks](#test-review-text).
-
-**Status:** [Proposed implementation](#design).
-
-**Basis:** [Review skill name](#review-skill-name).
-
 
 ```yaml
 description: The change loop for a change you deliver — local fast gate, push, CI as the full gate, review rounds with dispatched reviewers, fixes, merge and cleanup. Use before pushing or marking a PR ready, when dispatching a review round or a review panel, when fixing review findings, and when merging a PR. Reviewing a change yourself uses skill change-review.
 ```
 
-<a id="everyday-reply"></a>
-### Everyday reply
+### 4. Operator-writing description and document rules
 
-**Everyday reply:** every chat reply, including answers, greetings, progress notes and reports.
-Every chat reply is an everyday reply for skill loading, including review reports and short status reports.
-This includes review reports in the fixed report format.
-A chat reply that asks the operator questions still follows the operator-writing question format.
-
-<a id="operator-document"></a>
-#### Operator document
-
-**Operator document:** a Markdown file written for the operator (a brief, report, ledger, design or decision document),
-or GitHub text. Chat replies are [everyday replies](#everyday-reply) for skill loading.
-
-<a id="operator-writing-description-and-document-rules"></a>
-##### Operator-writing description and document rules
-<a id="req-review-operator-writing-description-and-document-rules"></a>
-###### Requirement: Operator-writing description and document rules
-
-This requirement defines operator-writing description and document rules for implementation.
-
-**Actor:** The implementer of this design.
-
-**Condition:** When implementing or qualifying this design.
-
-**Result:** The implementation changes the description in
+The implementation changes the description in
 [skills/operator-writing/SKILL.md](../../skills/operator-writing/SKILL.md):
-
-**Verification:** Review the linked acceptance cases against this complete requirement.
-
-**Tests:** [Plain review](#test-review-plain), [Greeting](#test-review-greeting), [Document control](#test-review-document), [Short review and questions](#test-review-short-review), [Review text checks](#test-review-text).
-
-**Status:** [Proposed implementation](#design).
-
-**Basis:** [Review question format](#review-question-format). The recorded choices do not separately authorize every writing-trigger or rule-move detail; those details remain design proposals.
-
 
 ```yaml
 description: Structure and question format for operator documents (Markdown files written for the operator, such as briefs, reports, ledgers, design and decision documents; or GitHub text, such as issues, PR bodies, review comments, replies, commit messages), and questions the operator must answer. Use when writing one of these, including questions raised during a review. Every chat reply is an everyday reply for skill loading, including review reports in the fixed report format and short status reports. Chat replies follow the writing rules in the foundation and do not load this skill unless they need an operator question or GitHub text. A chat reply that asks the operator questions still follows this skill's question format.
 ```
-
-**Entities in this example:** [Everyday reply](#everyday-reply), [Operator document](#operator-document), [Session foundation](75-subagent-profiles.md#session-foundation).
 
 The operator-writing skill keeps its document structure, option numbering, diagrams, numbered steps and worked example.
 The operator-writing skill also keeps its operator-document rules for closeout reports, replacement reports and the requested-outcome guidance.
@@ -383,8 +207,8 @@ Every review question uses that question format, including lane and Warden revie
 The worker-pack design owns delivery of shared question instructions to role prompts
 ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
 
-The implementation deletes the operator-writing [Communication rules](../../skills/operator-writing/SKILL.md#communication-rules) self-trigger.
-The implementation moves the general reply rules into [rules/writing.md](../../rules/writing.md), as specified in [General communication rules](#general-communication-rules).
+The implementation deletes the operator-writing §Communication rules self-trigger.
+The implementation moves the general reply rules into [rules/writing.md](../../rules/writing.md), as specified in Design §5.
 The decision-brief pointer moves to the operator-writing opening paragraph.
 
 Proposed replacement opening in the operator-writing skill:
@@ -397,29 +221,11 @@ every reply opens and orders its parts. Use decision-brief for decisions and exp
 The operator-writing document-structure section changes “Lead with the result” to “A document leads with the result.”
 The operator-writing document-structure section changes “the parts the message needs” to “the parts the document needs.”
 
-<a id="general-communication-rules"></a>
-### General communication rules
-<a id="req-review-general-communication-rules"></a>
-#### Requirement: General communication rules
+### 5. General communication rules
 
-This requirement defines general communication rules for implementation.
-
-**Actor:** The implementer of this design.
-
-**Condition:** When implementing or qualifying this design.
-
-**Result:** The implementation appends the following rules to [Communication rules](../../rules/writing.md#communication-rules).
+The implementation appends the following rules to [rules/writing.md](../../rules/writing.md) §Communication rules.
 The existing writing introduction already gives the order: what happened, why it matters and what to do.
 The implementation adds no second ordering rule.
-
-**Verification:** Review the linked acceptance cases against this complete requirement.
-
-**Tests:** [Greeting](#test-review-greeting), [Document control](#test-review-document), [Short review and questions](#test-review-short-review), [Review text checks](#test-review-text).
-
-**Status:** [Proposed implementation](#design).
-
-**Basis:** [Rule ownership decision](#review-shared-rule-owner). The recorded choices do not separately authorize every writing-trigger or rule-move detail; those details remain design proposals.
-
 
 ```markdown
 - Omit empty parts; do not add parts the message does not need.
@@ -436,35 +242,14 @@ The implementation adds no second ordering rule.
   operator-writing.
 ```
 
-**Entities in this example:** [Operator document](#operator-document).
-
 The moved rules have one owner in [rules/writing.md](../../rules/writing.md).
 The worker-pack design owns shared writing, Git and priority-label rule files under `rules/`
 ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
 This implementation adds no verbatim writing-rule copy under `prompts/util/`.
 
-<a id="other-references"></a>
-### Other references
-<a id="req-review-other-references"></a>
-#### Requirement: Other references
+### 6. Other references
 
-This requirement defines other references for implementation.
-
-**Actor:** The implementer of this design.
-
-**Condition:** When implementing or qualifying this design.
-
-**Result:** Preserve the behavior and qualifications defined below.
-
-**Verification:** Review the linked acceptance cases against this complete requirement.
-
-**Tests:** [Review text checks](#test-review-text).
-
-**Status:** [Proposed implementation](#design).
-
-**Basis:** [Rule ownership decision](#review-shared-rule-owner), [Review skill name](#review-skill-name). The recorded choices do not separately authorize every writing-trigger or rule-move detail; those details remain design proposals.
-
-- The implementation deletes the operator-writing [Communication rules](../../skills/operator-writing/SKILL.md#communication-rules) loading bullet from
+- The implementation deletes the operator-writing §Communication rules loading bullet from
   [rules/core.md](../../rules/core.md). The core keeps “rules/writing.md governs all text.”
 - The implementation changes the response-style pointer in
   [skills/operator-protocol/SKILL.md](../../skills/operator-protocol/SKILL.md) to the writing-rule owner.
@@ -475,47 +260,29 @@ This requirement defines other references for implementation.
   [skills/reasoning-moves/SKILL.md](../../skills/reasoning-moves/SKILL.md),
   [skills/work-tracking/SKILL.md](../../skills/work-tracking/SKILL.md),
   [skills/upstream-contribution/SKILL.md](../../skills/upstream-contribution/SKILL.md)
-  and [Push and CI](../../skills/pr-ready/SKILL.md#push-and-ci).
+  and [skills/pr-ready/SKILL.md](../../skills/pr-ready/SKILL.md) §2.
 - The implementation adds one provenance entry to [CHANGELOG-RULES.md](../../CHANGELOG-RULES.md).
   The provenance entry cites the operator's 2026-10-07 choice of the change-review skill and narrowed writing trigger.
 
-<a id="implementation-tests"></a>
-### Implementation tests
-<a id="req-review-implementation-tests"></a>
-#### Requirement: Implementation tests
+### 7. Implementation tests
 
-This requirement defines implementation tests for implementation.
-
-**Actor:** The implementer of this design.
-
-**Condition:** When implementing or qualifying this design.
-
-**Result:** The implementation updates [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py).
+The implementation updates [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py).
 The following test changes are proposals for the implementation, not results of this design-only revision.
-
-**Verification:** Review the linked acceptance cases against this complete requirement.
-
-**Tests:** [Review text checks](#test-review-text).
-
-**Status:** [Proposed implementation](#design).
-
-**Basis:** [Chat review format](#chat-review-format), [Plain review count](#plain-review-count), [Review question format](#review-question-format), [Review prompt source](#review-prompt-source).
-
 
 Updated tests:
 
 - Rename `test_reset_reloads_skills_and_references_the_writing_rule_owner` to
   `test_reset_reloads_skills_and_writing_rules_name_operator_writing` after the foundation change lands.
   The renamed test checks the core writing pointer and the writing-rule pointer to operator-writing.
-- Change `test_each_invariant_sentence_fits_twenty_words` to read the [Communication rules](../../rules/writing.md#communication-rules).
+- Change `test_each_invariant_sentence_fits_twenty_words` to read the writing-rule §Communication rules.
 - Extend `test_moved_sections_have_one_rule_owner` to require each moved sentence only in the writing-rule owner.
 
 New tests:
 
 - `test_review_entry_compiles_the_reviewer_pack` checks the role entry path, compiler path and named-commit requirement.
   The test rejects copied review criteria and a live-checkout fallback in the change-review skill.
-- `test_review_and_writing_triggers_are_aligned` checks the three index triggers and their matching [skill descriptions](#skill-description).
-  The test reads `INDEX.md` after the foundation rename.
+- `test_review_and_writing_triggers_are_aligned` checks the three index triggers and their matching skill descriptions.
+  The test reads `<HOUSE_RULES_ROOT>/INDEX.md` after the foundation rename.
   The test checks that the definitions, operator-writing trigger and description classify every chat reply
   as an everyday reply for skill loading, including review reports and short status reports.
   Markdown files written for the operator, operator questions and GitHub text still load operator-writing.
@@ -525,42 +292,23 @@ New tests:
 The index link-resolution test must cover the new skill and the renamed index.
 The pack-assembly and worker-pack designs own tests for Git-object reads and shared-rule include selection.
 
-<a id="rejected-alternatives"></a>
 ## Rejected alternatives
 
 - Widen the pr-ready trigger to plain reviews: rejected because a plain review does not need delivery orchestration.
-- Copy review criteria or a compiled [reviewer pack](#reviewer-pack) into the skill: rejected because shared criteria need one owner.
+- Copy review criteria or a compiled reviewer pack into the skill: rejected because shared criteria need one owner.
 - List reviewer include files in the skill: rejected because a list duplicates the role's `@rule` declarations.
 - Use a Claude-only skill-load command: rejected because the review entry must also work in Codex.
-- Shorten operator-writing while keeping its broad trigger: rejected because [everyday replies](#everyday-reply) would still load document procedure.
+- Shorten operator-writing while keeping its broad trigger: rejected because everyday replies would still load document procedure.
 - Default to a short chat review: rejected by the operator on 2026-10-07; the fixed format is the default.
 - Start a second-model reviewer for every plain request: rejected by the operator on 2026-10-07; panels require a request.
 - Leave the skill name open: rejected by the operator on 2026-10-07; the name is `change-review`.
 
-<a id="size-and-persistent-state"></a>
 ## Size and persistent state
-<a id="req-review-size-and-persistent-state"></a>
-### Requirement: Size and persistent state
 
-This requirement defines size and persistent state for implementation.
-
-**Actor:** The implementer of this design.
-
-**Condition:** When implementing or qualifying this design.
-
-**Result:** `ESTIMATE` The change-review skill and complete [reviewer pack](#reviewer-pack) replace the broader procedure reads reported by the prior design.
+`ESTIMATE` The change-review skill and complete reviewer pack replace the broader procedure reads reported by the prior design.
 Exact byte and token counts depend on the shared-rule and prompt-compiler changes that land first.
-The implementation measures skill size, emitted pack size and [foundation](75-subagent-profiles.md#session-foundation) size after those dependencies land.
+The implementation measures skill size, emitted pack size and foundation size after those dependencies land.
 The implementation reports those counts with the compiler revision and counting command.
-
-**Verification:** Review the linked acceptance cases against this complete requirement.
-
-**Tests:** [Review text checks](#test-review-text).
-
-**Status:** [Proposed implementation](#design).
-
-**Basis:** [Review skill name](#review-skill-name), [Rule ownership decision](#review-shared-rule-owner).
-
 
 The implementation adds one skill source at `skills/change-review/SKILL.md`, as required by the review-entry result.
 The implementation adds no stored state, index, projection, cache, queue, mirror, compiled pack or separate pin checkout.
@@ -568,176 +316,9 @@ The foundation design owns the index rename; this implementation only edits its 
 The implementation removes duplicate general communication sentences from the operator-writing skill.
 The implementation keeps the canonical communication sentences in the writing-rule owner.
 
-<a id="rollout-and-interfaces-with-the-other-designs"></a>
-## Rollout and interfaces with the other designs
-<a id="req-review-rollout-and-interfaces-with-the-other-designs"></a>
-### Requirement: Rollout and interfaces with the other designs
-
-This requirement defines rollout and interfaces with the other designs for implementation.
-
-**Actor:** The implementer of this design.
-
-**Condition:** When implementing or qualifying this design.
-
-**Result:** Preserve the behavior and qualifications defined below.
-
-**Verification:** Review the linked acceptance cases against this complete requirement.
-
-**Tests:** [Plain review](#test-review-plain), [Other wordings](#test-review-wordings), [Compiler unavailable](#test-review-compiler-refusal), [Greeting](#test-review-greeting), [Document control](#test-review-document), [Orchestration control](#test-review-orchestration), [Short review and questions](#test-review-short-review), [Review text checks](#test-review-text).
-
-**Status:** [Proposed implementation](#design).
-
-**Basis:** [Review lane sessions](#review-lane-sessions), [Review prompt source](#review-prompt-source), [Review index owner](#review-index-owner).
-
-- **1.** **Worker packs:** the worker-pack design owns shared files in `rules/`, role includes and normal-session [lane workers](75-subagent-profiles.md#lane-worker)
-   ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
-   Lane workers load live [session rules](74-complete-worker-packs.md#session-rule); only their role prompt comes from the named commit.
-   Warden reviewers stay read-only, without builds or tests and without network access except the model provider.
-   Continuous integration runs builds and tests; Warden posts reviews, and Mac lane scripts start local fixers.
-- **2.** **Pack assembly:** the pack-assembly design owns named-commit Git-object compilation and the session shared-rule option
-   ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
-   This implementation uses the same compiler contract as lane review panels and Warden role compilation.
-   This implementation does not require a separate pinned checkout or compile from uncommitted files.
-- **3.** **[Foundation](75-subagent-profiles.md#session-foundation):** the foundation design owns only the index rename and pointer shape under [Index-only direction](73-instruction-layer-foundation.md#index-only-direction)
-   (foundation design (#73) ([source](https://github.com/symbiotic-sh/house-rules/pull/79))).
-   Every rule file stays always loaded with its existing text and loading triggers. This review-entry implementation separately changes the index's skill triggers and the core's operator-writing pointer after the foundation lands.
-- **4.** **[Specialists](75-subagent-profiles.md#specialist):** the [specialist](75-subagent-profiles.md#specialist)-[subagent](75-subagent-profiles.md#subagent) design owns [specialist](75-subagent-profiles.md#specialist) hand-offs and safe-mode skill delivery
-   ([specialist](75-subagent-profiles.md#specialist)-subagent design (#75) ([source](https://github.com/symbiotic-sh/house-rules/pull/81))).
-   This implementation adds no [specialist launcher](75-subagent-profiles.md#specialist-launcher), isolated lane-worker home or new [specialist](75-subagent-profiles.md#specialist) policy.
-- **5.** **Installation and pins:** update the operator checkout after merge and run
-   [scripts/sync.py](../../scripts/sync.py).
-   Install the new skill links according to [Install House Rules instructions and Skills](../../INSTALL-AGENTS.md#install-house-rules-instructions-and-skills).
-   Qualify lane and Warden prompt revisions through the pack-assembly rollout; this design grants no qualification waiver.
-
-The intended merge order remains worker packs, pack assembly, foundation, review entry, then [specialist](75-subagent-profiles.md#specialist) subagents.
-Dependency implementation must preserve the review-entry acceptance criteria before the review-entry change merges.
-
-<a id="decisions"></a>
-## Decisions
-
-These records preserve the recorded choices and their stated authority. Unrecorded reasons remain unrecorded.
-
-<a id="chat-review-format"></a>
-### Decision: Chat review format
-
-**Choice:** The operator chose the lane and Warden fixed report format for chat reviews.
-   The operator allows a shorter report when the operator asks for one.
-
-**Authority:** Operator, recorded 2026-10-07.
-
-**Reason:** No separate rationale is recorded beyond the retained choice.
-
-**Rejected alternatives:** Default to a short chat review: rejected by the operator on 2026-10-07; the fixed format is the default.
-
-<a id="review-question-format"></a>
-### Decision: Review question format
-
-**Choice:** The operator chose the operator-writing question format everywhere, including review questions.
-
-**Authority:** Operator, recorded 2026-10-07.
-
-**Reason:** No separate rationale is recorded beyond the retained choice.
-
-**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
-
-<a id="plain-review-count"></a>
-### Decision: Plain review count
-
-**Choice:** The operator chose one reviewer for a plain request outside lanes and Warden.
-   A review panel starts only when the operator asks for a panel.
-
-**Authority:** Operator, recorded 2026-10-07.
-
-**Reason:** No separate rationale is recorded beyond the retained choice.
-
-**Rejected alternatives:** Start a second-model reviewer for every plain request: rejected by the operator on 2026-10-07; panels require a request.
-
-<a id="review-skill-name"></a>
-### Decision: Review skill name
-
-**Choice:** The operator named the skill `change-review`.
-
-**Authority:** Operator, recorded 2026-10-07.
-
-**Reason:** No separate rationale is recorded beyond the retained choice.
-
-**Rejected alternatives:** Widen the pr-ready trigger to plain reviews: rejected because a plain review does not need delivery orchestration. Leave the skill name open: rejected by the operator on 2026-10-07; the name is `change-review`.
-
-<a id="review-shared-rule-owner"></a>
-### Decision: Review shared-rule owner
-
-**Choice:** The operator chose one shared home in `rules/`, without verbatim prompt copies.
-   The worker-pack design owns shared-rule files and role inclusion
-   ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
-
-**Authority:** Operator, recorded 2026-10-07.
-
-**Reason:** No separate rationale is recorded beyond the retained choice.
-
-**Rejected alternatives:** Copy review criteria or a compiled [reviewer pack](#reviewer-pack) into the skill: rejected because shared criteria need one owner. List reviewer include files in the skill: rejected because a list duplicates the role's `@rule` declarations.
-
-<a id="review-lane-sessions"></a>
-### Decision: Review lane sessions
-
-**Choice:** The operator chose normal House Rules sessions for [lane workers](75-subagent-profiles.md#lane-worker).
-   The worker-pack and pack-assembly designs own role compilation for those sessions
-   ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80),
-   [pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
-
-**Authority:** Operator, recorded 2026-10-07.
-
-**Reason:** No separate rationale is recorded beyond the retained choice.
-
-**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
-
-<a id="review-prompt-source"></a>
-### Decision: Review prompt source
-
-**Choice:** The operator chose Git objects from a named House Rules commit for every prompt.
-   The pack-assembly design owns that compiler contract
-   ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
-
-**Authority:** Operator, recorded 2026-10-07.
-
-**Reason:** No separate rationale is recorded beyond the retained choice.
-
-**Rejected alternatives:** Use a Claude-only skill-load command: rejected because the review entry must also work in Codex.
-
-<a id="review-index-owner"></a>
-### Decision: Review index owner
-
-**Choice:** The operator chose `INDEX.md` as the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
-   The [foundation](75-subagent-profiles.md#session-foundation) design owns the rename and [pointer](73-instruction-layer-foundation.md#instruction-pointer)-only loaders
-   (foundation design (#73) ([source](https://github.com/symbiotic-sh/house-rules/pull/79))).
-
-**Authority:** Operator, recorded 2026-10-07.
-
-**Reason:** No separate rationale is recorded beyond the retained choice.
-
-**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
-
-<a id="open-points"></a>
-## Open points
-
-No operator question remains open in this design. The design lead must resolve unspecified artifact retention and recovery in [Review compiler unavailable](#review-compiler-refusal) before implementation approval.
-The implementation needs the pack-assembly compiler's final syntax for the already-loaded shared-rule option.
-The pack-assembly implementation closes that integration point by publishing its compiler interface and passing its tests.
-The review-entry implementation then uses that interface and runs the canaries and targeted text tests above.
-
-<a id="reference"></a>
-## Reference
-
-This lookup points to the existing integration contract.
-Exact interfaces remain with their linked owners in the design.
-<a id="verification"></a>
 ## Verification
 
-<a id="canary-run-meaning"></a>
 ### Canary run
-
-**Canary run:** a headless session whose tool log shows which files and skills the agent loaded.
-Canary evidence comes from the tool log, never from the agent's own report.
-
 
 The implementation runs canaries in test homes for Claude and Codex linked to the implementation checkout's skills.
 The canary runner compiles packs from a named implementation commit.
@@ -745,145 +326,31 @@ Canary evidence comes from Claude tool calls and Codex completed command-executi
 The implementation runs each case three times per tool.
 `ASSESSMENT` Three repetitions can expose a consistent miss but do not measure a trigger rate.
 
+1. **Plain review:** “Review the most recent commit of `<fixture repository>` for defects. Read-only.”
+   Pass: change-review loads, the compiler reads the reviewer role from a named commit, and one reviewer answers.
+   Pass also requires a `VERDICT:` line and the fixed report sections.
+   Neither pr-ready nor operator-writing loads unless the review needs an operator question or GitHub text.
+2. **Other wordings:** “Look over the diff `git diff main...HEAD` in `<fixture repository>`” and
+   “Check branch `<branch>` for bugs; do not post anything.”
+   Each wording has the same pass conditions as the plain-review case.
+3. **Compiler unavailable:** deny the compiler invocation for the plain-review case.
+   Pass: the agent reports the compiler failure and stops without substituting checkout files or an incomplete pack.
+4. **Greeting:** “hello.”
+   Pass: neither operator-writing nor change-review loads.
+5. **Document control:** “Draft, but do not post, a GitHub issue body for a typo in `<fixture repository>/README.md`.”
+   Pass: operator-writing loads.
+6. **Orchestration control:** “List the steps to land branch `<branch>` as a merged pull request. Do not push or edit.”
+   Pass: pr-ready loads and change-review does not.
+7. **Short review and questions:** request a shorter review, then use a fixture requiring an operator question.
+   Pass: the report honors the shorter request, and the question uses the operator-writing question format.
 
 The acceptance criteria are the plain-review and greeting cases in both tools.
 The other cases guard the trigger, failure path and settled report behavior.
 Any failed canary blocks implementation merge until the failure is understood and resolved.
 
-<a id="test-review-plain"></a>
-#### Demonstration: Plain review
+### Text tests
 
-This planned case checks the retained plain criteria.
-
-**Method:** demonstration.
-
-**Requirements:** [New change-review skill](#req-review-new-change-review-skill), [Index triggers](#req-review-house-rules-index-at-index-md), [Pr-ready description](#req-review-pr-ready-description), [Operator-writing description and document rules](#req-review-operator-writing-description-and-document-rules), [Rollout and interfaces with the other designs](#req-review-rollout-and-interfaces-with-the-other-designs).
-
-**Inputs:** The implementation candidate and the setup described below.
-
-**Expected:** **Plain review:** “Review the most recent commit of `<fixture repository>` for defects. Read-only.”
-   Pass: change-review loads, the compiler reads the reviewer role from a named commit, and one reviewer answers.
-   Pass also requires a `VERDICT:` line and the fixed report sections.
-   Neither pr-ready nor operator-writing loads unless the review needs an operator question or GitHub text.
-
-
-Planned evidence for plain: [record observations against these criteria](#req-review-new-change-review-skill).
-
-<a id="test-review-wordings"></a>
-#### Demonstration: Other wordings
-
-This planned case checks the retained wordings criteria.
-
-**Method:** demonstration.
-
-**Requirements:** [New change-review skill](#req-review-new-change-review-skill), [Index triggers](#req-review-house-rules-index-at-index-md), [Rollout and interfaces with the other designs](#req-review-rollout-and-interfaces-with-the-other-designs).
-
-**Inputs:** The implementation candidate and the setup described below.
-
-**Expected:** **Other wordings:** “Look over the diff `git diff main...HEAD` in `<fixture repository>`” and
-   “Check branch `<branch>` for bugs; do not post anything.”
-   Each wording has the same pass conditions as the plain-review case.
-
-
-Planned evidence for wordings: [record observations against these criteria](#req-review-new-change-review-skill).
-
-<a id="test-review-compiler-refusal"></a>
-#### Demonstration: Compiler unavailable
-
-This planned case checks the retained compiler refusal criteria.
-
-**Method:** demonstration.
-
-**Requirements:** [New change-review skill](#req-review-new-change-review-skill), [Rollout and interfaces with the other designs](#req-review-rollout-and-interfaces-with-the-other-designs).
-
-**Inputs:** The implementation candidate and the setup described below.
-
-**Expected:** **Compiler unavailable:** deny the compiler invocation for the plain-review case.
-   Pass: the agent reports the compiler failure and stops without substituting checkout files or an incomplete pack.
-
-
-Planned evidence for compiler refusal: [record observations against these criteria](#req-review-new-change-review-skill).
-
-<a id="test-review-greeting"></a>
-#### Demonstration: Greeting
-
-This planned case checks the retained greeting criteria.
-
-**Method:** demonstration.
-
-**Requirements:** [Index triggers](#req-review-house-rules-index-at-index-md), [Operator-writing description and document rules](#req-review-operator-writing-description-and-document-rules), [General communication rules](#req-review-general-communication-rules), [Rollout and interfaces with the other designs](#req-review-rollout-and-interfaces-with-the-other-designs).
-
-**Inputs:** The implementation candidate and the setup described below.
-
-**Expected:** **Greeting:** “hello.”
-   Pass: neither operator-writing nor change-review loads.
-
-
-Planned evidence for greeting: [record observations against these criteria](#req-review-house-rules-index-at-index-md).
-
-<a id="test-review-document"></a>
-#### Demonstration: Document control
-
-This planned case checks the retained document criteria.
-
-**Method:** demonstration.
-
-**Requirements:** [Index triggers](#req-review-house-rules-index-at-index-md), [Operator-writing description and document rules](#req-review-operator-writing-description-and-document-rules), [General communication rules](#req-review-general-communication-rules), [Rollout and interfaces with the other designs](#req-review-rollout-and-interfaces-with-the-other-designs).
-
-**Inputs:** The implementation candidate and the setup described below.
-
-**Expected:** **Document control:** “Draft, but do not post, a GitHub issue body for a typo in `<fixture repository>/README.md`.”
-   Pass: operator-writing loads.
-
-
-Planned evidence for document: [record observations against these criteria](#req-review-house-rules-index-at-index-md).
-
-<a id="test-review-orchestration"></a>
-#### Demonstration: Orchestration control
-
-This planned case checks the retained orchestration criteria.
-
-**Method:** demonstration.
-
-**Requirements:** [Index triggers](#req-review-house-rules-index-at-index-md), [Pr-ready description](#req-review-pr-ready-description), [Rollout and interfaces with the other designs](#req-review-rollout-and-interfaces-with-the-other-designs).
-
-**Inputs:** The implementation candidate and the setup described below.
-
-**Expected:** **Orchestration control:** “List the steps to land branch `<branch>` as a merged pull request. Do not push or edit.”
-   Pass: pr-ready loads and change-review does not.
-
-
-Planned evidence for orchestration: [record observations against these criteria](#req-review-house-rules-index-at-index-md).
-
-<a id="test-review-short-review"></a>
-#### Demonstration: Short review and questions
-
-This planned case checks the retained short review criteria.
-
-**Method:** demonstration.
-
-**Requirements:** [New change-review skill](#req-review-new-change-review-skill), [Operator-writing description and document rules](#req-review-operator-writing-description-and-document-rules), [General communication rules](#req-review-general-communication-rules), [Rollout and interfaces with the other designs](#req-review-rollout-and-interfaces-with-the-other-designs).
-
-**Inputs:** The implementation candidate and the setup described below.
-
-**Expected:** **Short review and questions:** request a shorter review, then use a fixture requiring an operator question.
-   Pass: the report honors the shorter request, and the question uses the operator-writing question format.
-
-
-Planned evidence for short review: [record observations against these criteria](#req-review-new-change-review-skill).
-
-<a id="test-review-text"></a>
-#### Inspection: Review text checks
-
-This planned case checks the retained text criteria.
-
-**Method:** inspection.
-
-**Requirements:** [New change-review skill](#req-review-new-change-review-skill), [Index triggers](#req-review-house-rules-index-at-index-md), [Pr-ready description](#req-review-pr-ready-description), [Operator-writing description and document rules](#req-review-operator-writing-description-and-document-rules), [General communication rules](#req-review-general-communication-rules), [Other references](#req-review-other-references), [Implementation tests](#req-review-implementation-tests), [Size and persistent state](#req-review-size-and-persistent-state), [Rollout and interfaces with the other designs](#req-review-rollout-and-interfaces-with-the-other-designs).
-
-**Inputs:** The implementation candidate and the setup described below.
-
-**Expected:** The implementation runs targeted changed tests in
+The implementation runs targeted changed tests in
 [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py)
 and `python3 scripts/test_sync.py`.
 Continuous integration owns the complete suite on push.
@@ -893,5 +360,56 @@ The comparison records both commit IDs and separates revision headers from revie
 The implementation must not introduce a new difference in shared review criteria or report format.
 Different shared-rule delivery modes do not require byte-identical prompt text.
 
+## Rollout and interfaces with the other designs
 
-Planned evidence for text: [record observations against these criteria](#req-review-new-change-review-skill).
+1. **Worker packs:** the worker-pack design owns shared files in `rules/`, role includes and normal-session lane workers
+   ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
+   Lane workers load live session rules; only their role prompt comes from the named commit.
+   Warden reviewers stay read-only, without builds or tests and without network access except the model provider.
+   Continuous integration runs builds and tests; Warden posts reviews, and Mac lane scripts start local fixers.
+2. **Pack assembly:** the pack-assembly design owns named-commit Git-object compilation and the session shared-rule option
+   ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
+   This implementation uses the same compiler contract as lane review panels and Warden role compilation.
+   This implementation does not require a separate pinned checkout or compile from uncommitted files.
+3. **Foundation:** the foundation design owns the smaller always-loaded core and `<HOUSE_RULES_ROOT>/INDEX.md`
+   ([foundation design (#73)](https://github.com/symbiotic-sh/house-rules/pull/79)).
+   This implementation changes the index's skill triggers and the core's operator-writing pointer after the foundation lands.
+4. **Specialists:** the specialist-subagent design owns specialist hand-offs and safe-mode skill delivery
+   ([specialist-subagent design (#75)](https://github.com/symbiotic-sh/house-rules/pull/81)).
+   This implementation adds no specialist launcher, isolated lane-worker home or new specialist policy.
+5. **Installation and pins:** update the operator checkout after merge and run
+   [scripts/sync.py](../../scripts/sync.py).
+   Install the new skill links according to [INSTALL-AGENTS.md](../../INSTALL-AGENTS.md) §3.
+   Qualify lane and Warden prompt revisions through the pack-assembly rollout; this design grants no qualification waiver.
+
+The intended merge order remains worker packs, pack assembly, foundation, review entry, then specialist subagents.
+Dependency implementation must preserve the review-entry acceptance criteria before the review-entry change merges.
+
+## Decisions
+
+1. **2026-10-07 — Chat review format.** The operator chose the lane and Warden fixed report format for chat reviews.
+   The operator allows a shorter report when the operator asks for one.
+2. **2026-10-07 — Review questions.** The operator chose the operator-writing question format everywhere, including review questions.
+3. **2026-10-07 — Reviewer count.** The operator chose one reviewer for a plain request outside lanes and Warden.
+   A review panel starts only when the operator asks for a panel.
+4. **2026-10-07 — Skill name.** The operator named the skill `change-review`.
+5. **2026-10-07 — Shared rules.** The operator chose one shared home in `rules/`, without verbatim prompt copies.
+   The worker-pack design owns shared-rule files and role inclusion
+   ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
+6. **2026-10-07 — Lane sessions.** The operator chose normal House Rules sessions for lane workers.
+   The worker-pack and pack-assembly designs own role compilation for those sessions
+   ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80),
+   [pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
+7. **2026-10-07 — Prompt source.** The operator chose Git objects from a named House Rules commit for every prompt.
+   The pack-assembly design owns that compiler contract
+   ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
+8. **2026-10-07 — Index name.** The operator chose `<HOUSE_RULES_ROOT>/INDEX.md` as the House Rules index.
+   The foundation design owns the rename and pointer-only loaders
+   ([foundation design (#73)](https://github.com/symbiotic-sh/house-rules/pull/79)).
+
+## Open points
+
+No operator question remains open in this design.
+The implementation needs the pack-assembly compiler's final syntax for the already-loaded shared-rule option.
+The pack-assembly implementation closes that integration point by publishing its compiler interface and passing its tests.
+The review-entry implementation then uses that interface and runs the canaries and targeted text tests above.

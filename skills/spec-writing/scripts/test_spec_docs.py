@@ -178,6 +178,21 @@ class CorpusTests(unittest.TestCase):
         self.assertTrue(s.check(corpus(self.paths)).ok)
         self.assertEqual(s.link_missing(corpus(self.paths)), {})
 
+    def test_link_repair_preserves_markdown_sensitive_visible_names(self):
+        metadata(self.paths, s.JSON_PATHS[0], lambda value:
+                 value['entities']['example.writer']['forms'].append('C:\\'))
+        self.paths[ACCEPTANCE] += b'\n<a id="path-use"></a>\n## Path use\n\nUse C:\\ here.\n'
+        before = corpus(self.paths)
+        self.assertIn('D12', {d.code for d in s.check(before).errors})
+        self.paths.update(s.link_missing(before))
+        after = corpus(self.paths)
+        self.assertEqual([s.visible(t.children) for t in before.markdown[ACCEPTANCE].tokens if t.type == 'inline'],
+                         [s.visible(t.children) for t in after.markdown[ACCEPTANCE].tokens if t.type == 'inline'])
+        self.assertEqual([(link.label, link.target) for link in after.markdown[ACCEPTANCE].links
+                          if link.label == 'C:\\'], [('C:\\', '#writer')])
+        self.assertTrue(s.check(refresh(self.paths)).ok)
+        self.assertEqual(s.link_missing(after), {})
+
     def test_link_prunes_repeats_per_level_two_scope_preserving_label_markup(self):
         self.paths[ACCEPTANCE] += b'\n<a id="repeats"></a>\n## Repeats\n\n[writer](#writer), [**Writer**](acceptance.md#writer).\n\n### Deeper\n\n[writer](#writer).\n\n<a id="next-scope"></a>\n## Next scope\n\n[writer](#writer), [writer](#writer).\n'
         before = self.paths[ACCEPTANCE]
@@ -997,6 +1012,54 @@ class CorpusTests(unittest.TestCase):
         self.assertIn('example-demo#settings', ctx.manifest['included'])
         self.assertEqual(len(ctx.manifest['ranges']), 2)
 
+    def test_automatic_decisions_expand_homes_and_dependencies_until_closure(self):
+        for mode in ('approval', 'removal', 'approval-chain'):
+            with self.subTest(mode=mode):
+                self.paths = self.clean.copy()
+                self.paths[SETTINGS] += b'\n<a id="selection"></a>\n## Selection\n\nStart with this narrow assignment.\n'
+                edit(self.paths, SETTINGS, '**Reason:** It covers homes, literal values, shared defaults and [acceptance](acceptance.md#acceptance) links.',
+                     '**Reason:** Use [commit capacity](#commit-capacity) to explain the selected policy.')
+                def sections(value):
+                    doc = value['documents'][0]
+                    doc['sections'].extend([
+                        dict(id=identity, path=SETTINGS, anchor=anchor, roles=[], summary=summary,
+                             prerequisites=[], explanatory_dependencies=deps)
+                        for identity, anchor, summary, deps in (
+                            ('selection', 'selection', 'Start a narrow assignment.', []),
+                            ('decision', 'fixture-decision', 'Record the approval authority.',
+                             [dict(section='example-demo#questions', reason='Explain recovery qualification.')]),
+                            ('questions', 'open-questions', 'Qualify candidate capacity.',
+                             [dict(section='example-demo#reference', reason='Read supporting evidence.')]),
+                            ('reference', 'reference', 'Locate refusal evidence.',
+                             [dict(section='example-demo#decision', reason='Return to the governing choice.')]))])
+                    if mode == 'removal':
+                        doc['status'] = 'draft'
+                        del doc['approval']
+                    elif mode == 'approval-chain':
+                        doc['approval']['decision'] = 'authority#decision'
+                        value['inventory'].append(dict(path='docs/example/authority.md', kind='specification'))
+                        value['documents'].append(dict(
+                            id='authority', title='Authority', status='approved',
+                            approval=dict(authority='fixture', decision='example-demo#fixture-decision'),
+                            purpose='Record delegated approval.', audience='Authors.', scope='One approval.', non_goals='Other policies.',
+                            navigation=dict(path='docs/generated/authority.md'), scenarios=[],
+                            sections=[dict(id='main', path='docs/example/authority.md', anchor='authority-section',
+                                           roles=corpus(self.clean).contract['roles'], summary='Find delegated approval evidence.',
+                                           prerequisites=[], explanatory_dependencies=[])]))
+                metadata(self.paths, s.JSON_PATHS[1], sections)
+                if mode == 'approval-chain':
+                    self.paths['docs/example/authority.md'] = b'<a id="authority-section"></a>\n# Authority\n\nDelegated approval applies here.\n\n<a id="decision"></a>\n## Decision\n\nUse the declared approval source.\n'
+                refresh(self.paths)
+                assignment = dict(version=1, sections=['example-demo#selection'])
+                if mode == 'removal':
+                    assignment['removal_decisions'] = {'example-demo#req-removed': 'example-demo#fixture-decision'}
+                ctx = self.context(assignment)
+                for identity in ('example-demo#questions', 'example-demo#reference', 'example.commit-capacity'):
+                    self.assertIn(identity, ctx.manifest['included'])
+                if mode == 'approval-chain':
+                    self.assertIn('authority#decision', ctx.manifest['included'])
+                self.assertIn(b'Qualify candidate capacity', ctx.content)
+
     def test_ordinary_links_in_added_home_do_not_expand_context(self):
         # Narrow the assigned range to Writer. Its home links Acceptance, which is
         # registered but must not join source context merely because it is linked.
@@ -1623,6 +1686,27 @@ class SnapshotTests(unittest.TestCase):
         errors = s.check(candidate, base).errors
         for identity in ('req-stale-revision', 'test-stale-revision'):
             self.assertTrue(any(d.code == 'D03' and identity in d.message for d in errors), errors)
+
+    def test_retirement_includes_heading_only_requirement_promotion(self):
+        target = self.root / ACCEPTANCE
+        original = target.read_text()
+        declaration = original[original.index('<a id="req-stale-revision"'):original.index('<a id="acceptance-stale-failure"')]
+        promoted = declaration.replace('req-stale-revision', 'req-promoted-history')
+        target.write_text(original + promoted.replace('### Requirement: stale-revision', '### Draft obligation'))
+        self.git('add', ACCEPTANCE)
+        self.git('commit', '-qm', 'fixture: anchored draft heading')
+        target.write_text(original + promoted)
+        self.git('add', ACCEPTANCE)
+        self.git('commit', '-qm', 'fixture: promote heading without anchor edits')
+        target.write_text(original)
+        self.git('add', ACCEPTANCE)
+        self.git('commit', '-qm', 'fixture: retire promoted requirement')
+        base = s.load_corpus(s.Snapshot.from_git(self.root, rev='HEAD', fixture=True))
+        target.write_text(original + promoted)
+        candidate = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        self.assertNotIn('D03', {d.code for d in s.check(candidate).errors})
+        self.assertTrue(any(d.code == 'D03' and 'req-promoted-history' in d.message
+                            for d in s.check(candidate, base).errors))
 
     def test_interrupted_multioutput_generation_is_visible_and_regenerable(self):
         manifest_path = self.root / s.JSON_PATHS[1]

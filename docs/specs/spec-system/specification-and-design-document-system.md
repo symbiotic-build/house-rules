@@ -100,7 +100,6 @@ Use this map to choose the next explanation to read.
 
 Each technical term below links to its defining Markdown section.
 
-- [Prompt compiler](../../design/77-one-step-pack-assembly.md#prompt-compiler) (`review-entry-skill.prompt-compiler`) — The prompt compiler assembles complete worker instructions from a named House Rules commit.
 - [Acceptance test](requirements-tests-and-failures.md#acceptance-test) (`spec-system.acceptance-test`) — An acceptance test is an identified verification case with a method, inputs and expected result linked to requirements.
 - [Addressable section](documents-homes-and-values.md#addressable-section) (`spec-system.addressable-section`) — An addressable section is a named heading subtree with a stable identity and an explicit anchor.
 - [Canonical fact](documents-homes-and-values.md#canonical-fact) (`spec-system.canonical-fact`) — A canonical fact is a named literal value declared once in a table at its entity's home.
@@ -119,7 +118,6 @@ Each technical term below links to its defining Markdown section.
 - [Source snapshot](checking-and-navigation.md#source-snapshot) (`spec-system.source-snapshot`) — A source snapshot is a captured set of repository paths, input bytes and source problems used by one documentation operation.
 - [Tool environment](source-formats.md#tool-environment) (`spec-system.tool-environment`) — The tool environment is an isolated Python installation running the shared documentation tool with its owned dependency pins.
 - [Writing profile](writing-and-review-workflow.md#writing-profile) (`spec-system.writing-profile`) — A writing profile is the versioned set of advisory prose targets read from the shared writing rules.
-- [Dispatcher](../../design/75-subagent-profiles.md#dispatcher) (`subagent-profiles.dispatcher`) — Dispatcher: the session or script that starts a subagent and writes its task.
 <!-- /spec-docs:navigation -->
 
 <a id="continuing-example"></a>

@@ -40,7 +40,7 @@ The following records preserve the decisions that determine source authority, ch
 
 **Authority:** Operator-approved design dated 2026-10-16.
 
-**Reason:** The helper, profile and format contract must agree when the [prompt compiler](../../design/77-one-step-pack-assembly.md#prompt-compiler) prepares documentation input.
+**Reason:** The helper, profile and format contract must agree when the [prompt compiler](../../design/77-one-step-pack-assembly.md) prepares documentation input.
 
 **Rejected alternatives:** Consumer-specific parser versions and checker copies create independent implementations. Alternate-parser and source-build fallbacks conceal failed setup instead of repairing the owning environment.
 

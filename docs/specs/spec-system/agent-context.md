@@ -10,7 +10,7 @@ The complete registry is a generated record of every [registered entity](documen
 
 The registry combines the [entity index](documents-homes-and-values.md#entity-index) with definitions and declarations from Markdown homes. Each entry includes identity, kind, scope, accepted forms, symbols, rejected forms, source location and the first definition sentence. Its facts retain their values, Status, Basis and qualifications. The [minimal corpus](minimal-corpus.md#example-entities) therefore contributes `example.batcher` and its capacity even when another section is assigned.
 
-The registry is mandatory; selection does not reduce it to the entities mentioned in the assignment. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) states in the reader’s task instructions that entries unrelated to the assignment are vocabulary reference material. An unrelated entry is available for vocabulary lookup; it does not make an assigned chapter self-explanatory. Entries have no separate reference marker in the output. The registry is rebuilt from authored sources; it requires no separate database or maintained mirror.
+The registry is mandatory; selection does not reduce it to the entities mentioned in the assignment. The [dispatcher](../../design/75-subagent-profiles.md) states in the reader’s task instructions that entries unrelated to the assignment are vocabulary reference material. An unrelated entry is available for vocabulary lookup; it does not make an assigned chapter self-explanatory. Entries have no separate reference marker in the output. The registry is rebuilt from authored sources; it requires no separate database or maintained mirror.
 
 <a id="context-pack"></a>
 ## Context pack
@@ -72,14 +72,14 @@ The pack includes recovery. An ordinary link from the added home to an unrelated
 | Home’s containing section declares recovery dependency | Recovery section |
 | Home links to an unrelated glossary | No further source |
 
-A comparison also includes the requirement change report and selected linked tests from the base and candidate. The [prompt compiler](../../design/77-one-step-pack-assembly.md#prompt-compiler) derives affected test selectors from both snapshots. Supply each removal decision explicitly in `removal_decisions`; the [change-review explanation](requirements-tests-and-failures.md#change-review) covers authority review.
+A comparison also includes the requirement change report and selected linked tests from the base and candidate. The [prompt compiler](../../design/77-one-step-pack-assembly.md) derives affected test selectors from both snapshots. Supply each removal decision explicitly in `removal_decisions`; the [change-review explanation](requirements-tests-and-failures.md#change-review) covers authority review.
 
 <a id="dispatch-and-invalidation"></a>
 ## Dispatch and invalidation
 
-Preparation checks that the selected input is complete and fits before any agent starts. The shared [prompt compiler](../../design/77-one-step-pack-assembly.md#prompt-compiler) loads `spec_docs.py`, runtime metadata, dependency lock, format contract and profile from its selected House Rules revision. Running the compiler from a checkout or archive of that commit uses those matching files.
+Preparation checks that the selected input is complete and fits before any agent starts. The shared [prompt compiler](../../design/77-one-step-pack-assembly.md) loads `spec_docs.py`, runtime metadata, dependency lock, format contract and profile from its selected House Rules revision. Running the compiler from a checkout or archive of that commit uses those matching files.
 
-The selector reports the complete pack’s UTF-8 byte count, including the embedded manifest. Provenance records the baseline, source and registry digests, profile digest, input fingerprints, versions, assignment, included identities and range reasons. Range offsets are zero-based with an exclusive end; displayed source labels use one-based lines. These records let the [dispatcher](../../design/75-subagent-profiles.md#dispatcher) detect which captured input an agent received.
+The selector reports the complete pack’s UTF-8 byte count, including the embedded manifest. Provenance records the baseline, source and registry digests, profile digest, input fingerprints, versions, assignment, included identities and range reasons. Range offsets are zero-based with an exclusive end; displayed source labels use one-based lines. These records let the [dispatcher](../../design/75-subagent-profiles.md) detect which captured input an agent received.
 
 The selector enforces only the documentation pack’s `budget_bytes` limit. After it returns, two external callers enforce their own limits. The compiler checks its assembled rules, documentation and task against a separate byte limit. The dispatcher, which starts the agent, reserves room for the response within its execution token limit. Optional material uses only the remainder. Every layer refuses excessive mandatory input rather than truncating it.
 
