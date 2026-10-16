@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "inventory": [
+    {
+      "path": "docs/example/acceptance.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/example/settings.md",
+      "kind": "specification"
+    }
+  ],
+  "documents": [
+    {
+      "id": "example-demo",
+      "title": "Write acceptance and settings",
+      "status": "approved",
+      "approval": {
+        "authority": "fixture",
+        "decision": "example-demo#fixture-decision"
+      },
+      "purpose": "Explain prepared-write checks before log entry.",
+      "audience": "Engineers familiar with revisions and write requests.",
+      "scope": "Acceptance and its byte and document limits.",
+      "non_goals": "The complete storage and crash-recovery contract.",
+      "navigation": {
+        "path": "docs/generated/example-demo.md"
+      },
+      "sections": [
+        {
+          "id": "acceptance",
+          "path": "docs/example/acceptance.md",
+          "anchor": "acceptance-section",
+          "roles": [
+            "tour",
+            "mechanism"
+          ],
+          "summary": "Acceptance checks current state before allocating numbers.",
+          "prerequisites": [],
+          "explanatory_dependencies": [
+            {
+              "section": "example-demo#settings",
+              "reason": "The example uses a declared byte limit."
+            }
+          ]
+        },
+        {
+          "id": "settings",
+          "path": "docs/example/settings.md",
+          "anchor": "settings-section",
+          "roles": [
+            "mechanism",
+            "requirements",
+            "decisions",
+            "questions",
+            "reference",
+            "acceptance"
+          ],
+          "summary": "Settings identify canonical values and qualifications.",
+          "prerequisites": [
+            "example-demo#acceptance"
+          ],
+          "explanatory_dependencies": []
+        }
+      ],
+      "scenarios": [
+        "example-demo#stale-revision"
+      ]
+    }
+  ]
+}

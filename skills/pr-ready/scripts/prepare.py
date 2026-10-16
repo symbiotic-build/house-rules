@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare local review, fix and PR context. Python 3.9+ stdlib and git; gh is optional."""
+"""Prepare local review, fix and PR context; registered specifications use the shared checker."""
 import argparse
 import json
 import os
@@ -350,14 +350,17 @@ def discover_spec(repo, head, explicit, texts, files, missing=None):
     return min(edited) if edited else None
 
 
-def requirement_entries(repo, args, pr, issues, comments, texts, commits, files, url, head, missing, notices):
+def requirement_entries(repo, args, pr, issues, comments, texts, commits, files, url, head, missing, notices,
+                        documentation=False):
     entries = []
     def add(category, source, source_link, body):
         entries.append(dict(category=category, source=source, link=source_link, body=body))
     reference_text = "\n".join([*texts, *(body for _, body in commits)])
     tests = list(dict.fromkeys([*[t.strip() for t in (args.tests or "").split(",") if t.strip()],
                               *re.findall(r"(?<![A-Za-z0-9_-])" + re.escape(args.test_prefix) + r"\d+(?![A-Za-z0-9_-])", reference_text)]))
-    path = discover_spec(repo, head, args.spec, [*texts, *(body for _, body in commits)], files, missing)
+    if documentation and (args.spec or args.tests):
+        raise PrepareError("registered specifications use --assignment sections and required_test_reviews, not --spec or --tests")
+    path = None if documentation else discover_spec(repo, head, args.spec, [*texts, *(body for _, body in commits)], files, missing)
     doc = None
     if args.spec and not path:
         missing.append(args.spec)
@@ -371,9 +374,9 @@ def requirement_entries(repo, args, pr, issues, comments, texts, commits, files,
             missing.append(path)
         else:
             doc = result.stdout
-    if doc is None:
+    if doc is None and not documentation:
         missing.extend(tests)
-    else:
+    elif doc is not None:
         source_link = link(url, head, path) if url else f"[{path}:1]({quote_from_bytes(os.fsencode(path), safe='/')}#L1)"
         add("spec", f"Design/spec {path} — Full document", source_link, doc)
         for test in tests:
@@ -507,7 +510,7 @@ def lens_settings(name, config=None):
     return settings[name]
 
 
-def review(repo, args, base, remote, head=None):
+def review(repo, args, base, remote, head=None, *, documentation_prepared=False):
     if head is None:
         head = git(repo, "rev-parse", "--verify", "--end-of-options",
                    (getattr(args, "rev", None) or "HEAD") + "^{commit}").strip()
@@ -521,6 +524,21 @@ def review(repo, args, base, remote, head=None):
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", lens):
         raise PrepareError("invalid lens name")
     context_only = getattr(args, "context_only", False)
+    context = None
+    if not documentation_prepared:
+        # Do not execute the live compiler during context-only legacy preparation.
+        # Repositories declaring metadata must use the shared selector instead.
+        registered = any(git(repo, "ls-tree", "--name-only", head, "--", path).strip()
+                         for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json"))
+        assignment_path = getattr(args, "assignment", None)
+        if registered or assignment_path:
+            from prompt import Commit, WorkingTree, documentation_context, review_plan, PromptError
+            try:
+                assignment = Path(assignment_path).read_bytes() if assignment_path else None
+                with Commit(repo, head) as target:
+                    context = documentation_context(WorkingTree(HERE.parents[2]), target, assignment, base=base, plan=review_plan([lens]))
+            except (PromptError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+                raise PrepareError(str(exc)) from exc
     common, instructions = "", ""
     if not context_only:
         from prompt import expand, PromptError
@@ -540,8 +558,12 @@ def review(repo, args, base, remote, head=None):
                         f"Range: `{rng}`; head: `{head}`", "", summary])]
     if context_only:
         parts = [f"The checkout under review is {repo}; read its files by absolute path.", *parts[2:]]
+    if context is not None:
+        from prompt import documentation_part
+        parts.append(documentation_part(context).decode("utf-8"))
     files = changed_files(repo, rng)
-    entries = requirement_entries(repo, args, pr, issues, comments, texts, commits, files, url, head, missing, notices)
+    entries = requirement_entries(repo, args, pr, issues, comments, texts, commits, files, url, head, missing, notices,
+                                  documentation=documentation_prepared or context is not None)
     if missing:
         notices.insert(0, "not found: " + ", ".join(dict.fromkeys(missing)))
     # Numstat is already collected; the remaining budget bounds structured reads
@@ -629,7 +651,7 @@ def brief(repo, args, base, status, update_note):
     return "\n".join(out)
 
 
-def main(argv=None):
+def main(argv=None, *, documentation_prepared=False):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
     for command in ("review", "fix", "pr", "base"):
@@ -641,6 +663,7 @@ def main(argv=None):
             p.add_argument("--rev", default="HEAD", help="commit to review; resolved before base preparation")
             p.add_argument("--context-only", action="store_true", help="emit task context for the commit-built pack compiler")
             p.add_argument("--compiled-chars", type=int, default=0, help="characters reserved for compiled parts and task separator")
+            p.add_argument("--assignment", type=Path, help="explicit shared-checker documentation assignment JSON")
             for option in ("pr", "spec", "tests", "lens", "summary"):
                 p.add_argument("--" + option)
             p.add_argument("--issue", action="append", default=[])
@@ -676,7 +699,7 @@ def main(argv=None):
         if args.command == "base":
             print(base)
         elif args.command == "review":
-            sys.stdout.write(review(repo, args, base, remote, head))
+            sys.stdout.write(review(repo, args, base, remote, head, documentation_prepared=documentation_prepared))
         else:
             status = ownership(repo, remote)
             if not fresh:

@@ -1,0 +1,21 @@
+{
+  "entities": {
+    "example.batcher": {
+      "forms": [
+        "batcher"
+      ],
+      "home": {
+        "anchor": "batcher",
+        "section": "example#main"
+      },
+      "kind": "component",
+      "rejected_forms": [],
+      "scope": [
+        "example"
+      ],
+      "symbols": []
+    }
+  },
+  "naming_rules": [],
+  "version": 1
+}

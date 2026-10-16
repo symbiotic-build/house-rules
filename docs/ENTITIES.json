@@ -1,0 +1,287 @@
+{
+  "version": 1,
+  "entities": {
+    "spec-system.source-document": {
+      "kind": "concept",
+      "home": {
+        "section": "spec-system#sources",
+        "anchor": "source-document"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "source document",
+        "source documents"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.addressable-section": {
+      "kind": "concept",
+      "home": {
+        "section": "spec-system#sources",
+        "anchor": "addressable-section"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "addressable section",
+        "addressable sections"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.document-manifest": {
+      "kind": "data",
+      "home": {
+        "section": "spec-system#sources",
+        "anchor": "document-manifest"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "document manifest"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.registered-entity": {
+      "kind": "concept",
+      "home": {
+        "section": "spec-system#sources",
+        "anchor": "registered-entity"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "registered entity",
+        "registered entities"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.entity-index": {
+      "kind": "data",
+      "home": {
+        "section": "spec-system#sources",
+        "anchor": "entity-index"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "entity index"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.canonical-fact": {
+      "kind": "concept",
+      "home": {
+        "section": "spec-system#sources",
+        "anchor": "canonical-fact"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "canonical fact",
+        "canonical facts"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.requirement-declaration": {
+      "kind": "concept",
+      "home": {
+        "section": "spec-system#obligations",
+        "anchor": "requirement-declaration"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "requirement declaration",
+        "requirement declarations"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.acceptance-test": {
+      "kind": "concept",
+      "home": {
+        "section": "spec-system#obligations",
+        "anchor": "acceptance-test"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "acceptance test",
+        "acceptance tests"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.scenario": {
+      "kind": "concept",
+      "home": {
+        "section": "spec-system#obligations",
+        "anchor": "scenario"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "scenario",
+        "scenarios"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.failure-declaration": {
+      "kind": "concept",
+      "home": {
+        "section": "spec-system#obligations",
+        "anchor": "failure-declaration"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "failure declaration",
+        "failure declarations"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.tool-environment": {
+      "kind": "component",
+      "home": {
+        "section": "spec-system#formats",
+        "anchor": "tool-environment"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "tool environment"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.source-snapshot": {
+      "kind": "data",
+      "home": {
+        "section": "spec-system#checking",
+        "anchor": "source-snapshot"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "source snapshot",
+        "source snapshots"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.documentation-checker": {
+      "kind": "component",
+      "home": {
+        "section": "spec-system#checking",
+        "anchor": "documentation-checker"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "documentation checker"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.navigation-generation": {
+      "kind": "mechanism",
+      "home": {
+        "section": "spec-system#checking",
+        "anchor": "navigation-generation"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "navigation generation"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.complete-registry": {
+      "kind": "data",
+      "home": {
+        "section": "spec-system#context",
+        "anchor": "complete-registry"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "complete registry"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.context-pack": {
+      "kind": "data",
+      "home": {
+        "section": "spec-system#context",
+        "anchor": "context-pack"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "context pack",
+        "context packs"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.writing-profile": {
+      "kind": "concept",
+      "home": {
+        "section": "spec-system#review",
+        "anchor": "writing-profile"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "writing profile",
+        "writing profiles"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "spec-system.semantic-review": {
+      "kind": "mechanism",
+      "home": {
+        "section": "spec-system#review",
+        "anchor": "semantic-review"
+      },
+      "scope": [
+        "spec-system"
+      ],
+      "forms": [
+        "semantic review"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    }
+  },
+  "naming_rules": []
+}

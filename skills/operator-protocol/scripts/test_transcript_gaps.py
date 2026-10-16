@@ -30,7 +30,7 @@ class TranscriptGapsTest(unittest.TestCase):
                     "TRANSCRIPT_GAPS_STATE_DIR": str(self.state)}
 
     def run_script(self, script=SCRIPT, env=None):
-        return subprocess.run([sys.executable, str(script)], env=env or self.env,
+        return subprocess.run([sys.executable, str(script)], stdin=subprocess.DEVNULL, env=env or self.env,
                               capture_output=True, text=True, timeout=5, cwd=self.root)
 
     def fixture(self, name, destination):
@@ -132,7 +132,7 @@ class TranscriptGapsTest(unittest.TestCase):
         result = subprocess.run(
             ["/bin/sh", "-c", 'set -a; . "$1"; exec "$2" "$3"',
              "transcript-gaps", str(config), sys.executable, str(script)],
-            env=self.env, capture_output=True, text=True, timeout=5, cwd=self.root,
+            stdin=subprocess.DEVNULL, env=self.env, capture_output=True, text=True, timeout=5, cwd=self.root,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual({row["tool"] for row in self.rows()}, {"claude", "codex"})
@@ -409,8 +409,9 @@ class TranscriptGapsTest(unittest.TestCase):
 
     def test_ci_runs_transcript_acceptance_suite(self):
         workflow = SCRIPT.parents[3] / ".github/workflows/checks.yml"
-        self.assertIn("        run: python3 -B -m unittest discover -s skills/operator-protocol/scripts\n",
-                      workflow.read_text())
+        # Any interpreter may run it (CI uses the pinned documentation environment); the suite must run.
+        self.assertRegex(workflow.read_text(),
+                         r"\n        run: \S*python3? -B -m unittest discover -s skills/operator-protocol/scripts\n")
 
     def test_missing_extra_root_is_an_error(self):
         self.env["TRANSCRIPT_GAPS_CODEX_HOMES"] = str(self.root / "missing")
@@ -458,7 +459,7 @@ class TranscriptGapsTest(unittest.TestCase):
         command = service.split("ExecStart=/bin/sh -c '")[1].rstrip().removesuffix("'")
         for command in (plist["ProgramArguments"][2], command.replace("$$", "$")):
             result = subprocess.run(["/bin/sh", "-n", "-c", command],
-                                    capture_output=True, text=True, timeout=5)
+                                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
 
 

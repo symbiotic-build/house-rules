@@ -1,5 +1,6 @@
 from pathlib import Path
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -20,7 +21,7 @@ ROOT = SCRIPT.parents[3]
 class PromptTest(unittest.TestCase):
     def run_prompt(self, *args, text="", script=SCRIPT, cwd=None):
         return subprocess.run(
-            [sys.executable, str(script), *args], input=text, capture_output=True,
+            [sys.executable, str(script), *args], stdin=None, input=text, capture_output=True,
             text=True, timeout=5, cwd=cwd,
         )
 
@@ -83,7 +84,7 @@ class PromptTest(unittest.TestCase):
         root, script = self.fixture()
         (root / "child.md").write_bytes(b"Title\r\n\r\nBody")
         result = subprocess.run(
-            [sys.executable, str(script)], input=b"Before\r\n@rule house-rules:child.md\r\nAfter\n",
+            [sys.executable, str(script)], stdin=None, input=b"Before\r\n@rule house-rules:child.md\r\nAfter\n",
             capture_output=True, timeout=5,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -221,7 +222,8 @@ class CompleteWorkerPackTest(unittest.TestCase):
                     args = ("--session",) if session else ()
                     result = self.run_prompt(*args, text=source)
                     # A lens may include another lens; compare its expanded text.
-                    body, _ = prompt.expand(file=lens.relative_to(ROOT).as_posix(), session=session)
+                    expansion = prompt.Expansion(prompt.WorkingTree(ROOT), session=session)
+                    body = expansion.visit(lens.relative_to(ROOT).as_posix())
                     self.assertEqual(result.stdout.count(body), 1)
                     for owner in self.shared:
                         self.assertEqual(result.stdout.count((ROOT / owner).read_text()),
@@ -752,11 +754,12 @@ class RuleOwnershipTest(unittest.TestCase):
         for path in (ROOT / "prompts/lenses").glob("*.md"):
             with self.subTest(path=path.name):
                 self.assertNotRegex(path.read_text(), r"skill `")
-                self.assertNotIn("spec-writing", path.read_text())
+                self.assertNotIn("@rule house-rules:skills/spec-writing/", path.read_text())
         design = self.text("prompts/lenses/design-spec.md")
         self.assertIn("@rule house-rules:prompts/lenses/naming-readability.md", design)
         self.assertNotIn("non-blocking unless they hide or garble a rule", design)
         reader = self.text("prompts/lenses/naming-readability.md")
+        self.assertIn("../../skills/spec-writing/SKILL.md#fresh-reader-review", reader)
         self.assertIn("missing why, example or term definition", reader)
         self.assertIn("Report violations of these requirements as document requirement defects", reader)
         self.assertIn("Do not accept a glossary elsewhere as closure", reader)
@@ -1406,6 +1409,7 @@ class RuleIndexTest(unittest.TestCase):
         targets = re.findall(r"\[[^]]+\]\(([^)]+)\)", index)
         required = {"rules/core.md", "rules/outcome.md", "rules/delivery.md", "rules/writing.md",
                     "rules/git.md", "rules/priority-labels.md", "rules/session-writing.md",
+                    "rules/specifications.md",
                     "STRUCTURE.md", "PREFERENCES.md"}
         required.update(str(path.relative_to(ROOT))
                         for path in (ROOT / "skills").glob("*/SKILL.md"))
@@ -1895,14 +1899,16 @@ class AcceptedScopeRegressionTest(unittest.TestCase):
 
 
 class AlwaysLoadedWritingTest(unittest.TestCase):
-    def test_original_introduction_is_preserved_in_its_rule_owners(self):
+    def test_introduction_preserves_rule_owners_and_names_the_defined_profile(self):
         general = " ".join((ROOT / "rules/writing.md").read_text().split())
         operator = " ".join((ROOT / "skills/operator-writing/SKILL.md").read_text().split())
+        self.assertNotIn("about 80 %", operator)
         for sentence, owner, other in (
             ("The reader must understand the text without any other document.", general, operator),
             ("They should know what happened, why it matters and what to do, in that order.", general, operator),
-            ("This skill combines a controlled language (ASD-STE100, applied at about 80 %) "
-             "with an explanation-first structure and a reader test.", operator, general),
+            ("This skill applies the versioned House technical English profile in "
+             "[rules/writing.md](../../rules/writing.md#house-technical-english), an explanation-first "
+             "structure and a reader test.", operator, general),
             ("Decisions use skill `decision-brief` for their full content; "
              "this skill sets how all of it is written.", operator, general),
         ):
@@ -2002,9 +2008,9 @@ class CommitPackTest(unittest.TestCase):
         self.commit(self.target, empty=True)
         self.manifest = self.root / "manifest.json"
 
-    def git(self, repo, *args, data=None):
+    def git(self, repo, *args, data=b""):
         result = subprocess.run(["git", "--no-replace-objects", "-C", str(repo), *args],
-                                input=data, capture_output=True, timeout=5)
+                                stdin=None, input=data, capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.decode().strip()
 
@@ -2024,7 +2030,7 @@ class CommitPackTest(unittest.TestCase):
             "--rev", rev or self.rev, "--role", "reviewer",
             *( ["--target", str(self.target)] if target else ["--no-target"] ),
             *map(str, args),
-        ], capture_output=True, timeout=5, env=env)
+        ], capture_output=True, timeout=5, env=env, stdin=subprocess.DEVNULL)
 
     def good(self, *args, **kwargs):
         result = self.run_pack("--manifest", self.manifest, *args, **kwargs)
@@ -2036,6 +2042,17 @@ class CommitPackTest(unittest.TestCase):
         self.assertEqual(result.stdout, b"")
         self.assertEqual(len(result.stderr.splitlines()), 1, result.stderr)
         self.assertIn(message.encode(), result.stderr)
+
+    def test_pack_helper_finishes_with_callers_standard_input_left_open(self):
+        read_fd, write_fd = os.pipe()
+        original = os.dup(0)
+        try:
+            os.dup2(read_fd, 0)
+            self.good()
+        finally:
+            os.dup2(original, 0)
+            for descriptor in (original, read_fd, write_fd):
+                os.close(descriptor)
 
     def test_commit_output_ignores_dirty_files_and_other_branch(self):
         before = self.good()
@@ -2111,7 +2128,7 @@ class CommitPackTest(unittest.TestCase):
                     result = subprocess.run([
                         "/usr/bin/python3", "-B", str(self.script), *pin,
                         "--session", *listing, "rules/entry.md",
-                    ], capture_output=True, timeout=5)
+                    ], capture_output=True, timeout=5, stdin=subprocess.DEVNULL)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     expected = (b"rules/entry.md\n" if listing else
                                 b"Loading path: session; shared rules come from the live House Rules index.\n\nRequested entry\n")
@@ -2150,7 +2167,7 @@ class CommitPackTest(unittest.TestCase):
                      ("--rev", self.rev, "common.md", "--role", "reviewer", "--no-target"),
                      ("--task-source", "orphan")):
             result = subprocess.run(["/usr/bin/python3", str(self.script), *map(str, args)],
-                                    input=b"", capture_output=True, timeout=5)
+                                    stdin=None, input=b"", capture_output=True, timeout=5)
             self.bad(result, "prompt:")
         self.assertFalse(self.manifest.exists())
 
@@ -2171,7 +2188,7 @@ class CommitPackTest(unittest.TestCase):
         for option in ("--rev", "--manifest"):
             with self.subTest(legacy_option=option):
                 result = subprocess.run(["/usr/bin/python3", "-B", str(self.script), option, ""],
-                                        input=b"Literal", capture_output=True, timeout=5)
+                                        stdin=None, input=b"Literal", capture_output=True, timeout=5)
                 self.bad(result, option + " must not be empty")
 
     def test_abbreviated_task_source_is_rejected_without_traceback(self):
@@ -2184,7 +2201,7 @@ class CommitPackTest(unittest.TestCase):
     def test_pack_refuses_standard_input_text_instead_of_dropping_it(self):
         result = subprocess.run(["/usr/bin/python3", str(self.script), "--rev", self.rev,
                                  "--role", "reviewer", "--no-target"],
-                                input=b"Unexpected task on stdin", capture_output=True, timeout=5)
+                                stdin=None, input=b"Unexpected task on stdin", capture_output=True, timeout=5)
         self.bad(result, "standard-input text cannot be combined with pack parts")
 
     def managed(self, own=True):
@@ -2304,7 +2321,7 @@ class CommitPackTest(unittest.TestCase):
     def test_legacy_commit_file_and_stdin_do_not_gain_revision_header(self):
         for args, data in ((["extra.md"], b""), ([], b"@rule house-rules:extra.md\n")):
             result = subprocess.run(["/usr/bin/python3", str(self.script), "--rev", self.rev, *args],
-                                    input=data, capture_output=True, timeout=5)
+                                    stdin=None, input=data, capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, b"Extra")
 
@@ -2342,7 +2359,7 @@ class CommitPackTest(unittest.TestCase):
                 raise BrokenPipeError("closed output")
             def flush(self):
                 pass
-        with patch.object(sys, "stdout") as stdout:
+        with patch.object(sys, "stdout") as stdout, patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO())):
             stdout.buffer = Broken()
             self.assertNotEqual(prompt.main(["--repo", str(self.repo), "--rev", self.rev,
                                             "--role", "reviewer", "--no-target"]), 0)
@@ -2384,7 +2401,8 @@ class CommitPackTest(unittest.TestCase):
         self.assertEqual(set(lookups),
                          {(str(self.repo), p) for p in ("skills/pr-ready/scripts/prompt.py",
                            "prompts/roles/reviewer.md", "prompts/lenses/security.md", "common.md", "rules/writing.md")} |
-                         {(str(self.target), "AGENTS.md"), (str(self.target), ".agents/rules.md")})
+                         {(str(self.target), p) for p in ("AGENTS.md", ".agents/rules.md",
+                                                         "docs/ENTITIES.json", "docs/DOCUMENTS.json")})
         self.assertFalse(any("unrelated.md" in r for r in requests))
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}:[^\n]+\n", r) for r in requests))
 
@@ -2411,7 +2429,7 @@ class CommitPackTest(unittest.TestCase):
         # Extraction is the dispatcher's native Git read, protected like compiler reads.
         extract.write_bytes(subprocess.run(["git", "--no-replace-objects", "-C", str(self.repo),
                             "show", self.rev + ":skills/pr-ready/scripts/prompt.py"],
-                            check=True, capture_output=True, timeout=5).stdout)
+                            check=True, capture_output=True, timeout=5, stdin=subprocess.DEVNULL).stdout)
         baseline = self.good(target=True, script=extract)
         for repo, rev, paths in ((self.repo, self.rev, ["skills/pr-ready/scripts/prompt.py", "common.md"]),
                                  (self.target, target_rev, [".agents/rules.md", "AGENTS.md"])):

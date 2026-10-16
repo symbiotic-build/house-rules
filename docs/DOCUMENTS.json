@@ -1,0 +1,747 @@
+{
+  "version": 1,
+  "inventory": [
+    {
+      "path": "AGENTS.md",
+      "kind": "other",
+      "reason": "Repository guide, loader, policy or attribution, not a specification or design document."
+    },
+    {
+      "path": "CHANGELOG-RULES.md",
+      "kind": "other",
+      "reason": "Dated rule-change record, not a maintained specification."
+    },
+    {
+      "path": "CUSTOM-INDEX.example.md",
+      "kind": "other",
+      "reason": "Repository guide, loader, policy or attribution, not a specification or design document."
+    },
+    {
+      "path": "INDEX.md",
+      "kind": "other",
+      "reason": "Repository guide, loader, policy or attribution, not a specification or design document."
+    },
+    {
+      "path": "INSTALL-AGENTS.md",
+      "kind": "other",
+      "reason": "Repository guide, loader, policy or attribution, not a specification or design document."
+    },
+    {
+      "path": "NOTICE.md",
+      "kind": "other",
+      "reason": "Repository guide, loader, policy or attribution, not a specification or design document."
+    },
+    {
+      "path": "PREFERENCES.md",
+      "kind": "other",
+      "reason": "Repository guide, loader, policy or attribution, not a specification or design document."
+    },
+    {
+      "path": "README.md",
+      "kind": "other",
+      "reason": "Repository guide, loader, policy or attribution, not a specification or design document."
+    },
+    {
+      "path": "STRUCTURE.md",
+      "kind": "other",
+      "reason": "Repository guide, loader, policy or attribution, not a specification or design document."
+    },
+    {
+      "path": "docs/design/73-instruction-layer-foundation.md",
+      "kind": "other",
+      "reason": "Preserved design input; conversion to the specification system is outside this change."
+    },
+    {
+      "path": "docs/design/74-complete-worker-packs.md",
+      "kind": "other",
+      "reason": "Preserved design input; conversion to the specification system is outside this change."
+    },
+    {
+      "path": "docs/design/75-subagent-profiles.md",
+      "kind": "other",
+      "reason": "Preserved design input; conversion to the specification system is outside this change."
+    },
+    {
+      "path": "docs/design/76-review-entry-skill.md",
+      "kind": "other",
+      "reason": "Preserved design input; conversion to the specification system is outside this change."
+    },
+    {
+      "path": "docs/design/77-one-step-pack-assembly.md",
+      "kind": "other",
+      "reason": "Preserved design input; conversion to the specification system is outside this change."
+    },
+    {
+      "path": "prompts/README.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/concurrency-restarts.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/correctness-security.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/design-spec.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/design.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/durability.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/frontend.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/generalist-a.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/generalist-b.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/generalist-c.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/naming-readability.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/performance.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/security.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/spec-waste.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/spec.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/ux.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/lenses/waste.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/checker.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/fixer.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/implementer.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/reviewer.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/triager.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/skills/code-canon.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/skills/native-first.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/skills/no-fortification.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/skills/test-discipline.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/cost-and-design.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/cost-defect.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/external-writes.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/issue-form.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/issue-report.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/premise-check.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/review-bar.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/review-report.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/targeted-lens.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/transcript-gaps.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/triage-classes.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "rules/core.md",
+      "kind": "other",
+      "reason": "Shared operating rule owner, not a specification or design document."
+    },
+    {
+      "path": "rules/delivery.md",
+      "kind": "other",
+      "reason": "Shared operating rule owner, not a specification or design document."
+    },
+    {
+      "path": "rules/git.md",
+      "kind": "other",
+      "reason": "Shared operating rule owner, not a specification or design document."
+    },
+    {
+      "path": "rules/outcome.md",
+      "kind": "other",
+      "reason": "Shared operating rule owner, not a specification or design document."
+    },
+    {
+      "path": "rules/priority-labels.md",
+      "kind": "other",
+      "reason": "Shared operating rule owner, not a specification or design document."
+    },
+    {
+      "path": "rules/session-writing.md",
+      "kind": "other",
+      "reason": "Shared operating rule owner, not a specification or design document."
+    },
+    {
+      "path": "rules/specifications.md",
+      "kind": "other",
+      "reason": "Shared operating rule owner, not a specification or design document."
+    },
+    {
+      "path": "rules/writing.md",
+      "kind": "other",
+      "reason": "Shared operating rule owner, not a specification or design document."
+    },
+    {
+      "path": "skills/agent-lanes/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/audit-report-authoring/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/audit-report-authoring/references/domain-lenses.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/audit-report-authoring/references/report-contract.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/bench-discipline/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/bench-discipline/references/retrieval-evals.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/ci-build-optimization/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/ci-build-optimization/references/build-test-overlap.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/decision-brief/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/design-canon/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/design-flow/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/experiment-planning/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/failure-forensics/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/finding-unknowns/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/goal-loop/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/handoff-continuity/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/operator-protocol/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/operator-writing/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/operator-writing/references/github-text.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/pr-ready/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/pr-ready/references/guards.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/pr-ready/references/preparer.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/pr-ready/references/review-lenses.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/pr-ready/references/review-prompt.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/pr-ready/scripts/testdata/naming-readability/readable.md",
+      "kind": "other",
+      "reason": "Synthetic test input, not a maintained technical contract."
+    },
+    {
+      "path": "skills/pr-ready/scripts/testdata/naming-readability/task.md",
+      "kind": "other",
+      "reason": "Synthetic test input, not a maintained technical contract."
+    },
+    {
+      "path": "skills/pr-ready/scripts/testdata/naming-readability/unreadable.md",
+      "kind": "other",
+      "reason": "Synthetic test input, not a maintained technical contract."
+    },
+    {
+      "path": "skills/project-bootstrap/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/reasoning-moves/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/rust-canon/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/spec-writing/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/spec-writing/references/format.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/spec-writing/scripts/fixtures/miniature/acceptance.md",
+      "kind": "other",
+      "reason": "Synthetic test input, not a maintained technical contract."
+    },
+    {
+      "path": "skills/spec-writing/scripts/fixtures/miniature/settings.md",
+      "kind": "other",
+      "reason": "Synthetic test input, not a maintained technical contract."
+    },
+    {
+      "path": "skills/spec-writing/templates/design-document.md",
+      "kind": "other",
+      "reason": "Authoring template with placeholders; not an instantiated document."
+    },
+    {
+      "path": "skills/spec-writing/templates/specification.md",
+      "kind": "other",
+      "reason": "Authoring template with placeholders; not an instantiated document."
+    },
+    {
+      "path": "skills/upstream-contribution/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/work-tracking/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
+      "path": "skills/spec-writing/scripts/fixtures/minimal/docs/example.md",
+      "kind": "other",
+      "reason": "Synthetic checker fixture, not a repository contract."
+    },
+    {
+      "path": "skills/spec-writing/scripts/fixtures/miniature/writing.md",
+      "kind": "other",
+      "reason": "Fixture note about shared profile ownership."
+    },
+    {
+      "path": "docs/specs/spec-system/specification-and-design-document-system.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/tour-fixing-a-wrong-capacity.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/documents-homes-and-values.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/requirements-tests-and-failures.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/checking-and-navigation.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/agent-context.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/writing-and-review-workflow.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/requirements.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/decisions-and-open-questions.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/source-formats.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/minimal-corpus.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/interfaces-and-encodings.md",
+      "kind": "specification"
+    },
+    {
+      "path": "docs/specs/spec-system/acceptance-evidence.md",
+      "kind": "specification"
+    }
+  ],
+  "documents": [
+    {
+      "id": "spec-system",
+      "title": "Specification and design-document system",
+      "status": "draft",
+      "purpose": "Authors write Markdown and metadata; the tool checks them and generates navigation and agent reading packages.",
+      "audience": "Specification and design-document authors, reviewers and tool implementers familiar with Markdown links, headings and basic Git snapshots.",
+      "scope": "Single-file and multi-file specifications and designs: who owns meanings and values, how checking and review work, and how agents receive material captured from one repository version.",
+      "non_goals": "Product contracts, HTML publication, a renderer, expression evaluation, semantic measurement conversion, independent requirement stores and general prose formatting.",
+      "navigation": {
+        "path": "docs/specs/spec-system/specification-and-design-document-system.md",
+        "region": "spec-system"
+      },
+      "sections": [
+        {
+          "id": "overview",
+          "path": "docs/specs/spec-system/specification-and-design-document-system.md",
+          "anchor": "overview",
+          "roles": [],
+          "summary": "Choose a reading path and see which authored sources produce checked navigation and agent input.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "tour",
+          "path": "docs/specs/spec-system/tour-fixing-a-wrong-capacity.md",
+          "anchor": "tour",
+          "roles": [
+            "tour"
+          ],
+          "summary": "Follow a wrong capacity link through a visible error, correction, regenerated map and complete review input.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "sources",
+          "path": "docs/specs/spec-system/documents-homes-and-values.md",
+          "anchor": "shared-contract",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Place meanings and values once, then connect reading order, accepted names and direct links to those homes.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "obligations",
+          "path": "docs/specs/spec-system/requirements-tests-and-failures.md",
+          "anchor": "behavior-and-change",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Connect obligations, refusals and evidence, then determine which tests a changed contract brings into review.",
+          "prerequisites": [
+            "spec-system#sources"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "checking",
+          "path": "docs/specs/spec-system/checking-and-navigation.md",
+          "anchor": "checking-and-navigation",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Run the pinned checker, distinguish errors from warnings and rebuild valid navigation after a failed or interrupted generation.",
+          "prerequisites": [
+            "spec-system#sources",
+            "spec-system#obligations"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "context",
+          "path": "docs/specs/spec-system/agent-context.md",
+          "anchor": "agent-context",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Select complete explanations from one snapshot and refuse unknown, stale or excessive assignments before dispatch.",
+          "prerequisites": [
+            "spec-system#sources",
+            "spec-system#obligations",
+            "spec-system#checking"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "review",
+          "path": "docs/specs/spec-system/writing-and-review-workflow.md",
+          "anchor": "authoring-and-review",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Assign source ownership, review technical meaning and qualify real authoring without mistaking a structural pass for reader acceptance.",
+          "prerequisites": [
+            "spec-system#sources",
+            "spec-system#obligations",
+            "spec-system#context"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "requirements",
+          "path": "docs/specs/spec-system/requirements.md",
+          "anchor": "requirements",
+          "roles": [
+            "requirements"
+          ],
+          "summary": "Find the observable obligations for authoring, checking, generation, context and review with reciprocal verification links.",
+          "prerequisites": [
+            "spec-system#sources",
+            "spec-system#obligations",
+            "spec-system#checking",
+            "spec-system#context",
+            "spec-system#review"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "decisions",
+          "path": "docs/specs/spec-system/decisions-and-open-questions.md",
+          "anchor": "decisions",
+          "roles": [
+            "decisions",
+            "questions"
+          ],
+          "summary": "Distinguish settled source and tool choices from unresolved differences between rules, code and approved intent.",
+          "prerequisites": [
+            "spec-system#sources",
+            "spec-system#obligations",
+            "spec-system#context"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "formats",
+          "path": "docs/specs/spec-system/source-formats.md",
+          "anchor": "source-format",
+          "roles": [
+            "reference"
+          ],
+          "summary": "Look up exact metadata keys, declaration grammar and callable assignments after learning what each source contributes.",
+          "prerequisites": [
+            "spec-system#sources",
+            "spec-system#obligations",
+            "spec-system#checking",
+            "spec-system#context"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "example",
+          "path": "docs/specs/spec-system/minimal-corpus.md",
+          "anchor": "minimal-example",
+          "roles": [
+            "reference"
+          ],
+          "summary": "Reproduce the bounded-batch fixture in an independent repository and inspect the exact files used throughout the tour.",
+          "prerequisites": [
+            "spec-system#formats"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "reference",
+          "path": "docs/specs/spec-system/interfaces-and-encodings.md",
+          "anchor": "commands-and-diagnostics",
+          "roles": [
+            "reference"
+          ],
+          "summary": "Choose the command or diagnostic remedy for the batch correction and inspect executable-selector audit results.",
+          "prerequisites": [
+            "spec-system#checking",
+            "spec-system#context"
+          ],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "acceptance",
+          "path": "docs/specs/spec-system/acceptance-evidence.md",
+          "anchor": "acceptance",
+          "roles": [
+            "acceptance"
+          ],
+          "summary": "Find behavioral regressions and real-run evidence that prove each obligation, including reader understanding and visible recovery.",
+          "prerequisites": [
+            "spec-system#requirements"
+          ],
+          "explanatory_dependencies": []
+        }
+      ],
+      "scenarios": []
+    }
+  ]
+}
