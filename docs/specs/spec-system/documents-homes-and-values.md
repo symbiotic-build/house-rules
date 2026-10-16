@@ -66,7 +66,7 @@ The [entity index](#entity-index) owns identity, kind, accepted and rejected nam
 <a id="entity-relations"></a>
 ### Entity relations
 
-A relation table declares connections between entities. For example, `executor | performed-by | [Writer](#writer) | [Decision](#decision)` says the writer performs the owning mechanism. The [relation reference](source-formats.md#metadata) lists allowed predicates and target kinds. A relation can name the component performing admission or a setting that limits it.
+A relation table declares connections between entities. For example, `executor | performed-by | [Writer](#writer) | [Decision](#decision)` says the writer performs the owning mechanism. The [relation predicate table](source-formats.md#relation-predicates) lists allowed predicates and target kinds. A relation can name the component performing admission or a setting that limits it.
 
 Each target must have its own registered home of the permitted kind. The small batch fixture keeps capacity as a fact and needs no extra setting home. Each relation supplies a supported predicate and linked basis. Exact columns and supported kinds belong to [Markdown declarations](source-formats.md#markdown-declarations).
 
@@ -147,6 +147,14 @@ Drafts keep missing roles and unresolved contracts visible. A skeleton can gener
 
 Approval records who authorized the document and links the decision. The operator is the repository’s human decision-maker; delegated authority comes from an explicit delegation by that operator. Authority `fixture` is limited to synthetic corpora checked with `--fixture`, which never authorizes production behavior. A working reference proves that a decision can be found, not that its author had approval authority. An approved document cannot retain an unresolved contract that prevents implementation.
 
-Approval boundaries follow [skills/design-flow/SKILL.md](../../../skills/design-flow/SKILL.md). Operator approval is required for designs that choose canonical storage, change security boundaries or assign ownership between modules or repositories. The linked procedure determines whether a particular document qualifies for delegated approval. A resolving metadata entry alone cannot grant that delegation.
+Specifications and designs use the approval criteria owned by [skills/design-flow/SKILL.md](../../../skills/design-flow/SKILL.md), quoted here:
+
+> In autonomous mode, a design entirely inside the approved outcome and decision boundaries may be marked `approved` at the base confidence threshold, with evidence recorded and the operator informed.
+> Otherwise keep `draft` and ask about the consequential unresolved choice.
+> A P0 or P1 design (§2), and any design that decides where canonical data lives, moves or creates a security boundary, or assigns ownership between repositories or modules, is approved only by the operator; delegated authority and confidence thresholds cover the remaining P2/P3 designs.
+>
+> — [skills/design-flow/SKILL.md](../../../skills/design-flow/SKILL.md), §2
+
+The base confidence threshold is at least 90%, under [rules/core.md](../../../rules/core.md). The [priority labels](../../../rules/priority-labels.md) define P0 through P3. A resolving metadata entry alone cannot grant delegation.
 
 When approved behavior becomes maintained specification, move each [registered entity](#registered-entity) home and update incoming links in the same change. Preserve the identity of the same technical thing. The old design becomes a status-bearing pointer or is removed under closeout rules. For the batcher, the admission explanation and capacity move together so readers cannot find two current refusal contracts.

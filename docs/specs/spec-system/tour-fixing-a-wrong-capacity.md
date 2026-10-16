@@ -3,7 +3,7 @@
 
 This tour follows a displayed capacity through a visible error, correction and review. It starts from the complete bounded-batch example so readers can follow the repair without assembling an unfinished contract.
 
-`Full` is the teaching service's refusal; `D10` identifies a documentation link whose displayed value differs from its home. The commands use `python` from the pinned [tool environment](source-formats.md#tool-environment). Their placeholder roots name the House Rules checkout and a separate example repository with Git initialized.
+`Full` is the example component's refusal; `D10` identifies a documentation link whose displayed value differs from its home. The commands use `python` from the pinned [tool environment](source-formats.md#tool-environment). Their placeholder roots name the House Rules checkout and a separate example repository with Git initialized.
 
 <a id="capacity-repair"></a>
 ## The capacity correction

@@ -70,7 +70,7 @@ Invoke the helper from the checkout at that commit, with its matching runtime, l
 <a id="metadata"></a>
 ## Metadata
 
-Metadata identifies the files and homes that source selection can use. The two version-1 envelopes are exact; arrays can be empty unless their field requires entries.
+Metadata identifies the files and homes that source selection can use. The two version-1 envelopes below show required keys; the first also accepts optional `test_runners`. Arrays can be empty unless their field requires entries.
 
 ```json
 {"version": 1, "inventory": [], "documents": []}
@@ -186,6 +186,9 @@ The seven required roles preserve their listed order. Design-specific roles may 
 | Decision fields | `Choice`, `Authority`, `Reason`, `Rejected alternatives` |
 | `review_responsibilities` | `technical`, `readability`, `design/cost`, `failure/recovery`, [`whole-scenario`](requirements-tests-and-failures.md#scenario) |
 
+<a id="relation-predicates"></a>
+The relation predicate table limits each connection to the listed target kinds.
+
 | Relation predicate | Permitted target kinds |
 |---|---|
 | `performed-by` | `actor`, `component` |
@@ -201,6 +204,8 @@ A fact’s Status must belong to `fact_statuses`: `specified`, `provisional`, `o
 ## Markdown declarations
 
 Markdown declarations make a contract's values and evidence addressable without moving their meaning into metadata. The batcher uses an explicit home anchor followed immediately by its heading and definition.
+
+Literal blocks and inline code need direct home links for registered uses in an immediately adjacent paragraph. Natural explanatory prose works; `**Entities in this example:**` is an optional label for the same links. Each block needs its own adjacent links; unrelated intervening prose prevents reuse. Quote-only blank lines count as blank inside a blockquote. These annotations are not declaration fields. First-use scope, forward links and unnumbered headings follow the [Direct links](../../../rules/specifications.md#direct-links).
 
 ```markdown
 <a id="batcher"></a>
@@ -249,8 +254,6 @@ Other methods omit Implementation and place linked evidence in an ordinary, unbo
 
 An Actor field may link its own home even after its defining paragraph has satisfied first use. The minimal example does this for clarity; it is not an extra self-link requirement.
 
-Literal blocks and inline code need direct home links for registered uses in an immediately adjacent paragraph. Natural explanatory prose works; `**Entities in this example:**` is an optional label for the same links. Each block needs its own adjacent links; unrelated intervening prose prevents reuse. Quote-only blank lines count as blank inside a blockquote. These annotations are not declaration fields. First-use scope, forward links and unnumbered headings follow the [Direct links](../../../rules/specifications.md#direct-links).
-
 <a id="navigation"></a>
 ## Navigation
 
@@ -283,7 +286,7 @@ The exact introductory sentence is `Each technical term below links to its defin
 - [Batcher](example.md#batcher) (`example.batcher`) — A batcher prevents overfilling by accepting items only while its batch has room.
 ```
 
-Link paths are relative to the directory containing the navigation file. An inline region in `docs/example.md` therefore links to `example.md#batcher`, including its own basename.
+Link paths are relative to the directory containing the navigation file. The generator uses that same path-and-fragment format for both inline regions and whole-file navigation, even when the destination is the containing file. An inline region in `docs/example.md` therefore links to `example.md#batcher`, rather than `#batcher`. Authored prose may use fragment-only links; generated navigation keeps the uniform format above.
 
 Headings and paragraphs have blank lines between them; adjacent bullets do not. Generated body output uses LF newlines and ends with one newline. No blank line separates the final entity bullet from the closing region marker. The region omits a duplicate entry title; a whole-file output begins with the document title as a level-1 heading.
 

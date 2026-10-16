@@ -17,7 +17,7 @@ flowchart TD
 
 The diagram separates authored inputs from rebuildable outputs. The [document manifest](documents-homes-and-values.md#document-manifest) lists chapters and their reading order. The [entity index](documents-homes-and-values.md#entity-index) maps technical names to their defining sections. Both identify Markdown explanations without copying their meaning.
 
-House Rules is the repository that owns the authoring rules and documentation tool. This document assumes Markdown headings, links and basic Git snapshots. The [approval boundary](documents-homes-and-values.md#design-lifecycle) explains who may approve a draft and when the human operator must decide. The linked design-flow procedure supplies those approval rules.
+House Rules is the repository that owns the authoring rules and documentation tool. This document assumes Markdown headings, links and basic Git snapshots. The [approval boundary](documents-homes-and-values.md#design-lifecycle) summarizes who may approve a draft and when the human operator must decide. The procedure belongs to [skills/design-flow/SKILL.md](../../../skills/design-flow/SKILL.md).
 
 Read the map to choose a chapter, or continue with the [tour](tour-fixing-a-wrong-capacity.md#tour) for the author-facing repair. Mechanisms explain why the repair works; reference chapters supply exact inputs and commands. [Acceptance evidence](acceptance-evidence.md#acceptance) identifies the required verification.
 
@@ -28,7 +28,7 @@ Read the map to choose a chapter, or continue with the [tour](tour-fixing-a-wron
 
 Authors write Markdown and metadata; the tool checks them and generates navigation and agent reading packages.
 
-**Audience:** Specification and design-document authors, reviewers and tool implementers familiar with Markdown links, headings and basic Git snapshots; approval eligibility additionally requires the design-flow procedure named in the introduction.
+**Audience:** Specification and design-document authors, reviewers and tool implementers familiar with Markdown links, headings and basic Git snapshots.
 
 **Scope:** Single-file and multi-file specifications and designs: who owns meanings and values, how checking and review work, and how agents receive material captured from one repository version.
 

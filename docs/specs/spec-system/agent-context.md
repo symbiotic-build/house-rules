@@ -70,7 +70,7 @@ The pack includes recovery. An ordinary link from the added home to an unrelated
 | Assignment to submission | Submission section |
 | Submission uses batcher | Complete batcher home |
 | Home’s containing section declares recovery dependency | Recovery section |
-| Home links ordinary glossary | No further source |
+| Home links to an unrelated glossary | No further source |
 
 A comparison also includes the requirement change report and selected linked tests from the base and candidate. The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) derives affected test selectors from both snapshots. Supply each removal decision explicitly in `removal_decisions`; the [change-review explanation](requirements-tests-and-failures.md#change-review) covers authority review.
 
