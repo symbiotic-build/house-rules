@@ -1,5 +1,7 @@
 """Real selector integration on small local Git snapshots; no model or network calls."""
 import argparse
+import contextlib
+import io
 import importlib.util
 import json
 import os
@@ -236,7 +238,7 @@ class DocumentationContextTests(unittest.TestCase):
         self.assertFalse(output.exists())
 
     def test_assignment_json_is_checked_without_losing_duplicate_fields(self):
-        for value in (b'{"version":1,"sections":[],"sections":["example-demo#acceptance"]}', b'{'):
+        for value in (b'{"version":1,"sections":[],"sections":["example-demo#acceptance"]}', b'{', b'null'):
             with self.subTest(assignment=value), self.assertRaisesRegex(prompt.PromptError, "D02"):
                 self.pack(value)
 
@@ -284,9 +286,80 @@ class DocumentationContextTests(unittest.TestCase):
         self.assertNotIn("Full document", output)
         self.assertEqual(output.count("# Complete registry"), 1)
 
-    def test_preparer_missing_assignment_and_over_budget_context_fail(self):
-        with self.assertRaisesRegex(prepare.PrepareError, "explicit --assignment"):
-            self.review(assignment=None)
+    def test_review_without_assignment_and_without_registered_changes_has_no_context(self):
+        base = self.revision
+        self.write(self.repo, 'source.py', 'value = 1\n')
+        self.revision = self.commit(self.repo)
+        output = self.review(base=base, assignment=None)
+        self.assertEqual(output.count('No registered documentation changed in this range.'), 1)
+        self.assertNotIn('# Complete registry', output)
+
+    def test_review_without_assignment_selects_changed_section_and_linked_tests(self):
+        base = self.revision
+        path = self.repo / 'docs/example/acceptance.md'
+        path.write_text(path.read_text().replace('**Result:** Return', '**Result:** Report'))
+        self.revision = self.commit(self.repo)
+        output = self.review(base=base, assignment=None)
+        self.assertIn('"sections": [\n      "example-demo#acceptance"\n    ]', output)
+        self.assertIn('base:example-demo#test-stale-revision', output)
+        self.assertIn('**Result:** Report', output)
+        self.assertNotIn('No registered documentation changed', output)
+
+    def test_explicit_assignment_still_selects_unchanged_sections(self):
+        output = self.review()
+        self.assertIn('# Complete registry', output)
+        self.assertNotIn('No registered documentation changed', output)
+
+    def test_derived_context_over_size_limit_names_sections_and_fails(self):
+        base = self.revision
+        path = self.repo / 'docs/example/acceptance.md'
+        path.write_text(path.read_text().replace('**Result:** Return', '**Result:** Report'))
+        self.revision = self.commit(self.repo)
+        with patch.object(prepare, 'CODEX_LIMIT', 100):
+            with self.assertRaisesRegex(prepare.PrepareError, 'Size guard:.*') as caught:
+                self.review(base=base, assignment=None)
+        self.assertIn('Documentation sections: example-demo#acceptance', str(caught.exception))
+
+    def test_review_derives_from_merge_base_without_assigning_base_only_changes(self):
+        base = self.revision
+        path = self.repo / 'docs/example/acceptance.md'
+        path.write_text(path.read_text().replace('**Result:** Return', '**Result:** Report'))
+        changed_base = self.commit(self.repo)
+        self.git(self.repo, 'checkout', '--detach', base)
+        self.write(self.repo, 'source.py', 'value = 1\n')
+        self.revision = self.commit(self.repo)
+        output = self.review(base=changed_base, assignment=None)
+        self.assertIn('No registered documentation changed in this range.', output)
+        self.assertNotIn('# Complete registry', output)
+
+    def test_python39_entry_delegates_documentation_to_configured_environment(self):
+        interpreter = Path('/usr/bin/python3')
+        if not interpreter.exists():
+            self.skipTest('system Python is unavailable')
+        version = subprocess.run([str(interpreter), '-c', 'import sys; print(sys.version_info[:2] < (3, 11))'],
+                                 stdin=subprocess.DEVNULL, capture_output=True, check=True, timeout=5).stdout.strip()
+        if version != b'True':
+            self.skipTest('system Python does not need the tool environment bridge')
+        environment = dict(os.environ, REVIEW_PYTHON=sys.executable)
+        result = subprocess.run([str(interpreter), '-B', str(ROOT / 'skills/pr-ready/scripts/prepare.py'),
+                                 'review', str(self.repo), '--base', self.revision, '--no-fetch', '--context-only'],
+                                env=environment, stdin=subprocess.DEVNULL, capture_output=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b'No registered documentation changed in this range.', result.stdout)
+
+    def test_python39_review_service_without_tool_environment_reviews_without_documentation_pack(self):
+        self.write(self.repo, 'source.py', 'value = 2\n')
+        base, self.revision = self.revision, self.commit(self.repo)
+        output, errors = io.StringIO(), io.StringIO()
+        environment = {key: value for key, value in os.environ.items() if key != 'REVIEW_PYTHON'}
+        with patch.dict(os.environ, environment, clear=True), patch.object(prepare.sys, 'version_info', (3, 9, 6)), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(errors):
+            code = prepare.main(['review', str(self.repo), '--base', base, '--no-fetch', '--rev', self.revision])
+        self.assertEqual(code, 0, errors.getvalue())
+        self.assertIn('Registered documentation context was not prepared', output.getvalue())
+        self.assertNotIn('# Complete registry', output.getvalue())
+
+    def test_preparer_over_budget_explicit_context_fails(self):
         self.assignment_file.write_text(json.dumps({**ASSIGNMENT, "budget_bytes": 100}))
         with self.assertRaisesRegex(prepare.PrepareError, "D25"):
             self.review()

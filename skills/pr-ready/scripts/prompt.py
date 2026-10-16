@@ -257,7 +257,7 @@ def review_plan(lenses):
              else specialists.get(lens, ["technical"])} for lens in lenses]
 
 
-def documentation_context(source, target, assignment=None, *, base=None, plan=None):
+def documentation_context(source, target, assignment=None, *, base=None, plan=None, derive_assignment=False):
     """Use the matching shared selector on captured target bytes, never a live helper."""
     metadata = [target.read(path, optional=True) for path in DOC_METADATA]
     if not any(item is not None for item in metadata):
@@ -266,8 +266,11 @@ def documentation_context(source, target, assignment=None, *, base=None, plan=No
         return None
     if not all(item is not None for item in metadata):
         raise PromptError("mandatory documentation context needs both docs/ENTITIES.json and docs/DOCUMENTS.json")
-    if assignment is None:
+    if assignment is None and not derive_assignment:
         raise PromptError("mandatory documentation context needs an explicit --assignment JSON file")
+    derive_assignment = derive_assignment and assignment is None
+    if derive_assignment and base is None:
+        raise PromptError("derived documentation review requires a comparison base")
     if plan is not None and base is None:
         raise PromptError("documentation review requires an explicit --target-base revision")
     # The snapshot owner uses one native tree inventory and one batch of required
@@ -295,15 +298,25 @@ def documentation_context(source, target, assignment=None, *, base=None, plan=No
                 assignment = module.load_json(assignment, "assignment", diagnostics)
                 if diagnostics.errors:
                     raise module.SpecDocsError(diagnostics)
-            if not isinstance(assignment, dict) or not module.strings(assignment.get("required_test_reviews", [])):
-                module.fail("D02", "malformed declaration: assignment needs an object and test selectors", "assignment")
-            assignment = dict(assignment)
-            if plan is not None:
-                assignment["review_plan"] = plan
+            if not derive_assignment:
+                if not isinstance(assignment, dict) or not module.strings(assignment.get("required_test_reviews", [])):
+                    module.fail("D02", "malformed declaration: assignment needs an object and test selectors", "assignment")
+                assignment = dict(assignment)
             snapshot = module.Snapshot.from_git(target.repo, rev=target.revision)
             corpus = module.load_corpus(snapshot)
             if base is not None:
                 corpus.base = module.load_corpus(module.Snapshot.from_git(target.repo, rev=base), comparison=True)
+            if derive_assignment:
+                sections = module.changed_sections(corpus.base, corpus)
+                if not sections:
+                    diagnostics = module.check(corpus)
+                    if diagnostics.errors:
+                        raise module.SpecDocsError(diagnostics)
+                    return None
+                assignment = {"version": 1, "sections": sections}
+            if plan is not None:
+                assignment["review_plan"] = plan
+            if base is not None:
                 tests = {test for change in module.requirement_changes(corpus.base, corpus).changes
                          for test in change["tests"]}
                 assignment["required_test_reviews"] = sorted(tests | set(assignment.get("required_test_reviews", [])))
