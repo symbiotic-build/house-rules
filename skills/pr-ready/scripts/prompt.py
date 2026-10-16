@@ -442,9 +442,26 @@ class TaskOption(argparse.Action):
         namespace.tasks = tasks
 
 
+def preparer_context(request):
+    """Keep legacy preparer compilation here while reporting remains standalone."""
+    common, instructions, context = "", "", None
+    if request["full"]:
+        common, _ = expand(file="prompts/roles/reviewer.md")
+        instructions, _ = expand(file="prompts/lenses/" + request["lens"] + ".md")
+    if request["documentation"]:
+        assignment = Path(request["assignment"]).read_bytes() if request["assignment"] else None
+        with Commit(request["repo"], request["head"]) as target:
+            selected = documentation_context(WorkingTree(ROOT), target, assignment,
+                                             base=request["base"], plan=review_plan([request["lens"]]))
+        if selected is not None:
+            context = documentation_part(selected).decode("utf-8")
+    return dict(common=common, instructions=instructions, documentation=context)
+
+
 def main(argv=None):
     parser = Parser(description=__doc__, allow_abbrev=False)
     parser.add_argument("file", nargs="?")
+    parser.add_argument("--preparer-context", help=argparse.SUPPRESS)
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--session", action="store_true")
     for option in ("rev", "repo", "role", "lens", "target", "target-rev", "target-base", "out", "manifest", "assignment"):
@@ -464,6 +481,9 @@ def main(argv=None):
                 if not preceding_task:
                     raise PromptError("--task-source requires an immediately preceding --task")
         args = parser.parse_args(argv)
+        if args.preparer_context is not None:
+            sys.stdout.write(json.dumps(preparer_context(json.loads(args.preparer_context))))
+            return 0
         for option in ("rev", "repo", "target", "target_rev", "target_base", "out", "manifest", "assignment"):
             if getattr(args, option) == "":
                 raise PromptError("--" + option.replace("_", "-") + " must not be empty")

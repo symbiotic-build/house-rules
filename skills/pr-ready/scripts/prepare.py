@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from difflib import SequenceMatcher
 from pathlib import Path
 from urllib.parse import quote, quote_from_bytes, unquote, urlsplit
 
@@ -35,6 +36,297 @@ def redact(text):
 class PrepareError(Exception):
     def __init__(self, message):
         super().__init__(redact(message))
+
+
+
+# Defaults are policy, extended by versioned base-commit configuration.
+RULE_PATHS = ("INDEX.md", "STRUCTURE.md", "PREFERENCES.md", "INSTALL-AGENTS.md", "AGENTS.md",
+              "CHANGELOG-RULES.md", "rules/**/*.md", "prompts/**/*.md", "skills/**/*.md",
+              ".agents/rules.md", "CONTEXT.md")
+RULE_DEFAULTS = dict(version=1, extra_protected_paths=[], max_report_chars=80_000,
+                     similarity_threshold=0.6)
+
+
+class RuleReportTooLarge(PrepareError):
+    """A failed-closed report must reach the caller even though preparation fails."""
+
+    def __init__(self, report):
+        super().__init__("rule report FAILED CLOSED; narrow the range or repair the base configuration")
+        self.report = report
+
+
+def rule_glob(pattern):
+    """Translate repository-relative globs, including zero-directory **/."""
+    if (not isinstance(pattern, str) or not pattern or pattern.startswith("/")
+            or any(part in ("", ".", "..") for part in pattern.split("/"))
+            or "\0" in pattern or "\\" in pattern):
+        raise PrepareError("invalid protected path pattern: " + repr(pattern))
+    result, index = "", 0
+    while index < len(pattern):
+        if pattern[index:index + 3] == "**/":
+            result += "(?:.*/)?"
+            index += 3
+        elif pattern[index:index + 2] == "**":
+            result += ".*"
+            index += 2
+        else:
+            char = pattern[index]
+            result += "[^/]*" if char == "*" else "[^/]" if char == "?" else re.escape(char)
+            index += 1
+    return re.compile(result + r"\Z")
+
+
+def rule_tree(repo, revision):
+    records = git(repo, "ls-tree", "-r", "-z", revision).split("\0")
+    return {record.split("\t", 1)[1]: record.split(" ", 1)[0] for record in records if record}
+
+
+def rule_blob(repo, revision, path, tree):
+    if tree[path] not in ("100644", "100755"):
+        raise PrepareError(f"protected input is not a regular file: {revision}:{path}")
+    text = git(repo, "show", f"{revision}:{path}")
+    try:
+        text.encode("utf-8")
+    except UnicodeError as exc:
+        raise PrepareError(f"protected input is not UTF-8: {revision}:{path}") from exc
+    return text
+
+
+def rule_policy(repo, base, tree):
+    policy = dict(RULE_DEFAULTS)
+    path = ".rule-changes.json"
+    if path in tree:
+        try:
+            configured = json.loads(rule_blob(repo, base, path, tree))
+        except ValueError as exc:
+            raise PrepareError(f"invalid {path}: {exc}") from exc
+        if not isinstance(configured, dict) or set(configured) - set(policy):
+            raise PrepareError(f"invalid {path}: expected known configuration fields")
+        if type(configured.get("version")) is not int or configured["version"] != 1:
+            raise PrepareError(f"invalid {path}: expected version 1")
+        policy.update(configured)
+    if (not isinstance(policy["extra_protected_paths"], list)
+            or type(policy["max_report_chars"]) is not int or policy["max_report_chars"] < 1
+            or type(policy["similarity_threshold"]) not in (int, float)
+            or not 0 < policy["similarity_threshold"] <= 1):
+        raise PrepareError("invalid .rule-changes.json: paths, limit or similarity threshold")
+    patterns = [rule_glob(pattern) for pattern in (*RULE_PATHS, *policy["extra_protected_paths"])]
+    return policy, patterns
+
+
+def rule_units(path, text):
+    """Extract list items, table rows, sentences and whole fences with source locations."""
+    units, headings, pending = [], [], []
+    pending_kind, section, fence = "paragraph", "(root)", None
+    table_active = False
+
+    def add(value, line):
+        value = " ".join(value.split())
+        if value:
+            units.append(dict(path=path, line=line, section=section, text=value))
+
+    def flush():
+        if not pending:
+            return
+        value = "\n".join(row for _, row in pending)
+        if pending_kind == "paragraph":
+            # Sentence punctuation inside inline code is literal, not a boundary.
+            masked = list(value)
+            for match in re.finditer(r"(`+).*?\1", value, re.S):
+                for index in range(match.start(), match.end()):
+                    if masked[index] in ".!?":
+                        masked[index] = "x"
+            start = 0
+            for boundary in [*re.finditer(r"(?<=[.!?])\s+", "".join(masked)), None]:
+                end = boundary.start() if boundary else len(value)
+                add(value[start:end], pending[0][0] + value[:start].count("\n"))
+                start = boundary.end() if boundary else len(value)
+        else:
+            add(value, pending[0][0])
+        pending.clear()
+
+    def cells(value):
+        value = value.strip().removeprefix("|").removesuffix("|")
+        return [cell.strip() for cell in re.split(r"(?<!\\)\|", value)]
+
+    lines = text.splitlines()
+    for number, row in enumerate(lines, 1):
+        stripped = row.strip()
+        if fence:
+            pending.append((number, row))
+            if re.fullmatch(re.escape(fence[0]) + "{" + str(fence[1]) + r",}\s*", stripped):
+                flush()
+                fence = None
+                pending_kind = "paragraph"
+            continue
+        opening = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
+        if opening:
+            table_active = False
+            flush()
+            pending_kind = "fence"
+            fence = (opening[1][0], len(opening[1]))
+            pending.append((number, row))
+            continue
+        heading = re.match(r"^ {0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$", row)
+        setext = re.fullmatch(r" {0,3}(=+|-+)\s*", row) if pending_kind == "paragraph" and pending else None
+        if heading or setext:
+            table_active = False
+            level = len(heading[1]) if heading else 1 if setext[1][0] == "=" else 2
+            title = heading[2] if heading else " ".join(value.strip() for _, value in pending)
+            if heading:
+                flush()
+            else:
+                pending.clear()
+            while headings and headings[-1][0] >= level:
+                headings.pop()
+            headings.append((level, " ".join(title.split())))
+            section = " / ".join(title for _, title in headings)
+            continue
+        if not stripped or re.fullmatch(r'<a\s+id=["\'][^"\']+["\']\s*>\s*</a>', stripped):
+            flush()
+            pending_kind = "paragraph"
+            table_active = False
+            continue
+        following = cells(lines[number]) if number < len(lines) else []
+        table_header = len(following) > 1 and all(re.fullmatch(r":?-{3,}:?", cell) for cell in following)
+        if re.search(r"(?<!\\)\|", stripped) and (table_active or table_header or
+                                                       stripped.startswith("|") and stripped.endswith("|")):
+            flush()
+            row_cells = cells(stripped)
+            if not all(re.fullmatch(r":?-+:?", cell) for cell in row_cells):
+                add("| " + " | ".join(row_cells) + " |", number)
+            pending_kind = "paragraph"
+            table_active = True
+            continue
+        table_active = False
+        item = re.match(r"^\s*(?:[-+*]|\d+[.)])\s+(.+)$", row)
+        if item:
+            flush()
+            pending_kind = "list"
+            pending.append((number, item[1]))
+        else:
+            pending.append((number, row))
+    flush()
+    return units
+
+
+def rule_key(unit):
+    return unit["path"], unit["line"], unit["section"], unit["text"]
+
+
+def pair_rule_units(old, new, threshold):
+    """Cancel local copies, match moves, then greedily pair by similarity with stable ties."""
+    old, new = sorted(old, key=rule_key), sorted(new, key=rule_key)
+    old_left, new_left, changes = set(range(len(old))), set(range(len(new))), []
+    for local in (True, False):
+        available = {}
+        for j in sorted(new_left):
+            unit = new[j]
+            key = (unit["text"], unit["path"], unit["section"]) if local else unit["text"]
+            available.setdefault(key, []).append(j)
+        for i in sorted(old_left):
+            unit = old[i]
+            key = (unit["text"], unit["path"], unit["section"]) if local else unit["text"]
+            if available.get(key):
+                j = available[key].pop(0)
+                old_left.remove(i)
+                new_left.remove(j)
+                if not local:
+                    changes.append(dict(kind="moved", old=old[i], new=new[j]))
+    candidates = []
+    for i in sorted(old_left):
+        for j in sorted(new_left):
+            similarity = SequenceMatcher(None, old[i]["text"], new[j]["text"], autojunk=False).ratio()
+            if similarity >= threshold:
+                candidates.append((-similarity, old[i]["path"] != new[j]["path"], i, j))
+    for _, _, i, j in sorted(candidates):
+        if i in old_left and j in new_left:
+            old_left.remove(i)
+            new_left.remove(j)
+            changes.append(dict(kind="changed", old=old[i], new=new[j]))
+    changes.extend(dict(kind="removed", old=old[i], new=None) for i in sorted(old_left))
+    changes.extend(dict(kind="added", old=None, new=new[j]) for j in sorted(new_left))
+    return sorted(changes, key=lambda item: (rule_key(item["old"] or item["new"]), item["kind"]))
+
+
+def rule_changes(repo, base, head):
+    base = git(repo, "merge-base", base, head).strip()
+    old_tree, new_tree = rule_tree(repo, base), rule_tree(repo, head)
+    policy, patterns = rule_policy(repo, base, old_tree)
+    paths = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z",
+                base, head).split("\0")
+    old, new = [], []
+    for path in sorted(set(paths) - {""}):
+        if path.startswith("docs/") or not any(pattern.fullmatch(path) for pattern in patterns):
+            continue
+        before = rule_blob(repo, base, path, old_tree) if path in old_tree else ""
+        after = rule_blob(repo, head, path, new_tree) if path in new_tree else ""
+        if " ".join(before.split()) == " ".join(after.split()):
+            continue
+        old.extend(rule_units(path, before))
+        new.extend(rule_units(path, after))
+    return pair_rule_units(old, new, policy["similarity_threshold"]), policy, base
+
+
+def declared_rule_changes(body):
+    lines = body.splitlines()
+    start, fence = None, None
+    for index, line in enumerate(lines):
+        opening = re.match(r"^\s*(`{3,}|~{3,})", line)
+        if opening:
+            if fence is None:
+                fence = opening[1][0], len(opening[1])
+            elif opening[1][0] == fence[0] and len(opening[1]) >= fence[1]:
+                fence = None
+            continue
+        if fence:
+            continue
+        if start is None:
+            if re.fullmatch(r"##\s+Rule changes\s*#*\s*", line):
+                start = index
+        elif re.match(r"^#{1,2}\s+", line):
+            return list(enumerate(lines[start:index], start + 1))
+    return list(enumerate(lines[start:], start + 1)) if start is not None else []
+
+
+def rule_location(unit):
+    if unit is None:
+        return "(none)"
+    # JSON quoting keeps unusual path and heading characters on one unambiguous line.
+    return f'{json.dumps(unit["path"], ensure_ascii=False)}:{unit["line"]} — {json.dumps(unit["section"], ensure_ascii=False)}'
+
+
+def rule_report(changes, policy, base, head, pr_body):
+    if not changes:
+        declared = declared_rule_changes(pr_body)
+        declaration = "\n".join(f"{number}: {line}" for number, line in declared)
+        return "No protected rule text changed." + (
+            "\n\n### Declared changes (PR description line numbers)\n" + declaration if declared else "")
+    out = ["## Rule text changes", f"Base: `{base}`; head: `{head}`",
+           "; ".join(f"{kind}: {sum(item['kind'] == kind for item in changes)}"
+                     for kind in ("removed", "added", "changed", "moved"))]
+    declared = declared_rule_changes(pr_body)
+    if not declared:
+        out.append("UNDECLARED RULE CHANGES: PR description has no ## Rule changes section. Blocking.")
+    out.extend(["", "### Declared changes (PR description line numbers)"])
+    out.extend([f"{number}: {line}" for number, line in declared] or ["(none)"])
+    index = [f"- RC{number} {item['kind']}: old {rule_location(item['old'])}; new {rule_location(item['new'])}"
+             for number, item in enumerate(changes, 1)]
+    detail = []
+    for number, item in enumerate(changes, 1):
+        detail.extend(["", f"### RC{number} {item['kind']}"])
+        for side in ("old", "new"):
+            unit = item[side]
+            value = unit["text"] if unit else "(none)"
+            fence = "`" * max(3, max((len(m[0]) + 1 for m in re.finditer(r"`+", value)), default=3))
+            detail.extend([f"{side.title()}: {rule_location(unit)}", fence + "text", value, fence])
+    rendered = "\n".join([*out, "", "### Item locations", *index, *detail])
+    if len(display(rendered)) > policy["max_report_chars"]:
+        raise RuleReportTooLarge("\n".join([*out, "", "FAILED CLOSED: complete rule report exceeds "
+                                         f"{policy['max_report_chars']} characters; full text withheld, every location follows.",
+                                         *index]) + "\n")
+    return rendered
+
 
 
 def noninteractive_env():
@@ -523,33 +815,31 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     lens = args.lens or {"codex": "generalist-a", "grok": "generalist-b", "kimi": "generalist-c"}[args.cli]
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", lens):
         raise PrepareError("invalid lens name")
+    changes, policy, rule_base = rule_changes(repo, base, head)
+    report = rule_report(changes, policy, rule_base, head, pr.get("body") or "")
     context_only = getattr(args, "context_only", False)
-    context = None
-    if not documentation_prepared:
-        # Do not execute the live compiler during context-only legacy preparation.
-        # Repositories declaring metadata must use the shared selector instead.
-        registered = any(git(repo, "ls-tree", "--name-only", head, "--", path).strip()
-                         for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json"))
-        assignment_path = getattr(args, "assignment", None)
-        if registered or assignment_path:
-            from prompt import Commit, WorkingTree, documentation_context, review_plan, PromptError
-            try:
-                assignment = Path(assignment_path).read_bytes() if assignment_path else None
-                with Commit(repo, head) as target:
-                    context = documentation_context(WorkingTree(HERE.parents[2]), target, assignment, base=base, plan=review_plan([lens]))
-            except (PromptError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-                raise PrepareError(str(exc)) from exc
-    common, instructions = "", ""
-    if not context_only:
-        from prompt import expand, PromptError
-
-        lens_settings(lens)
-        prefix = "prompts/"
+    registered = not documentation_prepared and any(
+        git(repo, "ls-tree", "--name-only", head, "--", path).strip()
+        for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json"))
+    needs_documentation = not documentation_prepared and (registered or getattr(args, "assignment", None))
+    context, common, instructions = None, "", ""
+    if not context_only or needs_documentation:
+        if not context_only:
+            lens_settings(lens)
+        # Compilation stays with its owner. The standalone reporting path never
+        # imports a sibling, and context-only legacy preparation needs none.
+        request = dict(repo=str(repo), head=head, base=base, lens=lens, full=not context_only,
+                       documentation=bool(needs_documentation),
+                       assignment=str(args.assignment) if getattr(args, "assignment", None) else None)
+        compiled = run(repo, sys.executable, "-I", "-B", str(HERE / "prompt.py"),
+                       "--preparer-context", json.dumps(request))
+        if compiled.returncode:
+            raise PrepareError(compiled.stderr.strip() or "review compiler failed")
         try:
-            common, _ = expand(file=prefix + "roles/reviewer.md")
-            instructions, _ = expand(file=prefix + "lenses/" + lens + ".md")
-        except PromptError as exc:
-            raise PrepareError(str(exc)) from exc
+            result = json.loads(compiled.stdout)
+            common, instructions, context = result["common"], result["instructions"], result["documentation"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise PrepareError("invalid review compiler response") from exc
     mode = args.format or ("structured" if args.cli == "codex" else "pack")
     parts = ["# 1. Review pack\n" + common, "# 2. Instructions\n" + instructions,
              "\n".join(["# 3. Pull request and issue", f"Pull request: {pr_link}",
@@ -559,8 +849,8 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     if context_only:
         parts = [f"The checkout under review is {repo}; read its files by absolute path.", *parts[2:]]
     if context is not None:
-        from prompt import documentation_part
-        parts.append(documentation_part(context).decode("utf-8"))
+        parts.append(context)
+    parts.append(report)
     files = changed_files(repo, rng)
     entries = requirement_entries(repo, args, pr, issues, comments, texts, commits, files, url, head, missing, notices,
                                   documentation=documentation_prepared or context is not None)
@@ -674,6 +964,11 @@ def main(argv=None, *, documentation_prepared=False):
             p.add_argument("--reviews", nargs="+", default=[])
         if command in ("fix", "pr"):
             p.add_argument("--update", action="store_true", help="merge the base even on external or unknown-ownership repositories")
+    p = sub.add_parser("rule-lenses", help="print report-required lenses for this review range")
+    p.add_argument("checkout", type=Path)
+    p.add_argument("--base", required=True)
+    p.add_argument("--rev", default="HEAD")
+    p.add_argument("--no-fetch", action="store_true")
     p = sub.add_parser("lens", help="print configured lens family and sandbox")
     p.add_argument("name")
     p.add_argument("--config", type=Path)
@@ -692,11 +987,16 @@ def main(argv=None, *, documentation_prepared=False):
             return 0
         repo = Path(git(args.checkout, "rev-parse", "--show-toplevel").strip())
         head = None
-        if args.command == "review":
+        if args.command in ("review", "rule-lenses"):
             head = git(repo, "rev-parse", "--verify", "--end-of-options", args.rev + "^{commit}").strip()
         base, remote, fresh = resolve_base(repo, args.base, args.no_fetch)
         print(f"range: {base}...{head or 'HEAD'}", file=sys.stderr)
-        if args.command == "base":
+        if args.command == "rule-lenses":
+            changes, policy, rule_base = rule_changes(repo, base, head)
+            rule_report(changes, policy, rule_base, head, "")
+            if any(item["kind"] in ("removed", "changed", "moved") for item in changes):
+                print("rule-preservation")
+        elif args.command == "base":
             print(base)
         elif args.command == "review":
             sys.stdout.write(review(repo, args, base, remote, head, documentation_prepared=documentation_prepared))
@@ -714,6 +1014,10 @@ def main(argv=None, *, documentation_prepared=False):
                 update_note = f"Merged {base} (or already up to date)."
             print(display(brief(repo, args, base, status, update_note)))
         return 0
+    except RuleReportTooLarge as exc:
+        sys.stdout.write(display(exc.report))
+        print(display(f"error: {exc}"), file=sys.stderr)
+        return 1
     except (PrepareError, OSError, UnicodeError) as exc:
         print(display(f"error: {exc}"), file=sys.stderr)
         return 1

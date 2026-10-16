@@ -990,14 +990,19 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
             self.assertEqual(prompt.count(rule.read_text()), 1)
 
     def test_missing_prompt_include_fails_without_emitting_review(self):
-        import prompt
-
-        with mock.patch.object(prompt, "expand", side_effect=prompt.PromptError("missing rule")):
+        # Exercise the actual compiler boundary rather than an in-process mock.
+        tool = self.root / "tool"
+        scripts = tool / "skills/pr-ready/scripts"
+        scripts.mkdir(parents=True)
+        shutil.copyfile(SCRIPT.with_name("prompt.py"), scripts / "prompt.py")
+        shutil.copyfile(SCRIPT.with_name("review-panel.lenses"), scripts / "review-panel.lenses")
+        self.write(tool, "prompts/roles/reviewer.md", "@rule house-rules:missing-rule.md\n")
+        with mock.patch.object(prepare, "HERE", scripts):
             code, out, err = self.invoke("review", str(self.repo), "--base", "origin/trunk",
                                          "--no-fetch")
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
-        self.assertIn("missing rule", err)
+        self.assertIn("missing-rule.md", err)
 
     def test_pr_design_and_summary_precedence_with_optional_gh(self):
         self.add_review_change()
