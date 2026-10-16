@@ -1733,6 +1733,17 @@ class ChangeReport:
         return {"changes": self.changes}
 
 
+def changed_sections(base, candidate):
+    """Compare registered source subtrees by identity, without diffing generated context."""
+    def source(corpus, section):
+        heading = section["heading"]
+        return corpus.markdown[section["path"]].range_bytes(heading.start - 1, heading.end)
+
+    return sorted(selector for selector, section in candidate.sections.items()
+                  if selector not in base.sections
+                  or source(candidate, section) != source(base, base.sections[selector]))
+
+
 def requirement_changes(base, candidate):
     """Select tests from both snapshots when a requirement or linked fact changes."""
     changes = []
