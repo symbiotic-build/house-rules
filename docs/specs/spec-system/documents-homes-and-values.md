@@ -1,7 +1,7 @@
 <a id="shared-contract"></a>
 # Documents, homes and values
 
-Readers need one authoritative explanation of each behavior and a direct path to its values. Markdown carries explanations and values; shared metadata identifies their owners and reading order. This chapter explains how chapters, names and literal values connect without copying their authority.
+Readers need one authoritative explanation of each behavior and a direct path to its values. Markdown carries explanations and values; shared metadata identifies their owners and reading order. Metadata points to the Markdown definition and value instead of storing another copy.
 
 <a id="sources-and-reading-order"></a>
 ## Sources and reading order
@@ -15,7 +15,11 @@ A source document is an ordered technical contract written in one or more Markdo
 
 A specification describes maintained behavior. A design also explains the evidence, constraints and alternatives behind a proposed change. Both use the shared metadata, even when every section fits in one file. The bounded-batch teaching document therefore needs no separate glossary or private metadata directory.
 
-The opening states purpose, audience, scope and non-goals. The manifest's seven required `roles` are `tour`, `mechanism`, `requirements`, `decisions`, `questions`, `reference` and `acceptance`, in that order. Short documents may assign adjacent roles to one section. The checker validates declared role order between sections. Reviewers verify role order and actual content inside a combined section; headings do not automatically classify paragraphs. An inapplicable role states why it is inapplicable; a draft may instead declare an explicit gap.
+The authored introduction explains the system to its readers. The manifest supplies `purpose`, `audience`, `scope` and `non_goals` for the generated Overview that follows that introduction.
+
+The seven required `roles` order the remaining content: `tour`, `mechanism`, `requirements`, `decisions`, `questions`, `reference` and `acceptance`. Short documents may assign adjacent roles to one section. Checking validates the declared order between sections; reviewers inspect the actual content inside combined sections.
+
+An inapplicable role remains present with its reason, such as an Open questions section saying no implementation contract remains unsettled. A draft can instead omit unfinished content and declare its missing role in the manifest, for example `"gaps": ["questions"]`.
 
 Examples, diagrams and summaries explain the contract without adding obligations. For the batcher, showing two accepted items helps explain capacity. The actual refusal obligation belongs to a [requirement declaration](requirements-tests-and-failures.md#requirement-declaration), whose condition and result can be reviewed together.
 
@@ -26,9 +30,13 @@ An addressable section is a named heading subtree with a stable identity and an 
 
 A subtree starts at its heading's anchor and ends before the next heading of equal or higher level. A chapter selected by its title includes the chapter opening and all its subsections. Registering only a later subsection would leave the opening outside the selected explanation. In the batch corpus, the assignment `example#main` selects the section named `main` in the document named `example`.
 
-An assignment can select a whole chapter while its level-2 sections require separate first-use links. Under each level-2 heading, link the first technical use of each registered term directly to its home. Level-3 and deeper headings do not restart that rule. If the home is later in the same document, link every mention before reaching it. For a home in another document, link every mention: the manifest defines no reading order between documents.
+Assignment boundaries select source; level-2 headings separately determine where first-use links restart. The direct-link cases are:
 
-For example, selecting the following title includes both level-2 sections. Admission and Recovery each need first-use links; Validation continues Admission’s first-use tracking.
+- After a home in the same document, link the first use under each level-2 heading. Deeper headings continue that scope.
+- Before a home in the same document, link every mention.
+- For a home in another document, link every mention because the manifest declares no order between documents.
+
+For example, Admission and Recovery each first mention the batcher with `[batcher](#batcher)`. Validation continues Admission’s first-use tracking. Selecting this title includes all three headings:
 
 ```markdown
 # Submission
@@ -69,11 +77,15 @@ The home retains authority when another passage displays `[3](example.md#capacit
 
 Comparison uses visible literal text after trimming surrounding space and normalizing supported digit-group separators. It neither evaluates expressions nor converts measurements. Thus `1 024` and `1,024` compare alike, while `1.024` keeps its decimal point. Adding `items` inside a link to the capacity row changes the literal; put the unit outside that link. Reviewers check unlinked restatements because the checker cannot infer their intended source.
 
-Status and linked basis qualify a value's authority. Put provisional conditions, observed limits, exceptions and resolution paths in a paragraph immediately before or after the fact table. Link that paragraph to the affected row. For example: `Provisional: [capacity](#capacity) applies only to sequential submissions; concurrency needs an operator decision.`
+Status is `specified`, `provisional`, `observed` or `unresolved`; provenance explanations belong in Basis or adjacent prose. Provisional or unresolved rows link their open question in Basis and state applicability before the table. The [minimal corpus](minimal-corpus.md#example-example) shows a candidate capacity that is not an executable limit.
+
+Status and linked basis qualify a value's authority. Put provisional conditions, observed limits, exceptions and resolution paths in a paragraph immediately before or after the fact table. Link that paragraph to the affected row. The tool captures linked qualification prose within the home in the generated registry and change report. For example: `Provisional: [capacity](#capacity) applies only to sequential submissions; concurrency needs an operator decision.`
 
 A second passage displaying the value must state the applicable condition too. For example: `Allow [2](example.md#capacity) items for sequential submissions only.` Add that concurrent submission still needs an operator decision. This preserves both the value link and its limitation.
 
-Relations express declared connections between entities in a separate table. A relation can name the component performing admission or a setting that limits it. Each target must have its own registered home of the permitted kind. The small batch fixture keeps capacity as a fact and needs no extra setting home. Each relation supplies a supported predicate and linked basis. Exact columns and supported kinds belong to [Markdown declarations](source-formats.md#markdown-declarations).
+A relation table declares connections between entities. For example, `executor | performed-by | [Writer](#writer) | [Decision](#decision)` says the writer performs the owning mechanism. The [relation reference](source-formats.md#metadata) lists allowed predicates and target kinds. A relation can name the component performing admission or a setting that limits it.
+
+Each target must have its own registered home of the permitted kind. The small batch fixture keeps capacity as a fact and needs no extra setting home. Each relation supplies a supported predicate and linked basis. Exact columns and supported kinds belong to [Markdown declarations](source-formats.md#markdown-declarations).
 
 <a id="document-manifest"></a>
 ### Document manifest
@@ -127,8 +139,8 @@ Moving a proposed contract into maintained specification must leave one current 
 
 Drafts keep missing roles and unresolved contracts visible. A skeleton can generate navigation before homes exist because uncompleted homes remain unregistered. Once the author writes a definition and complete explanation, the editor can register its home. Registering a planned heading as though it were complete would give assignments an empty contract.
 
-Approval records its authority and resolving decision. Production authority is operator or delegated; fixture authority applies only to synthetic corpora checked in fixture mode. A working reference proves that a decision can be found, not that its author had approval authority. An approved document cannot retain an unresolved contract that prevents implementation.
+Approval records who authorized the document and links the decision. The operator is the repository’s human decision-maker; delegated authority comes from an explicit delegation by that operator. Authority `fixture` is limited to synthetic corpora checked with `--fixture`, which never authorizes production behavior. A working reference proves that a decision can be found, not that its author had approval authority. An approved document cannot retain an unresolved contract that prevents implementation.
 
-Approval boundaries follow [skills/design-flow/SKILL.md](../../../skills/design-flow/SKILL.md). Operator approval is required for designs that choose canonical storage, change security boundaries or assign ownership between modules or repositories. Approval eligibility and delegated-authority limits require that opening prerequisite; this specification alone cannot determine eligibility. Delegated approval does not mean operator review.
+Approval boundaries follow [skills/design-flow/SKILL.md](../../../skills/design-flow/SKILL.md). Operator approval is required for designs that choose canonical storage, change security boundaries or assign ownership between modules or repositories. The linked procedure determines whether a particular document qualifies for delegated approval. A resolving metadata entry alone cannot grant that delegation.
 
 When approved behavior becomes maintained specification, move each [registered entity](#registered-entity) home and update incoming links in the same change. Preserve the identity of the same technical thing. The old design becomes a status-bearing pointer or is removed under closeout rules. For the batcher, the admission explanation and capacity move together so readers cannot find two current refusal contracts.

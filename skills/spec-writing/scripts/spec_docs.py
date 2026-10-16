@@ -16,10 +16,11 @@ import posixpath
 import re
 import subprocess
 import sys
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 try:
     from markdown_it import MarkdownIt
+    from markdown_it.rules_inline import link as parse_link, html_inline as parse_html_inline
 except ModuleNotFoundError:
     MarkdownIt = None
 
@@ -278,8 +279,29 @@ class Markdown:
         return "".join(self.text.splitlines(keepends=True)[start:end]).encode()
 
 
+def markdown_parser():
+    """Keep native parsing and annotate link/anchor syntax for source rewrites."""
+    parser = MarkdownIt('commonmark').enable('table')
+    def located(rule):
+        def run(state, silent):
+            start, count = state.pos, len(state.tokens)
+            accepted = rule(state, silent)
+            if accepted and not silent:
+                for token in state.tokens[count:]:
+                    if token.type in ('link_open', 'html_inline'):
+                        token.meta['source_span'] = (start, state.pos)
+                        if token.type == 'link_open':
+                            token.meta['label_span'] = (start + 1, state.md.helpers.parseLinkLabel(state, start, True))
+                        break
+            return accepted
+        return run
+    parser.inline.ruler.at('link', located(parse_link))
+    parser.inline.ruler.at('html_inline', located(parse_html_inline))
+    return parser
+
+
 def parse_markdown(path, text, diagnostics):
-    tokens = MarkdownIt("commonmark").enable("table").parse(text)
+    tokens = markdown_parser().parse(text)
     destinations, links, rows, headings, inline_links, generated = defaultdict(list), [], [], [], {}, []
     lines = text.splitlines(keepends=True)
     region_start = None
@@ -298,8 +320,17 @@ def parse_markdown(path, text, diagnostics):
         diagnostics.add("D02", "malformed declaration: unclosed navigation region", path, region_start + 1)
     in_region = lambda n: any(a <= n < b for a, b in generated)
     row, headers, in_header = None, [], False
+    detail_blocks, quote_stack = [], []
     for i, token in enumerate(tokens):
         line = token.map[0] if token.map else 0
+        if token.type == 'blockquote_open':
+            first = next((t for t in tokens[i + 1:] if t.type == 'inline'), None)
+            detail = bool(first and re.match(r'^\*\*Detail\s+[—–-]\s+', first.content))
+            quote_stack.append(detail or any(quote_stack))
+            if quote_stack[-1] and token.map:
+                detail_blocks.append(tuple(token.map))
+        elif token.type == 'blockquote_close':
+            quote_stack.pop()
         if token.type == "heading_open" and not in_region(line):
             before = lines[line - 1].strip() if line else ""
             ids, bad = anchors(before)
@@ -354,7 +385,9 @@ def parse_markdown(path, text, diagnostics):
                 heading.end = following.start - (1 if following.anchor else 0)
                 break
         for token in tokens:
-            if token.type == "inline" and token.map and not in_region(token.map[0]) and heading.start < token.map[0] < heading.intro_end:
+            if (token.type == "inline" and token.map and not in_region(token.map[0])
+                    and not any(a <= token.map[0] < b for a, b in detail_blocks)
+                    and heading.start < token.map[0] < heading.intro_end):
                 match = re.match(r"^\*\*([^*]+?):\*\*\s*(.*)", token.content, re.S)
                 if match:
                     key = match[1]
@@ -480,7 +513,7 @@ def load_corpus(source, format_contract=None, *, comparison=False):
     diagnostics = Diagnostics()
     contract_path = REFERENCE if format_contract is None else format_contract
     contract = load_json(Path(contract_path).read_bytes(), str(contract_path), diagnostics) if isinstance(contract_path, (str, Path)) else contract_path
-    contract_fields = ["version", "entity_kinds", "inventory_kinds", "document_statuses", "roles", "design_roles", "relationship_targets", "requirement_fields", "test_fields", "failure_fields", "scenario_fields", "review_responsibilities", "group_separators"]
+    contract_fields = ["version", "entity_kinds", "inventory_kinds", "document_statuses", "fact_statuses", "roles", "design_roles", "relationship_targets", "requirement_fields", "test_fields", "failure_fields", "scenario_fields", "review_responsibilities", "group_separators"]
     if not shape(contract, contract_fields, [], diagnostics, "format-contract", "format contract"):
         raise SpecDocsError(diagnostics, 2)
     if type(contract["version"]) is not int or contract["version"] != 1:
@@ -752,12 +785,14 @@ def assemble_declarations(corpus):
             owners = [e for e in corpus.entities.values() if e["path"] == md.path and e["start"] < line < e["end"]]
             owner = min(owners, key=lambda e: e["end"] - e["start"]) if owners else None
             if not owner:
-                d.add("D04", "entity '<table owner>' has no complete, unique home", md.path, line + 1)
+                d.add("D04", f"fact table at line {line + 1} is not inside a registered entity's home; move it under the owning entity's heading or register that entity", md.path, line + 1)
                 continue
             values = [visible(t.children).strip() for t in cells]
             if headers[1] == "Value":
                 key, value, status, basis = values
                 identity = owner["id"] + "#" + key
+                if status not in corpus.contract['fact_statuses']:
+                    d.add('D02', f"fact '{identity}' Status must be one of: " + ', '.join(corpus.contract['fact_statuses']), md.path, line + 1)
                 ids = [a for t in cells[0].children or [] if t.type == "html_inline" for a in anchors(t.content)[0]]
                 all_ids = [a for cell in cells for t in cell.children or [] if t.type == "html_inline" for a in anchors(t.content)[0]]
                 if len(ids) != 1 or len(all_ids) != 1 or len(md.anchors.get(ids[0], [])) != 1:
@@ -1118,7 +1153,111 @@ def inline_spans(token, links):
     return text, link_spans, code_spans
 
 
-def check_uses(corpus, md, diagnostics):
+def inline_source_positions(md):
+    """Map unchanged inline source to file offsets, retaining Markdown delimiters.
+
+    The parser removes list/quote prefixes and table separators. Locate each cell
+    or content line in parser order; never guess when the raw spelling differs.
+    """
+    lines = md.text.splitlines(keepends=True)
+    starts, offset = [], 0
+    for line in lines:
+        starts.append(offset)
+        offset += len(line)
+    cursors, positions = {}, {}
+    for token in md.tokens:
+        if token.type != 'inline' or not token.map:
+            continue
+        mapping, source_line = [], token.map[0]
+        for part in token.content.splitlines(keepends=True):
+            raw = part.rstrip('\n')
+            found = False
+            while source_line < token.map[1]:
+                source = lines[source_line]
+                offsets = list(range(len(source)))
+                at = source.find(raw, cursors.get(source_line, 0))
+                if at < 0 and '\\|' in source:
+                    # The native table parser removes the pipe's escape before
+                    # emitting inline content. Retain original file offsets.
+                    offsets = [i for i in offsets if not (source[i:i + 2] == '\\|')]
+                    source = ''.join(lines[source_line][i] for i in offsets)
+                    cursor = next((i for i, original in enumerate(offsets)
+                                   if original >= cursors.get(source_line, 0)), len(offsets))
+                    at = source.find(raw, cursor)
+                if at >= 0:
+                    mapping.extend(starts[source_line] + i for i in offsets[at:at + len(raw)])
+                    cursors[source_line] = offsets[at + len(raw) - 1] + 1 if raw else cursors.get(source_line, 0)
+                    if part.endswith('\n'):
+                        mapping.append(starts[source_line] + len(lines[source_line]) - 1)
+                    source_line += 1
+                    found = True
+                    break
+                source_line += 1
+            if not found:
+                break
+        if len(mapping) == len(token.content):
+            positions[id(token)] = mapping
+    return positions
+
+
+def apply_edits(text, edits):
+    """Apply disjoint source edits from right to left without shifting offsets."""
+    for start, end, replacement in sorted(set(edits), reverse=True):
+        text = text[:start] + replacement + text[end:]
+    return text.encode()
+
+
+def link_missing(corpus):
+    """Insert only required, unambiguous accepted forms in ordinary body text.
+
+    Use the checker's use ordering. A native inline parse with a temporary marker
+    confirms the raw match's visible position before mapping it to file bytes.
+    Unmappable spellings remain visible D12 findings rather than risky edits.
+    """
+    outputs = {}
+    parser = MarkdownIt('commonmark').enable('table')
+    marker = 'SPECDOCSLINKPOSITION'
+    for md in corpus.markdown.values():
+        missing, edits = [], []
+        check_uses(corpus, md, Diagnostics(), missing)
+        positions = inline_source_positions(md)
+        for token, span, entity in missing:
+            mapping = positions.get(id(token))
+            if mapping is None or marker in token.content:
+                continue
+            form = inline_spans(token, md.inline_links.get(id(token), []))[0][span[0]:span[1]]
+            for match in phrase_pattern(form, True).finditer(token.content):
+                probe = token.content[:match.start()] + marker + token.content[match.end():]
+                inline = parser.parseInline(probe)[0]
+                text, links, codes = inline_spans(inline, [])
+                at = text.find(marker)
+                if (at != span[0] or text.count(marker) != 1
+                        or any(a <= at < b for a, b in codes)
+                        or any(a <= at < b for a, b, _ in links)):
+                    continue
+                start, end = mapping[match.start()], mapping[match.end() - 1] + 1
+                if md.text[start:end] != form:
+                    continue
+                path = '' if entity['path'] == md.path else posixpath.relpath(entity['path'], posixpath.dirname(md.path) or '.')
+                target = quote(path, safe='/') + '#' + quote(entity['anchor'], safe='')
+                edits.append((start, end, f'[{form}]({target})'))
+                break
+        if edits:
+            outputs[md.path] = apply_edits(md.text, edits)
+    return outputs
+
+
+def neighboring_links(md, token):
+    """Return annotations beside one literal, across only blank container lines."""
+    def adjacent(start, end):
+        return not any(line.strip(' >\t') for line in md.text.splitlines()[start:end])
+    return [link for neighbor in md.tokens if neighbor.type == 'inline' and neighbor.map
+            and (neighbor.map[1] <= token.map[0] and adjacent(neighbor.map[1], token.map[0])
+                 or token.map[1] <= neighbor.map[0] and adjacent(token.map[1], neighbor.map[0]))
+            for link in md.inline_links.get(id(neighbor), [])]
+
+
+def check_uses(corpus, md, diagnostics, missing=None):
     seen = set()
     for token_index, token in enumerate(md.tokens):
         if not token.map or any(a <= token.map[0] < b for a, b in md.generated):
@@ -1155,9 +1294,19 @@ def check_uses(corpus, md, diagnostics):
             grouped[hit[:2]].append(hit)
         for span, group in grouped.items():
             entity_ids = {h[2] for h in group}
+            code_use = any(begin <= span[0] and span[1] <= end for begin, end in code_spans)
             if len(entity_ids) > 1:
-                diagnostics.add("W04", f"Possible technical use needs review: '{text[span[0]:span[1]]}'", md.path, line + 1)
-                continue
+                destinations = {link.destination for a, b, link in link_spans if a <= span[0] and span[1] <= b}
+                if literal or code_use:
+                    destinations.update(link.destination for link in neighboring_links(md, token))
+                choices = {identity for identity in entity_ids if destinations & use_targets(corpus, corpus.entities[identity])}
+                if len(choices) == 1:
+                    entity_ids = choices
+                else:
+                    diagnostics.add("W04", f"Possible technical use needs review: '{text[span[0]:span[1]]}'", md.path, line + 1)
+                    if not is_heading:
+                        diagnostics.add('D12', f"ambiguous use '{text[span[0]:span[1]]}' needs an author-selected direct home link", md.path, line + 1)
+                    continue
             identity = next(iter(entity_ids))
             entity = corpus.entities[identity]
             if section["document"] not in entity["scope"]:
@@ -1179,19 +1328,17 @@ def check_uses(corpus, md, diagnostics):
                     else:
                         wrong_link = True
             # A literal requires its own neighboring annotation, even on a later use.
-            code_use = any(begin <= span[0] and span[1] <= end for begin, end in code_spans)
             if literal or code_use:
-                def adjacent(start, end):
-                    return not any(line.strip(" >\t") for line in md.text.splitlines()[start:end])
-
-                neighbors = [t for t in md.tokens if t.type == "inline" and t.map
-                             and (t.map[1] <= line and adjacent(t.map[1], line)
-                                  or token.map[1] <= t.map[0] and adjacent(token.map[1], t.map[0]))]
-                matched_link |= any(link.destination in use_targets(corpus, entity) for n in neighbors for link in md.inline_links.get(id(n), []))
+                matched_link |= any(link.destination in use_targets(corpus, entity) for link in neighboring_links(md, token))
             needs_link = forward or (local, identity) not in seen or literal or code_use
             if wrong_link or (needs_link and not matched_link):
                 reason = "wrong-target" if wrong_link else "forward-use" if forward and (local, identity) in seen else "first-use"
                 diagnostics.add("D12", f"use of '{identity}' needs a direct home link: {reason}", md.path, line + 1)
+                if (missing is not None and not wrong_link and not literal and not code_use
+                        and section['document'] in entity['scope']
+                        and text[span[0]:span[1]].casefold() in {f.casefold() for f in entity['forms']}
+                        and not any(a < span[1] and span[0] < b for a, b, _ in link_spans)):
+                    missing.append((token, span, entity))
             seen.add((local, identity))
         if not literal:
             for entity in corpus.entities.values():
@@ -1659,13 +1806,21 @@ def select_context(corpus, assignment):
     parts = [b"# Complete registry\n\n" + registry_bytes, b"# Metadata\n\n" + metadata_bytes, b"# Applicable writing profile\n\n" + corpus.profile_bytes]
     if corpus.base is not None:
         parts.append(b"# Requirement changes (base and candidate labelled)\n\n" + canonical(requirement_changes(corpus.base, corpus).to_dict()))
+    pack_targets = {}
+    for index, (label, path) in enumerate(dict.fromkeys((item['label'], item['path']) for item in merged)):
+        md = source_corpora[label].markdown[path]
+        for anchor, lines in md.anchors.items():
+            if any(item['label'] == label and item['path'] == path
+                   and item['start'] <= line < item['end'] for item in merged for line in lines):
+                pack_targets[label, path, anchor] = f'pack-{index}-{anchor}'
     for item in merged:
         data = source_corpora[item["label"]].markdown[item["path"]].range_bytes(item["start"], item["end"])
         item["size_bytes"] = len(data)
         item["identities"] = sorted(item["identities"])
         item["reasons"] = sorted(item["reasons"])
         item["digest"] = digest(data)
-        parts.append(f"# Source ({item['label']}): {item['path']}:{item['start'] + 1}-{item['end']}\n\n".encode() + data + b"\n")
+        rendered = context_source(source_corpora[item['label']], item, pack_targets)
+        parts.append(f"# Source ({item['label']}): {item['path']}:{item['start'] + 1}-{item['end']}\n\n".encode() + rendered + b"\n")
     mandatory = sorted({"complete-registry", "metadata", "writing-profile", *included})
     manifest = dict(version=1, tool_version=TOOL_VERSION, format_version=corpus.contract["version"],
                     profile_version=corpus.profile["version"], label=assignment.get("label", "candidate"),
@@ -1696,6 +1851,62 @@ def select_context(corpus, assignment):
     return Context(content, len(content), manifest, d)
 
 
+def context_source(corpus, item, targets):
+    """Rewrite included Markdown destinations to unique in-pack anchors.
+
+    Provenance continues to describe original source bytes. Literal examples,
+    absent destinations and external URLs retain their original spelling.
+    """
+    path, label = item['path'], item['label']
+    md = corpus.markdown[path]
+    positions = inline_source_positions(md)
+    edits = []
+    for token in md.tokens:
+        if not token.map or not (item['start'] <= token.map[0] < item['end']):
+            continue
+        if token.type == 'html_block':
+            start = len(''.join(md.text.splitlines(keepends=True)[:token.map[0]]))
+            for match in re.finditer(r'<a\s+id="([^"<>]+)"\s*></a>', token.content):
+                target = targets.get((label, path, match[1]))
+                if target:
+                    edits.append((start + match.start(), start + match.end(), f'<a id="{target}"></a>'))
+        if token.type != 'inline':
+            continue
+        mapping = positions.get(id(token))
+        for child in token.children or []:
+            span = child.meta.get('source_span')
+            if not span:
+                continue
+            begin, end = span
+            raw = token.content[begin:end]
+            if child.type == 'html_inline':
+                ids, bad = anchors(raw)
+                target = targets.get((label, path, ids[0])) if len(ids) == 1 and not bad else None
+                replacement = f'<a id="{target}">' if target else None
+            elif child.type == 'link_open':
+                parsed = urlsplit(child.attrGet('href') or '')
+                destination = posixpath.normpath(posixpath.join(posixpath.dirname(path), unquote(parsed.path))) if parsed.path else path
+                target = None if parsed.scheme or parsed.netloc or parsed.query else targets.get((label, destination, unquote(parsed.fragment)))
+                if not target:
+                    continue
+                if mapping is None:
+                    fail('D27', 'cannot rewrite included link: inline source positions are unavailable', path, 2)
+                title = child.attrGet('title')
+                suffix = ' "' + title.replace('\\', '\\\\').replace('"', '\\"') + '"' if title else ''
+                label_start, label_end = child.meta['label_span']
+                label_source = md.text[mapping[label_start]:mapping[label_end]]
+                replacement = f'[{label_source}](#{quote(target, safe="")}{suffix})'
+            else:
+                replacement = None
+            if replacement:
+                if mapping is None:
+                    fail('D27', 'cannot rewrite included anchor: inline source positions are unavailable', path, 2)
+                edits.append((mapping[begin], mapping[end - 1] + 1, replacement))
+    start = len(''.join(md.text.splitlines(keepends=True)[:item['start']]))
+    end = len(''.join(md.text.splitlines(keepends=True)[:item['end']]))
+    return apply_edits(md.text[start:end], [(a - start, b - start, replacement) for a, b, replacement in edits])
+
+
 def validate_runtime():
     """Check the runtime contract and package versions against the owning lock."""
     directory = Path(__file__).resolve().parent
@@ -1722,14 +1933,18 @@ def validate_runtime():
             fail("D27", f"cannot use '{package}': expected {expected}, found {actual}", "runtime", 2)
 
 
-def write_outputs(corpus, outputs):
+def write_outputs(corpus, outputs, *, repair=False):
     # Validate all generated bytes as a candidate before any replacement.
     candidate_source = Snapshot(dict(corpus.source.files, **outputs), corpus.source.tracked | set(outputs),
                                 corpus.source.problems, fixture=corpus.source.fixture)
     candidate = load_corpus(candidate_source, corpus.contract)
     diagnostics = check(candidate)
-    if diagnostics.errors:
-        raise SpecDocsError(diagnostics)
+    errors = diagnostics.errors
+    if repair:
+        existing = set(check(corpus).errors)
+        errors = [d for d in errors if d not in existing and d.code != 'D17']
+    if errors:
+        raise SpecDocsError(Diagnostics(errors))
     if corpus.source.root is None:
         fail("D27", "cannot write output: snapshot has no working-tree destination", exit_code=2)
     for path, data in sorted(outputs.items()):
@@ -1738,7 +1953,7 @@ def write_outputs(corpus, outputs):
             # Recheck destination components; a symlink cannot redirect a write.
             if any(p.is_symlink() for p in [target, *target.parents] if p != corpus.source.root):
                 fail("D05", f"source '{path}' is outside the declared input set: symlink destination", path)
-            if path == ".gitattributes" or any(doc["navigation"].get("region") and doc["navigation"]["path"] == path for doc in corpus.documents.values()):
+            if path in corpus.markdown or path == ".gitattributes":
                 current = target.read_bytes() if target.exists() else None
                 if current != corpus.source.files.get(path):
                     fail("D27", f"cannot replace '{path}': authored destination differs from selected snapshot", path, 2)
@@ -1758,7 +1973,7 @@ def write_outputs(corpus, outputs):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("check", "generate", "context"))
+    parser.add_argument("command", choices=("check", "generate", "link", "context"))
     parser.add_argument("--root", default=".")
     snapshot = parser.add_mutually_exclusive_group()
     snapshot.add_argument("--staged", action="store_true")
@@ -1771,6 +1986,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         validate_runtime()
+        if args.command == 'link' and (args.staged or args.rev or args.base or args.assignment):
+            fail('D02', 'malformed invocation: link requires the working tree without comparison or assignment', exit_code=2)
         source = Snapshot.from_git(args.root, args.staged, args.rev, args.fixture)
         corpus = load_corpus(source, args.format_contract)
         assignment = None
@@ -1782,6 +1999,19 @@ def main(argv=None):
             corpus.assignment = assignment
         base = load_corpus(Snapshot.from_git(args.root, rev=args.base, fixture=args.fixture), args.format_contract, comparison=True) if args.base else None
         corpus.base = base
+        if args.command == 'link':
+            outputs = link_missing(corpus)
+            write_outputs(corpus, outputs, repair=True)
+            diagnostics = check(load_corpus(Snapshot(dict(source.files, **outputs), source.tracked, source.problems, fixture=source.fixture), corpus.contract))
+            result = dict(diagnostics.to_dict(), linked=sorted(outputs))
+            if args.json:
+                print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            else:
+                print('spec-docs: linked ' + (', '.join(sorted(outputs)) or 'no changes'))
+                for item in sorted(set(diagnostics.items)):
+                    print(item)
+                print(f'spec-docs: {len(diagnostics.errors)} errors, {len(diagnostics.warnings)} warnings')
+            return 0 if diagnostics.ok else (2 if any(d.code == 'D27' for d in diagnostics.errors) else 1)
         if args.command == "context":
             if assignment is None:
                 fail("D02", "malformed invocation: context needs --assignment", exit_code=2)

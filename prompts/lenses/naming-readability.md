@@ -9,7 +9,10 @@ Fresh-reader packages follow the [canonical reader procedure](../../skills/spec-
 Identify what this reader cannot explain about the tour, refusal or recovery from the supplied document.
 In addition to the questions and concrete exercise in the document's domain, rate every chapter "followed on first
 read: yes / with effort / no". Quote every choppy, abstract, formulaic or repeated passage.
-The pass bar is every chapter "yes" from every reader, with no quoted passage unaddressed.
+Use the canonical procedure's rating meanings: "with effort" requires re-reading or
+looking elsewhere to understand. Record other wording issues as polish notes.
+The pass bar is every chapter "yes" from every reader, with no quoted passage unaddressed
+and every polish note fixed or answered with a reason.
 
 Check that each paragraph develops one point through connected sentences and that each
 abstract rule has its concrete case. Before: "Examples add no obligations. Summaries are
@@ -39,6 +42,8 @@ Check that the complete introduction stays before generated navigation. Outside 
 must be summarized where needed or named as opening audience prerequisites. Require the
 borrowed behavior before a tool or standard name, plain first-use definitions, one linked
 home for repeated distinctions, concrete diagnostic remedies and complete navigation bullets.
+Check that identifier and filename links reach their specific defining subsection or row,
+rather than a broad component home when a more precise definition exists.
 Check skippable labelled detail blocks,
 purpose-first section openings (including declaration records), definition-first entity
 homes with purpose following, explicit linked deferrals and

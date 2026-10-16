@@ -72,9 +72,12 @@ unsettled questions, without reopening a settled choice merely because it is unf
    - Use one decision heading per choice. Put alternatives in one Rejected alternatives field;
      do not repeat the same bold field label within a declaration or decision.
    - Complete each failure declaration before registering scenarios that refer to it.
+   - Put long trace-link lists after the readable walkthrough. A scenario can omit its
+     optional Tests field when its linked requirements already select every case.
    - Propose changes to another owner's facts instead of introducing replacement definitions.
 4. **Review the assembled document.**
-   - Run the pinned shared tool's structural check and regenerate navigation.
+   - Run the pinned shared tool's `link` command to insert missing unambiguous body links.
+   - Resolve remaining `D12` findings, regenerate navigation and run `check`.
    - Inspect the resulting map, link density and tables as a reader.
    - Review technical meaning, design and cost, failure and recovery, and whole scenarios.
    - Run the fresh-reader procedure below for the readability responsibility.
@@ -117,6 +120,10 @@ When touching an explanation owned elsewhere, add a one-line linked note naming 
 explained later. Check each first-use gloss against what a reader needs at that point.
 
 For each tour or procedure step, write the action and caller-visible result first.
+Apply the [reader-progression rules](../../rules/specifications.md#reader-progression):
+start repair tours from the complete example, show concrete outcomes where used, and
+remove author-centred formulas. Review each definition sentence alone before generating
+the index. Give outside approval rules one linked home explaining who may approve what.
 Move exact payloads beneath that step, for example:
 
 > **Detail — capacity comparison**
@@ -124,7 +131,8 @@ Move exact payloads beneath that step, for example:
 > The displayed value differs from the table's value; comparison reports `D10`.
 
 Use [rules/writing.md](../../rules/writing.md#sequences-and-structured-detail) for step structure.
-Keep schemas and signatures in lookup reference after the mechanisms. Use the executable
+Keep schemas and signatures in lookup reference after the mechanisms. Omit lists of
+implementation artifacts that do not exist within the document’s scope. Use the executable
 fixtures inside this skill when the specification chapters are unavailable; their JSON and
 Markdown form a complete checked corpus. Read each fixture file, including adjacent
 qualification and literal-example annotations, rather than inventing declaration syntax.
@@ -174,13 +182,16 @@ neither an explanation nor adequate evidence for a value or acceptance test.
    - Ask it to explain a refusal and its recovery, or the declared absence of either.
    - Require citations for ambiguity, hidden assumptions and places understanding fails.
    - Have each reader rate every chapter "followed on first read: yes / with effort / no".
+     "With effort" means the reader had to re-read a passage or look elsewhere to
+     understand it. Record other wording issues separately as polish notes.
      Require a quote of every choppy, abstract, formulaic or repeated passage.
 3. **Assess the answers against the document.**
    - Do not repair missing explanations through code, external sources or author coaching.
    - Distinguish a concrete reader problem from a stylistic preference or counter warning.
    - Check that reference registry material did not conceal a missing explanation.
    - Pass only when every chapter is rated "yes" by every reader and no quoted passage
-     remains unaddressed. After repairs, obtain fresh ratings for affected chapters.
+     remains unaddressed. Fix every polish note or answer it with a reason.
+     After repairs, obtain fresh ratings for affected chapters.
 4. **Refresh the affected document and context.**
    - Integrate accepted findings through the editor and home owners.
    - Regenerate navigation and affected packs, then recheck the changed scenarios.
@@ -212,6 +223,10 @@ checker owner and repeat the normal run; never repair generated output by hand.
 2. **Move each item to its owner.**
    - Use the format contract for identities, accepted and rejected forms, and field patterns.
    - Move explanations, interface distinctions, states and requirements to complete homes.
+   - Apply the converted-document voice rule in reader progression. Quote conflicting
+     original passages in one provenance section; the new design speaks for itself.
+   - State each value's applicability before its table and preserve uncertainty in Status
+     and the linked open question in Basis under the authority-and-homes rule.
    - Keep code-only identifiers with their code owner unless specification readers need them.
    - Preserve rules that cannot be expressed as field patterns as linked requirements.
 3. **Check the replacement before removal.**

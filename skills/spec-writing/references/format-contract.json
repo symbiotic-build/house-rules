@@ -22,6 +22,12 @@
     "implemented",
     "superseded"
   ],
+  "fact_statuses": [
+    "specified",
+    "provisional",
+    "observed",
+    "unresolved"
+  ],
   "roles": [
     "tour",
     "mechanism",

@@ -20,14 +20,6 @@ The following records preserve the decisions that determine source authority, ch
 
 **Rejected alternatives:** Markdoc adds a JavaScript runtime while leaving registry and context selection work. AsciiDoc and Antora change the source format. MyST, Sphinx and Sphinx-Needs change the authoring and publication contract. A separate requirement store adds writable authority that these declarations do not need.
 
-Each definition has a stable identity, and links identify the intended definition when names overlap; this follows the definition-linking behavior associated with Bikeshed. A map assembles independently identified explanations in reading order, following the organization and reuse approach associated with DITA.
-
-Applicability is explicit: the batcher’s `scope: ["example"]` limits its name to that document. Independently identified information modules, as in S1000D, provide the comparison for declaring where content applies. These are source-organization ideas; this system adopts no publication machinery from those tools.
-
-Requirements and tests link in both directions, and a changed contract brings its tests back into review. Doorstop and StrictDoc are comparisons for these traceability behaviors. Here Markdown and Git snapshots supply the relationships without another writable requirement store.
-
-Vale is not a required dependency. An existing installation can serve other writing needs, but it does not replace home resolution, literal comparison or snapshot selection. The design adds no terminology exporter or second vocabulary authority.
-
 <a id="literal-decision"></a>
 ### Decision: literal fact values
 

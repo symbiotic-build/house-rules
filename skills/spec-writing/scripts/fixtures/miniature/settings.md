@@ -24,7 +24,7 @@ Commit capacity bounds documents in one commit.
 
 | Key | Value | Status | Basis |
 |---|---|---|---|
-| <a id="commit-capacity-default"></a>default | 1,024 | provisional | [Fixture](#fixture-decision) |
+| <a id="commit-capacity-default"></a>default | 1,024 | provisional | [Capacity qualification](#open-questions) |
 
 **Qualification for [default](#commit-capacity-default):**
 Qualify the selected capacity before treating it as an operating guarantee.
@@ -53,7 +53,7 @@ This home declares no independent default.
 <a id="open-questions"></a>
 ## Open questions
 
-None for this fixture.
+The fixture author must resolve the candidate capacity before adoption.
 
 <a id="reference"></a>
 ## Reference

@@ -11,6 +11,13 @@ tests from both snapshots, relationship changes and changed directly referenced 
 including Status, Basis and qualifications. Check requirement removals against their
 resolving decisions. Do not require a documentation requirement for every code unit test.
 
+Check decision diagrams and ordered rules against every combination of their conditions,
+including when only one condition holds. Require an explicit impossibility for excluded
+combinations. Separate prior qualification, per-launch checks and runtime observations.
+Check that fallback launch paths preserve verified pack bytes; changed compilation inputs
+require recompilation. Exact command examples state whether a prompt argument contains
+text or names a file.
+
 Trace each stopping or refusing mechanism through its trigger, visible outcome, retained
 or changed state, recovery action, actor, authority and verification. Follow entry,
 restart behavior and exits; review public error mapping. Test whether the declared actor

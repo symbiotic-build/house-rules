@@ -62,7 +62,7 @@ This refusal prevents an unsupported installation from selecting a fallback pars
 
 A source snapshot is a captured set of repository paths, input bytes and source problems used by one documentation operation. It keeps checking and agent preparation tied to the selected content after capture.
 
-A commit selection reads the named commit's tree and blobs. A staged selection reads the complete index, including unchanged entries. Authoring reads captured working-tree bytes, including eligible untracked paths. Conflicting snapshot switches fail instead of combining modes. Thus a corrected working-tree capacity label cannot hide a staged label that still displays `3`.
+A commit selection reads the named commit's tree and blobs. A staged selection reads the complete index, including unchanged entries. The default working-tree selection reads captured bytes, including eligible untracked paths. Conflicting snapshot switches fail instead of combining modes. Thus a corrected working-tree capacity label cannot hide a staged label that still displays `3`.
 
 The tool inventories paths through Git and loads Markdown, shared metadata and `.gitattributes` as bytes. This Git configuration file controls treatment of repository paths. Its generated entries mark standalone navigation files with `linguist-generated=true`, alongside any authored attributes. Code and asset links use the inventory for existence and regular-file checks; unrelated binaries are not loaded. Local content inputs must be regular UTF-8 files within repository boundaries. Missing inputs, invalid encoding, symlinks, unmerged index entries and path escapes remain visible failures.
 
@@ -80,15 +80,19 @@ Validation must succeed before generated navigation can replace existing output.
 
 The documentation checker is the shared parser and validator for specification Markdown and metadata from one selected snapshot. It detects structural errors before invalid declarations can become generated navigation or mandatory agent input.
 
-The parser uses CommonMark with pipe tables enabled. It supplies tokens and source locations rather than requiring a second Markdown parser. Authored documents are parsed into one in-memory corpus used by checking, navigation and context selection. All three operations therefore interpret the same declarations without a persistent database, cache or search index.
+The parser uses CommonMark with pipe tables enabled. It supplies tokens and source locations rather than requiring a second Markdown parser. Authored documents are parsed into one in-memory corpus used by checking, navigation and context selection. All commands therefore interpret the same declarations without a persistent database, cache or search index.
 
 For the batcher, a link to the capacity row can resolve while its displayed value remains wrong. Literal comparison reports `D10` for `3` against `2`, with the source path and line. A descriptive capacity link only navigates; it does not claim another literal. The [canonical fact](documents-homes-and-values.md#canonical-fact) home explains the comparison's limits.
 
 Validation rejects duplicate JSON keys, unknown fields, unsupported versions, duplicate identities and malformed declarations. It also checks home completeness, scope, direct links and reciprocal requirement/test relationships. Local fragments need explicit destinations. External URLs receive syntax checks without network access, so a structural pass does not establish remote availability.
 
-Generated regions do not supply authored facts. Remote includes, expression evaluation, arbitrary paragraph transclusion, automatic linkification and conditional publication are outside the supported input model. Exact declaration shapes belong to [Source formats](source-formats.md#source-format), after these behavioral explanations.
+Generated regions do not supply authored facts. Remote includes, expression evaluation, arbitrary paragraph transclusion, implicit linkification and conditional publication are outside the supported input model. Exact declaration shapes belong to [Source formats](source-formats.md#source-format), after these behavioral explanations.
 
-The commands are `check`, `generate` and `context`. Local and staged checks use the same pinned tool as the repository's documentation gate. That gate checks the complete candidate corpus. The existing review preparation uses the shared selector rather than constructing a separate interpretation of registered documents.
+The commands are `link`, `check`, `generate` and `context`. Local and staged `check` invocations use the same pinned tool that validates the complete corpus before publication. Review preparation calls `context` to select the registered documents.
+
+Run `link` before `check` when authoring. It inserts a direct home link only where the checker requires one and an exact accepted form identifies one entity. Matching ignores case, as accepted forms do. It excludes headings, code spans, literal blocks, generated regions and existing links. Ambiguous uses remain `D12` findings for the author; the command never chooses their meaning.
+
+Linking uses one captured working-tree snapshot and the same per-file replacement safety as generation. All proposed edits are reparsed before any replacement. Existing errors remain visible; new errors refuse replacement. An authored file edited after capture, a symlink or an unwritable destination stops replacement. An interrupted set can be repaired by running `link` again; already-linked uses stay unchanged.
 
 Diagnostics identify severity, code, path, line and explanation. They are deduplicated and deterministically ordered without a count cap. Checking reports every available finding; malformed environment or input can stop processing before further findings are available. Warning counts never turn a valid structural result into failure.
 
@@ -100,7 +104,7 @@ Diagnostics identify severity, code, path, line and explanation. They are dedupl
 
 The [success](#checker-success) exit means that no structural error remains. [Document-errors](#checker-document-errors) identifies an invalid corpus. [Invocation-failure](#checker-invocation-failure) identifies failures such as an unsupported runtime or unavailable input/output; the diagnostic explains the cause. The [diagnostic reference](interfaces-and-encodings.md#diagnostics) supplies each code's remedy.
 
-Prose heuristics follow the profile in [rules/writing.md](../../../rules/writing.md). They warn about sentence length, paragraph length and selected presentation patterns. Reviewers give remaining warning groups a disposition and judge actual reader problems. A warning neither proves a contradiction nor justifies discarding conditions or exceptions to shorten the prose.
+Prose heuristics follow the profile in [rules/writing.md](../../../rules/writing.md). They warn about sentence length, paragraph length and selected presentation patterns. Reviewers group remaining warnings by code or passage in the review report. Each group records whether to revise the wording or retain it with a reason. A warning neither proves a contradiction nor justifies discarding conditions or exceptions to shorten the prose.
 
 <a id="failure-invalid-source"></a>
 #### Failure state: invalid source or invocation
@@ -122,7 +126,7 @@ This refusal exposes invalid selected material so the owner can repair its sourc
 <a id="navigation-generation"></a>
 ### Navigation generation
 
-Navigation generation builds the same reading aids from the same declared document metadata and entity homes. It gives readers an overview, a document map and an index of meanings without adding authored claims.
+Navigation generation builds each document’s overview, map and term index from metadata and entity homes. It gives readers direct paths to explanations without adding authored claims.
 
 The [document manifest](documents-homes-and-values.md#document-manifest) chooses the destination and reading order. The map links section titles and nested level-2 headings to their source anchors, with summaries and prerequisites. The generated view of the [entity index](documents-homes-and-values.md#entity-index) displays each home heading and definition sentence. For the batcher, readers can reach admission and its capacity row rather than relying on an exported paraphrase.
 

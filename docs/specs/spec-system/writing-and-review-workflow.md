@@ -6,9 +6,9 @@ Authors use the checked source system to produce explanations that an engineer c
 <a id="ownership-and-readable-explanation"></a>
 ## Ownership and readable explanation
 
-Ownership keeps concurrent authors from defining competing contracts. One editor owns manifest and entity-index changes for the round. Assign one author responsibility for each entity’s defining section. Give each author a disjoint source assignment with generated input. Changes to another owner's facts are proposals to that owner.
+The editor integrates shared metadata changes for an authoring round. Each author owns an assigned entity’s defining section and receives a disjoint source assignment with generated input. This division prevents competing definitions; changes to another owner’s facts go to that owner as proposals.
 
-Before assigning body sections, create anchored chapter openings and declare missing roles in `gaps`. Leave planned entities out of the index until their definitions are complete. Generate and check that draft map before assigning its chapters.
+Before assigning body sections, create anchored chapter openings and declare missing roles in the manifest’s `gaps` field. Leave planned entities out of the index until their definitions are complete. Generate and check that draft map before assigning its chapters.
 
 **Procedure: write an implementable explanation**
 
@@ -20,12 +20,13 @@ Before assigning body sections, create anchored chapter openings and declare mis
 3. **Complete the contract.** Add reciprocal requirements and acceptance cases together.
    Each stopping path states retained state, caller result, recovery and authority.
 
-4. **Check the source.** Run the pinned structural checker.
-   It names invalid declarations and mismatched displays.
-
-5. **Regenerate navigation.** Project the corrected authored declarations.
+4. **Link missing uses.** Run `link` and resolve the remaining direct-link findings.
+   The author chooses a home for each ambiguous use.
+5. **Regenerate navigation.** Rebuild the map and term index from the corrected source.
    The refreshed map can accompany the next assignment.
-6. **Review warnings.** State a disposition for every remaining warning group.
+6. **Check the source.** Run the pinned structural checker.
+   It names invalid declarations and mismatched displays.
+7. **Review warnings.** State a disposition for every remaining warning group.
    A concrete reader problem requires repair; an appropriate retained passage needs its reason.
 
 Every section opens with its purpose. An entity home's first sentence defines the entity; its following text explains purpose and behavior. The generated index copies that definition sentence alone. Procedures keep the action and caller result in the step, with exact encodings in labelled detail blocks.
@@ -50,7 +51,7 @@ For the bounded batch, review checks that refusal retains the existing items and
 
 The review plan covers technical correctness, readability, design and cost, failure and recovery, and complete [scenarios](requirements-tests-and-failures.md#scenario). The [assignment reference](source-formats.md#callable-core-and-context-assignment) gives their exact responsibility labels. One reviewer can cover several responsibilities. Preparation validates the actual plan; it does not launch additional reviewers. Changed requirements bring linked tests into the input even when the test text did not change.
 
-Reviewers cite the incorrect claim or missing explanation and show its consequence. They inspect unlinked value restatements and technical meanings that the registry does not recognize. They also trace concurrency, entry, retained state, restart and public errors where those behaviors exist. Reviewers remain read-only and run no builds, tests or external writes; the preparing service owns execution evidence.
+Reviewers cite the incorrect claim or missing explanation and show its consequence. They inspect unlinked value restatements and technical meanings that the registry does not recognize. They also trace concurrency, entry, retained state, restart and public errors where those behaviors exist. Reviewers remain read-only and run no builds, tests or external writes; the lead supplies execution evidence in the assignment.
 
 <a id="failure-review"></a>
 ### Failure state: incomplete review assignment
@@ -80,10 +81,12 @@ Reader review tests whether the document teaches its contract. The [Fresh-reader
 - What does the caller see on success? What is refused, with what message and retained state?
 - How does the caller recover? What agent material is selected, and what prevents dispatch?
 
-Each reader applies the chapters to a small concrete case and retains the first tool run. For this specification, that case is a corpus whose first check has zero errors. Readers rate each chapter “yes”, “with effort” or “no” and quote every troublesome passage. Acceptance requires every chapter “yes”, no unanswered questions, guesses or stuck points, and no unaddressed quote. Repairs require fresh ratings for affected chapters within the approved review plan.
+Each reader applies the chapters to a small concrete case and retains the first tool run. For this specification, that case is a corpus whose first check has zero errors. Readers rate each chapter “yes”, “with effort” or “no” and quote every troublesome passage. “With effort” means re-reading or looking elsewhere to understand; other wording issues are separate polish notes.
 
-Branch qualification adds the normal authoring and conversion runs described in [real authoring and review](acceptance-evidence.md#test-real-use). It uses the exact candidate commit before merge; it does not expand the review panel.
+Acceptance requires every chapter “yes”, no unanswered questions, guesses or stuck points, and no unaddressed quote. Each polish note must be fixed or answered with a reason. Repairs require fresh ratings for affected chapters within the approved review plan.
+
+Before merging the candidate commit, run the normal authoring and conversion exercises described in [real authoring and review](acceptance-evidence.md#test-real-use). Use the exact candidate commit within the approved review plan.
 
 Conversion accounts for every substantive source rule, table row, qualification and settled decision. Move names and rejected forms into the [entity index](documents-homes-and-values.md#entity-index), and move behavior and declarations into complete homes. Preserve distinctions that cannot be represented as naming patterns through linked requirements. Update loaders, links and metadata together before removing a superseded contract.
 
-Approval eligibility and delegated authority require the opening’s [design-flow prerequisite](../../../skills/design-flow/SKILL.md). Do not resolve a reviewer-marked operator choice by writing an answer into the specification. Branch validation uses real authoring and review entry points before merge; it never hand-repairs a generated pack. A renderer remains a separate consumer with its own specification and display evidence.
+Use the [approval boundary](documents-homes-and-values.md#design-lifecycle) when adopting a design. A reviewer-marked operator choice remains unanswered until the operator decides; writing a proposed answer cannot settle it.

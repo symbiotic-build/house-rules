@@ -128,7 +128,7 @@ Use this map to choose the next explanation to read.
   - [Decisions](example.md#decision)
   - [Open questions](example.md#questions)
   - [Reference](example.md#reference)
-  - [Acceptance test: full batch](example.md#test-capacity)
+  - [Inspection: full batch](example.md#test-capacity)
 
 ## Entity index
 
@@ -142,9 +142,12 @@ Each technical term below links to its defining Markdown section.
 
 A batcher prevents overfilling by accepting items only while its batch has room.
 
+The chosen capacity governs admission. A candidate capacity remains unadopted pending its linked question.
+
 | Key | Value | Status | Basis |
 |---|---|---|---|
 | <a id="capacity"></a>capacity | 2 | specified | [Teaching decision](#decision) |
+| <a id="candidate-capacity"></a>candidate-capacity | 3 | provisional | [Capacity trial](#questions) |
 
 Submit up to [2](#capacity); a full batch retains its items on refusal.
 
@@ -198,7 +201,7 @@ This refusal tells the caller how to submit an item after the batch fills.
 <a id="questions"></a>
 ## Open questions
 
-None; the teaching contract is complete.
+The teaching author must decide whether to adopt the [candidate capacity](#candidate-capacity) after a separate trial. Until then, the [chosen capacity](#capacity) governs this complete teaching contract.
 
 <a id="reference"></a>
 ## Reference
@@ -206,7 +209,7 @@ None; the teaching contract is complete.
 `Full` means the submitted item was refused.
 
 <a id="test-capacity"></a>
-## Acceptance test: full batch
+## Inspection: full batch
 
 This inspection checks that refusal preserves the existing items.
 
@@ -218,7 +221,7 @@ This inspection checks that refusal preserves the existing items.
 
 **Expected:** `Full` and the same retained items.
 
-Evidence: [retained-state inspection](#failure-full).
+Planned evidence: [retained-state inspection](#failure-full).
 ```
 
 The explicit fact anchor is inside its Key cell, and Basis links the teaching decision. Tests and Requirements link reciprocally. Method `inspection` omits Implementation and puts the evidence link in an unbolded paragraph.

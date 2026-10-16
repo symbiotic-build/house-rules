@@ -1,7 +1,7 @@
 <a id="overview"></a>
 # Specification and design-document system
 
-The specification and design-document system helps authors keep technical contracts in Markdown and give readers checked navigation to their explanations. The shared Python tool also prepares complete reading material for assigned agents. Reviewers use that material to assess behavior and evidence beyond what structural checks can establish.
+The specification and design-document system helps authors keep technical contracts in Markdown and give readers checked navigation to their explanations. The shared Python tool also prepares complete reading material for assigned agents. Checking can confirm that a test link exists. Reviewers determine whether the linked case proves the required behavior.
 
 Which authored inputs become navigation and complete agent reading material?
 
@@ -17,7 +17,7 @@ flowchart TD
 
 The diagram separates authored inputs from rebuildable outputs. The [document manifest](documents-homes-and-values.md#document-manifest) lists chapters and their reading order. The [entity index](documents-homes-and-values.md#entity-index) maps technical names to their defining sections. Both identify Markdown explanations without copying their meaning.
 
-House Rules is the repository that owns the authoring rules and documentation tool. This document assumes Markdown headings, links and basic Git snapshots. Its [design-flow approval procedure](../../../skills/design-flow/SKILL.md) is an additional prerequisite for deciding approval eligibility and delegated authority.
+House Rules is the repository that owns the authoring rules and documentation tool. This document assumes Markdown headings, links and basic Git snapshots. The [approval boundary](documents-homes-and-values.md#design-lifecycle) explains who may approve a draft and when the human operator must decide. The linked design-flow procedure supplies those approval rules.
 
 Read the map to choose a chapter, or continue with the [tour](tour-fixing-a-wrong-capacity.md#tour) for the author-facing repair. Mechanisms explain why the repair works; reference chapters supply exact inputs and commands. [Acceptance evidence](acceptance-evidence.md#acceptance) identifies the required verification.
 
@@ -110,7 +110,7 @@ Each technical term below links to its defining Markdown section.
 - [Documentation checker](checking-and-navigation.md#documentation-checker) (`spec-system.documentation-checker`) — The documentation checker is the shared parser and validator for specification Markdown and metadata from one selected snapshot.
 - [Entity index](documents-homes-and-values.md#entity-index) (`spec-system.entity-index`) — The entity index is the shared mapping from technical identities and accepted names to their Markdown homes.
 - [Failure declaration](requirements-tests-and-failures.md#failure-declaration) (`spec-system.failure-declaration`) — A failure declaration is a contract for a stopping condition, its visible outcome, retained state and recovery authority.
-- [Navigation generation](checking-and-navigation.md#navigation-generation) (`spec-system.navigation-generation`) — Navigation generation builds the same reading aids from the same declared document metadata and entity homes.
+- [Navigation generation](checking-and-navigation.md#navigation-generation) (`spec-system.navigation-generation`) — Navigation generation builds each document’s overview, map and term index from metadata and entity homes.
 - [Registered entity](documents-homes-and-values.md#registered-entity) (`spec-system.registered-entity`) — A registered entity is an identified technical thing with one complete Markdown home.
 - [Requirement declaration](requirements-tests-and-failures.md#requirement-declaration) (`spec-system.requirement-declaration`) — A requirement declaration is an identified obligation stating an actor, condition, result and verification relationship.
 - [Scenario](requirements-tests-and-failures.md#scenario) (`spec-system.scenario`) — A scenario is a declared sequence or branching set of actions with concrete inputs and caller-visible results.
@@ -129,14 +129,12 @@ The [bounded-batch fixture](../../../skills/spec-writing/scripts/fixtures/minima
 
 The [batcher home](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher) contains the definition and a capacity of [2](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#capacity) items. Capacity counts items in one batch. When a caller submits a third item, the [full-batch refusal](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#failure-full) returns `Full` and leaves the existing items unchanged. The submitting caller can submit the refused item in a new batch.
 
-The [capacity requirement](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#req-capacity) states that obligation. Its reciprocal [inspection case](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#test-capacity) checks the refusal and retained items.
+The [capacity requirement](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#req-capacity) states that obligation. Its [inspection case](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#test-capacity) links back to that requirement and checks the refusal and retained items.
 
-The tour introduces a documentation defect by changing only a displayed link:
+The tour changes only the displayed capacity link in the [batcher example](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher):
 
 ```markdown
 Submit up to [3](#capacity); a full batch retains its items on refusal.
 ```
-
-**Entities in this example:** [batcher and capacity](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#batcher).
 
 The link still targets the capacity row, whose value remains [2](../../../skills/spec-writing/scripts/fixtures/minimal/docs/example.md#capacity). Checking reports `D10`, the diagnostic for a displayed value that differs from its home. Correcting the label repairs the documentation; it changes neither the capacity nor the meaning of `Full`. The [tour's correction](tour-fixing-a-wrong-capacity.md#capacity-repair) follows that repair through regenerated navigation and selection of the complete example chapter, including its nested headings.

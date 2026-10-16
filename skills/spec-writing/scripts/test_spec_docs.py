@@ -75,6 +75,108 @@ class CorpusTests(unittest.TestCase):
         self.assertIn(code, {d.code for d in caught.exception.diagnostics.errors})
         self.assertGreater(self.context().size_bytes, 0)
 
+    def test_link_inserts_only_missing_unambiguous_body_uses(self):
+        edit(self.paths, ACCEPTANCE, '[writer](#writer)', 'writer')
+        before = self.paths[ACCEPTANCE]
+        self.assertIn('D12', self.codes())
+        self.paths.update(s.link_missing(corpus(self.paths)))
+        self.assertNotEqual(self.paths[ACCEPTANCE], before)
+        self.assertTrue(s.check(corpus(self.paths)).ok)
+        self.assertEqual(s.link_missing(corpus(self.paths)), {})
+
+    def test_link_leaves_headings_code_literals_existing_links_and_ambiguity(self):
+        self.paths[ACCEPTANCE] += b'\n### Writer\n\n`writer`\n\n```text\nwriter\n```\n\n[writer](#acceptance)\n'
+        before = self.paths[ACCEPTANCE]
+        self.assertEqual(s.link_missing(corpus(self.paths)), {})
+        self.assertEqual(self.paths[ACCEPTANCE], before)
+        metadata(self.paths, s.JSON_PATHS[0], lambda v: v['entities']['example.acceptance']['forms'].append('writer'))
+        self.paths[ACCEPTANCE] += b'\nwriter\n'
+        self.assertEqual(s.link_missing(corpus(self.paths)), {})
+        self.assertIn('D12', self.codes())
+
+    def test_link_preserves_markdown_and_links_forward_uses_in_lists_quotes_and_tables(self):
+        extra = '\n> writer &amp; **writer**\n\n- writer and writer.\n\n| Item | Owner |\n|---|---|\n| writer | writer |\n| label \\| writer | writer |\n'
+        edit(self.paths, ACCEPTANCE, '<a id="writer"></a>', extra + '\n<a id="writer"></a>')
+        self.paths.update(s.link_missing(corpus(self.paths)))
+        text = self.paths[ACCEPTANCE].decode()
+        self.assertIn('> [writer](#writer) &amp; **[writer](#writer)**', text)
+        self.assertIn('- [writer](#writer) and [writer](#writer).', text)
+        self.assertIn('| [writer](#writer) | [writer](#writer) |', text)
+        self.assertIn('| label \\| [writer](#writer) | [writer](#writer) |', text)
+        self.assertNotIn('D12', self.codes())
+
+    def test_declaration_ignores_blockquoted_detail_fields_only(self):
+        edit(self.paths, ACCEPTANCE, '**Purpose:** Follow',
+             '> **Detail — input:**\n>\n> **Inputs:** A concrete request.\n>\n> **Nested:** More detail.\n\n**Purpose:** Follow')
+        self.assertNotIn('D02', self.codes())
+        declaration = corpus(self.paths).declarations['example-demo#stale-revision']
+        self.assertEqual(declaration['fields']['Inputs'][0], 'Expected revision 7; current revision 8.')
+        self.assertNotIn('Nested', declaration['fields'])
+        self.paths[ACCEPTANCE] += b'\n**Unexpected:** Still a malformed field.\n'
+        self.assertIn('D02', self.codes())
+
+    def test_fact_table_without_owner_names_line_and_repair(self):
+        self.paths[ACCEPTANCE] += b'\n<a id="orphan"></a>\n## Orphan\n\n| Key | Value | Status | Basis |\n|---|---|---|---|\n| x | 1 | specified | [Fixture](settings.md#fixture-decision) |\n'
+        errors = [d for d in self.codes_for('D04')]
+        line = len(self.paths[ACCEPTANCE].splitlines())
+        self.assertEqual(errors[0].message, f"fact table at line {line} is not inside a registered entity's home; move it under the owning entity's heading or register that entity")
+
+    def codes_for(self, code):
+        return [d for d in s.check(corpus(self.paths)).errors if d.code == code]
+
+    def test_fact_status_uses_contract_vocabulary(self):
+        for status in ('later source note', 'inherited draft', 'conflicting source expression'):
+            with self.subTest(status=status):
+                self.paths = self.clean.copy()
+                edit(self.paths, SETTINGS, '| specified |', f'| {status} |')
+                errors = self.codes_for('D02')
+                self.assertTrue(any('specified, provisional, observed, unresolved' in d.message for d in errors), errors)
+        for status in ('specified', 'provisional', 'observed', 'unresolved'):
+            self.paths = self.clean.copy()
+            edit(self.paths, SETTINGS, '| specified |', f'| {status} |')
+            self.assertNotIn('D02', self.codes())
+
+    def test_context_rewrites_only_links_to_included_destinations(self):
+        ctx = self.context()
+        text = ctx.content.decode()
+        self.assertIn('[log group byte limit](#pack-1-log-group-limit)', text)
+        self.assertIn('<a id="pack-1-log-group-limit"></a>', text)
+        self.assertNotIn('](settings.md#log-group-limit)', text)
+        self.assertIn('[writer](#pack-0-writer)', text)
+        self.assertIn('<a id="writer"></a>', self.paths[ACCEPTANCE].decode())
+        self.assertEqual(ctx.size_bytes, len(ctx.content))
+        self.assertNotIn('</a></a>', text)
+
+    def test_context_preserves_literal_links_and_handles_reference_links_and_base(self):
+        self.paths[ACCEPTANCE] += b'\n[Writer reference][owner]\n\n[owner]: #writer "Owner"\n\n```markdown\n[writer](#writer)\n<a id="writer"></a>\n```\n\n[Writer](#writer) names the literal example.\n\n| Choice | Destination |\n|---|---|\n| Actor | [Writer \\| owner](#writer) |\n\n[Outside](https://example.invalid/x#writer)\n'
+        c = refresh(self.paths)
+        c.base = corpus(self.clean)
+        ctx = s.select_context(c, {'version': 1, 'sections': ['example-demo#acceptance'],
+                                  'required_test_reviews': ['example-demo#test-stale-revision']})
+        text = ctx.content.decode()
+        self.assertRegex(text, r'\[Writer reference\]\(#pack-\d+-writer "Owner"\)')
+        self.assertIn('```markdown\n[writer](#writer)\n<a id="writer"></a>\n```', text)
+        self.assertIn('[Outside](https://example.invalid/x#writer)', text)
+        self.assertRegex(text, r'\[Writer \\\| owner\]\(#pack-\d+-writer\)')
+        ids = re.findall(r'<a id="(pack-[^"<>]+)"></a>', text)
+        self.assertEqual(len(ids), len(set(ids)))
+        destinations = re.findall(r'\]\(#(pack-[^\s)]+)', text)
+        self.assertTrue(set(destinations) <= set(ids))
+        self.assertEqual(ctx.size_bytes, len(ctx.content))
+
+    def test_context_keeps_links_to_source_outside_selected_ranges(self):
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0]['sections'][0].update(explanatory_dependencies=[]))
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0].pop('approval'))
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0].update(status='draft'))
+        metadata(self.paths, s.JSON_PATHS[1], lambda v: v['documents'][0]['sections'].append(dict(
+            id='writer-only', path=ACCEPTANCE, anchor='writer', roles=[], summary='Explain the writer.',
+            prerequisites=[], explanatory_dependencies=[])))
+        edit(self.paths, ACCEPTANCE, 'It performs [acceptance](#acceptance) before allocating numbers.',
+             'See [open questions](settings.md#open-questions) for unsettled work.')
+        refresh(self.paths)
+        ctx = self.context({'version': 1, 'sections': ['example-demo#writer-only']})
+        self.assertIn('[open questions](settings.md#open-questions)', ctx.content.decode())
+
     def test_chapter_filename_matches_first_heading_slug(self):
         edit(self.paths, SETTINGS, '# Settings', '# Unrelated title')
         self.red_green('D34')
@@ -580,7 +682,7 @@ class CorpusTests(unittest.TestCase):
         self.red_green("D18")
 
     def test_operator_questions_are_not_specification_procedures(self):
-        edit(self.paths, SETTINGS, 'None for this fixture.', '### 1\\. Which option applies?\n\n1. **First choice.**\n2. Second choice.\n\n**Answer like so:**\n\n```text\n1. 1\n```')
+        edit(self.paths, SETTINGS, 'The fixture author must resolve the candidate capacity before adoption.', '### 1\\. Which option applies?\n\n1. **First choice.**\n2. Second choice.\n\n**Answer like so:**\n\n```text\n1. 1\n```')
         c = corpus(self.paths)
         diagnostics = s.Diagnostics()
         s.check_prose(c, c.markdown[SETTINGS], diagnostics)
@@ -621,18 +723,22 @@ class CorpusTests(unittest.TestCase):
 
     def test_warnings_do_not_fail_a_valid_structural_gate(self):
         extra = ' '.join(['word'] * 29) + '.\n\n' + ' '.join(['Short.'] * 7) + '\n\n42 is shown.\n'
-        edit(self.paths, SETTINGS, 'None for this fixture.', 'None for this fixture.\n\n' + extra)
+        edit(self.paths, SETTINGS, 'The fixture author must resolve the candidate capacity before adoption.', 'The fixture author must resolve the candidate capacity before adoption.\n\n' + extra)
         c = refresh(self.paths)
         d = s.check(c)
         self.assertTrue(d.ok)
         self.assertTrue({'W01', 'W02'} <= {item.code for item in d.warnings})
         self.assertEqual(d.to_dict(), s.check(c).to_dict())
 
-    def test_ambiguous_registered_phrase_warns_instead_of_guessing(self):
+    def test_ambiguous_registered_phrase_requires_author_link_instead_of_guessing(self):
         metadata(self.paths, s.JSON_PATHS[0], lambda v: v['entities']['example.call-capacity']['forms'].append('commit capacity'))
-        c = refresh(self.paths)
-        self.assertTrue(s.check(c).ok)
+        c = corpus(self.paths)
+        self.assertIn('D12', {d.code for d in s.check(c).errors})
         self.assertIn('W04', {d.code for d in s.check(c).warnings})
+        self.assertEqual(s.link_missing(c), {})
+        self.assertTrue(s.check(corpus(self.clean)).ok)
+        edit(self.paths, SETTINGS, 'Commit capacity bounds', '[Commit capacity](#commit-capacity) bounds')
+        self.assertTrue(s.check(refresh(self.paths)).ok)
 
     def test_context_contains_entire_registry_exact_bytes_and_unique_ranges(self):
         ctx = self.context()
@@ -762,11 +868,11 @@ class CorpusTests(unittest.TestCase):
 
     def test_ordinary_detail_prose_counts_but_attributed_quotation_does_not(self):
         long = ' '.join(['word'] * 29) + '.'
-        edit(self.paths, SETTINGS, 'None for this fixture.', f'None for this fixture.\n\n> **Detail — explanation**\n>\n> {long}\n')
+        edit(self.paths, SETTINGS, 'The fixture author must resolve the candidate capacity before adoption.', f'The fixture author must resolve the candidate capacity before adoption.\n\n> **Detail — explanation**\n>\n> {long}\n')
         c = refresh(self.paths)
         self.assertIn('W01', {d.code for d in s.check(c).warnings})
         quoted = self.clean.copy()
-        edit(quoted, SETTINGS, 'None for this fixture.', f'None for this fixture.\n\n> {long}\n>\n> — A synthetic source\n')
+        edit(quoted, SETTINGS, 'The fixture author must resolve the candidate capacity before adoption.', f'The fixture author must resolve the candidate capacity before adoption.\n\n> {long}\n>\n> — A synthetic source\n')
         self.assertNotIn('W01', {d.code for d in s.check(refresh(quoted)).warnings})
 
     def test_sentence_counter_preserves_decimals_and_code_punctuation(self):
@@ -777,7 +883,7 @@ class CorpusTests(unittest.TestCase):
     def test_suspected_multi_action_and_long_cells_warn(self):
         edit(self.paths, ACCEPTANCE, '**Prepare a request.**', '**Read a request and then write its result.**')
         edit(self.paths, SETTINGS, 'bounds encoded bytes in one log group.', 'bounds encoded bytes in one log group.')
-        edit(self.paths, SETTINGS, 'None for this fixture.', 'None for this fixture.\n\n| Name | Meaning |\n|---|---|\n| Example | ' + ' '.join(['word'] * 30) + ' |')
+        edit(self.paths, SETTINGS, 'The fixture author must resolve the candidate capacity before adoption.', 'The fixture author must resolve the candidate capacity before adoption.\n\n| Name | Meaning |\n|---|---|\n| Example | ' + ' '.join(['word'] * 30) + ' |')
         c = refresh(self.paths)
         self.assertTrue(s.check(c).ok)
         self.assertIn('W05', {d.code for d in s.check(c).warnings})
@@ -1011,6 +1117,46 @@ class SnapshotTests(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(['git', '-C', str(self.root), *args], capture_output=True, check=True).stdout
+
+    def test_link_replacement_rejects_concurrent_source_edits_and_symlinks(self):
+        target = self.root / ACCEPTANCE
+        target.write_text(target.read_text().replace('[writer](#writer)', 'writer'))
+        c = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        outputs = s.link_missing(c)
+        target.write_text(target.read_text() + '\nAn authored edit.\n')
+        with self.assertRaisesRegex(s.SpecDocsError, 'authored destination differs'):
+            s.write_outputs(c, outputs, repair=True)
+        self.assertIn('An authored edit.', target.read_text())
+        target.unlink()
+        target.symlink_to(self.root / SETTINGS)
+        with self.assertRaisesRegex(s.SpecDocsError, 'symlink destination'):
+            s.write_outputs(c, outputs, repair=True)
+
+    def test_link_command_writes_repairs_reports_remaining_errors_and_is_idempotent(self):
+        target = self.root / ACCEPTANCE
+        target.write_text(target.read_text().replace('[writer](#writer)', 'writer'))
+        args = ['link', '--root', str(self.root), '--fixture', '--json']
+        with patch('builtins.print') as output:
+            self.assertEqual(s.main(args), 0)
+            self.assertEqual(json.loads(output.call_args[0][0])['linked'], [ACCEPTANCE])
+        self.assertIn('[writer](#writer)', target.read_text())
+        with patch('builtins.print') as output:
+            self.assertEqual(s.main(args), 0)
+            self.assertEqual(json.loads(output.call_args[0][0])['linked'], [])
+        target.write_text(target.read_text().replace('[writer](#writer)', 'writer') + '\n`writer`\n')
+        with patch('builtins.print') as output:
+            self.assertEqual(s.main(args), 1)
+            result = json.loads(output.call_args[0][0])
+            self.assertEqual(result['linked'], [ACCEPTANCE])
+            self.assertTrue(any(d['code'] == 'D12' for d in result['errors']))
+        for option in ('--staged', '--rev', '--base', '--assignment'):
+            with patch('builtins.print'):
+                extra = [option] if option == '--staged' else [option, 'HEAD']
+                # --assignment is refused before reading its path.
+                self.assertEqual(s.main(args + extra), 2)
+        (self.root / s.JSON_PATHS[0]).unlink()
+        with patch('builtins.print'):
+            self.assertEqual(s.main(args), 2)
 
     def test_literal_trace_examples_do_not_reserve_historical_identities(self):
         target = self.root / SETTINGS

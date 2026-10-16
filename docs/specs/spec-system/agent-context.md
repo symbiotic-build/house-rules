@@ -10,7 +10,7 @@ The complete registry is a generated record of every [registered entity](documen
 
 The registry combines the [entity index](documents-homes-and-values.md#entity-index) with definitions and declarations from Markdown homes. Each entry includes identity, kind, scope, accepted forms, symbols, rejected forms, source location and the first definition sentence. Its facts retain their values, Status, Basis and qualifications. The [minimal corpus](minimal-corpus.md#example-entities) therefore contributes `example.batcher` and its capacity even when another section is assigned.
 
-The registry is mandatory; selection does not reduce it to the entities mentioned in the assignment. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) states in the reader’s task instructions that entries unrelated to the assignment are vocabulary reference material. The registry entries themselves have no separate reference marker. Reference material cannot supply a missing explanation in the chapters being reviewed. The registry is rebuilt from authored sources; it requires no separate database or maintained mirror.
+The registry is mandatory; selection does not reduce it to the entities mentioned in the assignment. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher) states in the reader’s task instructions that entries unrelated to the assignment are vocabulary reference material. An unrelated entry is available for vocabulary lookup; it does not make an assigned chapter self-explanatory. Entries have no separate reference marker in the output. The registry is rebuilt from authored sources; it requires no separate database or maintained mirror.
 
 <a id="context-pack"></a>
 ## Context pack
@@ -23,7 +23,9 @@ For the bounded batch, the smallest assignment has this encoding. `version` iden
 {"version": 1, "sections": ["example#main"]}
 ```
 
-The pack includes the [complete registry](#complete-registry), both metadata files, the applicable [writing profile](writing-and-review-workflow.md#writing-profile) and selected source ranges. Applicable decisions enter through explicit selectors, approval metadata or requirement-removal references. The selector does not infer additional decisions from arbitrary links.
+Links between included source destinations point to unique anchors within the pack. Separate source paths and snapshot labels receive separate namespaces. Original source fingerprints and range sizes remain unchanged; total pack size counts the rewritten bytes.
+
+The pack includes the [complete registry](#complete-registry), both metadata files, the applicable [writing profile](writing-and-review-workflow.md#writing-profile) and selected source ranges. To request the teaching decision explicitly, add `"decisions": ["example#decision"]` to that assignment. Approval metadata and requirement-removal references also select their named decisions. The selector does not infer additional decisions from arbitrary links.
 
 <a id="snapshot-and-selection"></a>
 ## Snapshot and selection
@@ -70,7 +72,7 @@ The pack includes recovery. An ordinary link from the added home to an unrelated
 | Home’s containing section declares recovery dependency | Recovery section |
 | Home links ordinary glossary | No further source |
 
-A comparison also includes the requirement change report and selected linked tests from the base and candidate. The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) derives affected test selectors from both snapshots. A removal decision remains explicit assignment input; a resolving link establishes existence, not decision authority.
+A comparison also includes the requirement change report and selected linked tests from the base and candidate. The [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler) derives affected test selectors from both snapshots. Supply each removal decision explicitly in `removal_decisions`; the [change-review explanation](requirements-tests-and-failures.md#change-review) covers authority review.
 
 <a id="dispatch-and-invalidation"></a>
 ## Dispatch and invalidation
@@ -79,9 +81,7 @@ Preparation checks that the selected input is complete and fits before any agent
 
 The selector reports the complete pack’s UTF-8 byte count, including the embedded manifest. Provenance records the baseline, source and registry digests, profile digest, input fingerprints, versions, assignment, included identities and range reasons. Range offsets are zero-based with an exclusive end; displayed source labels use one-based lines. These records let the [dispatcher](../../design/75-subagent-profiles.md#dispatcher) detect which captured input an agent received.
 
-The selector compares documentation size with the assignment's `budget_bytes` limit.
-
-Two caller limits apply afterward. The compiler checks its assembled rules, documentation and task against a separate byte limit. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher), which starts the agent, reserves room for the response within its execution token limit. Optional material uses only the remainder. Every layer refuses excessive mandatory input rather than truncating it.
+The selector enforces only the documentation pack’s `budget_bytes` limit. After it returns, two external callers enforce their own limits. The compiler checks its assembled rules, documentation and task against a separate byte limit. The [dispatcher](../../design/75-subagent-profiles.md#dispatcher), which starts the agent, reserves room for the response within its execution token limit. Optional material uses only the remainder. Every layer refuses excessive mandatory input rather than truncating it.
 
 For example, a documentation pack uses `6 000` bytes against an assignment limit of `8 000` bytes.
 Adding rules and task uses another `4 000` bytes, so the compiler compares `10 000` bytes against its `12 000` byte limit.

@@ -15,7 +15,7 @@ A requirement declaration is an identified obligation stating an actor, conditio
 
 In the bounded-batch example, the actor is the batcher. When a submitted item would exceed capacity `2`, the required result is `Full` with the existing items unchanged. Capacity means the maximum admitted item count, so the third attempted item triggers refusal. The requirement links directly to the capacity row rather than copying its value without a source.
 
-The record supplies Actor, Condition, Result, Verification, Tests, Status and Basis. Its opening explains why the obligation exists. Put the condition before the result in normative English. A quality bound also states operating conditions, measurement and pass condition; literal comparison alone cannot establish any bound's validity.
+The record supplies Actor, Condition, Result, Verification, Tests, Status and Basis. Its opening explains why the obligation exists. Put the condition before the result in normative English. A quality bound limits a measurable property. For example, require response time below `100 ms` at `10` requests per second, and name the timing measurement. Literal comparison checks the displayed limit, not whether an implementation meets it.
 
 The following Markdown encodes that obligation and links its [acceptance test](#acceptance-test):
 
@@ -57,7 +57,7 @@ The [acceptance test](#acceptance-test) uses this Markdown, with its evidence in
 
 ```markdown
 <a id="test-capacity"></a>
-## Acceptance test: full batch
+## Inspection: full batch
 
 This inspection checks that refusal preserves the existing items.
 
@@ -69,14 +69,13 @@ This inspection checks that refusal preserves the existing items.
 
 **Expected:** `Full` and the same retained items.
 
-Evidence: [retained-state inspection](#failure-full).
+Planned evidence: [retained-state inspection](#failure-full).
 ```
 
-Method `test` requires an Implementation field linking a file and a named test inside it, such as `Suite::test_full`. Static checking verifies link grammar and file existence. Execution and acceptance counts follow the [Selector audit](interfaces-and-encodings.md#selector-audit) contract.
+Method `test` requires an Implementation field linking a file and a named test inside it, such as `Suite::test_full`. Static checking verifies link grammar and file existence. The [Selector audit](interfaces-and-encodings.md#selector-audit) reference defines supported selectors, execution limits and outcome counts.
 
-Methods `inspection`, `analysis` and `demonstration` have linked evidence instead of an Implementation field. That evidence can be a review lens or a run record appropriate to the method. The checker can establish that a link exists, but reviewers establish whether the evidence supports the pass condition. The exact encoding belongs to [Markdown declarations](source-formats.md#markdown-declarations).
+Methods `inspection`, `analysis` and `demonstration` link evidence inside the document set or repository instead of an Implementation field. A planned inspection can link its retained-state checklist; a completed inspection links the recorded observations. Name document-only cases Inspection or Analysis, keeping their permanent `test-` anchor. The checker can establish that a link exists, but reviewers establish whether the evidence supports the pass condition. The exact encoding belongs to [Markdown declarations](source-formats.md#markdown-declarations).
 
-The [Selector audit](interfaces-and-encodings.md#selector-audit) reference defines supported executable selectors, timeout configuration and outcome reporting.
 
 <a id="scenario"></a>
 ### Scenario
@@ -115,7 +114,7 @@ Follow admission through refusal and retained-state inspection.
    The same two items remain in the batch.
 ```
 
-When actions are concurrent, name the branches and synchronization points. Sequential numbering must not turn independent branches into a serial execution. A completed competing action followed by a later submission is sequential, even if its effect makes the submission fail.
+When actions are concurrent, name the branches and synchronization points. Sequential numbering must not turn independent branches into a serial execution. For example, caller A finishes filling the batch before caller B submits another item. B’s refusal follows A’s completed action; the two submissions do not overlap.
 
 <a id="failure-declaration"></a>
 ### Failure declaration
@@ -160,7 +159,7 @@ For example, capacity remains `2`, but its linked evidence changes from sequenti
 
 Comparison derives new, changed and removed requirements from both snapshots. It includes old and new declaration text, linked cases from both sides, and added or removed test relationships. A requirement move retains its permanent anchor, so comparison can follow the obligation across files or documents. A textual change within its declared subtree can also select it; the report is not a semantic equivalence proof.
 
-Review input must include every selected case from both snapshots. Removing a requirement also needs a resolving decision reference supplied by the task or work item. The checker verifies that this reference resolves. Reviewers determine whether the authority permits removal and whether the retained contract remains complete. The existing review resolution records that disposition.
+The context assignment supplies selected cases in `required_test_reviews` and any requirement-removal decision in `removal_decisions`. Both snapshots enter review. Checking verifies that the removal decision resolves; reviewers assess its authority and the retained contract. The lead names the review record in the assignment and records that assessment there.
 
 When a Git-backed base is supplied, checking derives retired requirement and test anchors from that base's reachable history. It reads historical manifests to find declared contract paths, then parses relevant distinct blobs. Literal code examples do not reserve identities because only actual declaration headings count. Without a Git-backed base, reviewers check historical reuse themselves.
 

@@ -127,7 +127,7 @@ Let callers distinguish invalid documents from failed invocation or input access
 
 Keep the reading map derived from authored declarations.
 
-**Actor:** Navigation generator and documentation checker.
+**Actor:** [Navigation generation](checking-and-navigation.md#navigation-generation) and [documentation checker](checking-and-navigation.md#documentation-checker).
 
 **Condition:** A caller generates navigation or checks its freshness.
 
@@ -165,7 +165,7 @@ Keep all consumers on the shared parsing and selection contract.
 
 Make a selected source version independent of later working-tree changes.
 
-**Actor:** Source loader and review preparer.
+**Actor:** [Documentation checker](checking-and-navigation.md#documentation-checker) and [prompt compiler](../../design/76-review-entry-skill.md#prompt-compiler).
 
 **Condition:** A caller chooses working-tree, staged or commit input.
 

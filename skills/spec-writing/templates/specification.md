@@ -15,7 +15,7 @@ flowchart TD
     B --> C["Caller-visible result"]
 ```
 
-[Add adjacent home links for terms in the diagram.]
+[Explain the diagram with adjacent home links; omit a repeated entity list when prose already supplies them.]
 
 <!-- spec-docs:navigation document="document-id" -->
 <!-- /spec-docs:navigation -->
@@ -33,7 +33,9 @@ then acceptance. Combine adjacent roles only; preserve their internal order.]
 
 [State the problem this story solves. Carry this same example through mechanisms,
 reference and acceptance. Keep action/result steps plain; put exact values below each step
-in a `> **Detail — label**` block. Name each deferred explanation in one linked line.]
+in a `> **Detail — label**` block. Start with action and caller result, without author-centred
+formulas. In repair tours start from the complete supplied example. Name each deferred
+explanation in one linked line; show concrete refusals and arithmetic where used.]
 
 [Introduce the system with a complete story before its mechanisms and reference material.
 Explain inputs, state changes, retained values and caller-visible results. Use the writing
@@ -59,7 +61,8 @@ one linked home. Apply the reader-progression rule to section openings.]
 Put its definition sentence first, then explain its purpose. Explain ordinary behavior,
 then applicable
 refusal, concurrency, failure and recovery paths. Use direct home links under the
-specifications rules. Add canonical facts and relations using the format contract.]
+specifications rules. State applicability before each fact table. Use the authority-and-homes rules for Status
+and linked open questions in Basis. Add canonical facts and relations using the format contract.]
 
 ### Failure and recovery
 
@@ -112,5 +115,12 @@ tests, use the format contract's `Implementation` grammar:
 `[tests/test_x.py::test_name](relative/path/to/tests/test_x.py)`; omit the field otherwise.]
 
 [Run the fresh-reader procedure before acceptance: every reader rates every chapter
-"followed on first read: yes / with effort / no" and quotes every choppy, abstract, formulaic
-or repeated passage. Pass only with every chapter "yes" and no quote unaddressed.]
+"followed on first read: yes / with effort / no" using the canonical procedure's meanings.
+Record polish notes separately. Pass with every chapter "yes", no quote unaddressed and
+every polish note fixed or answered with a reason.]
+
+[For conversions, follow the reader-progression voice rule: this document states the design;
+quoted original claims belong in one provenance section. For inspection evidence, follow
+the requirements-and-recovery rules: link available material and mark planned versus completed
+work. Use descriptive Inspection or Analysis headings with permanent `test-` anchors. Keep
+required Status and Basis fields short when they share one linked explanation.]
