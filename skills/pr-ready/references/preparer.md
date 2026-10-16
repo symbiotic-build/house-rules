@@ -51,7 +51,9 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   are reported at the top. An explicitly requested PR or issue that cannot be resolved
   is an error. Deleted maintainer accounts retain their comments with an unknown-author
   notice. Null PR and issue bodies are treated as empty. URL userinfo and credential-like
-  query values are redacted from warnings, errors and prompts. A later GitHub read failure names the failed source and preserves already
+  query values are redacted from warnings, errors and prompts. Mandatory documentation context
+  that requires this redaction is refused before publication or dispatch, using the same
+  policy from the pinned preparer. Its source bytes and provenance are never rewritten. A later GitHub read failure names the failed source and preserves already
   fetched context. Comments are capped at 4,000 characters with a cut notice.
   Codex defaults to `structured` (full diffs), others to `pack` (file index and hunk
   headers); `--format diff` omits legacy spec content. `--format` overrides defaults;

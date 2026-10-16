@@ -39,7 +39,7 @@ class DocumentationContextTests(unittest.TestCase):
             self.git(repo, "init", "-q", "-b", "main")
         for path in TOOLS:
             self.write(self.rules, "skills/spec-writing/" + path, (TOOL_ROOT / path).read_bytes())
-        for path in ("skills/pr-ready/scripts/prompt.py", "rules/writing.md", "rules/specifications.md"):
+        for path in ("skills/pr-ready/scripts/prompt.py", "skills/pr-ready/scripts/prepare.py", "rules/writing.md", "rules/specifications.md"):
             self.write(self.rules, path, (ROOT / path).read_bytes())
         self.rule_revision = self.commit(self.rules)
         spec = importlib.util.spec_from_file_location("_fixture_spec_docs", TOOL_ROOT / "scripts/spec_docs.py")
@@ -90,6 +90,38 @@ class DocumentationContextTests(unittest.TestCase):
                 patch.object(prepare, "pr_context", return_value=({}, [], [], "(none)", [], [], [])):
             return prepare.review(self.repo, argparse.Namespace(**values), base or self.revision, None, self.revision)
 
+    def test_credential_bearing_documentation_refuses_before_publication(self):
+        for location in ('source', 'metadata'):
+            with self.subTest(location=location):
+                # Synthetic URL values only; build them at runtime so no credential is stored.
+                url = 'https://example.invalid/?' + 'api_key=' + 'synthetic-canary'
+                path = self.repo / ('docs/example/acceptance.md' if location == 'source' else 'docs/DOCUMENTS.json')
+                original = path.read_bytes()
+                if location == 'source':
+                    path.write_bytes(original + f'\n[External reference]({url})\n'.encode())
+                else:
+                    value = json.loads(original)
+                    value['documents'][0]['purpose'] += ' ' + url
+                    path.write_text(json.dumps(value))
+                c = self.checker.load_corpus(self.checker.Snapshot.from_git(self.repo))
+                for output, data in self.checker.generate_navigation(c).items():
+                    self.write(self.repo, output, data)
+                self.revision = self.commit(self.repo)
+                with self.assertRaisesRegex(prompt.PromptError, 'credential') as caught:
+                    self.pack()
+                self.assertNotIn('synthetic-canary', str(caught.exception))
+                output = self.root / ('refused-' + location)
+                result = subprocess.run([sys.executable, '-I', '-B', str(self.rules / 'skills/pr-ready/scripts/prompt.py'),
+                    '--repo', str(self.rules), '--rev', self.rule_revision, '--target', str(self.repo),
+                    '--assignment', str(self.assignment_file), '--out', str(output)],
+                    stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, b'')
+                self.assertNotIn(b'synthetic-canary', result.stderr)
+                self.assertFalse(output.exists())
+                path.write_bytes(original)
+                self.revision = self.commit(self.repo)
+
     def test_review_preparer_compares_base_and_selects_unchanged_tests(self):
         base = self.revision
         path = self.repo / 'docs/example/acceptance.md'
@@ -135,7 +167,11 @@ class DocumentationContextTests(unittest.TestCase):
         self.assertTrue(batches)
         self.assertFalse(any(asset_oid in batch for batch in batches))
         lookups = [call.args[0] for call in run.call_args_list if 'ls-tree' in call.args[0] and '-rz' not in call.args[0]]
-        self.assertLess(len(lookups), 12, lookups)
+        requested = [call[-1].removeprefix(':(literal)') for call in lookups]
+        expected = {prompt.COMPILER, *prompt.DOC_INPUTS, *prompt.DOC_METADATA,
+                    '.agents/rules.md', 'AGENTS.md', 'rules/specifications.md'}
+        self.assertEqual(set(requested), expected)
+        self.assertEqual(len(requested), len(expected), 'each requested path is looked up once')
         self.assertNotIn(b'UNRELATED BLOB CANARY', pack)
 
     def test_compiler_includes_registry_relevant_homes_provenance_and_exact_size(self):

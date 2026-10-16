@@ -20,23 +20,22 @@ The log group byte limit bounds encoded bytes in one log group.
 
 Commit capacity bounds documents in one commit.
 
+**Qualification for [default](#commit-capacity-default):**
+Qualify the selected capacity before treating it as an operating guarantee.
+
 ### Values
 
 | Key | Value | Status | Basis |
 |---|---|---|---|
 | <a id="commit-capacity-default"></a>default | 1,024 | provisional | [Capacity qualification](#open-questions) |
 
-**Qualification for [default](#commit-capacity-default):**
-Qualify the selected capacity before treating it as an operating guarantee.
-
 <a id="call-capacity"></a>
 ## Call capacity
 
 Call capacity bounds documents in one native call.
 
-Its default uses the [default](#commit-capacity-default)
-of [commit capacity](#commit-capacity).
-That fact's provisional qualification applies.
+Its provisional default borrows the [default](#commit-capacity-default)
+of [commit capacity](#commit-capacity) and must be qualified before use as an operating guarantee.
 This home declares no independent default.
 
 <a id="fixture-decision"></a>

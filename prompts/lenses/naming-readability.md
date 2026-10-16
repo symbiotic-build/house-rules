@@ -37,23 +37,7 @@ not only whether its link resolves.
 
 @rule house-rules:rules/specifications.md
 
-Check the concrete reading path in rules/specifications.md: map with a stated diagram
-question, plain tour, coherent mechanism chapters, then lookup reference. Reject a split
-into one chapter per term; check title-slug filenames and useful summaries. Check actual
-conceptual prerequisites rather than a predecessor chain. Follow the same
-example through all four parts and acceptance, where it explains each new concept.
-Reject opening recaps and repeated closing formulas. Before: "The batch holds two items
-and returns Full for the third." After, in a review chapter: "Assign source ownership
-and assess what structural checks leave to review."
-Check that the complete introduction stays before generated navigation. Outside procedures
-must be summarized where needed or named as opening audience prerequisites. Require the
-borrowed behavior before a tool or standard name, plain first-use definitions, one linked
-home for repeated distinctions, concrete diagnostic remedies and complete navigation bullets.
 Check that identifier and filename links reach their specific defining subsection or row,
 rather than a broad component home when a more precise definition exists.
-Check skippable labelled detail blocks,
-purpose-first section openings (including declaration records), definition-first entity
-homes with purpose following, explicit linked deferrals and
-first-use glosses. Check role order against the manifest and templates. Require the
-fresh-reader and normal authoring/conversion run evidence from the canonical procedure;
+Require the fresh-reader and normal authoring/conversion run evidence from the canonical procedure;
 a fixed published fixture does not establish reader construction or pipeline quality.

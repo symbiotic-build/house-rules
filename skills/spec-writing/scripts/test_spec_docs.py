@@ -75,6 +75,85 @@ class CorpusTests(unittest.TestCase):
         self.assertIn(code, {d.code for d in caught.exception.diagnostics.errors})
         self.assertGreater(self.context().size_bytes, 0)
 
+    def test_link_refuses_intersecting_first_use_edits(self):
+        metadata(self.paths, 'docs/ENTITIES.json', lambda value: (
+            value['entities']['example.writer'].update(forms=['prepared write']),
+            value['entities']['example.acceptance'].update(forms=['write request'])))
+        self.paths[ACCEPTANCE] += b'\n<a id="overlap"></a>\n## Overlap\n\nA prepared write request arrives.\n'
+        with self.assertRaisesRegex(s.SpecDocsError, 'intersecting.*rewrite'):
+            s.link_missing(corpus(self.paths))
+
+    def test_implementation_uses_collected_field_outside_detail_examples(self):
+        self.paths['tests/example.py'] = b'# synthetic test file\n'
+        edit(self.paths, ACCEPTANCE, '**Method:** analysis.', '**Method:** test.')
+        edit(self.paths, ACCEPTANCE, '**Expected:** `Conflict`, unchanged allocation state and no appended write.',
+             '> **Detail — invalid field example**\n>\n> **Implementation:** invalid example.\n\n'
+             '**Expected:** `Conflict`, unchanged allocation state and no appended write.\n\n'
+             '**Implementation:** [tests/example.py::Suite::test_case](../../tests/example.py)')
+        self.assertTrue(s.check(corpus(self.paths)).ok, s.check(corpus(self.paths)).errors)
+
+    def test_fact_basis_evidence_changes_select_tests_from_both_snapshots(self):
+        edit(self.paths, ACCEPTANCE, '**Result:** Return', '**Result:** Apply [capacity](settings.md#commit-capacity-default) and return')
+        base = corpus(self.paths)
+        edit(self.paths, SETTINGS, 'The fixture author must resolve the candidate capacity before adoption.',
+             'The fixture author must resolve the candidate capacity after measurement.')
+        candidate = corpus(self.paths)
+        changes = s.requirement_changes(base, candidate).changes
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]['tests'], ['example-demo#test-stale-revision'])
+        self.assertEqual(changes[0]['changed_facts'][0]['id'], 'example.commit-capacity#default')
+        self.assertIn('after measurement', changes[0]['changed_facts'][0]['candidate']['evidence'][0]['text'])
+        self.assertIn('before adoption', changes[0]['changed_facts'][0]['base']['evidence'][0]['text'])
+        # Unrelated sections do not become recursive evidence dependencies.
+        self.paths = self.clean.copy()
+        self.assertEqual(s.requirement_changes(base, base).changes, [])
+
+    def test_fact_evidence_in_preserved_markdown_uses_captured_section(self):
+        self.paths['docs/evidence.md'] = b'<a id="proof"></a>\n## Proof\n\nSequential submissions only.\n\n<a id="unrelated"></a>\n## Other evidence\n\nUnrelated evidence.\n'
+        metadata(self.paths, 'docs/DOCUMENTS.json', lambda value: value['inventory'].append(
+            dict(path='docs/evidence.md', kind='evidence')))
+        edit(self.paths, SETTINGS, '[Capacity qualification](#open-questions)', '[Capacity qualification](../evidence.md#proof)')
+        edit(self.paths, ACCEPTANCE, '**Result:** Return', '**Result:** Apply [capacity](settings.md#commit-capacity-default) and return')
+        base = corpus(self.paths)
+        edit(self.paths, 'docs/evidence.md', 'Unrelated evidence.', 'An unrelated revision.')
+        self.assertEqual(s.requirement_changes(base, corpus(self.paths)).changes, [])
+        edit(self.paths, 'docs/evidence.md', 'Sequential submissions only.', 'Sequential or concurrent submissions.')
+        changes = s.requirement_changes(base, corpus(self.paths)).changes
+        self.assertEqual(changes[0]['tests'], ['example-demo#test-stale-revision'])
+        self.assertIn('Sequential or concurrent', changes[0]['changed_facts'][0]['candidate']['evidence'][0]['text'])
+
+    def test_navigation_ignores_literal_marker_examples(self):
+        metadata(self.paths, 'docs/DOCUMENTS.json', lambda value: value['documents'][0].update(
+            navigation={'path': ACCEPTANCE, 'region': 'example-demo'}))
+        del self.paths['docs/generated/example-demo.md']
+        marker = s.START.format(document='example-demo')
+        example = f'\n```markdown\n{marker}\nliteral example\n{s.END}\n```\n'
+        self.paths[ACCEPTANCE] += (example + f'\n{marker}\nold\n{s.END}\n').encode()
+        c = refresh(self.paths)
+        self.assertTrue(s.check(c).ok, s.check(c).errors)
+        self.assertIn(example.encode(), self.paths[ACCEPTANCE])
+        self.assertEqual(s.generate_navigation(c)[ACCEPTANCE], self.paths[ACCEPTANCE])
+
+    def test_generated_navigation_encodes_paths_and_fragments(self):
+        fixture = Path(__file__).parent / 'fixtures/minimal'
+        self.paths = {p.relative_to(fixture).as_posix(): p.read_bytes() for p in fixture.rglob('*') if p.is_file()}
+        new = 'docs/example guide.md'
+        self.paths[new] = self.paths.pop('docs/example.md')
+        for path in ('docs/DOCUMENTS.json', 'docs/ENTITIES.json'):
+            self.paths[path] = self.paths[path].replace(b'example.md', b'example guide.md')
+        self.paths[new] = self.paths[new].replace(b'example.md#', b'example%20guide.md#')
+        c = refresh(self.paths)
+        self.assertIn(b'example%20guide.md#', self.paths[new])
+        self.assertTrue(s.check(c).ok, s.check(c).errors)
+        self.assertEqual(s.relative_link('docs/nav.md', 'docs/a b.md', 'a b'), 'a%20b.md#a%20b')
+
+    def test_procedure_requires_each_direct_action_to_open_bold(self):
+        self.paths[ACCEPTANCE] += b'\n**Procedure: inspect results**\n\n1. Read the result.\n2. **Check the state.** It remains intact.\n'
+        errors = s.check(corpus(self.paths)).errors
+        self.assertTrue(any(d.code == 'D18' and 'bold action' in d.message for d in errors), errors)
+        edit(self.paths, ACCEPTANCE, '1. Read the result.', '1. **Read the result.**')
+        self.assertTrue(s.check(corpus(self.paths)).ok)
+
     def test_link_inserts_only_missing_unambiguous_body_uses(self):
         edit(self.paths, ACCEPTANCE, '[writer](#writer)', 'writer')
         before = self.paths[ACCEPTANCE]
@@ -564,7 +643,7 @@ class CorpusTests(unittest.TestCase):
     def test_literal_values_allow_grouping_and_markdown_formatting(self):
         for value in ("1024", "1_024", "1 024", "**1,024**", "`1024`"):
             paths = self.clean.copy()
-            edit(paths, SETTINGS, 'Its default uses the [default]', f'Its default uses the [{value}]')
+            edit(paths, SETTINGS, 'Its provisional default borrows the [default]', f'Its provisional default borrows the [{value}]')
             self.assertTrue(s.check(refresh(paths)).ok, value)
 
     def test_runner_declarations_validate_commands_and_patterns(self):
@@ -590,11 +669,11 @@ class CorpusTests(unittest.TestCase):
     def test_descriptive_fact_labels_and_code_only_literals(self):
         for label in ('declared limit', 'borrowing limit', '**declared limit**', '`1024`', '``1024``'):
             paths = self.clean.copy()
-            edit(paths, SETTINGS, 'Its default uses the [default]', f'Its default uses the [{label}]')
+            edit(paths, SETTINGS, 'Its provisional default borrows the [default]', f'Its provisional default borrows the [{label}]')
             self.assertTrue(s.check(refresh(paths)).ok, label)
         for label in ('`wrong`', '``wrong``', 'revision 2'):
             paths = self.clean.copy()
-            edit(paths, SETTINGS, 'Its default uses the [default]', f'Its default uses the [{label}]')
+            edit(paths, SETTINGS, 'Its provisional default borrows the [default]', f'Its provisional default borrows the [{label}]')
             self.assertIn('D10', {d.code for d in s.check(corpus(paths)).errors}, label)
 
     def test_context_sources_follow_manifest_order_then_source_order(self):
@@ -612,13 +691,13 @@ class CorpusTests(unittest.TestCase):
     def test_fact_key_and_owner_name_are_descriptive_links(self):
         for label in ("default", "commit capacity", "commit_max_documents", "Commit capacity"):
             paths = self.clean.copy()
-            edit(paths, SETTINGS, 'Its default uses the [default]', f'Its default uses the [{label}]')
+            edit(paths, SETTINGS, 'Its provisional default borrows the [default]', f'Its provisional default borrows the [{label}]')
             self.assertTrue(s.check(refresh(paths)).ok, label)
 
     def test_mismatched_literal_and_equivalent_measurement_are_refused(self):
         for label in ("2048", "1.024", "1024 documents"):
             self.paths = self.clean.copy()
-            edit(self.paths, SETTINGS, 'Its default uses the [default]', f'Its default uses the [{label}]')
+            edit(self.paths, SETTINGS, 'Its provisional default borrows the [default]', f'Its provisional default borrows the [{label}]')
             self.red_green("D10")
         self.paths = self.clean.copy()
         edit(self.paths, ACCEPTANCE, 'Its [default](settings.md#log-group-limit-default)', 'Its [4194304 bytes](settings.md#log-group-limit-default)')
@@ -1291,6 +1370,52 @@ class SnapshotTests(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(['git', '-C', str(self.root), *args], stdin=subprocess.DEVNULL, capture_output=True, check=True).stdout
+
+    def test_history_filter_covers_accepted_anchor_whitespace(self):
+        target = self.root / ACCEPTANCE
+        original = target.read_text()
+        declaration = original[original.index('<a id="req-stale-revision"'):original.index('<a id="acceptance-stale-failure"')]
+        for index, spacing in enumerate(('  ', '\t', ' \t ')):
+            identity = f'req-spaced-history-{index}'
+            spaced = declaration.replace('<a id="req-stale-revision"', f'<a{spacing}id="{identity}"')
+            target.write_text(original + spaced)
+            self.git('add', ACCEPTANCE)
+            self.git('commit', '-qm', 'fixture: accepted spaced anchor')
+            target.write_text(original)
+            self.git('add', ACCEPTANCE)
+            self.git('commit', '-qm', 'fixture: retire spaced identity')
+            base = s.load_corpus(s.Snapshot.from_git(self.root, rev='HEAD', fixture=True))
+            target.write_text(original + spaced)
+            candidate = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+            self.assertTrue(any(d.code == 'D03' and identity in d.message
+                                for d in s.check(candidate, base).errors), spacing)
+            target.write_text(original)
+
+    def test_writers_refuse_lock_contention(self):
+        import fcntl
+        lock = self.root / '.tmp/spec-docs.lock'
+        lock.parent.mkdir()
+        c = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        with lock.open('a+b') as stream:
+            fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with self.assertRaisesRegex(s.SpecDocsError, 'another spec-docs writer'):
+                s.write_outputs(c, s.generate_navigation(c))
+        s.write_outputs(c, s.generate_navigation(c))
+
+    def test_writer_rechecks_destination_after_temporary_file_is_written(self):
+        c = s.load_corpus(s.Snapshot.from_git(self.root, fixture=True))
+        outputs = s.generate_navigation(c)
+        target = self.root / 'docs/generated/example-demo.md'
+        original = s.os.fdopen
+        def edited(*args, **kwargs):
+            stream = original(*args, **kwargs)
+            if args[1] == 'wb':
+                target.write_bytes(b'A concurrent destination edit.\n')
+            return stream
+        with patch.object(s.os, 'fdopen', side_effect=edited):
+            with self.assertRaisesRegex(s.SpecDocsError, 'destination differs'):
+                s.write_outputs(c, outputs)
+        self.assertEqual(target.read_bytes(), b'A concurrent destination edit.\n')
 
     def test_link_replacement_rejects_concurrent_source_edits_and_symlinks(self):
         target = self.root / ACCEPTANCE

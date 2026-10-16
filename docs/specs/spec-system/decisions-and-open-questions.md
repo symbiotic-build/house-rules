@@ -80,6 +80,28 @@ The following records preserve the decisions that determine source authority, ch
 
 **Rejected alternatives:** Merging before qualification makes adoption part of the experiment. Hand-repairing generated packs hides defects in their source owners. Passing House Rules checks cannot establish another tool's display behavior.
 
+<a id="selector-report-decision"></a>
+### Decision: report-based selector acceptance
+
+**Choice:** Match cited selectors against the normal test run's JUnit report; without reports, run one batched fallback per runner.
+
+**Authority:** Lead decision dated 2026-10-16 for review round 1.
+
+**Reason:** Normal test results establish selector outcomes without another execution by the audit.
+
+**Rejected alternatives:** Execute every selector again during report-based auditing; this duplicates the normal test run.
+
+<a id="writer-boundary-decision"></a>
+### Decision: cooperating documentation writers
+
+**Choice:** Serialize `link` and `generate` writers with an advisory lock in repository machine scratch. Re-check each destination's bytes immediately before replacement.
+
+**Authority:** Lead decision dated 2026-10-16 for review round 1.
+
+**Reason:** The lock serializes cooperating tool runs, and the byte check refuses a destination changed since capture.
+
+**Rejected alternatives:** Claim protection against an editor saving during replacement; advisory locking and atomic rename cannot provide that guarantee.
+
 <a id="open-questions"></a>
 ## Open questions
 

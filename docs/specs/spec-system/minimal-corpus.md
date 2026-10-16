@@ -231,15 +231,16 @@ The explicit fact anchor is inside its Key cell, and Basis links the teaching de
 <a id="example-checking"></a>
 ## Generate and check
 
-Initialize and verify the three files with the shared tool; no local checker copy or profile file is needed. Here `HELPER` names the pinned `spec_docs.py` path and `REPOSITORY` names an independent empty directory. Use Python from the tool's locked environment. Save the three files there before running:
+Initialize and verify the three files with the shared tool; no local checker copy or profile file is needed. Here `HELPER` names the pinned `spec_docs.py` path and `REPOSITORY` names an independent empty directory. Use Python from the tool's locked environment. Save the three files there before running the procedure.
 
-```sh
-git -C REPOSITORY init -q
-python HELPER generate --root REPOSITORY
-python HELPER check --root REPOSITORY
-```
+**Procedure: initialize and check the example**
 
-Generation reports `docs/example.md` and exits `0`; checking reports `0 errors, 0 warnings` and exits `0`. The [capacity correction](tour-fixing-a-wrong-capacity.md#capacity-repair) owns the deliberate mutation and repair walkthrough.
+1. **Initialize the repository:** `git -C REPOSITORY init -q`.
+   Git creates the repository and exits `0`.
+2. **Generate navigation:** `python HELPER generate --root REPOSITORY`.
+   Generation reports `docs/example.md` and exits `0`.
+3. **Check the corpus:** `python HELPER check --root REPOSITORY`.
+   Checking reports `0 errors, 0 warnings` and exits `0`. The [capacity correction](tour-fixing-a-wrong-capacity.md#capacity-repair) owns the deliberate mutation and repair walkthrough.
 
 An assignment file containing `{"version":1,"sections":["example#main"]}` selects the complete chapter. Run `python HELPER context --root REPOSITORY --assignment FILE` to emit its registry, metadata, profile, source and provenance.
 

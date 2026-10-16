@@ -123,7 +123,8 @@ to [design-flow](../skills/design-flow/SKILL.md).
 - A test with Method `test` names executable selectors in its Implementation field.
   A test with Method `inspection`, `analysis` or `demonstration` instead links evidence
   (a review lens or run record) and has no Implementation field. The selector audit
-  executes every Implementation selector; acceptance requires zero missing and failing ones.
+  matches Implementation selectors against the normal test run's JUnit report. Without reports,
+  it runs one batch per runner. Acceptance requires zero missing and failing selectors.
   Inspection and analysis cases name evidence inside the document set or repository.
   Distinguish a planned inspection from a completed inspection with its recorded result.
   Name document-only cases "Inspection:", "Analysis:" or "Demonstration:" with permanent `test-` anchors;

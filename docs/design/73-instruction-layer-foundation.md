@@ -4,7 +4,6 @@
 Status: [pointer](#instruction-pointer)-only design; operator direction recorded on 2026-10-07; implementation verification pending
 
 
-
 Issue: [#73](https://github.com/symbiotic-sh/house-rules/issues/73)
 
 <!-- spec-docs:navigation document="instruction-layer-foundation" -->
@@ -65,7 +64,6 @@ Each technical term below links to its defining Markdown section.
 
 <a id="result"></a>
 ## Result
-
 The [shared index](#house-rules-index) moves from `AGENTS.md` to [INDEX.md](../../INDEX.md).
 Its content stays unchanged except self-references to its filename.
 House Rules' own [AGENTS.md](../../AGENTS.md) becomes a [pointer](#instruction-pointer) to the index.
@@ -76,7 +74,7 @@ Every rule file stays always loaded exactly as before.
 No rule text moves, and [rules/core.md](../../rules/core.md) stays unchanged.
 The rename does not change which files load or when.
 At session start and after every compaction or reset, agents still read the index and every [always-loaded file](#always-loaded-files) in full.
-[Index-only direction](#decisions) withdraws the earlier [foundation](75-subagent-profiles.md#session-foundation) and recovery changes.
+[Index-only direction](#index-only-direction) withdraws the earlier [foundation](75-subagent-profiles.md#session-foundation) and recovery changes.
 
 <a id="terms"></a>
 ## Terms
@@ -127,20 +125,56 @@ The implementation baseline is [ba1e5b0](https://github.com/symbiotic-sh/house-r
 <a id="design"></a>
 ## Design
 
+The requirement records preserve this draft's proposed implementation contracts. Settled choices in [Decisions](#decisions) remain binding. Acceptance evidence remains planned.
+
 <a id="overview"></a>
 ### Overview
+<a id="req-index-overview"></a>
+#### Requirement: Overview
 
-The [House Rules block](#house-rules-block) stays a permanent [pointer](#instruction-pointer).
+This requirement defines overview for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The [House Rules block](#house-rules-block) stays a permanent [pointer](#instruction-pointer).
 The installer does not copy rule text into tool instructions.
 The only runtime change is the index filename and the [pointer](#instruction-pointer)-only House Rules loader.
 All current loading and compaction rules remain in effect.
 
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Text tests](#test-index-text).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#pointer-canary-budget).
+
+
 <a id="index-rename-and-pointer-files"></a>
 ### Index rename and pointer files
+<a id="req-index-index-rename-and-pointer-files"></a>
+#### Requirement: Index rename and pointer files
 
-Move the index to [INDEX.md](../../INDEX.md).
+This requirement defines index rename and pointer files for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** Move the index to [INDEX.md](../../INDEX.md).
 Keep its purpose, precedence, always-load list, skill triggers and relative links unchanged.
 Only self-references follow the filename rename.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Text tests](#test-index-text).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#pointer-canary-budget).
+
 
 Global pointers keep the existing block, changing only the index filename:
 
@@ -184,17 +218,34 @@ It continues to derive the always-load list from that file.
 
 <a id="per-tool-delivery"></a>
 ### Per-tool delivery
+<a id="req-index-per-tool-delivery"></a>
+#### Requirement: Per-tool delivery
 
-The installer writes the [Index rename and pointer files](#index-rename-and-pointer-files) shape to every tool home it already supports.
+This requirement defines per-tool delivery for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The installer writes the [Index rename and pointer files](#index-rename-and-pointer-files) shape to every tool home it already supports.
 It preserves content outside each managed block.
 Sync reports a block pointing to `AGENTS.md` as stale.
 Later rule edits need no [pointer](#instruction-pointer) reinstall.
 
-- **Claude Code:** `$CLAUDE_CONFIG_DIR/CLAUDE.md`, defaulting to `~/.claude/CLAUDE.md`.
-- **Codex:** `$CODEX_HOME/AGENTS.md`, or `$CODEX_HOME/AGENTS.override.md` when the override exists.
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Text tests](#test-index-text), [Pointer canary](#test-index-pointer).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#pointer-canary-budget).
+
+
+- **Claude Code**: `$CLAUDE_CONFIG_DIR/CLAUDE.md`, defaulting to `~/.claude/CLAUDE.md`.
+- **Codex**: `$CODEX_HOME/AGENTS.md`, or `$CODEX_HOME/AGENTS.override.md` when the override exists.
   Every configured Codex home receives the same shape.
-- **Kimi Code:** `$KIMI_CODE_HOME/AGENTS.md`.
-- **Other products:** existing adapters point to the same [shared index](#house-rules-index).
+- **Kimi Code**: `$KIMI_CODE_HOME/AGENTS.md`.
+- **Other products**: existing adapters point to the same [shared index](#house-rules-index).
   Adding Antigravity support belongs to [issue #78](https://github.com/symbiotic-sh/house-rules/issues/78).
 
 Managed repositories' `<REPOSITORY_ROOT>/AGENTS.md` files keep the three-line loader in [Index rename and pointer files](#index-rename-and-pointer-files).
@@ -202,17 +253,51 @@ This implementation does not run the installer against real homes or repositorie
 
 <a id="separate-claude-import-work"></a>
 ### Separate Claude import work
+<a id="req-index-separate-claude-import-work"></a>
+#### Requirement: Separate Claude import work
 
-The earlier conditional Claude-import decision is outside this [pointer](#instruction-pointer)-only change.
+This requirement defines separate Claude import work for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The earlier conditional Claude-import decision is outside this [pointer](#instruction-pointer)-only change.
 This implementation adds no imports, skip-read exception or tool-specific recovery behavior.
 The earlier import probe is not part of this design's canary.
 
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Text tests](#test-index-text).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#pointer-canary-budget).
+
+
 <a id="references-and-tests"></a>
 ### References and tests
+<a id="req-index-references-and-tests"></a>
+#### Requirement: References and tests
 
-Update every current reference that means the shared index from AGENTS.md to INDEX.md, preserving the surrounding wording.
+This requirement defines references and tests for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** Update every current reference that means the shared index from AGENTS.md to INDEX.md, preserving the surrounding wording.
 References to repository or global [pointers](#instruction-pointer) keep the corresponding full instruction-file path.
 Historical citations name their pinned commit and retain that commit's filename.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Text tests](#test-index-text).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#pointer-canary-budget).
+
 
 - [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py) reads the renamed index.
   Its existing pins continue to verify the unchanged purpose, precedence, rule inventory, skill triggers and reset-loading sentence.
@@ -224,55 +309,157 @@ Historical citations name their pinned commit and retain that commit's filename.
 <a id="rejected-alternatives"></a>
 ## Rejected alternatives
 
-- **Smaller [foundation](75-subagent-profiles.md#session-foundation):** withdrawn by the 2026-10-07 direction in [Index-only direction](#decisions); all current rules stay always loaded.
-- **Rule moves:** withdrawn by [Index-only direction](#decisions); every rule keeps its current home and text.
-- **Trigger-loading outcome and delivery:** withdrawn by [Index-only direction](#decisions); the current always-load list stays unchanged.
-- **Bounded re-read and exactly-once recovery:** withdrawn by [Index-only direction](#decisions); agents still re-read the index and every [always-loaded file](#always-loaded-files) in full after each compaction or reset.
-- **Size sections and measurement tests:** withdrawn by [Index-only direction](#decisions) and the 2026-10-06 direction in [CHANGELOG-RULES.md](../../CHANGELOG-RULES.md); no size targets apply.
+- **Smaller [foundation](75-subagent-profiles.md#session-foundation):** withdrawn by the 2026-10-07 direction in [Index-only direction](#index-only-direction); all current rules stay always loaded.
+- **Rule moves:** withdrawn by [Index-only direction](#index-only-direction); every rule keeps its current home and text.
+- **Trigger-loading outcome and delivery:** withdrawn by [Index-only direction](#index-only-direction); the current always-load list stays unchanged.
+- **Bounded re-read and exactly-once recovery:** withdrawn by [Index-only direction](#index-only-direction); agents still re-read the index and every [always-loaded file](#always-loaded-files) in full after each compaction or reset.
+- **Size sections and measurement tests:** withdrawn by [Index-only direction](#index-only-direction) and the 2026-10-06 direction in [CHANGELOG-RULES.md](../../CHANGELOG-RULES.md); no size targets apply.
 - **Inline rule copies:** rejected because copies create another rule owner.
 - **Keep the index in `AGENTS.md`:** rejected by the recorded index-rename decision.
 
 <a id="compatibility"></a>
 ## Compatibility
+<a id="req-index-compatibility"></a>
+### Requirement: Compatibility
 
-Existing [pointers](#instruction-pointer) to `AGENTS.md` encounter the new [pointer](#instruction-pointer) there.
+This requirement defines compatibility for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** Existing [pointers](#instruction-pointer) to `AGENTS.md` encounter the new [pointer](#instruction-pointer) there.
 They can still reach the [shared index](#house-rules-index); sync reports their installed blocks as stale.
 The index rename adds no store, cache, projection, queue or migration.
 The local-rule file remains optional and is not created by this change.
 
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Text tests](#test-index-text), [Pointer canary](#test-index-pointer).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#pointer-canary-budget).
+
+
 <a id="rollout-and-pins"></a>
 ## Rollout and pins
+<a id="req-index-rollout-and-pins"></a>
+### Requirement: Rollout and pins
 
-One implementation change contains the index rename, [pointers](#instruction-pointer), reference sweep, tests and this design update.
+This requirement defines rollout and pins for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** One implementation change contains the index rename, [pointers](#instruction-pointer), reference sweep, tests and this design update.
 The lead owns installation and external writes.
 After installation, new sessions follow the [pointers](#instruction-pointer) to the [shared index](#house-rules-index).
 Rule changes still come from the live House Rules checkout.
 The rename does not pin normal [session rules](74-complete-worker-packs.md#session-rule) to a Git commit.
 
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Text tests](#test-index-text), [Pointer canary](#test-index-pointer).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#pointer-canary-budget).
+
+
 <a id="decisions"></a>
 ## Decisions
 
-Earlier choices remain recorded below with their disposition under the latest direction.
+These records preserve the recorded choices and their stated authority. Unrecorded reasons remain unrecorded.
 
-- **1.** `DECISION` (2026-10-07) Run this design's canary alone, using up to 15 short sessions on existing subscriptions; the remaining canary covers only the [pointer](#instruction-pointer) change ([Verification](#verification)).
-- **2.** `DECISION` (2026-10-07) Keep deferred-work tracking and the external-write limit always loaded; their current rule homes stay unchanged.
-- **3.** `DECISION` (2026-10-07) Adopt Claude's import separately only after proving live linking, survival across compaction and no hand regeneration; outside this implementation ([Separate Claude import work](#separate-claude-import-work)).
-- **4.** `DECISION` (2026-10-07; pointer wording superseded by [Pointer wording](#decisions)) Rename the [shared index](#house-rules-index) to `INDEX.md` and use the same global and repository pointer shape with installation-specific paths.
+<a id="pointer-canary-budget"></a>
+### Decision: Pointer canary
+
+**Choice:** (2026-10-07) Run this design's canary alone, using up to 15 short sessions on existing subscriptions; the remaining canary covers only the [pointer](#instruction-pointer) change ([Verification](#verification)).
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="always-loaded-tracking"></a>
+### Decision: Always-loaded tracking
+
+**Choice:** (2026-10-07) Keep deferred-work tracking and the external-write limit always loaded; their current rule homes stay unchanged.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="separate-claude-import"></a>
+### Decision: Separate Claude import
+
+**Choice:** (2026-10-07) Adopt Claude's import separately only after proving live linking, survival across compaction and no hand regeneration; outside this implementation ([Separate Claude import work](#separate-claude-import-work)).
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="earlier-pointer-shape"></a>
+### Decision: Earlier pointer shape
+
+**Choice:** (2026-10-07; pointer wording superseded by [Pointer wording](#pointer-wording)) Rename the [shared index](#house-rules-index) to `INDEX.md` and use the same global and repository pointer shape with installation-specific paths.
    House Rules' own `AGENTS.md` points to the index and to `.agents/rules.md` only if that file exists.
    File references name complete paths.
-- **5.** The earlier lead decision requiring exactly-once rule loading is withdrawn by the later operator direction in [Index-only direction](#decisions).
-- **6.** `DECISION` (operator direction, 2026-10-07): “given the context is 1 million this is retarded we are spending a LOT of time for this and risking breakage”.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Keep the index in `AGENTS.md`:** rejected by the recorded index-rename decision.
+
+<a id="withdraw-loading-count"></a>
+### Decision: Withdraw loading-count requirement
+
+**Choice:** The earlier lead decision requiring exactly-once rule loading is withdrawn by the later operator direction in [Index-only direction](#index-only-direction).
+
+**Authority:** Earlier lead decision withdrawn by the operator on 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="index-only-direction"></a>
+### Decision: Index-only direction
+
+**Choice:** (operator direction, 2026-10-07): “given the context is 1 million this is retarded we are spending a LOT of time for this and risking breakage”.
    Implement only the index rename and pointer shape.
    Every rule file stays always loaded exactly as today.
    Do not move rule text, shrink `rules/core.md`, change loading triggers or change the compaction rule.
    Agents still re-read the index and every [always-loaded file](#always-loaded-files) in full after every compaction or reset.
    No size target, measurement test or budget applies, following the 2026-10-06 direction in [CHANGELOG-RULES.md](../../CHANGELOG-RULES.md).
 
-- **7.** `DECISION` (lead direction, 2026-10-07) Keep the old pointer wording verbatim and change only the index filename.
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Smaller [foundation](75-subagent-profiles.md#session-foundation):** withdrawn by the 2026-10-07 direction in [Index-only direction](#index-only-direction); all current rules stay always loaded. **Rule moves:** withdrawn by [Index-only direction](#index-only-direction); every rule keeps its current home and text. **Trigger-loading outcome and delivery:** withdrawn by [Index-only direction](#index-only-direction); the current always-load list stays unchanged. **Bounded re-read and exactly-once recovery:** withdrawn by [Index-only direction](#index-only-direction); agents still re-read the index and every [always-loaded file](#always-loaded-files) in full after each compaction or reset. **Size sections and measurement tests:** withdrawn by [Index-only direction](#index-only-direction) and the 2026-10-06 direction in [CHANGELOG-RULES.md](../../CHANGELOG-RULES.md); no size targets apply.
+
+<a id="pointer-wording"></a>
+### Decision: Pointer wording
+
+**Choice:** (lead direction, 2026-10-07) Keep the old pointer wording verbatim and change only the index filename.
    Global blocks retain every sentence in the installer template.
    Managed repositories retain the three-line loader in STRUCTURE.md; House Rules' own pointer uses portable relative paths.
    PREFERENCES.md and prompts/util/transcript-gaps.md replace only AGENTS.md with INDEX.md.
-   This supersedes [Earlier pointer shape](#decisions)'s common pointer shape and complete-path requirement where they conflict with this wording.
+   This supersedes [Earlier pointer shape](#earlier-pointer-shape)'s common pointer shape and complete-path requirement where they conflict with this wording.
+
+**Authority:** Lead, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Inline rule copies:** rejected because copies create another rule owner.
 
 <a id="open-points"></a>
 ## Open points
@@ -291,10 +478,20 @@ None of those changes belongs to this implementation.
 <a id="verification"></a>
 ## Verification
 
-<a id="text-tests"></a>
-### Text tests
+These are planned acceptance cases; this conversion records no completed implementation result.
 
-Run the existing sync and prompt tests with the renamed index.
+<a id="test-index-text"></a>
+### Inspection: Text tests
+
+This planned case checks the retained text criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Overview](#req-index-overview), [Index rename and pointer files](#req-index-index-rename-and-pointer-files), [Per-tool delivery](#req-index-per-tool-delivery), [Separate Claude import work](#req-index-separate-claude-import-work), [References and tests](#req-index-references-and-tests), [Compatibility](#req-index-compatibility), [Rollout and pins](#req-index-rollout-and-pins).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** Run the existing sync and prompt tests with the renamed index.
 Run all declared workflow checks.
 Do not install [pointers](#instruction-pointer) into real tool homes.
 
@@ -308,11 +505,25 @@ Every printed rule line must differ from its baseline text only by the index ren
 Report any other line as a failure.
 This one-time check adds no repository script or stored report.
 
-<a id="pointer-canary"></a>
-### Pointer canary
 
-A session reads `INDEX.md` through the new pointer and loads every [always-loaded file](#always-loaded-files) in full.
+Planned evidence for text: [record observations against these criteria](#req-index-overview).
+
+<a id="test-index-pointer"></a>
+### Demonstration: Pointer canary
+
+This planned case checks the retained pointer criteria.
+
+**Method:** demonstration.
+
+**Requirements:** [Per-tool delivery](#req-index-per-tool-delivery), [Compatibility](#req-index-compatibility), [Rollout and pins](#req-index-rollout-and-pins).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** A session reads `INDEX.md` through the new pointer and loads every [always-loaded file](#always-loaded-files) in full.
 The canary checks only pointer resolution and the unchanged always-load inventory.
 Tool event logs provide the evidence.
 It introduces no rule triggers, read-count limit, forced compaction loop or import probe.
 Real-home installation and external session runs remain with the lead.
+
+
+Planned evidence for pointer: [record observations against these criteria](#req-index-per-tool-delivery).

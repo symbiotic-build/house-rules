@@ -358,8 +358,8 @@
     "subagent-profiles.specialist-launcher": {
       "kind": "component",
       "home": {
-        "section": "subagent-profiles#terms",
-        "anchor": "specialist-launcher-meaning"
+        "section": "subagent-profiles#design",
+        "anchor": "specialist-launcher"
       },
       "scope": [
         "review-entry-skill",

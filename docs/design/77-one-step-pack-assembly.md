@@ -4,7 +4,6 @@
 Status: design only; operator choices recorded on 2026-10-07; implementation pending.
 
 
-
 Issue: [#77](https://github.com/symbiotic-sh/house-rules/issues/77).
 
 <!-- spec-docs:navigation document="one-step-pack-assembly" -->
@@ -79,7 +78,6 @@ Each technical term below links to its defining Markdown section.
 
 <a id="result"></a>
 ## Result
-
 A [dispatcher](75-subagent-profiles.md#dispatcher) builds each worker's prompt with one compiler call. The pack contains the role, lens, extra rule files, [target repository](#target-repository) rules and task text, in that order. Each rule file is included once. The compiler reads House Rules text from a named commit through Git objects. Uncommitted edits and other branches on disk cannot reach the pack. The acceptance criterion is "uncommitted edits never reach a prompt".
 
 [Lane workers](75-subagent-profiles.md#lane-worker) run as normal Codex sessions in the operator's Codex home. Lane sessions load the live House Rules [foundation](75-subagent-profiles.md#session-foundation) through their installed [pointer](73-instruction-layer-foundation.md#instruction-pointer). Their role prompts come from the named commit. The compiler omits shared-rule includes for lane sessions that already load House Rules. Warden reviewers receive those includes in their prompts. A manifest records the role prompt's revision and the hash of the exact pack bytes. The manifest does not claim that a lane session's live foundation came from that revision.
@@ -157,6 +155,8 @@ The [role-pack design, issue #74](https://github.com/symbiotic-sh/house-rules/is
 <a id="design"></a>
 ## Design
 
+The requirement records preserve this draft's proposed implementation contracts. Settled choices in [Decisions](#decisions) remain binding. Acceptance evidence remains planned.
+
 This design makes one compiler invocation responsible for complete worker input.
 How does the named revision become the dispatched pack?
 
@@ -176,8 +176,25 @@ flowchart TB
 
 <a id="compiler-interface"></a>
 ### Compiler interface
+<a id="req-assembly-compiler-interface"></a>
+#### Requirement: Compiler interface
 
-The compiler keeps single-file and standard-input expansion. The compiler gains a pack mode that requires a named commit.
+This requirement defines compiler interface for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The compiler keeps single-file and standard-input expansion. The compiler gains a pack mode that requires a named commit.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Invalid compiler inputs](#test-assembly-invalid-inputs), [Compiler runtime and target choice](#test-assembly-runtime), [Atomic artifact publication](#test-assembly-publication).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
+
 
 ```text
 skills/pr-ready/scripts/prompt.py [--rev COMMIT [--repo DIR]] [--list] [FILE]
@@ -204,8 +221,25 @@ The shared-rule option is the proposed way for one role file to serve normal lan
 
 <a id="reading-from-the-commit"></a>
 ### Reading from the commit
+<a id="req-assembly-reading-from-the-commit"></a>
+#### Requirement: Reading from the commit
 
-Every House Rules and target Git revision, tree and blob read must use Git's native `--no-replace-objects` option (or `GIT_NO_REPLACE_OBJECTS=1`). This requirement covers revision resolution, path validation, blob reads, compiler self-check and dispatcher extraction of the pinned compiler. Replacement refs must not change compiled bytes or recorded provenance.
+This requirement defines reading from the commit for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** Every House Rules and target Git revision, tree and blob read must use Git's native `--no-replace-objects` option (or `GIT_NO_REPLACE_OBJECTS=1`). This requirement covers revision resolution, path validation, blob reads, compiler self-check and dispatcher extraction of the pinned compiler. Replacement refs must not change compiled bytes or recorded provenance.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Dirty edit and branch independence](#test-assembly-dirty-independence), [Replacement-ref protection](#test-assembly-replacement-refs), [Requested-path cost](#test-assembly-requested-paths).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
+
 
 With `--rev`, the compiler resolves `COMMIT^{commit}` once through `git --no-replace-objects rev-parse --verify`. The compiler records the resolved full commit id. It reads only requested paths, feeding `<commit>:<path>` to one long-lived `git --no-replace-objects cat-file --batch` process per source repository as each include is discovered (lead decision L2). It validates each requested path's mode with a path-specific `git --no-replace-objects ls-tree -z <commit> -- <path>` lookup and checks the exact returned path. It never enumerates the whole tree. For K requested paths, native Git supplies K path lookups and one batch process for blob contents; the compiler adds include ordering and manifest records without processing unrelated tree entries.
 
@@ -215,15 +249,49 @@ The compiler never reads the working tree for rule text in commit mode. Uncommit
 
 <a id="compiler-self-check"></a>
 ### Compiler self-check
+<a id="req-assembly-compiler-self-check"></a>
+#### Requirement: Compiler self-check
 
-The compiler compares its running file bytes with `COMMIT:skills/pr-ready/scripts/prompt.py`. A mismatch fails with `prompt: compiler differs from <short id>; run the compiler from that commit`. This check pins the assembly code as well as the rule text.
+This requirement defines compiler self-check for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The compiler compares its running file bytes with `COMMIT:skills/pr-ready/scripts/prompt.py`. A mismatch fails with `prompt: compiler differs from <short id>; run the compiler from that commit`. This check pins the assembly code as well as the rule text.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Dirty edit and branch independence](#test-assembly-dirty-independence), [Invalid compiler inputs](#test-assembly-invalid-inputs), [Replacement-ref protection](#test-assembly-replacement-refs).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
+
 
 A dispatcher can run a matching compiler in any clone containing the pin. A dispatcher can also extract `COMMIT:skills/pr-ready/scripts/prompt.py` into the durable run folder using `git --no-replace-objects show COMMIT:skills/pr-ready/scripts/prompt.py` and pass `--repo`. Compiler extraction does not require a separate pinned checkout. The extracted compiler must still pass the self-check.
 
 <a id="pack-layout-and-include-once"></a>
 ### Pack layout and include-once
+<a id="req-assembly-pack-layout-and-include-once"></a>
+#### Requirement: Pack layout and include-once
 
-The pack order is:
+This requirement defines pack layout and [include-once](#include-once) for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The pack order is:
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [First-include ordering](#test-assembly-include-once), [Manifest provenance](#test-assembly-manifest), [Role loading modes](#test-assembly-role-modes), [Part layout and literal tasks](#test-assembly-layout-and-tasks).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
+
 
 - **1.** `House Rules revision: <40-hex commit id>`.
 - **2.** Role text.
@@ -242,21 +310,55 @@ A role that repeats an include remains a source error caught by the role test. E
 
 <a id="task-text-is-data"></a>
 ### Task text is data
+<a id="req-assembly-task-text-is-data"></a>
+#### Requirement: Task text is data
 
-Task text is inserted literally without expansion or editing, apart from the part-ending newline rule. Standalone include lines are allowed and remain literal text; the compiler does not scan tasks to reject them (lead decision L4). The dispatcher supplies lenses and extra rules through compiler options. Task text copied from a work item cannot pull in rule files.
+This requirement defines task text is data for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** Task text is inserted literally without expansion or editing, apart from the part-ending newline rule. Standalone include lines are allowed and remain literal text; the compiler does not scan tasks to reject them (lead decision L4). The dispatcher supplies lenses and extra rules through compiler options. Task text copied from a work item cannot pull in rule files.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Part layout and literal tasks](#test-assembly-layout-and-tasks).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
+
 
 The dispatcher writes the work item's Decisions and Pre-flight sections into the task file. The compiler adds no separate work-item part. A capacity retry for a read-only reviewer restarts the whole review with the unchanged pack and manifest, after checking both hashes. A capacity retry for workers that change files (implementer, fixer) supplies the resume note as a second task file and builds a fresh pack and manifest. Each attempt keeps its own logs and output (lead decision L5).
 
 <a id="target-repository-rules"></a>
 ### Target repository rules
+<a id="req-assembly-target-repository-rules"></a>
+#### Requirement: Target repository rules
 
-The compiler reads both target rule files from the selected commit through Git with replacement refs disabled, using the requested-path reader described above. Native Git supplies two exact path lookups and at most two blob requests through the target's batch process. The compiler adds ordered headings and per-file provenance; it does not classify House Rules loaders (lead decision L6).
+This requirement defines target repository rules for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The compiler reads both target rule files from the selected commit through Git with replacement refs disabled, using the requested-path reader described above. Native Git supplies two exact path lookups and at most two blob requests through the target's batch process. The compiler adds ordered headings and per-file provenance; it does not classify House Rules loaders (lead decision L6).
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Repository rule delivery](#test-assembly-target-rules).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
+
 
 **Procedure: include target repository rules**
 
 1. **Include** `<target>/.agents/rules.md` unchanged when present.
 2. **Include** `<target>/AGENTS.md` unchanged when present, after `.agents/rules.md`.
-3. When neither file exists, **emit** `Repository rules: this repository has no rules of its own.`
+3. **Handle absent files.** When neither file exists, emit `Repository rules: this repository has no rules of its own.`
 
 Only an absent file counts as missing. An invalid file entry, invalid UTF-8 or a read error fails compilation even when the other file exists. No loader wording causes a refusal. A loader with local requirements or a [pointer](73-instruction-layer-foundation.md#instruction-pointer) to an absent rules file is included unchanged. This preserves every local requirement without guessing which instructions load House Rules.
 
@@ -276,8 +378,25 @@ The [role-pack design, issue #74](https://github.com/symbiotic-sh/house-rules/is
 
 <a id="manifest"></a>
 ### Manifest
+<a id="req-assembly-manifest"></a>
+#### Requirement: Manifest
 
-The manifest is one JSON object with sorted keys and a trailing newline. Object ids, byte counts and hashes in this example are placeholders. File paths inside the manifest are repository-relative to their named source; they are not machine paths. A task's `source` is a logical identifier rather than its input file path (lead decision L1).
+This requirement defines manifest for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The manifest is one JSON object with sorted keys and a trailing newline. Object ids, byte counts and hashes in this example are placeholders. File paths inside the manifest are repository-relative to their named source; they are not machine paths. A task's `source` is a logical identifier rather than its input file path (lead decision L1).
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Manifest provenance](#test-assembly-manifest).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
+
 
 ```json
 {
@@ -321,8 +440,25 @@ The list contains only present files, with `.agents/rules.md` before `AGENTS.md`
 
 <a id="python-interface"></a>
 ### Python interface
+<a id="req-assembly-python-interface"></a>
+#### Requirement: Python interface
 
-`expand()` keeps its existing arguments and gains an optional `source` keyword. Pack assembly uses a separate function in the same compiler module.
+This requirement defines python interface for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** `expand()` keeps its existing arguments and gains an optional `source` keyword. Pack assembly uses a separate function in the same compiler module.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Compiler runtime and target choice](#test-assembly-runtime).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
+
 
 ```python
 class WorkingTree:
@@ -339,6 +475,24 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(),
 
 <a id="changes-in-house-rules"></a>
 ### Changes in House Rules
+<a id="req-assembly-changes-in-house-rules"></a>
+#### Requirement: Changes in House Rules
+
+This requirement defines changes in House Rules for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** Preserve the behavior and qualifications defined below.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Role loading modes](#test-assembly-role-modes), [Part layout and literal tasks](#test-assembly-layout-and-tasks), [Atomic artifact publication](#test-assembly-publication).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
 
 - [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py): add commit reads, compiler self-check, pack mode, include-once, shared-rule omission, target rules, manifest output and atomic output handling.
 - [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py): replace repeat-expansion expectations with include-once checks; add the tests below.
@@ -350,8 +504,25 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(),
 
 <a id="changes-in-the-lane-runner"></a>
 ### Changes in the lane runner
+<a id="req-assembly-changes-in-the-lane-runner"></a>
+#### Requirement: Changes in the lane runner
 
-The lane runner changes are outside this House Rules change:
+This requirement defines changes in the lane runner for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The lane runner changes are outside this House Rules change:
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Dirty edit and branch independence](#test-assembly-lane-dirty), [Normal instruction and repository delivery](#test-assembly-lane-session), [Hash identity and panels](#test-assembly-lane-hashes).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
+
 
 **Procedure: switch the lane runner to one-call assembly**
 
@@ -368,8 +539,25 @@ Lane sessions still load [session rules](74-complete-worker-packs.md#session-rul
 
 <a id="warden-adoption"></a>
 ### Warden adoption
+<a id="req-assembly-warden-adoption"></a>
+#### Requirement: Warden adoption
 
-Warden can use the same compiler entry point with its named House Rules commit. Warden builds [reviewer packs](76-review-entry-skill.md#reviewer-pack) without `--session`. Warden can then retain manifests for its prompt inputs. Shared rules remain in `rules/`; this design adds no verbatim copies under `prompts/util/`.
+This requirement defines warden adoption for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** Warden can use the same compiler entry point with its named House Rules commit. Warden builds [reviewer packs](76-review-entry-skill.md#reviewer-pack) without `--session`. Warden can then retain manifests for its prompt inputs. Shared rules remain in `rules/`; this design adds no verbatim copies under `prompts/util/`.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Hash identity and panels](#test-assembly-lane-hashes).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
+
 
 The role-pack design owns Warden staging of `rules/` and the corresponding guard update. The matching Warden compiler change is drafted after the lane runner's test run passes on the new assembly. The draft goes to the operator for approval before external writes.
 
@@ -398,6 +586,24 @@ Pack size depends on the selected role, extra files, target rules and task text.
 
 <a id="rollout-and-pins"></a>
 ## Rollout and pins
+<a id="req-assembly-rollout-and-pins"></a>
+### Requirement: Rollout and pins
+
+This requirement defines rollout and pins for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** Preserve the behavior and qualifications defined below.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Dirty edit and branch independence](#test-assembly-lane-dirty), [Normal instruction and repository delivery](#test-assembly-lane-session), [Hash identity and panels](#test-assembly-lane-hashes).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#assembly-prompt-source).
 
 **Procedure: roll out named-commit assembly**
 
@@ -405,28 +611,157 @@ Pack size depends on the selected role, extra files, target rules and task text.
 2. **Land** the role-pack shared-rule changes before switching lane prompt assembly. Default compilation must support the canonical files under `rules/`.
 3. **Land** this compiler change and switch the [lane runner](#lane-runner) to one-call assembly at the matching pin. Include target rules and shared-rule omission in that switch. An old compiler rejecting the new options must stop the runner before a worker starts.
 4. **Run** this design's lane canary tests. Retire the separate pinned checkout requirement after the runner uses Git objects and matching compiler code.
-5. After the lane runner's test run passes, **draft** the matching Warden compiler change for operator approval. Warden's existing staging path remains usable while that change is pending.
+5. **Draft after qualification.** After the lane runner's test run passes, draft the matching Warden compiler change for operator approval. Warden's existing staging path remains usable while that change is pending.
 
 Legacy single-file expansion remains available to existing callers. Normal sessions continue to use their installed [foundation](75-subagent-profiles.md#session-foundation) [pointers](73-instruction-layer-foundation.md#instruction-pointer). This design does not prescribe a merge order for unrelated review-skill or [specialist](75-subagent-profiles.md#specialist) work.
 
 <a id="decisions"></a>
 ## Decisions
 
-- **2026-10-07 — Prompt source:** `DECISION` The operator chose building every prompt from a named House Rules commit through Git objects in any clone containing that commit. Uncommitted edits and other branches on disk cannot reach a prompt. The separate pinned checkout is unnecessary. The choice covers lane review panels.
-- **2026-10-07 — Warden timing:** `DECISION` The operator chose drafting the matching Warden change after the [lane runner](#lane-runner)'s test run passes on the new assembly. The draft requires operator approval before external writes.
-- **2026-10-07 — Lane sessions:** `DECISION` The operator chose normal lane sessions in the operator's Codex home, with House Rules, skills and guardian escalation. The live [session foundation](75-subagent-profiles.md#session-foundation) remains distinct from the commit-built role prompt. The role-pack design owns session setup.
-- **2026-10-07 — Shared-rule delivery:** `DECISION` The operator chose one canonical home under `rules/` for writing, Git and priority-label instructions. One role file must serve normal sessions without repeating their [shared rules](74-complete-worker-packs.md#shared-rule) and Warden reviewers with shared-rule includes. The role-pack design owns file placement; this design supplies the compiler option.
-- **2026-10-07 — Index and [pointers](73-instruction-layer-foundation.md#instruction-pointer):** `DECISION` The operator chose renaming the [House Rules index](73-instruction-layer-foundation.md#house-rules-index) to `house-rules/INDEX.md`. Global, managed-repository and House Rules [pointer](73-instruction-layer-foundation.md#instruction-pointer) files use the same shape with installation paths adjusted. The smaller-core design owns the rename and [pointer](73-instruction-layer-foundation.md#instruction-pointer) text; loader detection is superseded by lead decision L6.
+These records preserve the recorded choices and their stated authority. Unrecorded reasons remain unrecorded.
 
-- **2026-10-07 — Warden review boundary:** `DECISION` The operator kept Warden reviewers read-only, with no builds or tests and no network except the model provider. Continuous integration owns builds and tests. Warden posts reviews; Mac lane scripts start local fixers. The role-pack design owns the reviewer setup.
-- **2026-10-07 — Lead decision L1, task provenance:** `DECISION` The lead chose a logical task-source identifier, such as `symbiotic-sh/house-rules#77`, `inline` or a caller-chosen name, never a machine path. Keep the existing task order, byte count and hash.
-- **2026-10-07 — Lead decision L2, tree reading:** `DECISION` The lead chose reading only requested paths through one long-lived `git cat-file --batch` process, fed `<commit>:<path>` for each include as it is discovered. No whole-tree enumeration.
-- **2026-10-07 — Lead decision L3, failure contract:** `DECISION` The lead chose no output on compilation failure. File output publishes the pack and manifest together by writing both into one temporary directory and renaming that directory once. Standard-output mode is best effort: a failed write exits nonzero, and the caller discards any output from a nonzero run.
-- **2026-10-07 — Lead decision L4, literal task includes:** `DECISION` The lead allowed literal include lines in tasks. Task text is inserted literally and never expanded. Remove the task scan that rejects standalone include lines and its rejection acceptance case.
-- **2026-10-07 — Lead decision L5, capacity retries:** `DECISION` A read-only reviewer's run that fails with a provider-capacity error leaves no work to resume: the review panel's retry restarts the whole review with the unchanged pack and manifest, after checking both hashes. Each attempt keeps its own logs and output, and the summary records the attempt count. The resume note as an additional task file, with a fresh pack and manifest per attempt, applies to dispatched workers that change files (implementer, fixer). This narrows the capacity-retry text in the task-file section and implementation step 8.
+<a id="assembly-prompt-source"></a>
+### Decision: Assembly prompt source
 
-- **2026-10-07 — Lead decision L6, no loader classification:** `DECISION` The lead replaced the mixed-loader and older-loader refusal requirements recorded on [issue #77](https://github.com/symbiotic-sh/house-rules/issues/77). Three review rounds each found another loading instruction that escaped detection or a prohibition wrongly refused. Under no-fortification, the classification mechanism should not exist. A House Rules loading line is harmless because [lane workers](75-subagent-profiles.md#lane-worker) are normal sessions that already load House Rules and Warden reviewers cannot reach a live House Rules checkout from their jail. Include the target's `.agents/rules.md` and `AGENTS.md`, each unchanged when present, from the selected commit and in that order. No loader wording is refused and no local rule is dropped.
-- **2026-10-07 — Lead decision L7, task assembly:** `DECISION` The lead chose collecting task parts and joining them once, as recorded on [issue #77](https://github.com/symbiotic-sh/house-rules/issues/77). Re-copying the accumulated pack inside the loop adds copying without additional behavior. Keep task order, literal bytes, separators and manifest hashes.
+**Choice:** The operator chose building every prompt from a named House Rules commit through Git objects in any clone containing that commit. Uncommitted edits and other branches on disk cannot reach a prompt. The separate pinned checkout is unnecessary. The choice covers lane review panels.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Copy a commit tree into a separate pinned checkout.** Rejected because Git object reads provide the required pin without another checkout. **Compile the working tree after a clean-checkout check.** Rejected because an edit after the check can reach a prompt. **Read Git objects but reject dirty checkouts too.** Rejected because harmless working-tree edits cannot affect commit-built prompts. **Use a second pack compiler.** Rejected because the existing compiler already owns include expansion.
+
+<a id="warden-adoption-timing"></a>
+### Decision: Warden adoption timing
+
+**Choice:** The operator chose drafting the matching Warden change after the [lane runner](#lane-runner)'s test run passes on the new assembly. The draft requires operator approval before external writes.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Draft the Warden change immediately or never draft it.** Rejected because the operator chose drafting after the [lane runner](#lane-runner)'s successful test run, with approval.
+
+<a id="assembly-lane-sessions"></a>
+### Decision: Assembly lane sessions
+
+**Choice:** The operator chose normal lane sessions in the operator's Codex home, with House Rules, skills and guardian escalation. The live [session foundation](75-subagent-profiles.md#session-foundation) remains distinct from the commit-built role prompt. The role-pack design owns session setup.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Isolate [lane workers](75-subagent-profiles.md#lane-worker) and forbid House Rules loading.** Rejected by the operator's choice of normal sessions with the live [foundation](75-subagent-profiles.md#session-foundation).
+
+<a id="assembly-shared-rule-delivery"></a>
+### Decision: Assembly shared-rule delivery
+
+**Choice:** The operator chose one canonical home under `rules/` for writing, Git and priority-label instructions. One role file must serve normal sessions without repeating their [shared rules](74-complete-worker-packs.md#shared-rule) and Warden reviewers with shared-rule includes. The role-pack design owns file placement; this design supplies the compiler option.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Fail on every repeated include.** Rejected because an extra rule may already occur in a role; [include-once](#include-once) preserves the role's placement.
+
+<a id="assembly-index-owner"></a>
+### Decision: Assembly index owner
+
+**Choice:** The operator chose renaming the [House Rules index](73-instruction-layer-foundation.md#house-rules-index) to `house-rules/INDEX.md`. Global, managed-repository and House Rules [pointer](73-instruction-layer-foundation.md#instruction-pointer) files use the same shape with installation paths adjusted. The smaller-core design owns the rename and [pointer](73-instruction-layer-foundation.md#instruction-pointer) text; loader detection is superseded by lead decision L6.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="assembly-warden-boundary"></a>
+### Decision: Assembly Warden boundary
+
+**Choice:** The operator kept Warden reviewers read-only, with no builds or tests and no network except the model provider. Continuous integration owns builds and tests. Warden posts reviews; Mac lane scripts start local fixers. The role-pack design owns the reviewer setup.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="task-provenance"></a>
+### Decision: Task provenance
+
+**Choice:** The lead chose a logical task-source identifier, such as `symbiotic-sh/house-rules#77`, `inline` or a caller-chosen name, never a machine path. Keep the existing task order, byte count and hash.
+
+**Authority:** Lead, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="requested-path-reading"></a>
+### Decision: Requested-path reading
+
+**Choice:** The lead chose reading only requested paths through one long-lived `git cat-file --batch` process, fed `<commit>:<path>` for each include as it is discovered. No whole-tree enumeration.
+
+**Authority:** Lead, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="pack-failure-publication"></a>
+### Decision: Pack failure publication
+
+**Choice:** The lead chose no output on compilation failure. File output publishes the pack and manifest together by writing both into one temporary directory and renaming that directory once. Standard-output mode is best effort: a failed write exits nonzero, and the caller discards any output from a nonzero run.
+
+**Authority:** Lead, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="literal-task-includes"></a>
+### Decision: Literal task includes
+
+**Choice:** The lead allowed literal include lines in tasks. Task text is inserted literally and never expanded. Remove the task scan that rejects standalone include lines and its rejection acceptance case.
+
+**Authority:** Lead, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Expand includes in task text.** Rejected because work-item text would share the rule namespace and could place a lens after the task.
+
+<a id="worker-capacity-retries"></a>
+### Decision: Worker capacity retries
+
+**Choice:** A read-only reviewer's run that fails with a provider-capacity error leaves no work to resume: the review panel's retry restarts the whole review with the unchanged pack and manifest, after checking both hashes. Each attempt keeps its own logs and output, and the summary records the attempt count. The resume note as an additional task file, with a fresh pack and manifest per attempt, applies to dispatched workers that change files (implementer, fixer). This narrows the capacity-retry text in the task-file section and implementation step 8.
+
+**Authority:** Lead, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="unchanged-target-rules"></a>
+### Decision: Unchanged target rules
+
+**Choice:** The lead replaced the mixed-loader and older-loader refusal requirements recorded on [issue #77](https://github.com/symbiotic-sh/house-rules/issues/77). Three review rounds each found another loading instruction that escaped detection or a prohibition wrongly refused. Under no-fortification, the classification mechanism should not exist. A House Rules loading line is harmless because [lane workers](75-subagent-profiles.md#lane-worker) are normal sessions that already load House Rules and Warden reviewers cannot reach a live House Rules checkout from their jail. Include the target's `.agents/rules.md` and `AGENTS.md`, each unchanged when present, from the selected commit and in that order. No loader wording is refused and no local rule is dropped.
+
+**Authority:** Lead, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Classify or rewrite `<target>/AGENTS.md`.** Rejected by lead decision L6 because repeated classification repairs still missed loading instructions or refused prohibitions. Supplied rules remain unchanged; normal lane sessions load House Rules, and Warden cannot reach a live checkout from its jail.
+
+<a id="single-task-join"></a>
+### Decision: Single task join
+
+**Choice:** The lead chose collecting task parts and joining them once, as recorded on [issue #77](https://github.com/symbiotic-sh/house-rules/issues/77). Re-copying the accumulated pack inside the loop adds copying without additional behavior. Keep task order, literal bytes, separators and manifest hashes.
+
+**Authority:** Lead, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Keep piecewise assembly.** Rejected because piece hashes do not identify the final prompt bytes and do not remove overlap across parts.
 
 <a id="open-points"></a>
 ## Open points
@@ -448,22 +783,228 @@ No operator choice remains open for this design.
 
 Implementation tests belong in [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py). Each test uses a small local Git fixture with a compiler copy. Each subprocess has a fixed short timeout.
 
-- **1.** Commit-built output stays identical after an included working-tree file changes or the clone checks out another branch. A file present only as an untracked file fails as missing at the pin.
-- **2.** The manifest records the resolved House Rules commit. Each included blob matches `git --no-replace-objects rev-parse <commit>:<path>`. The pack hash matches the output bytes.
-- **3.** [Include-once](#include-once) preserves first-include order across role, lens and extra-file parts. The manifest records repeats. Include cycles still fail.
-- **4.** Every role compiles with no repeated includes in both shared-rule modes. Normal-session mode omits `rules/` includes and records the omissions. Default mode includes the [shared rules](74-complete-worker-packs.md#shared-rule) once. An invalid omitted-rule path still fails.
-- **5.** A symlink entry, a mismatched compiler, a missing commit, a manifest without `--rev`, or pack mode without `--rev` returns exit 2 with one error line and no outputs.
-- **6.** [Pack parts](#pack-part) and separators match the declared order. Legacy single-file and standard-input output has no revision header. Task bytes and manifest hashes agree with the part-ending newline rule. A standalone include line in a task remains literal and does not read the named rule. Task sources cover an issue reference, a caller-chosen name and the `inline` default; no machine input path reaches the manifest. A bounded regression with nonempty and empty tasks rejects repeated concatenation of the accumulated prefix while preserving bytes and hashes (lead decision L7). Task-file and [lane-runner](#lane-runner) retry instructions distinguish unchanged read-only reviewer inputs from fresh packs for workers that change files (lead decision L5).
-- **7.** Target fixtures cover both `.agents/rules.md` and `AGENTS.md` present (included unchanged, in that order), either file alone, neither file, and uncommitted edits to both files. Loader wording, local requirements beside a loader, and a [pointer](73-instruction-layer-foundation.md#instruction-pointer) to an absent rules file do not cause refusals or dropped content. Invalid file entries, invalid UTF-8 and read errors fail even when the other file exists. The no-rules result occurs only when both files are absent. The target manifest records the selected commit and each included file's blob, byte count and hash in order. House Rules' own [pointer](73-instruction-layer-foundation.md#instruction-pointer) is included alongside its bible without reading `house-rules/INDEX.md`.
-- **8.** Pack mode without exactly one target choice fails with exit 2. The compiler tests run under `/usr/bin/python3` with Python 3.9.
-- **9.** One bounded replacement-ref case uses small House Rules and target fixtures. Install replacement commits, trees and blobs in turn, including the compiler blob and one selected rule blob in each repository. Extract the compiler with replacements disabled. Compile before and after each replacement; pack bytes, resolved revisions, blob ids and manifest hashes must stay identical. Record Git invocations and check that every revision, tree and blob read, including compiler extraction, uses native replacement protection. Each subprocess has a fixed short timeout.
-- **10.** Requested-path reads use one long-lived batch process per source repository and no whole-tree enumeration. A fixture with an unrelated file records Git requests and confirms that only requested paths are read.
-- **11.** A compilation failure produces no output. File-output failures while writing either artifact or renaming the directory leave no published destination. Success publishes both files together. An existing destination fails without overwriting it. A standard-output write failure returns nonzero; the caller discards all output from that run.
+<a id="test-assembly-dirty-independence"></a>
+### Inspection: Dirty edit and branch independence
 
-The lane runner's canary test runs after switching assembly:
+This planned case checks the retained dirty independence criteria.
 
-- **Dirty edit and branch independence:** edit [prompts/roles/reviewer.md](../../prompts/roles/reviewer.md) without committing in the clone used by the runner. Run a lane review round from the named commit. Every reviewer manifest must name the pinned role blob. The canary text must appear in no pack or worker log. Repeat from another checked-out branch with a matching extracted compiler.
-- **Normal session and supplied target rules:** run a worker with the operator's normal Codex home. Confirm that shared-rule paths are omitted from the role prompt. Confirm that the target rules part and every included target blob are recorded. Confirm that the worker retains the live [foundation](75-subagent-profiles.md#session-foundation), skills and guardian path. A read of the live [House Rules index](73-instruction-layer-foundation.md#house-rules-index) is expected session behavior rather than a failure.
-- **Hash identity and panels:** record the exact bytes sent to each implementer, reviewer, triager, fixer and checker. Compare each hash with its manifest. Every role prompt, including panels launched by `<lanes>/main/finalize.sh`, must name the [lane pin](#prompt-revision-pin). No role prompt may come from the live working tree.
+**Method:** inspection.
+
+**Requirements:** [Reading from the commit](#req-assembly-reading-from-the-commit), [Compiler self-check](#req-assembly-compiler-self-check).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** Commit-built output stays identical after an included working-tree file changes or the clone checks out another branch. A file present only as an untracked file fails as missing at the pin.
+
+
+Planned evidence for dirty independence: [record observations against these criteria](#req-assembly-reading-from-the-commit).
+
+<a id="test-assembly-manifest"></a>
+### Inspection: Manifest provenance
+
+This planned case checks the retained manifest criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Part ordering and first expansion](#req-assembly-pack-layout-and-include-once), [Manifest](#req-assembly-manifest).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** The manifest records the resolved House Rules commit. Each included blob matches `git --no-replace-objects rev-parse <commit>:<path>`. The pack hash matches the output bytes.
+
+
+Planned evidence for manifest: [record observations against these criteria](#req-assembly-pack-layout-and-include-once).
+
+<a id="test-assembly-include-once"></a>
+### Inspection: Include-once ordering
+
+This planned case checks the retained include once criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Part ordering and first expansion](#req-assembly-pack-layout-and-include-once).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** [Include-once](#include-once) preserves first-include order across role, lens and extra-file parts. The manifest records repeats. Include cycles still fail.
+
+
+Planned evidence for include once: [record observations against these criteria](#req-assembly-pack-layout-and-include-once).
+
+<a id="test-assembly-role-modes"></a>
+### Inspection: Role loading modes
+
+This planned case checks the retained role modes criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Part ordering and first expansion](#req-assembly-pack-layout-and-include-once), [Changes in House Rules](#req-assembly-changes-in-house-rules).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** Every role compiles with no repeated includes in both shared-rule modes. Normal-session mode omits `rules/` includes and records the omissions. Default mode includes the [shared rules](74-complete-worker-packs.md#shared-rule) once. An invalid omitted-rule path still fails.
+
+
+Planned evidence for role modes: [record observations against these criteria](#req-assembly-pack-layout-and-include-once).
+
+<a id="test-assembly-invalid-inputs"></a>
+### Inspection: Invalid compiler inputs
+
+This planned case checks the retained invalid inputs criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Compiler interface](#req-assembly-compiler-interface), [Compiler self-check](#req-assembly-compiler-self-check).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** A symlink entry, a mismatched compiler, a missing commit, a manifest without `--rev`, or pack mode without `--rev` returns exit 2 with one error line and no outputs.
+
+
+Planned evidence for invalid inputs: [record observations against these criteria](#req-assembly-compiler-interface).
+
+<a id="test-assembly-layout-and-tasks"></a>
+### Inspection: Part layout and literal tasks
+
+This planned case checks the retained layout and tasks criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Part ordering and first expansion](#req-assembly-pack-layout-and-include-once), [Task text is data](#req-assembly-task-text-is-data), [Changes in House Rules](#req-assembly-changes-in-house-rules).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** [Pack parts](#pack-part) and separators match the declared order. Legacy single-file and standard-input output has no revision header. Task bytes and manifest hashes agree with the part-ending newline rule. A standalone include line in a task remains literal and does not read the named rule. Task sources cover an issue reference, a caller-chosen name and the `inline` default; no machine input path reaches the manifest. A bounded regression with nonempty and empty tasks rejects repeated concatenation of the accumulated prefix while preserving bytes and hashes (lead decision L7). Task-file and [lane-runner](#lane-runner) retry instructions distinguish unchanged read-only reviewer inputs from fresh packs for workers that change files (lead decision L5).
+
+
+Planned evidence for layout and tasks: [record observations against these criteria](#req-assembly-pack-layout-and-include-once).
+
+<a id="test-assembly-target-rules"></a>
+### Inspection: Unchanged target rules
+
+This planned case checks the retained target rules criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Repository rule inputs](#req-assembly-target-repository-rules).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** Target fixtures cover both `.agents/rules.md` and `AGENTS.md` present (included unchanged, in that order), either file alone, neither file, and uncommitted edits to both files. Loader wording, local requirements beside a loader, and a [pointer](73-instruction-layer-foundation.md#instruction-pointer) to an absent rules file do not cause refusals or dropped content. Invalid file entries, invalid UTF-8 and read errors fail even when the other file exists. The no-rules result occurs only when both files are absent. The target manifest records the selected commit and each included file's blob, byte count and hash in order. House Rules' own [pointer](73-instruction-layer-foundation.md#instruction-pointer) is included alongside its bible without reading `house-rules/INDEX.md`.
+
+
+Planned evidence for target rules: [record observations against these criteria](#req-assembly-target-repository-rules).
+
+<a id="test-assembly-runtime"></a>
+### Inspection: Compiler runtime and target choice
+
+This planned case checks the retained runtime criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Compiler interface](#req-assembly-compiler-interface), [Python interface](#req-assembly-python-interface).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** Pack mode without exactly one target choice fails with exit 2. The compiler tests run under `/usr/bin/python3` with Python 3.9.
+
+
+Planned evidence for runtime: [record observations against these criteria](#req-assembly-compiler-interface).
+
+<a id="test-assembly-replacement-refs"></a>
+### Inspection: Replacement-ref protection
+
+This planned case checks the retained replacement refs criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Reading from the commit](#req-assembly-reading-from-the-commit), [Compiler self-check](#req-assembly-compiler-self-check).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** One bounded replacement-ref case uses small House Rules and target fixtures. Install replacement commits, trees and blobs in turn, including the compiler blob and one selected rule blob in each repository. Extract the compiler with replacements disabled. Compile before and after each replacement; pack bytes, resolved revisions, blob ids and manifest hashes must stay identical. Record Git invocations and check that every revision, tree and blob read, including compiler extraction, uses native replacement protection. Each subprocess has a fixed short timeout.
+
+
+Planned evidence for replacement refs: [record observations against these criteria](#req-assembly-reading-from-the-commit).
+
+<a id="test-assembly-requested-paths"></a>
+### Inspection: Requested-path cost
+
+This planned case checks the retained requested paths criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Reading from the commit](#req-assembly-reading-from-the-commit).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** Requested-path reads use one long-lived batch process per source repository and no whole-tree enumeration. A fixture with an unrelated file records Git requests and confirms that only requested paths are read.
+
+
+Planned evidence for requested paths: [record observations against these criteria](#req-assembly-reading-from-the-commit).
+
+<a id="test-assembly-publication"></a>
+### Inspection: Atomic artifact publication
+
+This planned case checks the retained publication criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Compiler interface](#req-assembly-compiler-interface), [Changes in House Rules](#req-assembly-changes-in-house-rules).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** A compilation failure produces no output. File-output failures while writing either artifact or renaming the directory leave no published destination. Success publishes both files together. An existing destination fails without overwriting it. A standard-output write failure returns nonzero; the caller discards all output from that run.
+
+
+Planned evidence for publication: [record observations against these criteria](#req-assembly-compiler-interface).
+
+<a id="test-assembly-lane-dirty"></a>
+### Demonstration: Dirty edit and branch independence
+
+This planned case checks the retained lane dirty criteria.
+
+**Method:** demonstration.
+
+**Requirements:** [Caller integration](#req-assembly-changes-in-the-lane-runner), [Rollout and pins](#req-assembly-rollout-and-pins).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** **Dirty edit and branch independence:** edit [prompts/roles/reviewer.md](../../prompts/roles/reviewer.md) without committing in the clone used by the runner. Run a lane review round from the named commit. Every reviewer manifest must name the pinned role blob. The canary text must appear in no pack or worker log. Repeat from another checked-out branch with a matching extracted compiler.
+
+
+Planned evidence for lane dirty: [record observations against these criteria](#req-assembly-changes-in-the-lane-runner).
+
+<a id="test-assembly-lane-session"></a>
+### Demonstration: Normal session and supplied target rules
+
+This planned case checks the retained lane session criteria.
+
+**Method:** demonstration.
+
+**Requirements:** [Caller integration](#req-assembly-changes-in-the-lane-runner), [Rollout and pins](#req-assembly-rollout-and-pins).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** **Normal session and supplied target rules:** run a worker with the operator's normal Codex home. Confirm that shared-rule paths are omitted from the role prompt. Confirm that the target rules part and every included target blob are recorded. Confirm that the worker retains the live [foundation](75-subagent-profiles.md#session-foundation), skills and guardian path. A read of the live [House Rules index](73-instruction-layer-foundation.md#house-rules-index) is expected session behavior rather than a failure.
+
+
+Planned evidence for lane session: [record observations against these criteria](#req-assembly-changes-in-the-lane-runner).
+
+<a id="test-assembly-lane-hashes"></a>
+### Demonstration: Hash identity and panels
+
+This planned case checks the retained lane hashes criteria.
+
+**Method:** demonstration.
+
+**Requirements:** [Caller integration](#req-assembly-changes-in-the-lane-runner), [Warden adoption](#req-assembly-warden-adoption), [Rollout and pins](#req-assembly-rollout-and-pins).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** **Hash identity and panels:** record the exact bytes sent to each implementer, reviewer, triager, fixer and checker. Compare each hash with its manifest. Every role prompt, including panels launched by `<lanes>/main/finalize.sh`, must name the [lane pin](#prompt-revision-pin). No role prompt may come from the live working tree.
 
 The smaller-core design's separate canary remains separate. This design's canary tests pack assembly and its interface with normal lane sessions. The role-pack design owns shared-rule placement checks.
+
+
+Planned evidence for lane hashes: [record observations against these criteria](#req-assembly-changes-in-the-lane-runner).

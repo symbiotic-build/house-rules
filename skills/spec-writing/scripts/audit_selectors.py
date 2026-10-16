@@ -98,14 +98,14 @@ def run_batch(root, labels, runner, timeout_seconds):
                     stdout, stderr = child.communicate(timeout=timeout_seconds)
                 except subprocess.TimeoutExpired:
                     os.killpg(child.pid, signal.SIGKILL)
-                    stdout, stderr = child.communicate()
-                    print(f'batch exceeded {timeout_seconds} seconds\n{stdout}{stderr}', flush=True)
+                    child.stdout.close()
+                    child.stderr.close()
+                    child.wait()
+                    print(f'batch exceeded {timeout_seconds} seconds; output pipes closed', flush=True)
                     return dict.fromkeys(labels, 'failing')
-            if child.returncode and (runner['kind'] != 'unittest' or child.returncode != 1):
+            if child.returncode:
                 print(f'batch exited {child.returncode}\n{stdout}{stderr}', flush=True)
                 return dict.fromkeys(labels, 'failing')
-            if child.returncode:
-                print(stdout + stderr, flush=True)
             cases = read_reports(root, [str(report)])
             return {label: match_case(cases, label, runner) for label in labels}
         except OSError as exc:

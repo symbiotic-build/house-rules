@@ -6,6 +6,7 @@ import argparse
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 import hashlib
+import fcntl
 from html.parser import HTMLParser
 import importlib.metadata
 import json
@@ -257,6 +258,7 @@ class Heading:
     intro_end: int
     anchor: str | None
     fields: dict[str, tuple[str, list[Link]]] = field(default_factory=dict)
+    field_tokens: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -311,16 +313,20 @@ def parse_markdown(path, text, diagnostics):
     destinations, links, rows, headings, inline_links, generated = defaultdict(list), [], [], [], {}, []
     lines = text.splitlines(keepends=True)
     region_start = None
-    for i, line in enumerate(lines):
-        if "<!-- spec-docs:navigation" in line:
+    for token in tokens:
+        if token.type != 'html_block' or token.level != 0 or not token.map:
+            continue
+        marker = token.content.strip()
+        i = token.map[0]
+        if re.fullmatch(r'<!-- spec-docs:navigation document="[^"<>]+" -->', marker):
             if region_start is not None:
                 diagnostics.add("D02", "malformed declaration: nested navigation region", path, i + 1)
             region_start = i
-        if END in line:
+        elif marker == END:
             if region_start is None:
                 diagnostics.add("D02", "malformed declaration: unmatched navigation marker", path, i + 1)
             else:
-                generated.append((region_start, i + 1))
+                generated.append((region_start, token.map[1]))
                 region_start = None
     if region_start is not None:
         diagnostics.add("D02", "malformed declaration: unclosed navigation region", path, region_start + 1)
@@ -402,6 +408,7 @@ def parse_markdown(path, text, diagnostics):
                     if key in heading.fields:
                         diagnostics.add("D02", f"malformed declaration: duplicate field '{key}'", path, token.map[0] + 1)
                     heading.fields[key] = (visible(token.children).split(":", 1)[-1].strip(), inline_links.get(id(token), []))
+                    heading.field_tokens[key] = token
     for identity, positions in destinations.items():
         if len(positions) > 1:
             diagnostics.add("D03", f"duplicate identity '{identity}'; first at {path}:{positions[0] + 1}", path, positions[1] + 1)
@@ -539,8 +546,6 @@ def load_corpus(source, format_contract=None, *, comparison=False):
         # Before adoption, there are no declared requirements to compare. Partial
         # metadata still follows normal validation and fails visibly.
         return corpus
-    if type(contract.get("version")) is not int or contract["version"] != 1:
-        diagnostics.add("D02", "unsupported version: format contract")
     for path, attribute in zip(JSON_PATHS, ("index", "manifest")):
         text = read_text(source, path, diagnostics)
         setattr(corpus, attribute, load_json(text or "{}", path, diagnostics))
@@ -850,9 +855,7 @@ def check_implementation(corpus, declaration, diagnostics):
     """Validate test-file links while leaving selector existence to the later pass."""
     md = corpus.markdown[declaration["path"]]
     heading = declaration["heading"]
-    token = next(t for t in md.tokens if t.type == "inline" and t.map
-                 and heading.start < t.map[0] < heading.intro_end
-                 and re.match(r"^\*\*Implementation:\*\*", t.content))
+    token = heading.field_tokens["Implementation"]
     children = token.children
     start = next(i for i, child in enumerate(children) if child.type == "strong_close") + 1
     tail = children[start:]
@@ -901,7 +904,8 @@ def retired_identities(base):
         paths.update(e["path"] for e in manifest.get("inventory", []) if e.get("kind") in ("specification", "design"))
     if not paths:
         return set()
-    commits = dict.fromkeys(git(root, "log", "-m", "--format=%H", "-G", '<a id="(req|test)-',
+    # Use a broad native filter; parsed declarations below decide accepted syntax.
+    commits = dict.fromkeys(git(root, "log", "-m", "--format=%H", "-G", '<a.*id="(req|test)-',
                                revision, "--", *sorted(paths)).decode().splitlines())
     historical, parsed_blobs = set(), set()
     for commit in commits:
@@ -1235,9 +1239,13 @@ def inline_source_positions(md):
     return positions
 
 
-def apply_edits(text, edits):
+def apply_edits(text, edits, path):
     """Apply disjoint source edits from right to left without shifting offsets."""
-    for start, end, replacement in sorted(set(edits), reverse=True):
+    edits = sorted(set(edits))
+    for previous, current in zip(edits, edits[1:]):
+        if current[0] < previous[1]:
+            fail("D02", "intersecting link edits: rewrite the prose to separate entity uses", path)
+    for start, end, replacement in reversed(edits):
         text = text[:start] + replacement + text[end:]
     return text.encode()
 
@@ -1279,7 +1287,7 @@ def link_missing(corpus, *, prune_repeats=False):
                 edits.append((start, end, f'[{form}]({target})'))
                 break
         if edits:
-            outputs[md.path] = apply_edits(md.text, edits)
+            outputs[md.path] = apply_edits(md.text, edits, md.path)
     if prune_repeats:
         projected = load_corpus(Snapshot(dict(corpus.source.files, **outputs), corpus.source.tracked,
                                         corpus.source.problems, fixture=corpus.source.fixture), corpus.contract)
@@ -1339,7 +1347,7 @@ def prune_repeated_links(corpus):
                 label_source = md.text[mapping[label_begin]:mapping[label_end]]
                 edits.append((mapping[begin], mapping[end - 1] + 1, label_source))
         if edits:
-            outputs[md.path] = apply_edits(md.text, edits)
+            outputs[md.path] = apply_edits(md.text, edits, md.path)
     return outputs
 
 
@@ -1553,7 +1561,7 @@ def check_prose(corpus, md, diagnostics):
         elif token.type == "ordered_list_open":
             if ordered_depth == 0:
                 depth, count = 1, 0
-                for other in md.tokens[i + 1:]:
+                for item_index, other in enumerate(md.tokens[i + 1:], i + 1):
                     if other.type == "ordered_list_open":
                         depth += 1
                     elif other.type == "ordered_list_close":
@@ -1562,6 +1570,12 @@ def check_prose(corpus, md, diagnostics):
                             break
                     elif other.type == "list_item_open" and other.level == token.level + 1:
                         count += 1
+                        opening = md.tokens[item_index + 2] if item_index + 2 < len(md.tokens) else None
+                        children = (opening.children or []) if opening and opening.type == 'inline' else []
+                        children = [child for child in children if child.type != "text" or child.content]
+                        if (len(children) < 3 or children[0].type != 'strong_open'
+                                or not any(child.type == 'strong_close' for child in children[2:])):
+                            diagnostics.add("D18", "procedure item requires an opening bold action label", md.path, other.map[0] + 1)
                 before = md.text.splitlines()[:token.map[0]]
                 preceding = next((line.strip() for line in reversed(before) if line.strip()), "")
                 if not re.fullmatch(r"\*\*Procedure:\s+.+\*\*", preceding) or count < 2:
@@ -1596,7 +1610,7 @@ def check_prose(corpus, md, diagnostics):
 
 def relative_link(output, path, anchor=""):
     relative = posixpath.relpath(path, posixpath.dirname(output) or ".")
-    return relative + ("#" + anchor if anchor else "")
+    return quote(relative, safe="/") + ("#" + quote(anchor, safe="") if anchor else "")
 
 
 def replace_region(text, start, end, body, path):
@@ -1652,7 +1666,16 @@ def project_navigation(corpus):
         if nav.get("region"):
             current = outputs.get(path, corpus.source.files.get(path, b"")).decode()
             start = START.format(document=nav["region"])
-            rendered = replace_region(current, start, END, body, path).decode()
+            md = corpus.markdown[path]
+            matches = [(a, b) for a, b in md.generated
+                       if md.text.splitlines()[a].strip() == start]
+            if len(matches) != 1:
+                fail("D02", "malformed declaration: expected exactly one ordered marker pair", path)
+            region_start, region_end = matches[0]
+            source_lines = current.splitlines(keepends=True)
+            first = sum(map(len, source_lines[:region_start]))
+            last = sum(map(len, source_lines[:region_end]))
+            region = start + "\n" + body.rstrip() + "\n" + END
             # Keep all authored introductory content together, up to the first
             # heading after the title. Generated headings never end the introduction.
             md = corpus.markdown[path]
@@ -1669,8 +1692,6 @@ def project_navigation(corpus):
                               and title.start < token.map[0] < intro_end
                               and not any(a <= token.map[0] < b for a, b in md.generated))
             insertion = sum(len(line) for line in md.text.splitlines(keepends=True)[:opening_end])
-            first, last = current.index(start), current.index(END) + len(END)
-            region = rendered[rendered.index(start):rendered.index(END) + len(END)]
             outside = current[:first] + current[last:]
             if last <= insertion:
                 insertion -= last - first
@@ -1704,6 +1725,7 @@ class ChangeReport:
 def requirement_changes(base, candidate):
     """Select tests from both snapshots when a requirement or linked fact changes."""
     changes = []
+    evidence_sources = {}
     requirements = [{v["heading"].anchor: v for v in c.declarations.values()
                      if v["kind"] == "Requirement"} for c in (base, candidate)]
     for anchor in sorted(requirements[0].keys() | requirements[1].keys()):
@@ -1722,9 +1744,38 @@ def requirement_changes(base, candidate):
         for key in sorted(facts):
             def contract(c):
                 fact = c.facts.get(key)
-                return {k: fact[k] for k in ("value", "status", "basis", "basis_targets", "qualifications")} if fact else None
-            if contract(base) != contract(candidate):
-                changed_facts.append({"id": key, "base": contract(base), "candidate": contract(candidate)})
+                if fact is None:
+                    return None
+                result = {k: fact[k] for k in ("value", "status", "basis", "basis_targets", "qualifications")}
+                md = c.markdown[fact["path"]]
+                cells = next(cells for cells, line, _headers in md.rows if line == fact["line"])
+                evidence = []
+                for link in md.inline_links.get(id(cells[3]), []):
+                    if link.destination:
+                        path, anchor = link.destination
+                        if path in c.markdown:
+                            target = c.markdown[path]
+                        elif path.lower().endswith('.md') and path in c.source.files:
+                            source_key = id(c), path
+                            if source_key not in evidence_sources:
+                                evidence_sources[source_key] = parse_markdown(path, c.source.files[path].decode(), Diagnostics())
+                            target = evidence_sources[source_key]
+                        else:
+                            continue  # Non-Markdown links carry destination evidence, not document prose.
+                        if anchor:
+                            if len(target.anchors.get(anchor, [])) != 1:
+                                fail("D06", f"evidence target '{path}#{anchor}' does not resolve", path)
+                            heading = next((h for h in target.headings if h.anchor == anchor), None)
+                            line = target.anchors[anchor][0]
+                            text = target.range_bytes(heading.start - 1, heading.end) if heading else target.range_bytes(line, line + 1)
+                        else:
+                            text = target.text.encode()
+                        evidence.append(dict(path=path, anchor=anchor, text=text.decode()))
+                result["evidence"] = evidence
+                return result
+            old_contract, new_contract = contract(base), contract(candidate)
+            if old_contract != new_contract:
+                changed_facts.append({"id": key, "base": old_contract, "candidate": new_contract})
         if not old or not new or old["text"] != new["text"] or changed_facts:
             changes.append(dict(id=identity, kind="new" if not old else "removed" if not new else "changed",
                                 base=old["text"] if old else None, candidate=new["text"] if new else None,
@@ -1777,8 +1828,6 @@ def select_context(corpus, assignment):
     baseline = corpus.source.revision or corpus.source.digest
     if assignment.get("baseline", baseline) != baseline:
         d.add("D24", "pack baseline differs from assignment baseline", "assignment")
-    if assignment.get("label", "candidate") not in ("base", "candidate"):
-        d.add("D02", "malformed declaration: context label", "assignment")
     if "review_plan" in assignment:
         plan = assignment["review_plan"]
         covered = set()
@@ -2012,7 +2061,7 @@ def context_source(corpus, item, targets):
                 edits.append((mapping[begin], mapping[end - 1] + 1, replacement))
     start = len(''.join(md.text.splitlines(keepends=True)[:item['start']]))
     end = len(''.join(md.text.splitlines(keepends=True)[:item['end']]))
-    return apply_edits(md.text[start:end], [(a - start, b - start, replacement) for a, b, replacement in edits])
+    return apply_edits(md.text[start:end], [(a - start, b - start, replacement) for a, b, replacement in edits], md.path)
 
 
 def validate_runtime():
@@ -2042,6 +2091,23 @@ def validate_runtime():
 
 
 def write_outputs(corpus, outputs, *, repair=False):
+    """Serialize cooperating writers and refuse destinations changed since capture."""
+    if corpus.source.root is None:
+        fail("D27", "cannot write output: snapshot has no working-tree destination", exit_code=2)
+    lock = corpus.source.root / ".tmp/spec-docs.lock"
+    try:
+        lock.parent.mkdir(parents=True, exist_ok=True)
+        with lock.open("a+b") as stream:
+            try:
+                fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                fail("D27", "cannot write output: another spec-docs writer holds the repository lock", exit_code=2)
+            _write_outputs(corpus, outputs, repair=repair)
+    except OSError as exc:
+        fail("D27", f"cannot lock output: {exc}", exit_code=2)
+
+
+def _write_outputs(corpus, outputs, *, repair=False):
     # Validate all generated bytes as a candidate before any replacement.
     candidate_source = Snapshot(dict(corpus.source.files, **outputs), corpus.source.tracked | set(outputs),
                                 corpus.source.problems, fixture=corpus.source.fixture)
@@ -2061,16 +2127,17 @@ def write_outputs(corpus, outputs, *, repair=False):
             # Recheck destination components; a symlink cannot redirect a write.
             if any(p.is_symlink() for p in [target, *target.parents] if p != corpus.source.root):
                 fail("D05", f"source '{path}' is outside the declared input set: symlink destination", path)
-            if path in corpus.markdown or path == ".gitattributes":
-                current = target.read_bytes() if target.exists() else None
-                if current != corpus.source.files.get(path):
-                    fail("D27", f"cannot replace '{path}': authored destination differs from selected snapshot", path, 2)
             target.parent.mkdir(parents=True, exist_ok=True)
             import tempfile
             fd, temporary = tempfile.mkstemp(prefix=".spec-docs-", dir=target.parent)
             try:
                 with os.fdopen(fd, "wb") as stream:
                     stream.write(data)
+                if any(p.is_symlink() for p in [target, *target.parents] if p != corpus.source.root):
+                    fail("D05", f"source '{path}' is outside the declared input set: symlink destination", path)
+                current = target.read_bytes() if target.exists() else None
+                if current != corpus.source.files.get(path):
+                    fail("D27", f"cannot replace '{path}': authored destination differs from selected snapshot", path, 2)
                 os.replace(temporary, target)
             finally:
                 if os.path.exists(temporary):

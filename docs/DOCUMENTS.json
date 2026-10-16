@@ -1107,7 +1107,12 @@
           ],
           "summary": "Choose worker profiles and enforce the proposed specialist launch and isolation checks.",
           "prerequisites": [],
-          "explanatory_dependencies": []
+          "explanatory_dependencies": [
+            {
+              "section": "subagent-profiles#verification",
+              "reason": "Tool qualification and refusal evidence required before launcher adoption."
+            }
+          ]
         },
         {
           "id": "rejected-alternatives",

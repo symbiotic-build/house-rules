@@ -4,7 +4,6 @@
 Status: design revised to the operator's decisions of 2026-10-07; implementation pending.
 
 
-
 Design for [#74](https://github.com/symbiotic-sh/house-rules/issues/74), reviewed in
 [draft PR #80](https://github.com/symbiotic-sh/house-rules/pull/80).
 The operator's recorded answers of 2026-10-07 settle the shared-rule ownership and lane-session choices.
@@ -76,7 +75,6 @@ Each technical term below links to its defining Markdown section.
 
 <a id="result"></a>
 ## Result
-
 The five role files serve implementers, fixers, reviewers, triagers and checkers.
 Each role file supports two ways of loading House Rules.
 A normal lane session loads [shared rules](#shared-rule) and skills through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index), then receives its role prompt.
@@ -156,13 +154,32 @@ Historical lane-load reports from earlier design revisions are not new runtime e
 <a id="design"></a>
 ## Design
 
+The requirement records preserve this draft's proposed implementation contracts. Settled choices in [Decisions](#decisions) remain binding. Acceptance evidence remains planned.
+
 <a id="one-owner-for-shared-rules"></a>
 ### Rule ownership
+<a id="req-role-one-owner-for-shared-rules"></a>
+#### Requirement: Rule ownership
 
-`DECISION` The operator chose “one place for everything” on 2026-10-07.
+This requirement defines rule ownership for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** `DECISION` The operator chose “one place for everything” on 2026-10-07.
 Rules every agent needs become separate, clearly organized files under `rules/`.
 Sessions and [subagents](75-subagent-profiles.md#subagent) load those files through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
 Warden role prompts include those files with `@rule house-rules:rules/<file>.md` lines.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Role text checks](#test-role-text).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#shared-rule-home).
+
 
 The proposed shared owners are:
 
@@ -196,11 +213,28 @@ This design uses those [pointers](73-instruction-layer-foundation.md#instruction
 
 <a id="one-role-file-two-loading-paths"></a>
 ### One role file, two loading paths
+<a id="req-role-one-role-file-two-loading-paths"></a>
+#### Requirement: One role file, two loading paths
 
-`DECISION` [Lane workers](75-subagent-profiles.md#lane-worker) run as normal sessions in the operator's Codex home.
+This requirement defines one role file, two loading paths for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** `DECISION` [Lane workers](75-subagent-profiles.md#lane-worker) run as normal sessions in the operator's Codex home.
 Lane implementers, fixers and reviewers retain the [House Rules block](73-instruction-layer-foundation.md#house-rules-block), skills and guardian escalation path.
 Role prompts add the worker's role instructions to that session.
 Role prompts do not forbid those normal sessions from loading House Rules.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Role text checks](#test-role-text), [Normal lane canary](#test-role-lane), [Warden canary](#test-role-warden).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#shared-rule-home).
+
 
 The proposed compiler option is `--session`.
 The default compile includes shared-rule files for an agent that has no House Rules session loader.
@@ -232,11 +266,28 @@ The one-step assembly design also removes the need for a separate pinned checkou
 
 <a id="repository-and-task-rules"></a>
 ### Repository and task rules
+<a id="req-role-repository-and-task-rules"></a>
+#### Requirement: Repository and task rules
 
-Role instructions name the [repository rules part](#supplied-rule-parts) and the task part before work begins.
+This requirement defines repository and task rules for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** Role instructions name the [repository rules part](#supplied-rule-parts) and the task part before work begins.
 The dispatcher writes the work item's Decisions and Pre-flight sections into the task part.
 The dispatcher supplies the [target repository](77-one-step-pack-assembly.md#target-repository)'s own rules through the repository rules part.
 No role asks the worker to search the target repository or its parent directories for rule files.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Role text checks](#test-role-text), [Normal lane canary](#test-role-lane), [Warden canary](#test-role-warden).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#shared-rule-home).
+
 
 A repository rules part that says the target repository has no rules of its own is complete.
 The worker does not report missing rules in that case.
@@ -252,13 +303,30 @@ That design must use the [pointer](73-instruction-layer-foundation.md#instructio
 
 <a id="role-and-fragment-changes"></a>
 ### Role and fragment changes
+<a id="req-role-role-and-fragment-changes"></a>
+#### Requirement: Role and fragment changes
 
-[prompts/roles/implementer.md](../../prompts/roles/implementer.md) identifies the loading path and [supplied rule parts](#supplied-rule-parts).
+This requirement defines role and fragment changes for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** [prompts/roles/implementer.md](../../prompts/roles/implementer.md) identifies the loading path and [supplied rule parts](#supplied-rule-parts).
 The implementer role cites the canonical Git owner instead of [rules/delivery.md](../../rules/delivery.md).
 The implementer role retains its local gate.
 The implementer role retains the full local merge gate for repositories without pull-request continuous integration (the no-PR-CI exception).
 The implementer role drops the open merge-eligibility [pointer](73-instruction-layer-foundation.md#instruction-pointer) because the worker does not merge.
 [prompts/util/external-writes.md](../../prompts/util/external-writes.md) continues to reserve external writes for the lead.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Role text checks](#test-role-text), [Normal lane canary](#test-role-lane), [Warden canary](#test-role-warden).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#shared-rule-home).
+
 
 [prompts/roles/fixer.md](../../prompts/roles/fixer.md) uses the same Git owner through its implementer include.
 The fixer keeps the one-new-commit contract and pushed-history protection.
@@ -292,14 +360,31 @@ No rule is copied into [prompts/README.md](../../prompts/README.md) or [CHANGELO
 
 <a id="warden-s-boundary"></a>
 ### Warden's boundary
+<a id="req-role-warden-s-boundary"></a>
+#### Requirement: Warden's boundary
 
-`DECISION` Warden reviewers use a read-only copy of the pull request.
+This requirement defines warden's boundary for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** `DECISION` Warden reviewers use a read-only copy of the pull request.
 Warden reviewers have no network access except to the model provider.
 Warden reviewers run no builds or tests.
 Continuous integration runs builds and tests.
 The Warden service posts the review on GitHub.
 The lane scripts on the Mac read that review and start the fixer locally.
 Warden's posting responsibility does not grant the reviewer agent permission to make external writes.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Role text checks](#test-role-text), [Warden canary](#test-role-warden).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#shared-rule-home).
+
 
 The reviewer role's current one-targeted-test allowance does not apply inside Warden.
 The default compiled reviewer prompt states Warden's restrictions.
@@ -308,9 +393,26 @@ The session variant does not turn a Warden reviewer into a lane worker.
 
 <a id="implementation-tests"></a>
 ### Implementation tests
+<a id="req-role-implementation-tests"></a>
+#### Requirement: Implementation tests
 
-The implementation adds targeted regressions to
+This requirement defines implementation tests for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The implementation adds targeted regressions to
 [skills/pr-ready/scripts/test_prompt.py](../../skills/pr-ready/scripts/test_prompt.py):
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Role text checks](#test-role-text).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#shared-rule-home).
+
 
 - Compile all five roles in both variants and compile each review lens with the reviewer.
   Assert that default packs include each required shared owner exactly once.
@@ -350,14 +452,31 @@ The implementation retains requirement-preservation checks and the work-item rea
 
 <a id="implementation-scope"></a>
 ## Implementation scope
+<a id="req-role-implementation-scope"></a>
+### Requirement: Implementation scope
 
-The proposed new shared-rule files are `rules/git.md` and `rules/priority-labels.md`.
+This requirement defines implementation scope for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The proposed new shared-rule files are `rules/git.md` and `rules/priority-labels.md`.
 The proposed session-only writing file is `rules/session-writing.md`.
 The proposed role-specific fragment is `prompts/util/cost-defect.md`.
 The shared writing owner remains [rules/writing.md](../../rules/writing.md).
 The Git split changes [Git](../../rules/delivery.md#git).
 The shared-rule split updates index loading and existing rule consumers together.
 The smaller-core design owns the index rename and installed [pointer](73-instruction-layer-foundation.md#instruction-pointer) changes.
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Role text checks](#test-role-text).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#shared-rule-home).
+
 
 The role changes cover all five files under `prompts/roles/`.
 The utility changes cover [prompts/util/cost-and-design.md](../../prompts/util/cost-and-design.md),
@@ -378,9 +497,26 @@ The design adds no runtime store, index, cache, queue or mirror.
 
 <a id="rollout-and-dependencies"></a>
 ## Rollout and dependencies
+<a id="req-role-rollout-and-dependencies"></a>
+### Requirement: Rollout and dependencies
 
-The prior rollout based on temporary copies is removed.
+This requirement defines rollout and dependencies for implementation.
+
+**Actor:** The implementer of this design.
+
+**Condition:** When implementing or qualifying this design.
+
+**Result:** The prior rollout based on temporary copies is removed.
 Deployment follows these dependencies:
+
+**Verification:** Review the linked acceptance cases against this complete requirement.
+
+**Tests:** [Normal lane canary](#test-role-lane), [Warden canary](#test-role-warden).
+
+**Status:** [Proposed implementation](#design).
+
+**Basis:** [Recorded design authority](#shared-rule-home).
+
 
 **Procedure: deploy shared-rule loading**
 
@@ -402,24 +538,93 @@ This design does not create a second Warden rollout or assume that staging deplo
 <a id="decisions"></a>
 ## Decisions
 
-Each item records the operator's choice on 2026-10-07.
+These records preserve the recorded choices and their stated authority. Unrecorded reasons remain unrecorded.
 
-- **1.** **2026-10-07 — One shared home:** writing rules with claim labels, Git rules and priority labels live in separate files under `rules/`.
+<a id="shared-rule-home"></a>
+### Decision: One shared home
+
+**Choice:** writing rules with claim labels, Git rules and priority labels live in separate files under `rules/`.
    Rule text is not copied under `prompts/util/`.
-- **2.** **2026-10-07 — Load [shared rules](#shared-rule) for every agent:** sessions and [subagents](75-subagent-profiles.md#subagent) load shared rules through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **Verbatim shared-rule copies under `prompts/util/`:** rejected because the operator chose one canonical home under `rules/`. **Shared-rule owners under `prompts/util/`:** rejected because the operator chose shared instruction files under `rules/`.
+
+<a id="shared-rule-loading"></a>
+### Decision: Shared-rule loading
+
+**Choice:** sessions and [subagents](75-subagent-profiles.md#subagent) load [shared rules](#shared-rule) through the [House Rules index](73-instruction-layer-foundation.md#house-rules-index).
    Warden role prompts include the canonical files with `@rule house-rules:rules/<file>.md` lines.
-- **3.** **2026-10-07 — Keep [session rules](#session-rule) separate:** instructions for talking to the operator, formatting questions and running lanes stay in their own files.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="session-rule-separation"></a>
+### Decision: Session-rule separation
+
+**Choice:** instructions for talking to the operator, formatting questions and running lanes stay in their own files.
    Warden role prompts do not include those files.
-- **4.** **2026-10-07 — Normal lane sessions:** [lane workers](75-subagent-profiles.md#lane-worker) use the operator's normal Codex home with the [House Rules block](73-instruction-layer-foundation.md#house-rules-block), skills and guardian escalation path.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **The whole [session foundation](75-subagent-profiles.md#session-foundation) in every [role pack](#role-pack):** rejected because Warden must receive [shared rules](#shared-rule) without session-only instructions.
+
+<a id="normal-lane-sessions"></a>
+### Decision: Normal lane sessions
+
+**Choice:** [lane workers](75-subagent-profiles.md#lane-worker) use the operator's normal Codex home with the [House Rules block](73-instruction-layer-foundation.md#house-rules-block), skills and guardian escalation path.
    One role file serves lane sessions and Warden; lane prompts omit shared-rule includes already supplied by the session.
-- **5.** **2026-10-07 — State the pin limit:** lane-session rules come from the live House Rules checkout.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** **An isolated lane-worker home by default:** rejected because the operator chose normal Codex sessions with House Rules and skills. **One blanket loading ban for every worker:** rejected because lane sessions must load House Rules while Warden uses a complete supplied pack.
+
+<a id="live-session-pin-limit"></a>
+### Decision: Live session pin limit
+
+**Choice:** lane-[session rules](#session-rule) come from the live House Rules checkout.
    Only the role prompt is built from a named commit, as defined by the one-step assembly design.
-- **6.** **2026-10-07 — Keep Warden read-only:** Warden reviewers use a read-only pull-request copy, contact only the model provider and run no builds or tests.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="warden-read-only"></a>
+### Decision: Warden read-only boundary
+
+**Choice:** Warden reviewers use a read-only pull-request copy, contact only the model provider and run no builds or tests.
    Continuous integration runs builds and tests; Warden posts reviews for the Mac lane scripts to read and fix locally.
-- **7.** **2026-10-07 — Stage canonical rules:** Warden stages `rules/` from the qualified commit through the change identified as `9f1568b`.
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
+
+<a id="canonical-rule-staging"></a>
+### Decision: Canonical rule staging
+
+**Choice:** Warden stages `rules/` from the qualified commit through the change identified as `9f1568b`.
    The House Rules staged-path guard widens to `rules/` once that change is deployed.
 
 Decisions owned by other designs remain the short cross-references in [Interfaces with the other designs](#interfaces-with-the-other-designs).
+
+**Authority:** Operator, recorded 2026-10-07.
+
+**Reason:** No separate rationale is recorded beyond the retained choice.
+
+**Rejected alternatives:** No separate rejected alternative is recorded for this choice.
 
 <a id="open-points"></a>
 ## Open points
@@ -448,13 +653,38 @@ The recorded operator answers leave no unanswered operator choice for this desig
 <a id="verification"></a>
 ## Verification
 
-These checks are implementation acceptance criteria, not completed results of this document revision.
+These are planned acceptance cases; this conversion records no completed implementation result.
 
-**Text checks:** run the targeted tests from [Implementation tests](#implementation-tests) during local implementation.
+<a id="test-role-text"></a>
+### Inspection: Role text checks
+
+This planned case checks the retained text criteria.
+
+**Method:** inspection.
+
+**Requirements:** [Rule ownership](#req-role-one-owner-for-shared-rules), [One role file, two loading paths](#req-role-one-role-file-two-loading-paths), [Repository and task rules](#req-role-repository-and-task-rules), [Role and fragment changes](#req-role-role-and-fragment-changes), [Warden's boundary](#req-role-warden-s-boundary), [Implementation tests](#req-role-implementation-tests), [Implementation scope](#req-role-implementation-scope).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** run the targeted tests from [Implementation tests](#implementation-tests) during local implementation.
 Continuous integration runs the complete declared suite on the pushed implementation.
 The local document-revision gate is [scripts/test_sync.py](../../scripts/test_sync.py).
 
-**Lane canary:** run one implementer, three reviewers, one triager, one fixer and one checker on a small seeded change in normal Codex sessions.
+
+Planned evidence for text: [record observations against these criteria](#req-role-one-owner-for-shared-rules).
+
+<a id="test-role-lane"></a>
+### Demonstration: Normal lane canary
+
+This planned case checks the retained lane criteria.
+
+**Method:** demonstration.
+
+**Requirements:** [One role file, two loading paths](#req-role-one-role-file-two-loading-paths), [Repository and task rules](#req-role-repository-and-task-rules), [Role and fragment changes](#req-role-role-and-fragment-changes), [Rollout and dependencies](#req-role-rollout-and-dependencies).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** run one implementer, three reviewers, one triager, one fixer and one checker on a small seeded change in normal Codex sessions.
 Use the named-commit compiler from the one-step assembly design.
 Use the session variant of each role prompt.
 Use a disposable fixture for the live [session rule](#session-rule) checkout; do not edit the operator's installed rules.
@@ -474,9 +704,26 @@ Run a triager with `--no-target`.
 That triager must report the absent repository rules part once without searching for rule files.
 The fixture [pointer](73-instruction-layer-foundation.md#instruction-pointer) at `<test-repository>/AGENTS.md` must use the smaller-core design's chosen [pointer](73-instruction-layer-foundation.md#instruction-pointer) shape.
 
-**Warden canary:** use the default role variants after Warden deploys staging for `rules/`.
+
+Planned evidence for lane: [record observations against these criteria](#req-role-one-role-file-two-loading-paths).
+
+<a id="test-role-warden"></a>
+### Demonstration: Warden canary
+
+This planned case checks the retained warden criteria.
+
+**Method:** demonstration.
+
+**Requirements:** [One role file, two loading paths](#req-role-one-role-file-two-loading-paths), [Repository and task rules](#req-role-repository-and-task-rules), [Role and fragment changes](#req-role-role-and-fragment-changes), [Warden's boundary](#req-role-warden-s-boundary), [Rollout and dependencies](#req-role-rollout-and-dependencies).
+
+**Inputs:** The implementation candidate and the setup described below.
+
+**Expected:** use the default role variants after Warden deploys staging for `rules/`.
 All required includes must resolve from the qualified commit.
 Tool logs must show no reads from the live House Rules checkout and no builds or tests.
 The reviewer must retain the read-only and network restrictions from [Warden's boundary](#warden-s-boundary).
 The Warden service's review must be readable by the Mac lane scripts for a local fix round.
 Self-reports alone do not prove the loading or isolation behavior.
+
+
+Planned evidence for warden: [record observations against these criteria](#req-role-one-role-file-two-loading-paths).

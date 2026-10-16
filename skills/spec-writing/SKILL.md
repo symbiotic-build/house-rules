@@ -99,22 +99,10 @@ readability warnings have different authority under the specifications and writi
 
 ## Explain behavior to readers
 
-Build the reading path under [rules/specifications.md](../../rules/specifications.md#reader-progression):
-write the complete introduction and diagram question, generate the map after that
-introduction, then write one real tour. Check that no generated region splits the opening
-from its explanation or prerequisites.
-Choose its example before assigning chapters. Show its relevant values or snippet at each
-concept's introduction and revisit it in reference and acceptance. For batch admission,
-show `capacity = 4` and a fifth item's refusal beside the capacity definition; never append
-"In the batch example, capacity applies" as a chapter-ending formula.
-Apply the reader-progression rule to chapter openings: state the new reading outcome,
-then use the continuing example only where it explains a new concept. Replace an opening
-recap such as "The batch holds two items and returns Full" with "Assign source ownership
-and assess what structural checks leave to review."
-Inventory outside procedures before writing; summarize their needed behavior or declare
-them as opening prerequisites. Explain borrowed behaviors before their tool or standard
-names. During assembly, consolidate repeated distinctions into one linked home and show
-complete examples for reference formats and diagnostic repairs.
+Choose the continuing example before assigning chapters under
+[reader progression](../../rules/specifications.md#reader-progression).
+Inventory outside procedures before writing. During assembly, check the introduction's
+placement against generated navigation and consolidate repeated explanations at their owner.
 Read only the map, then only map and tour, to check that each stopping point makes sense.
 
 Write section openings under the purpose and entity-definition rule in
@@ -123,17 +111,6 @@ For each entity home, draft the definition sentence separately from its purpose 
 that the generated index contains the definition alone.
 When touching an explanation owned elsewhere, add a one-line linked note naming what is
 explained later. Check each first-use gloss against what a reader needs at that point.
-
-For each tour or procedure step, write the action and caller-visible result first.
-Apply the [reader-progression rules](../../rules/specifications.md#reader-progression):
-start repair tours from the complete example, show concrete outcomes where used, and
-remove author-centred formulas. Review each definition sentence alone before generating
-the index. Give outside approval rules one linked home explaining who may approve what.
-Move exact payloads beneath that step, for example:
-
-> **Detail — capacity comparison**
->
-> The displayed value differs from the table's value; comparison reports `D10`.
 
 Use [rules/writing.md](../../rules/writing.md#sequences-and-structured-detail) for step structure.
 Keep schemas and signatures in lookup reference after the mechanisms. Omit lists of

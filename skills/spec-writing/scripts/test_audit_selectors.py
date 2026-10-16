@@ -47,11 +47,36 @@ class SelectorAuditTests(unittest.TestCase):
             result = a.audit(corpus, self.root, **kwargs)
         return result, output.getvalue()
 
-    def test_audit_distinguishes_pass_missing_and_failure(self):
+    def test_failed_class_cleanup_fails_entire_fallback_batch(self):
+        labels = ['tests/sample.py::Suite::test_pass']
+        c = self.corpus(labels)
+        (self.root / 'tests/sample.py').write_text('import unittest\nclass Suite(unittest.TestCase):\n'
+            ' @classmethod\n def setUpClass(cls): cls.addClassCleanup(lambda: 1/0)\n'
+            ' def test_pass(self): pass\n')
+        result, output = self.audit(c)
+        self.assertEqual(result, (0, 0, 1))
+        self.assertIn('batch exited 1', output)
+
+    def test_timeout_does_not_drain_descendant_held_pipes(self):
+        # A bounded fake reproduces a detached descendant retaining PIPE handles.
+        from unittest.mock import MagicMock
+        child = MagicMock()
+        child.pid = 12345
+        child.communicate.side_effect = [a.subprocess.TimeoutExpired('synthetic', 0.1),
+                                         AssertionError('unbounded pipe drain')]
+        child.__enter__.return_value = child
+        with patch.object(a.subprocess, 'Popen', return_value=child), patch.object(a.os, 'killpg'):
+            self.assertEqual(a.run_batch(self.root, ['case::test'], {'kind': 'unittest'}, 0.1),
+                             {'case::test': 'failing'})
+        self.assertEqual(child.communicate.call_count, 1)
+        child.stdout.close.assert_called_once()
+        child.stderr.close.assert_called_once()
+
+    def test_unsuccessful_batch_fails_all_selectors(self):
         labels = [f'tests/sample.py::Suite::test_{name}' for name in ('pass', 'absent', 'fail')]
         result, output = self.audit(self.corpus(labels))
-        self.assertEqual(result, (1, 1, 1))
-        self.assertIn('1 passed, 1 missing, 1 failing', output)
+        self.assertEqual(result, (0, 0, 3))
+        self.assertIn('batch exited 1', output)
         self.assertEqual(self.audit(self.corpus([labels[0]] * 3))[0], (3, 0, 0))
 
     def test_reports_match_outcomes_without_execution(self):
@@ -104,7 +129,7 @@ class SelectorAuditTests(unittest.TestCase):
         (self.root / 'empty.xml').write_text('<testsuites/>')
         self.assertEqual(self.audit(corpus, reports=['empty.xml'])[0], (0, 1, 0))
 
-    def test_python_batch_loads_files_once_and_preserves_outcomes(self):
+    def test_python_batch_loads_files_once_and_fails_unsuccessful_batch(self):
         labels = [f'{path}::Suite::test_{name}' for path, name in (
             ('one/sample.py', 'pass'), ('one/sample.py', 'fail'), ('one/sample.py', 'error'),
             ('one/sample.py', 'skip'), ('one/sample.py', 'absent'), ('two/sample.py', 'pass'))]
@@ -115,7 +140,7 @@ class SelectorAuditTests(unittest.TestCase):
             target.write_text('from pathlib import Path\np=Path(__file__).with_suffix(".count")\n'
                               'p.write_text(p.read_text()+"x" if p.exists() else "x")\n' + self.source + '    unsupported = 7\n')
         with patch.object(a.subprocess, 'Popen', wraps=a.subprocess.Popen) as launch:
-            self.assertEqual(self.audit(corpus)[0], (3, 2, 3))
+            self.assertEqual(self.audit(corpus)[0], (0, 0, 8))
             self.assertEqual(launch.call_count, 1)
         for directory in ('one', 'two'):
             self.assertEqual((self.root / directory / 'sample.count').read_text(), 'x')

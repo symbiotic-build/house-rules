@@ -15,7 +15,7 @@ import tempfile
 ROOT = Path(__file__).resolve().parent.parent.parent.parent
 COMPILER = "skills/pr-ready/scripts/prompt.py"
 DOC_TOOL = "skills/spec-writing/scripts/spec_docs.py"
-DOC_INPUTS = (DOC_TOOL, "skills/spec-writing/scripts/runtime.json",
+DOC_INPUTS = ("skills/pr-ready/scripts/prepare.py", DOC_TOOL, "skills/spec-writing/scripts/runtime.json",
               "skills/spec-writing/scripts/requirements.lock",
               "skills/spec-writing/references/format-contract.json", "rules/writing.md")
 DOC_METADATA = ("docs/ENTITIES.json", "docs/DOCUMENTS.json")
@@ -281,6 +281,9 @@ def documentation_context(source, target, assignment=None, *, base=None, plan=No
             destination = root / path
             destination.parent.mkdir(parents=True, exist_ok=True)
             destination.write_bytes(data)
+        policy_spec = importlib.util.spec_from_file_location("_pack_credential_policy", root / "skills/pr-ready/scripts/prepare.py")
+        policy = importlib.util.module_from_spec(policy_spec)
+        policy_spec.loader.exec_module(policy)
         name = "_pack_spec_docs_" + fingerprint((root / DOC_TOOL).read_bytes())["sha256"]
         spec = importlib.util.spec_from_file_location(name, root / DOC_TOOL)
         module = importlib.util.module_from_spec(spec)
@@ -306,8 +309,10 @@ def documentation_context(source, target, assignment=None, *, base=None, plan=No
                 assignment["required_test_reviews"] = sorted(tests | set(assignment.get("required_test_reviews", [])))
             context = module.select_context(corpus, assignment)
             warnings = [str(w) for w in context.diagnostics.warnings]
+            if policy.redact(context.content.decode()) != context.content.decode():
+                raise PromptError("mandatory documentation context contains credential-bearing content; remove credentials before preparation")
         except module.SpecDocsError as exc:
-            raise PromptError(str(exc)) from exc
+            raise PromptError(policy.redact(str(exc))) from exc
         finally:
             sys.modules.pop(name, None)
     return {"content": context.content, "manifest": context.manifest,
