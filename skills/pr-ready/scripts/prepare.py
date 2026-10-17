@@ -13,6 +13,19 @@ from pathlib import Path
 from urllib.parse import quote, quote_from_bytes, unquote, urlsplit
 
 HERE = Path(__file__).resolve().parent
+
+
+def checker_unavailable():
+    """Name why the shared specification checker cannot run here, or return None."""
+    if sys.version_info < (3, 11):
+        return (f"this preparer runs Python {sys.version_info[0]}.{sys.version_info[1]} without REVIEW_PYTHON, "
+                "and the shared checker needs 3.11 or later")
+    if not (HERE.parents[1] / "spec-writing/scripts/spec_docs.py").is_file():
+        return "the shared checker skills/spec-writing is not staged beside this preparer"
+    import importlib.util
+    if importlib.util.find_spec("markdown_it") is None:
+        return "the shared checker's pinned dependencies are not installed for this Python"
+    return None
 CODEX_LIMIT = 800_000
 SPEC_LIMIT = 2_000_000
 COMMENT_LIMIT = 4_000
@@ -112,55 +125,41 @@ def rule_policy(repo, base):
 
 def closing_fence(row, fence):
     """Only a delimiter run and surrounding horizontal whitespace close a fence."""
-    return re.fullmatch(r"[ \t]*" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", row) is not None
+    return re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", row) is not None
+
+
+def opening_fence(row):
+    """A fence opens at most three spaces in; a backtick fence's info text has no backtick."""
+    match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", row)
+    if not match or (match[1][0] == "`" and "`" in match[2]):
+        return None
+    return match[1][0], len(match[1])
 
 
 def rule_lines(text):
-    """Annotate physical lines for conservative rewrap checks and source locations."""
-    rows, headings, fence, item = [], [], None, None
+    """Annotate physical lines with their source sections."""
+    rows, headings, fence = [], [], None
     for raw in re.findall(r"[^\n]*\n|[^\n]+$", text):
         row = raw.rstrip("\r\n")
-        section = " / ".join(title for _, title in headings) or "(root)"
         opening = re.match(r"^[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", row)
-        if fence or opening:
-            signature = [("exact", raw)]
-            if fence:
-                if closing_fence(row, fence):
-                    fence = None
-            else:
-                fence = opening[1][0], len(opening[1])
-            item = None
+        if fence:
+            if closing_fence(row, fence):
+                fence = None
+        elif opening:
+            fence = opening[1][0], len(opening[1])
         else:
             heading = re.match(r"^ {0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$", row)
-            prefix = re.match(r"^([ \t]*)((?:>[ \t]*)*)(?:(\d+[.)]|[-+*])([ \t]+))?", row)
-            indent, quotes, marker, _ = prefix.groups()
-            depth = len(indent.expandtabs(4))
-            structure = (depth, quotes, marker)
-            if marker:
-                item = (len(row[:prefix.end()].expandtabs(4)), structure)
-            elif row.strip() and item:
-                if depth == item[0] and not quotes:
-                    structure = item[1]
-                else:
-                    item = None
             if heading:
                 level = len(heading[1])
                 while headings and headings[-1][0] >= level:
                     headings.pop()
                 headings.append((level, heading[2]))
-                section = " / ".join(title for _, title in headings)
-            # Structural rows, blank lines and hard breaks are never prose rewraps.
-            if not row.strip() or heading or quotes or "|" in row or row.endswith(("  ", "\t")):
-                signature = [("exact", raw)]
-            else:
-                signature = ([("item", structure)] if marker else []) + [
-                    (structure, word) for word in row[prefix.end():].split()]
-        rows.append(dict(raw=raw, section=section, signature=signature))
+        rows.append(dict(raw=raw, section=" / ".join(title for _, title in headings) or "(root)"))
     return rows
 
 
 def rule_changes(repo, base, head):
-    """Keep Git's zero-context blocks; only pure prose rewraps disappear."""
+    """Report every Git zero-context block, including compact same-word rewraps."""
     policy, patterns = rule_policy(repo, base)
     provenance_patterns = [rule_glob(pattern) for pattern in (*RULE_PROVENANCE_PATHS,
                                                              *policy["extra_provenance_paths"])]
@@ -179,16 +178,13 @@ def rule_changes(repo, base, head):
                     "-U0", base, head, "--", path)
         is_provenance = any(pattern.fullmatch(path) for pattern in provenance_patterns)
         for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", patch, re.M):
-            sides, signatures = [], []
+            sides = []
             for rows, line, count in ((old_rows, int(hunk[1]), int(hunk[2] or 1)),
                                       (new_rows, int(hunk[3]), int(hunk[4] or 1))):
                 selected = rows[line - 1:line - 1 + count] if count else []
-                signatures.append([token for row in selected for token in row["signature"]])
                 sides.append(dict(path=path, line=line, end_line=line + count - 1,
                                   section=selected[0]["section"], text="".join(row["raw"] for row in selected))
                              if selected else None)
-            if sides[0] and sides[1] and signatures[0] == signatures[1]:
-                continue
             old, new = sides
             if is_provenance:
                 # Approval evidence never pairs, even within one changed block.
@@ -196,8 +192,13 @@ def rule_changes(repo, base, head):
                                        new=new if kind == "added" else None, provenance=True)
                                   for kind, side in (("removed", old), ("added", new)) if side)
             else:
-                changes.append(dict(kind="changed" if old and new else "removed" if old else "added",
-                                    old=old, new=new))
+                kind = "changed" if old and new else "removed" if old else "added"
+                if old and new:
+                    old_lines, new_lines = ([line.strip() for line in side["text"].removesuffix("\n").split("\n")]
+                                            for side in (old, new))
+                    if old_lines != new_lines and " ".join(old_lines) == " ".join(new_lines):
+                        kind = "rewrapped"
+                changes.append(dict(kind=kind, old=old, new=new))
     # Exact copies only, with FIFO source order for repeated copies. No all-pairs work.
     additions = defaultdict(deque)
     for index, change in enumerate(changes):
@@ -214,21 +215,32 @@ def rule_changes(repo, base, head):
 
 
 def declared_rule_changes(body):
+    """Find the declaration section by whole lines, outside fences and whole-line comments.
+
+    Line-based by design: inline comments and code spans are not parsed. The declaration is
+    advisory (every reported item needs a disposition), so a rare miss or extra match costs
+    one warning line, not hidden evidence."""
     lines = body.splitlines()
-    start, fence = None, None
+    start, fence, comment = None, None, False
     for index, line in enumerate(lines):
         if fence:
             if closing_fence(line, fence):
                 fence = None
             continue
-        opening = re.match(r"^[ \t]*(`{3,}|~{3,})", line)
+        if comment:
+            comment = "-->" not in line
+            continue
+        if re.match(r"^ {0,3}<!--", line):
+            comment = "-->" not in line[line.index("<!--") + 4:]
+            continue
+        opening = opening_fence(line)
         if opening:
-            fence = opening[1][0], len(opening[1])
+            fence = opening
             continue
         if start is None:
-            if re.fullmatch(r"##\s+Rule changes\s*#*\s*", line):
+            if re.fullmatch(r" {0,3}##[ \t]+Rule changes[ \t]*#*[ \t]*", line):
                 start = index
-        elif re.match(r"^#{1,2}\s+", line):
+        elif re.match(r"^ {0,3}#{1,2}[ \t]+", line):
             return list(enumerate(lines[start:index], start + 1))
     return list(enumerate(lines[start:], start + 1)) if start is not None else []
 
@@ -262,17 +274,21 @@ def rule_report(changes, policy, base, head, declaration_text, declaration_sourc
         return render_rule_report(parts, policy, parts, [])
     out = ["## Rule text changes", f"Base: `{base}`; head: `{head}`",
            "; ".join(f"{kind}: {sum(item['kind'] == kind and not item.get('provenance') for item in changes)}"
-                     for kind in ("removed", "added", "changed", "moved"))]
+                     for kind in ("removed", "added", "changed", "moved", "rewrapped"))]
     out.append(f"Provenance entries: {sum(bool(item.get('provenance')) for item in changes)}")
     if not declared:
         out.append(f"UNDECLARED RULE CHANGES: {declaration_source} has no ## Rule changes section. Blocking.")
     out.extend(["", declaration_heading])
     out.extend([f"{number}: {line}" for number, line in declared] or ["(none)"])
-    index = [f"- RC{number} {'provenance ' if item.get('provenance') else ''}{item['kind']}: old {rule_location(item['old'])}; new {rule_location(item['new'])}"
+    index = [f"- RC{number} rewrapped: {rule_location(item['old'])} → {rule_location(item['new'])}; same words, line breaks moved"
+             if item["kind"] == "rewrapped" else
+             f"- RC{number} {'provenance ' if item.get('provenance') else ''}{item['kind']}: old {rule_location(item['old'])}; new {rule_location(item['new'])}"
              for number, item in enumerate(changes, 1)]
     detail = []
     provenance_started = False
     for number, item in enumerate(changes, 1):
+        if item["kind"] == "rewrapped":
+            continue  # The location index is the complete one-line rendering.
         if item.get("provenance") and not provenance_started:
             detail.extend(["", "### Provenance entries"])
             provenance_started = True
@@ -430,7 +446,8 @@ def gh_json(repo, *args):
 
 def issue_refs(text):
     # Bare numbers require a linking keyword; qualified references and URLs do not.
-    ref = r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+|[\w.-]+/[\w.-]+#\d+"
+    # A qualified owner/repo#N stands alone: not inside a path or URL, not an anchor such as #5-implement.
+    ref = r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+|(?<![\w./-])[\w.-]+/[\w.-]+#\d+(?![\w-])"
     pattern = r"(?:" + ref + r")|\b(?:refs|closes|fixes|resolves)\s+((?:#\d+(?:\s*(?:,\s*(?:and\s+)?|and\s+))?)+)"
     found = []
     for match in re.finditer(pattern, text, re.I):
@@ -821,8 +838,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     elif needs_documentation and not assignment_path:
         parts.append("No registered documentation changed in this range.")
     elif unavailable:
-        parts.append("Registered documentation context was not prepared: this preparer runs Python "
-                     f"{sys.version_info[0]}.{sys.version_info[1]} without REVIEW_PYTHON, and the shared checker needs 3.11 or later. "
+        parts.append(f"Registered documentation context was not prepared: {unavailable}. "
                      "Review changed documentation from the diff.")
     parts.append(report)
     files = changed_files(repo, rng)
@@ -971,14 +987,18 @@ def main(argv=None, *, documentation_prepared=False):
         if args.command in ("review", "rule-lenses"):
             head = git(repo, "rev-parse", "--verify", "--end-of-options", args.rev + "^{commit}").strip()
             interpreter = os.environ.get("REVIEW_PYTHON")
-            if not documentation_prepared and sys.version_info < (3, 11) and any(
+            delegate = False
+            if not documentation_prepared and any(
                     git(repo, "ls-tree", "--name-only", head, "--", path).strip()
                     for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json")):
-                if not interpreter and getattr(args, "assignment", None):
-                    raise PrepareError("registered documentation requires the pinned tool environment; set REVIEW_PYTHON to its Python executable")
-                # A service without the pinned environment still reviews the code; the pack says what it lacks.
-                args.documentation_unavailable = not interpreter
-            if getattr(args, "documentation_unavailable", None) is False:
+                delegate = sys.version_info < (3, 11) and bool(interpreter)
+                missing_checker = None if delegate else checker_unavailable()
+                if missing_checker and getattr(args, "assignment", None):
+                    raise PrepareError(f"registered documentation requires the shared checker: {missing_checker}; "
+                                       "set REVIEW_PYTHON to the pinned tool environment's Python executable")
+                # A service without the checker still reviews the code; the pack says what it lacks.
+                args.documentation_unavailable = missing_checker
+            if delegate:
                 environment = noninteractive_env()
                 environment.pop("REVIEW_PYTHON", None)  # A misconfigured interpreter fails instead of recursing.
                 result = subprocess.run([interpreter, "-B", str(Path(__file__).resolve()),

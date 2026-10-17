@@ -41,7 +41,7 @@ Use this map to choose the next explanation to read.
 - [Tour](rule-changes.md#tour) — Follow a removal, weakening, move and re-wrap.
 - [Report and review](rule-changes.md#report) — Compare protected text and preserve complete evidence.
 - [Requirements](rule-changes.md#requirements) — Find the required report and review results.
-- [Decisions](rule-changes.md#decisions) — Read the operator decision and implementation proposals.
+- [Decisions](rule-changes.md#decisions) — Read the operator decision and the settled lead decisions.
 - [Open questions](rule-changes.md#questions) — Identify the remaining service integration.
 - [Reference](rule-changes.md#reference) — Configure coverage and call the shared selector.
 - [Acceptance](rule-changes.md#acceptance) — Run behavior checks and inspect reviewer obligations.
@@ -120,7 +120,7 @@ Rewrap the remaining paragraph.
    - The removed block is source line 2: `- Keep the audit record.`
    - The changed block is source line 4 → line 3: `- Never skip validation.` → `- Avoid skipping validation.`
    - The moved block is source line 7 → destination line 2: `- Report every failure.`
-   - The rewrap produces no item.
+   - The rewrapped block is source lines 9–10 → line 7, shown as one compact item.
    - The changelog block stays whole in Provenance entries; the rule remains removed.
 2. **Read the declared changes.** The summary's section appears verbatim with original lines 2–6.
    - Lines 3–5 declare the removal, wording change and move; line 6 declares the rewrap.
@@ -129,6 +129,7 @@ Rewrap the remaining paragraph.
 3. **Audit every item.** The normal panel gains the rule-preservation lens.
    - Without cited operator approval, the removal and weakening are Blocking findings.
    - The move can receive `same meaning` only after the reviewer checks its destination scope.
+   - The rewrap needs a disposition after the reviewer opens its diff and confirms preserved structure.
 
 <a id="report"></a>
 ## Report and review
@@ -140,8 +141,8 @@ The preparer compares captured Git text before rendering the change or dispatchi
 1. **Load base policy.** Resolve the [rule-change configuration](#configuration) from the pinned comparison base.
 2. **Read changed paths.** Use one NUL-delimited raw Git diff with renames disabled; retain paths and modes without whole-tree inventories.
 3. **Extract changed blocks.** Read base and head blobs for each protected changed path and take Git's zero-context hunks.
-4. **Drop pure rewraps.** Check the words and Markdown structure before classifying the remaining blocks.
-5. **Classify blocks.** Pair exact removed and added copies as moves.
+4. **Classify every block.** Keep same-word rewraps visible as `rewrapped` items; never drop a changed block.
+5. **Pair exact moves.** Pair exact removed and added copies as moves.
 6. **Check the allowance.** Refuse oversized complete reports before joining the rendered output.
 7. **Select the lens.** Dispatch from the resulting rule items; provenance entries do not select a lens.
 
@@ -163,17 +164,14 @@ Headings outside fences supply section metadata; headings themselves remain chan
 There is no sentence splitting, semantic unit extraction or cancellation of unchanged-looking siblings.
 A procedure reorder therefore remains visible.
 
-A block disappears only for a pure prose rewrap: identical words in identical order and identical indentation depth and list/blockquote markers for every logical line.
-A logical line joins prose continuation lines within one paragraph or list item.
-List continuation lines inherit their item's marker and indentation only at its content column.
-Each item keeps a distinct boundary, including an empty item.
-Blank lines, headings, blockquote rows, table rows and Markdown hard breaks are preserved exactly; ambiguous formatting stays reported.
+Every changed block remains reported.
+For each side, strip each line's leading and trailing whitespace, then join the lines with single spaces.
+A block is `rewrapped` only when these joined strings are identical and the stripped line sequences differ.
+Spacing inside a line stays significant, including repeated spaces, tabs and code spacing.
+Indentation-only changes and final-newline-only changes remain `changed` because their stripped line sequences match.
+This comparison does not establish preserved Markdown structure; reviewers check it in the diff.
 
-Fenced content is compared byte-exact, including indentation, spaces and line endings.
-Only a matching delimiter run of sufficient length with surrounding horizontal whitespace closes a fence.
-Fence-like example content with trailing text cannot expose a false declaration heading.
-
-A block with removed and added lines is `changed`; an old-only block is `removed`; a new-only block is `added`.
+Any other block with removed and added lines is `changed`; an old-only block is `removed`; a new-only block is `added`.
 An exact removed block copied elsewhere in the same range pairs with an exact added block as `moved`, retaining both locations.
 Move identity includes every byte, including Markdown markers and final newlines.
 Repeated copies pair in Git path and hunk order, first removed occurrence to first available added occurrence.
@@ -186,9 +184,12 @@ Provenance files record why rules changed. Their text never pairs with rule bloc
 A provenance block contributes its removed side and added side separately to `Provenance entries`.
 Those entries retain identities, locations and exact text, but do not enter rule totals or trigger the rule-preservation lens.
 
-Every item receives a stable report-local identity and class, old/new locations and old/new text.
-Absent sides display `(none)`. Totals include all four classes.
-No-change output is one line: `No protected rule text changed.`
+Every item receives a stable report-local identity and class, plus old/new locations.
+A `rewrapped` item renders once, on one line: identity, kind, old location → new location and `same words, line breaks moved`.
+It contains no old/new text. Its rendered line alone contributes to the report allowance.
+All other items include exact old/new text; absent sides display `(none)`. Totals include all five kinds.
+
+With no protected change, the report status is one line, `No protected rule text changed.`, followed by any declaration evidence.
 The report precedes the change in full preparation and context-only preparation.
 
 The declared-changes source is the PR body when `--pr` is given; otherwise it is the supplied `--summary` text.
@@ -196,6 +197,13 @@ An automatically discovered PR does not override that summary.
 Commit titles and messages are not declaration sources. A missing summary supplies no declarations.
 The report names the source and copies its Rule changes section verbatim with original line numbers, including subsections.
 A non-empty report without that section prominently says `UNDECLARED RULE CHANGES`.
+
+The section is found by whole lines. Its heading is `## Rule changes`, indented at most three spaces.
+Lines inside fenced code blocks do not count; a fence is indented at most three spaces.
+Lines inside comments that start a line with `<!--` do not count either.
+
+Inline comments and code spans are not parsed. A source that hides or fakes the heading this way costs at most one wrong warning line.
+The author corrects the source, and every reported item still needs a disposition.
 
 <a id="review-disposition"></a>
 ### Review disposition
@@ -210,6 +218,8 @@ A removal or weakening needs operator approval on record: a `CHANGELOG-RULES.md`
 
 The lens compares actor, condition, action, strength, numbers, exceptions, scope and cross-references.
 It checks destination scope for moves and existing homes for new rules, including conflicts and duplicates.
+For `rewrapped`, each reviewer opens the diff at the reported locations and confirms preserved heading, code, list, quote, table and hard-break structure.
+Same words do not establish preserved structure; the item still needs evidence and a disposition.
 It reconciles declared and detected changes and checks that removed text has a surviving home or approval.
 A regression, missing disposition, unapproved removal or weakening, undeclared change or failed-closed report is Blocking.
 
@@ -218,7 +228,7 @@ A regression, missing disposition, unapproved removal or weakening, undeclared c
 
 This refusal prevents incomplete evidence from supporting approval.
 
-**Trigger:** The complete report exceeds the configured character allowance after pure rewraps are dropped, or inputs cannot be read correctly.
+**Trigger:** The complete report exceeds the configured character allowance after rewraps are rendered as compact lines, or inputs cannot be read correctly.
 
 **Outcome:** Preparation exits nonzero. Oversize output says `FAILED CLOSED` and lists every item's identity, class and old/new location.
 There is one limit on the rendered report, checked before joining the output; no separate blob-size limit rejects harmless large rewraps.
@@ -226,7 +236,10 @@ There is one limit on the rendered report, checked before joining the output; no
 **Retained state:** Git and the checkout remain unchanged. The report is derived in memory; no index or approval state is stored.
 
 **Recovery:** The lead narrows the review range or adjusts the base configuration through an approved change, then prepares again.
-Malformed or unreadable inputs require repair before preparation. No approval is possible from an incomplete report.
+Malformed or unreadable inputs require repair before preparation.
+For unreadable or malformed protected-path configuration, the lead reviews the repair against the last commit with a valid configuration.
+The lead keeps the complete repair diff as evidence. Without a valid baseline, preparation stays blocked.
+No approval is possible from an incomplete report.
 
 **Authority:** The lead supplies the revised review input; a reviewer cannot waive missing evidence.
 
@@ -235,7 +248,7 @@ Malformed or unreadable inputs require repair before preparation. No approval is
 <a id="requirements"></a>
 ## Requirements
 
-These obligations implement the [operator decision](#decision-rule-review). Their status is specified; the document remains a proposal for lead acceptance.
+These obligations implement the [operator decision](#decision-rule-review). Their status is specified and settled by the decisions below.
 
 <a id="req-rule-report"></a>
 ### Requirement: report protected changes
@@ -265,7 +278,9 @@ Require a meaning audit rather than sample sentence locks.
 
 **Condition:** A report is non-empty.
 
-**Result:** Every reviewer supplies a [review disposition](#review-disposition) per item. Removed, changed or moved rule items require the rule-preservation lens alongside the normal panel.
+**Result:** Every reviewer supplies a [review disposition](#review-disposition) per item, including `rewrapped` items.
+Removed, changed or moved rule items require the rule-preservation lens alongside the normal panel.
+Rewrapped-only changes do not require that lens.
 
 **Verification:** Dispatch fixture and prompt inspection.
 
@@ -298,7 +313,7 @@ Existing full-pack and registered-document compilation remains the compiler's re
 <a id="decisions"></a>
 ## Decisions
 
-The operator selected a report plus mandatory review of meaning. Implementation details below are proposals within that scope.
+The operator selected a report plus mandatory review of meaning. The comparison, item kinds, report allowance and declaration detection below are settled lead decisions within that scope; their records name the authority.
 
 <a id="decision-rule-review"></a>
 ### Report and mandatory audit
@@ -316,18 +331,26 @@ Existing sentence-lock tests remain in this change; removal is a separate author
 <a id="decision-rule-mechanics"></a>
 ### Deterministic comparison and base configuration
 
-**Choice:** Use Git changed blocks, conservative rewrap suppression, exact-copy moves and one report-size allowance.
+**Choice:** Use Git changed blocks, visible compact `rewrapped` items, exact-copy moves and one report-size allowance.
+Never drop a changed block.
 Keep base-commit [rule-change configuration](#configuration) and fixed default coverage.
 
-**Authority:** Lead decision recorded 2026-10-17 after review rounds 3–4; replaces lexical unit matching and the earlier per-blob refusal.
+**Authority:** Lead decision recorded 2026-10-17 after review round 7 replaces rewrap suppression with visible compact items.
+The lead's clarification requires identical strip-and-join strings and a changed line division; spacing inside a line stays significant.
+The rounds 3–4 decision to use Git blocks, exact moves and one rendered-report allowance remains in effect.
 
 **Reason:** Round 3 found lost list ancestry. Round 4 found lost paragraph indentation, sibling order and fenced-code conditions.
+Rounds 5–7 found further suppressed changes in inline code, indented code, setext headings, `<pre>` blocks and backslash hard breaks.
+Visible compact items preserve evidence without extending Markdown suppression heuristics.
 Review instrumentation counted 4 000 000 similarity calls for 2 000 unmatched units per side; it bypassed expensive matching, so this is an operation count, not runtime.
 The per-blob allowance rejected a harmless 80 001-byte prose rewrap before comparison.
 Git already supplies changed blocks; reviewers judge meaning after the report preserves the evidence.
 Base configuration prevents a candidate from reducing its own coverage or increasing its own report allowance.
+The default `max_report_chars` of 80 000 is 10% of the preparer's 800 000-character prompt limit, so a full report leaves room for the diff and rules.
+It is an accepted initial value, not a measured fit; repositories may set their own in base configuration.
 
-**Rejected alternatives:** Extending semantic unit matching repeats the same structural-loss class.
+**Rejected alternatives:** Suppression based on structural-line signatures repeatedly hides Markdown changes; reviewers must inspect the diff instead.
+Extending semantic unit matching repeats the same structural-loss class.
 All-pairs similarity adds quadratic work without proving meaning preservation.
 A separate blob limit rejects harmless input without bounding aggregate pairing work.
 A stored projection duplicates Git; no persistent index is needed.
@@ -369,12 +392,13 @@ Only regular UTF-8 protected files are accepted. Invalid encoding or nonregular 
 The [preparer](../../../skills/pr-ready/scripts/prepare.py) exposes `review --context-only` for the report and
 `rule-lenses CHECKOUT --base BASE --rev HEAD --no-fetch` for dispatch.
 The selector prints `rule-preservation` only when a removed, changed or moved rule item exists.
+Rewrapped-only ranges select no lens; normal reviewers still dispose of every rewrapped item.
 The lane [panel](../../../skills/pr-ready/scripts/review-panel.sh) adds that lens without replacing the requested reviewers.
 The service must run the same selector from its pinned preparer, add the lens from its compiled pack, and honor nonzero preparation status.
 There is no automatic service adoption in this repository.
 
-For the tour, the reference counts are one removed, one changed, one moved and zero added.
-The moved item names source line 7 and destination line 2; the re-wrap has no item.
+For the tour, the reference counts are one removed, one changed, one moved, one rewrapped and zero added.
+The moved item names source line 7 and destination line 2; the rewrap names source lines 9–10 and head line 7.
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -392,8 +416,12 @@ Detection checks the caller-visible result.
 **Requirements:** [Required behavior](#req-rule-report).
 
 **Inputs:** Deleted, changed, added and exact moved blocks; list ancestry, paragraph indentation, reordered steps, fenced conditions and harmless rewraps.
+Also include setext headings, `<pre>` blocks, hard breaks and exact spacing inside prose and code.
 
-**Expected:** Structural changes remain reported with their Git block kind; prose and list continuation rewraps are absent. Large harmless rewraps are accepted.
+**Expected:** Every changed block remains reported.
+Prose and list-continuation rewraps render as compact `rewrapped` items; large harmless rewraps are reported without refusal.
+Setext, `<pre>` and hard-break rewraps remain visible for structural review.
+Exact spacing changes inside a line remain `changed`.
 
 **Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_changed_block_acceptance](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_blocks_preserve_all_source_text](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_structural_spacing_is_reported](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_exact_move_pairing_preserves_occurrences](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_deterministic](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_fenced_bytes_and_literal_paths](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
@@ -481,12 +509,12 @@ Dispatch checks the caller-visible result.
 
 **Requirements:** [Required behavior](#req-rule-review).
 
-**Inputs:** Removed, changed, moved, added and unchanged reviews.
+**Inputs:** Removed, changed, moved, added, rewrapped-only and unchanged reviews.
 
-**Expected:** The selector returns `rule-preservation` for removals, changes and moves; additions and unchanged input return no lens.
+**Expected:** The selector returns `rule-preservation` for removals, changes and moves; additions, rewrapped-only ranges and unchanged input return no lens.
 The lane panel adds the required lens alongside normal reviewers.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_selector](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_adds_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_keeps_base_selected_before_lens_selection](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_base_command_resolves_reference_once_and_returns_commit](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_rewrapped_only_range_needs_no_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_selector](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_adds_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_keeps_base_selected_before_lens_selection](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_base_command_resolves_reference_once_and_returns_commit](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-portability"></a>
 ### Portability

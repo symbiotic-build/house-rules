@@ -5,11 +5,13 @@ The shared [review bar](../util/review-bar.md) owns mandatory dispositions and B
 
 1. Read the report totals, every item and its old/new locations. Read the declared Rule
    changes from the report's selected source (PR body or `--summary`) beside it.
-   Items are Git changed blocks: `removed`, `added`, `changed` or exact-copy `moved`.
+   Items are Git changed blocks: `removed`, `added`, `changed`, exact-copy `moved` or `rewrapped`.
    Audit every rule within a block, including changed order and indentation.
    Provenance entries remain separate approval evidence. A failed-closed report cannot support approval.
 2. For each item, read old and new text in their complete source sections at the reported
-   base and head. List the rule's actor, condition, action, strength words
+   base and head. For `rewrapped`, open the diff at those locations and confirm the line-break
+   move preserved heading, code, list, quote, table and hard-break structure.
+   Its compact report omits old/new text; it still needs a disposition like every item. List the rule's actor, condition, action, strength words
    (`never`, `always`, `must`, `only`), numbers, exceptions, scope and cross-references.
    State absent elements explicitly. Compare each element; do not infer preservation
    from lexical similarity, a shorter sentence or the preparer's class.

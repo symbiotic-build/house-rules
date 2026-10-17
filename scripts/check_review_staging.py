@@ -17,6 +17,10 @@ import tempfile
 from pathlib import Path
 
 STAGED = ("prompts", "rules", "skills/pr-ready", "skills/spec-writing")
+# The review service stages only these folders and runs the preparer in isolated mode.
+SERVICE_STAGED = ("prompts", "rules", "skills/pr-ready")
+SERVICE_RUN = ("import runpy, sys; from pathlib import Path; sys.argv = sys.argv[1:]; "
+               "sys.path.insert(0, str(Path(sys.argv[0]).resolve().parent)); runpy.run_path(sys.argv[0], run_name='__main__')")
 SECTIONS = ("# 1. Review pack", "# 2. Instructions", "# 3. Pull request and issue",
             "# 4. Requirements", "# 5. Change")
 GIT_ENV = {"GIT_AUTHOR_NAME": "check", "GIT_AUTHOR_EMAIL": "check@example.invalid",
@@ -92,6 +96,16 @@ def check(root):
                 failures.append(f"lens {lens}: {detail[0]}")
         try:
             assignment = documentation_fixture(repo, stage)
+            # The service's own layout has no shared checker: review proceeds and says so.
+            service = Path(tmp) / "service"
+            for folder in SERVICE_STAGED:
+                shutil.copytree(root / folder, service / folder)
+            result = run([sys.executable, "-I", "-B", "-c", SERVICE_RUN,
+                          str(service / "skills/pr-ready/scripts/prepare.py"), "review", str(repo), "--base", "main",
+                          "--no-fetch", "--lens", "correctness-security", "--cli", "codex"], repo)
+            if result.returncode or "Registered documentation context was not prepared" not in result.stdout:
+                failures.append("service-layout review of a registered repository: " +
+                                (result.stderr.strip().splitlines()[-1:] or ["missing documentation notice"])[0])
             result = run([sys.executable, "-B", str(scripts / "prepare.py"), "review", str(repo),
                           "--base", "main", "--no-fetch", "--context-only", "--assignment", str(assignment)], stage)
             if result.returncode or "# Complete registry" not in result.stdout or "UTF-8 bytes" not in result.stdout:

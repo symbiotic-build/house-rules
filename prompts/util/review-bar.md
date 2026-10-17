@@ -52,8 +52,11 @@ Repairs to mechanisms added in earlier fix rounds follow
 
 ## Rule preservation
 
-Report items are Git changed blocks classified `removed`, `added`, `changed` or exact-copy `moved`, plus separate provenance entries.
+Report items are Git changed blocks classified `removed`, `added`, `changed`, exact-copy `moved` or `rewrapped`, plus separate provenance entries.
 The class organizes evidence; it does not establish meaning or approval.
+A `rewrapped` item needs a disposition like every item. Open the diff at its reported
+locations and confirm the line-break move preserved heading, code, list, quote, table
+and hard-break structure; the compact report omits its old/new text.
 
 When the task context contains a non-empty Rule text changes section, give every listed
 item a disposition: `same meaning`, `approved change` or `regression`, with one line of

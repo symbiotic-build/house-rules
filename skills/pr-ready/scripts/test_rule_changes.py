@@ -48,9 +48,9 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
             ("fenced condition", {"source": "```python\nif production:\n    deploy()\nverify_signature()\n```\n"},
              {"source": "```python\nif production:\n    deploy()\n    verify_signature()\n```\n"}, [(False, "changed")], False, ""),
             ("prose rewrap", {"source": "Retain every source and\nreport every failure.\n"},
-             {"source": "Retain every source\nand report every failure.\n"}, [], False, ""),
+             {"source": "Retain every source\nand report every failure.\n"}, [(False, "rewrapped")], False, ""),
             ("list continuation rewrap", {"source": "- Retain every source and\n  report every failure.\n"},
-             {"source": "- Retain every source\n  and report every failure.\n"}, [], False, ""),
+             {"source": "- Retain every source\n  and report every failure.\n"}, [(False, "rewrapped")], False, ""),
             ("section move", {"source": "## Errors\nReport every failure.\n", "destination": ""},
              {"source": "", "destination": "## Errors\nReport every failure.\n"}, [(False, "moved")], False, ""),
             ("provenance quotation", {"source": "Retain records.\n", "CHANGELOG-RULES.md": ""},
@@ -61,7 +61,14 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
             ("report allowance", {"source": ""}, {"source": "x" * 81000 + "\n"},
              [(False, "added")], True, ""),
             ("large harmless rewrap", {"source": prose + "\n"},
-             {"source": prose.replace(" and ", " and\n") + "\n"}, [], False, ""),
+             {"source": prose.replace(" and ", " and\n") + "\n"}, [(False, "rewrapped")], False, ""),
+            ("setext heading", {"source": "Production\n---\n"},
+             {"source": "Production ---\n"}, [(False, "rewrapped")], False, ""),
+            ("pre block", {"source": "<pre>\nRetain every source and\nreport every failure.\n</pre>\n"},
+             {"source": "<pre>\nRetain every source\nand report every failure.\n</pre>\n"},
+             [(False, "rewrapped")], False, ""),
+            ("backslash hard break", {"source": "Retain records.\\\nReport failures.\n"},
+             {"source": "Retain records.\\ Report failures.\n"}, [(False, "rewrapped")], False, ""),
         ]
         for number, (name, before, after, expected, refused, declaration) in enumerate(cases):
             with self.subTest(case=name):
@@ -83,8 +90,16 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
                     if name == "fence-like example":
                         self.assertEqual(prepare.declared_rule_changes(declaration), [])
                         self.assertIn("UNDECLARED RULE CHANGES", report)
-                    if not expected:
-                        self.assertEqual(report, "No protected rule text changed.")
+                    if expected == [(False, "rewrapped")]:
+                        self.assertIn("moved: 0; rewrapped: 1", report)
+                        item_lines = [line for line in report.splitlines() if "RC1" in line]
+                        self.assertEqual(len(item_lines), 1)
+                        self.assertIn('rewrapped: "rules/case-', item_lines[0])
+                        self.assertIn(" → ", item_lines[0])
+                        self.assertTrue(item_lines[0].endswith("same words, line breaks moved"))
+                        self.assertNotIn(changes[0]["old"]["text"], report)
+                        self.assertNotIn(changes[0]["new"]["text"], report)
+                        self.assertLess(len(report), 2000)
 
     def test_removed(self):
         base = self.snapshot({"rules/source.md": "# Execution\n- Keep the audit record.\n"})
@@ -128,10 +143,18 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
             ("- \n", "+ \n", "changed"),
             ("- Keep records.\n- Report failures.\n", "- Keep records. Report failures.\n", "changed"),
             ("Keep records.\n", " Keep records.\n", "changed"),
-            ("Keep records.  \nReport failures.\n", "Keep records. Report failures.\n", "changed"),
+            ("Keep records.\n", "Keep records.", "changed"),
+            ("Keep records.  \nReport failures.\n", "Keep records. Report failures.\n", "rewrapped"),
+            ("Keep  every record.\nReport failures.\n", "Keep every\nrecord. Report failures.\n", "changed"),
+            ("Keep\vevery record.\nReport failures.\n", "Keep every\nrecord. Report failures.\n", "changed"),
             ("```python\ncheck(a, b)\n```\n", "```python\ncheck(a,  b)\n```\n", "changed"),
             ("- ```python\n  check(a, b)\n  ```\n", "- ```python\n  check(a,  b)\n  ```\n", "changed"),
             ("> ```python\n> check(a, b)\n> ```\n", "> ```python\n> check(a,  b)\n> ```\n", "changed"),
+            ('Example:\n\n    assert name != "release  unsigned.zip"\n',
+             'Example:\n\n    assert name != "release unsigned.zip"\n', "changed"),
+            ("- Item:\n\n      check(a, b)\n", "- Item:\n\n      check(a,  b)\n", "changed"),
+            ('Reject the name "release  unsigned.zip".\n', 'Reject the name "release unsigned.zip".\n', "changed"),
+            ("Keep\trecords.\n", "Keep records.\n", "changed"),
         ]
         for before, after, kind in cases:
             with self.subTest(before=before):
@@ -149,6 +172,21 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertEqual([item["kind"] for item in changes], ["moved", "moved", "added"])
         self.assertEqual([(item["old"]["path"], item["new"]["path"]) for item in changes[:2]],
                          [("rules/a.md", "rules/c.md"), ("rules/b.md", "rules/d.md")])
+
+    def test_inline_code_spacing_is_reported(self):
+        before = "Reject `a  b`.\n"
+        after = "Reject `a b`.\n"
+        base = self.snapshot({"rules/source.md": before})
+        head = self.snapshot({"rules/source.md": after})
+        changes, policy, _ = prepare.rule_changes(self.repo, base, head)
+        self.assertEqual([item["kind"] for item in changes], ["changed"])
+        self.assertEqual(changes[0]["old"]["text"], before)
+        self.assertEqual(changes[0]["new"]["text"], after)
+        report = prepare.rule_report(changes, policy, base, head, "", "--summary text")
+        self.assertIn(before, report)
+        self.assertIn(after, report)
+        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2],
+                         (0, "rule-preservation\n"))
 
     def test_rule_comparison_reads_only_changed_paths_and_base_policy(self):
         base = self.snapshot({'.rule-changes.json': '{"version":1}',
@@ -267,6 +305,43 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(status, 0, err)
         self.assertIn("No protected rule text changed.", out)
         self.assertIn("7: Approved: retain records.", out)
+
+    def test_declarations_ignore_html_comments(self):
+        base = self.snapshot({"rules/source.md": "# Scope\n"})
+        head = self.snapshot({"rules/source.md": "# Scope\nRetain records.\n"})
+        changes, policy, _ = prepare.rule_changes(self.repo, base, head)
+        for comment in ("<!-- ## Rule changes -->\n",
+                        "<!--\n## Rule changes\nTemplate declaration.\n-->\n",
+                        "<!-- note -->\n<!--\n```markdown\n## Rule changes\n-->\n"):
+            with self.subTest(comment=comment):
+                self.assertEqual(prepare.declared_rule_changes(comment), [])
+                report = prepare.rule_report(changes, policy, base, head, comment, "--summary text")
+                self.assertIn("UNDECLARED RULE CHANGES", report)
+                body = comment + "## Rule changes\nReal declaration.\n## Tests\nUnrelated.\n"
+                line = len(comment.splitlines()) + 1
+                self.assertEqual(prepare.declared_rule_changes(body),
+                                 [(line, "## Rule changes"), (line + 1, "Real declaration.")])
+        body = "## Rule changes\nReal declaration.\n<!--\n## Tests\n-->\nStill declared.\n## Tests\n"
+        self.assertEqual(prepare.declared_rule_changes(body), list(enumerate(body.splitlines()[:6], 1)))
+        for prefix in ("Handle `x `` <!--`.\n", "Example:\n\n    ```\n", "Write `<!--` to open a comment.\n"):
+            with self.subTest(prefix=prefix):
+                body = prefix + "## Rule changes\nReal declaration.\n"
+                line = len(prefix.splitlines()) + 1
+                self.assertEqual(prepare.declared_rule_changes(body),
+                                 [(line, "## Rule changes"), (line + 1, "Real declaration.")])
+        # A delimiter indented four spaces does not close a fence, so the example heading stays inside it.
+        self.assertEqual(prepare.declared_rule_changes("```markdown\n    ```\n## Rule changes\nExample.\n```\n"), [])
+        # A backtick in a backtick fence's info text makes it no fence, so the real heading counts.
+        self.assertEqual(prepare.declared_rule_changes("```a`b\n## Rule changes\nReal.\n"),
+                         [(2, "## Rule changes"), (3, "Real.")])
+        self.assertEqual(prepare.declared_rule_changes("   ## Rule changes\nReal.\n"),
+                         [(1, "   ## Rule changes"), (2, "Real.")])
+        body = "Write `<!--` to open a comment.\n## Rule changes\nReal declaration.\n"
+        self.assertEqual(prepare.declared_rule_changes(body),
+                         [(2, "## Rule changes"), (3, "Real declaration.")])
+        body = "```html\n<!--\n```\n## Rule changes\nReal declaration.\n"
+        self.assertEqual(prepare.declared_rule_changes(body),
+                         [(4, "## Rule changes"), (5, "Real declaration.")])
 
     def test_summary_declarations(self):
         base = self.snapshot({"rules/source.md": "# Scope\n"})
@@ -457,6 +532,19 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.snapshot({'rules/source.md': '# Scope\n', 'rules/destination.md': '# Archive\n- Keep all records.\n'})
         self.assertEqual(self.invoke('rule-lenses', str(self.repo), '--base', base, '--no-fetch')[:2],
                          (0, 'rule-preservation\n'))
+
+    def test_rewrapped_only_range_needs_no_lens(self):
+        base = self.snapshot({"rules/source.md": "Retain every source and\nreport every failure.\n"})
+        self.snapshot({"rules/source.md": "Retain every source\nand report every failure.\n"})
+        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2],
+                         (0, ""))
+        report = self.report(base)
+        self.assertIn("moved: 0; rewrapped: 1", report)
+        self.assertIn("same words, line breaks moved", report)
+        base = self.git(self.repo, "rev-parse", "HEAD")
+        self.snapshot({"rules/source.md": "Retain every source\nand report selected failures.\n"})
+        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2],
+                         (0, "rule-preservation\n"))
 
     def test_panel_keeps_base_selected_before_lens_selection(self):
         base = self.snapshot({'rules/source.md': '# Scope\n- Never skip validation.\n'})
