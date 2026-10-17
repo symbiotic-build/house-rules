@@ -127,6 +127,30 @@ agent runs.
 Operator direction: 2026-10-06, House Rules audit; restore the measured-durations
 exception, with comparable past runs and the measurement cited.
 
+## rules/delivery.md, skills/agent-lanes — Parallel work (one build queue for every tool)
+
+Source incident: 2026-10-12, issue #111. The operator was using a machine while several
+agents built the same project at once, and later while several review panels ran at once.
+Each time the machine stopped responding. The machine already queued cargo commands one at a
+time with a core budget; other build tools bypassed that queue. Each reviewer also started
+the user's MCP servers, plugins and hooks, and some agents' wait loops matched their own
+command line and never ended.
+
+Operator direction, 2026-10-13: "we banned nice it doesn't work", "We can run 10-20 read
+agents at the same time without a problem", "The cargo is limited to total_perf_cores - 2 we
+just need to do the same with other builds... One build queue", "And they should share this
+with cargo". The rule:
+
+- Every build and test command goes through one machine build queue shared with cargo,
+  with the budget of total cores minus efficiency cores minus 2.
+- Builds and agents run at normal priority; no nice, renice or background classes.
+- Review panels and other read-only agents do not take the queue. Reviewer tools start
+  without the user's tool configuration, on a checkout without build output.
+- An agent that finds the machine overloaded starts no new build or test, stops only its
+  own build and test commands that bypass the queue, and reports once.
+- Waits for another job use a process ID or a done file with a deadline, never a
+  `pgrep -f` pattern the waiter's own command line contains.
+
 ## rules/delivery.md — Parallel work (one benchmark at a time)
 
 Operator direction: 2026-10-11, issue #105: "Please run just one benchmark at a time (this
