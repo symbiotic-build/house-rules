@@ -214,6 +214,7 @@ def run_class(index):
                 for name in ('failures', 'errors', 'skipped', 'expectedFailures'):
                     outcomes[name] = [(result.getDescription(test), message) for test, message in getattr(result, name)]
                 outcomes['unexpectedSuccesses'] = [result.getDescription(test) for test in result.unexpectedSuccesses]
+                outcomes['collectedDurations'] = getattr(result, 'collectedDurations', [])
         finally:
             stdout.flush()
             stderr.flush()
@@ -244,7 +245,13 @@ class ParallelSuite(unittest.TestSuite):
             return super().run(result, debug)
         groups = [list(group) for _, group in itertools.groupby(tests, type)]
         if len(groups) < 2 or len({type(group[0]) for group in groups}) != len(groups):
-            return super().run(result, debug)
+            # A lone custom suite, such as one file's load_tests, still receives the allowance.
+            previous_jobs = getattr(result, 'jobs', 1)
+            result.jobs = self.jobs
+            try:
+                return super().run(result, debug)
+            finally:
+                result.jobs = previous_jobs
         # Keep custom run hooks in discovery order. Join ordinary class
         # workers before each hook; a hook can use the same class runner with
         # the full allowance, without nested pools or reserved idle workers.
@@ -255,7 +262,8 @@ class ParallelSuite(unittest.TestSuite):
                 result.jobs = self.jobs
                 try:
                     for group in phase:
-                        group[0].run(result, debug)
+                        for suite in group:
+                            suite.run(result, debug)
                 finally:
                     result.jobs = previous_jobs
             else:
@@ -278,6 +286,8 @@ class ParallelSuite(unittest.TestSuite):
                 for name in ('failures', 'errors', 'skipped', 'expectedFailures'):
                     getattr(result, name).extend((ReportedTest(test), message) for test, message in outcomes[name])
                 result.unexpectedSuccesses.extend(ReportedTest(test) for test in outcomes['unexpectedSuccesses'])
+                if hasattr(result, 'collectedDurations'):
+                    result.collectedDurations.extend(outcomes['collectedDurations'])
                 sys.stdout.flush()
                 sys.stdout.buffer.write(stdout)
                 sys.stdout.flush()

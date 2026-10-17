@@ -100,7 +100,7 @@ Workers receive complete test classes, so class fixtures run once. Tests use ind
 
 Fail-fast execution, catch-break execution, repeated noncontiguous classes and suites with module fixtures run serially to preserve their ordering and fixture contracts.
 
-Custom suites retain their run hooks. The parent joins preceding class workers before each hook. A custom suite can delegate its classes to the same runner and combine their run evidence before its final check. Following workers start after that check. Parallel execution uses POSIX fork; hosts without fork can run with `--jobs 1`. Worker failures reach the caller.
+Custom suites retain their run hooks. The parent joins preceding class workers before each hook. A custom suite can delegate its classes to the same runner and combine their run evidence before its final check. Following workers start after that check. Parallel execution uses POSIX fork; hosts without fork can run with `--jobs 1`. A [worker crash](#junit-worker-crash) fails the command without producing a report for that run.
 
 Without explicit or declared reports, the audit batches all unique cited selectors of each runner once. Python uses one serial in-process unittest suite inside one child process, loading each file once; worker options do not change this fallback contract. Loader errors or empty suites are missing selectors. Failures, errors or skips fail their selector.
 
@@ -113,6 +113,25 @@ Other runners require a declared `batch` command that receives every full select
 The audit reads live files under its root. It has no staged or commit-execution switch. Use a checkout matching the accepted candidate for execution evidence. The [report and batch acceptance cases](acceptance-evidence.md#test-selector-reports) cover report outcomes, refusal, Python report generation and batched fallback.
 
 Inspection, analysis and demonstration cases omit Implementation and link their evidence. Their meaning and adequacy receive review under the [acceptance evidence distinction](acceptance-evidence.md#acceptance).
+
+<a id="junit-worker-crash"></a>
+### Failure state: unittest worker crash
+
+A worker crash prevents a complete report. The command's failure distinguishes any older report from evidence for the attempted run.
+
+**Trigger:** A unittest worker process terminates abruptly before returning its results.
+
+**Outcome:** The runner reports the worker termination and returns status `2`. The attempted run does not establish passing evidence.
+
+**Retained state:** The runner writes no report for the attempted run. An existing report at the destination remains unchanged and may remain well-formed XML, but is invalid as evidence for this run. Without an existing report, the destination remains absent. Tests may have executed partially or completed before the crash; their effects remain and are not rolled back.
+
+**Recovery:** Repair the crash cause and recover test effects through the repository's recovery procedure. Rerun the command. Accept evidence only from a completed run that replaces the report and returns the expected test status. The runner supplies no recovery for test-owned effects.
+
+**Actor:** The caller repairs the test execution and reruns the command. The repository's designated actor recovers test effects.
+
+**Authority:** The caller needs authority to execute the tests and write the report destination. Recovery of test effects requires the authority defined by the repository's own procedure.
+
+**Verification:** [Report and batch acceptance cases](acceptance-evidence.md#test-selector-reports).
 
 <a id="selector-audit-interrupted"></a>
 ### Failure state: interrupted selector batch
