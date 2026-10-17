@@ -18,8 +18,10 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   `[A-Za-z0-9][A-Za-z0-9._-]*` and the panel directory must resolve strictly beneath the
   configured output root, including through symlinks. Reviewer names must match
   `[a-z0-9-]+` and an existing file stem in `prompts/lenses/`, with no duplicates.
-  Prompt order: stable rules and lens first, then the
-  base-prompt file as summary/task, PR/issue context, requirements and change. Requirements
+  Structured prompt order: shared review rules, PR/issue context and requirements, then
+  the change, complete changed source files and lens instructions last. Different lenses
+  share the prefix before those final instructions. Pack and diff retain their existing order.
+  The panel compiles context-only tasks with its pinned role, lens and target rules. Requirements
   are indexed as R1, R2, … with source links, most authoritative first: design/spec
   documents, linked issues (title, labels, body), non-bot
   OWNER/MEMBER/COLLABORATOR comments oldest first, then the PR description (author claims).
@@ -55,9 +57,19 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   that requires this redaction is refused before publication or dispatch, using the same
   policy from the pinned preparer. Its source bytes and provenance are never rewritten. A later GitHub read failure names the failed source and preserves already
   fetched context. Comments are capped at 4,000 characters with a cut notice.
-  Codex defaults to `structured` (full diffs), others to `pack` (file index and hunk
+  Codex defaults to `structured` (v3 numbered changes), others to `pack` (file index and hunk
   headers); `--format diff` omits legacy spec content. `--format` overrides defaults;
-  diff reads are bounded before prompt construction, using numstat first and streaming
+  structured changes use head line numbers, or old line numbers for removals. Git
+  moved-line detection uses `--color-moved=zebra --color-moved-ws=allow-indentation-change`;
+  paired moved blocks become one source-to-destination reference. Complete changed non-test
+  source files appear once, numbered at head. Their diff additions refer to head lines,
+  and their unchanged diff context is omitted. File classification uses the existing
+  source/test/docs index; documentation, tests and lockfiles receive no full-file copy.
+  `--full-file-cap N` sets the per-file character cap (default `60000`; nonnegative).
+  Oversized files are listed with their byte size and an omission notice. Deleted and
+  binary source files and submodules are explicitly listed without full head content. One note tells the
+  reviewer to read files only for context outside the supplied change and full files.
+  Diff reads are bounded before prompt construction, using numstat first and streaming
   hunk headers for pack mode. Changed paths use NUL-delimited metadata and byte-preserving
   decoding, then literal Git pathspecs. Non-UTF-8 bytes are displayed as escapes and
   percent-encoded in links; NUL bytes are displayed as escapes. Size checks measure the

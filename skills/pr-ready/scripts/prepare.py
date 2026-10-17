@@ -29,6 +29,7 @@ def checker_unavailable():
 CODEX_LIMIT = 800_000
 SPEC_LIMIT = 2_000_000
 COMMENT_LIMIT = 4_000
+FULL_FILE_CAP = 60_000
 LOCK = re.compile(r"(^|/)([^/]*\.lock|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|go\.sum)$")
 TEST = re.compile(r"(^|/)(tests?(/|\.)|test_[^/]*|[^/]*[_\-.](tests?|spec)\.[^/]+$)", re.I)
 
@@ -693,9 +694,22 @@ class DiffTooLarge(Exception):
 
 def file_diff(repo, rng, path, mode, budget):
     """Bound every read, including a single enormous source line."""
-    command = ["git", "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
-               "-U0" if mode == "pack" else "-U3" if kind(path) == "test" else "-U10",
-               rng, "--", ":(literal)" + path]
+    command = ["git"]
+    if mode == "moved":
+        # Fixed colors identify Git's native moved blocks, independent of user config.
+        for name, color in (("oldMoved", "blue"), ("newMoved", "cyan"),
+                            ("oldMovedAlternative", "magenta"), ("newMovedAlternative", "yellow")):
+            command.extend(["-c", f"color.diff.{name}={color}"])
+        for name in ("meta", "frag", "old", "new", "context", "whitespace", "func"):
+            command.extend(["-c", f"color.diff.{name}="])
+    command.extend(["diff", "--no-ext-diff", "--no-textconv", "--no-renames"])
+    if mode == "moved":
+        command.extend(["--color=always", "--color-moved=zebra", "--color-moved-ws=allow-indentation-change",
+                        "--word-diff=none", "-O/dev/null", "-U10", rng, "--",
+                        *[":(literal)" + item for item in path]])
+    else:
+        command.extend(["-U0" if mode == "pack" else "-U3" if kind(path) == "test" else "-U10",
+                        rng, "--", ":(literal)" + path])
     with tempfile.TemporaryFile() as errors, subprocess.Popen(
         command, cwd=repo, stdout=subprocess.PIPE, stderr=errors,
         env=noninteractive_env(), stdin=subprocess.DEVNULL
@@ -730,7 +744,144 @@ def file_diff(repo, rng, path, mode, budget):
             process.stdout.close()
 
 
-def change_part(repo, rng, files, url, head, mode, budget=None):
+def fenced(text, language=""):
+    """Keep arbitrary backtick runs inside their containing code block."""
+    fence = "`" * max(3, max((len(m[0]) + 1 for m in re.finditer(r"`+", text)), default=3))
+    return "\n".join((fence + language, text, fence))
+
+
+def structured_change(repo, rng, files, head, budget, full_file_cap):
+    """Number the native patch, pair native moves, and include head text only once."""
+    paths = sorted((path for _, _, path in files if not LOCK.search(path)), key=os.fsencode)
+    if not paths:
+        return "# 6. Changed source files\n(none)"
+    patch = file_diff(repo, rng, paths, "moved", budget)
+    sections, moves, runs = {}, defaultdict(deque), []
+    path, old, new, active = None, None, None, None
+    for raw in patch.split("\n"):
+        color = re.match(r"\x1b\[(3[3456])m", raw)
+        row = raw
+        if color:
+            row = row[color.end():]
+        row = re.sub(r"\x1b\[(?:0)?m$", "", row)
+        if row.startswith("diff --git "):
+            if len(sections) >= len(paths):
+                raise PrepareError("unexpected file in structured diff")
+            path = paths[len(sections)]
+            sections[path] = []
+            old, new, active = None, None, None
+        elif path is not None:
+            hunk = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)", row)
+            if hunk:
+                old, new = int(hunk[1]), int(hunk[2])
+                sections[path].append(["header", 0, row, None])
+                active = None
+            elif old is not None and row[:1] in ("+", "-", " "):
+                sign, text = row[0], row[1:]
+                number = old if sign == "-" else new
+                entry = [sign, number, text, None]
+                sections[path].append(entry)
+                if color and sign in ("-", "+"):
+                    tag = (path, sign, color[1])
+                    if active is None or active[0] != tag:
+                        active = (tag, [])
+                        runs.append(active)
+                    active[1].append(entry)
+                else:
+                    active = None
+                old += sign != "+"
+                new += sign != "-"
+            else:
+                # File modes, binary notices and no-newline markers remain visible.
+                sections[path].append(["header", 0, row, None])
+                active = None
+    if len(sections) != len(paths):
+        raise PrepareError("structured diff did not contain every changed file")
+    for (path, sign, _), entries in runs:
+        if sign == "-":
+            moves[tuple(entry[2].lstrip() for entry in entries)].append((path, entries))
+    for (path, sign, _), entries in runs:
+        key = tuple(entry[2].lstrip() for entry in entries)
+        if sign != "+" or not moves[key]:
+            continue
+        source, removed = moves[key].popleft()
+        reference = (f"Move: {display(source)}:{removed[0][1]}-{removed[-1][1]} -> "
+                     f"{display(path)}:{entries[0][1]}-{entries[-1][1]} (indentation may change).")
+        for entry in removed + entries:
+            entry[3] = ""
+        entries[0][3] = reference
+
+    full, listings, full_size = {}, [], 0
+    for path in paths:
+        if kind(path) != "source":
+            continue
+        obj = f"{head}:{path}"
+        exists = git(repo, "ls-tree", "-z", head, "--", ":(literal)" + path)
+        if not exists:
+            listings.append(f"- {display(path)}: deleted; no head content.")
+            continue
+        if exists.split(" ", 2)[1] == "commit":
+            listings.append(f"- {display(path)}: submodule; no full file content.")
+            continue
+        size = int(git(repo, "cat-file", "-s", obj))
+        note = None
+        if size > full_file_cap * 4:
+            note = f"exceeds {full_file_cap:,}-character cap"
+        elif size > max(0, budget - full_size) * 4:
+            raise DiffTooLarge()
+        else:
+            text = git(repo, "show", obj)
+            if len(text) > full_file_cap:
+                note = f"exceeds {full_file_cap:,}-character cap"
+            elif "\0" in text:
+                note = "binary file"
+            else:
+                lines = text.split("\n")
+                if lines[-1] == "":
+                    lines.pop()
+                numbered = "\n".join(f"{n:5d}  {row}" for n, row in enumerate(lines, 1))
+                full_size += len(display(numbered))
+                if full_size > budget:
+                    raise DiffTooLarge()
+                full[path] = numbered
+        if note:
+            listings.append(f"- {display(path)}: {size} bytes; not included ({note}).")
+
+    out = ["The numbered change and listed full files are complete except for explicit omissions. "
+           "Cite head numbers (old numbers for removals); read files only for context outside them. "
+           "Head-line references use the full content below."]
+    for n, (_, _, path) in enumerate(files, 1):
+        if path not in sections:
+            continue
+        rows = []
+        for sign, number, text, move in sections[path]:
+            if move is not None:
+                if move:
+                    rows.append(move)
+            elif sign == "header":
+                if path in full and text.startswith("@@"):
+                    text = text[:text.index("@@", 2) + 2]
+                rows.append(text)
+            elif path in full and sign == " ":
+                continue
+            else:
+                if path in full and sign == "+":
+                    rows.append(f"{number:5d}+")
+                else:
+                    rows.append(f"{number:5d}{sign} {text}")
+        out.extend([f"## F{n}. {display(path)}", fenced("\n".join(rows), "diff")])
+    out.extend(["# 6. Changed source files", *listings])
+    for path, numbered in full.items():
+        out.extend([f"## {display(path)} (complete at head, numbered)", fenced(numbered)])
+    if not full and not listings:
+        out.append("(none)")
+    result = "\n\n".join(out)
+    if len(display(result)) > budget:
+        raise DiffTooLarge()
+    return result
+
+
+def change_part(repo, rng, files, url, head, mode, budget=None, full_file_cap=FULL_FILE_CAP):
     budget = CODEX_LIMIT if budget is None else max(0, budget)
     if mode != "pack" and sum(int(v) for row in files if not LOCK.search(row[2])
                               for v in row[:2] if v.isdigit()) > budget:
@@ -740,6 +891,9 @@ def change_part(repo, rng, files, url, head, mode, budget=None):
         note = " (lockfile: listed only)" if LOCK.search(path) else ""
         out.append(f"- F{n}. {display(path)} — {kind(path)} +{added}/-{removed} — {link(url, head, path)}{note}")
     size = sum(len(line) + 1 for line in out)
+    if mode == "structured":
+        out.extend(["", structured_change(repo, rng, files, head, max(0, budget - size), full_file_cap)])
+        return "\n".join(out)
     for n, (_, _, path) in enumerate(files, 1):
         if LOCK.search(path):
             continue
@@ -826,6 +980,9 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         except (ValueError, KeyError, TypeError) as exc:
             raise PrepareError("invalid review compiler response") from exc
     mode = args.format or ("structured" if args.cli == "codex" else "pack")
+    full_file_cap = getattr(args, "full_file_cap", FULL_FILE_CAP)
+    if full_file_cap < 0:
+        raise PrepareError("--full-file-cap must be nonnegative")
     parts = ["# 1. Review pack\n" + common, "# 2. Instructions\n" + instructions,
              "\n".join(["# 3. Pull request and issue", f"Pull request: {pr_link}",
                         f"Title: {pr.get('title') or git(repo, 'log', '-1', '--format=%s', head).strip()}",
@@ -833,6 +990,10 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
                         f"Range: `{rng}`; head: `{head}`", "", summary])]
     if context_only:
         parts = [f"The checkout under review is {repo}; read its files by absolute path.", *parts[2:]]
+    lens_parts = []
+    if mode == "structured" and not context_only:
+        parts.pop(1)
+        lens_parts = ["# 7. Lens instructions\n" + instructions]
     if context is not None:
         parts.append(context)
     elif needs_documentation and not assignment_path:
@@ -860,11 +1021,12 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         if mandatory_size > limit:
             raise PrepareError(f"Size guard: limit {CODEX_LIMIT:,} characters; mandatory documentation requires {mandatory_size:,} characters.\n"
                                "Documentation sections: " + ", ".join(sections or []))
-    overhead = len(display("\n\n".join([*notices, *parts, requirements_part(entries, mode)]))) + 3
+    overhead = len(display("\n\n".join([*notices, *parts, requirements_part(entries, mode), *lens_parts]))) + 3
     budget = max(0, limit - overhead) if args.cli == "codex" else CODEX_LIMIT
     packed = mode == "pack"
     try:
-        change = change_part(repo, rng, files, url, head, mode, budget if mode != "pack" else None)
+        change = change_part(repo, rng, files, url, head, mode, budget if mode != "pack" else None,
+                             full_file_cap=full_file_cap)
     except DiffTooLarge:
         packed = True
         notices.append(f"Size guard: prompt exceeds {CODEX_LIMIT:,} characters; change part uses pack (hunk headers).")
@@ -874,7 +1036,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         return [f"Size guard: trimmed R{n + 1} ({entries[n]['category']}): {entries[n]['source']}" for n in trimmed]
     def render():
         # Include the terminating newline; main writes this exact representation.
-        return display("\n\n".join([*notices, *trim_notes(), *parts, requirements_part(entries, mode), change])) + "\n"
+        return display("\n\n".join([*notices, *trim_notes(), *parts, requirements_part(entries, mode), change, *lens_parts])) + "\n"
     result = render()
     if args.cli == "codex" and len(result) > limit:
         if not packed:
@@ -956,6 +1118,8 @@ def main(argv=None, *, documentation_prepared=False):
             p.add_argument("--issue", action="append", default=[])
             p.add_argument("--test-prefix", default="PT")
             p.add_argument("--format", choices=("structured", "diff", "pack"))
+            p.add_argument("--full-file-cap", type=int, default=FULL_FILE_CAP,
+                           help="structured full-file character cap (default: 60000; oversized files are listed)")
             p.add_argument("--cli", choices=("codex", "grok", "kimi"), default="codex")
         if command == "fix":
             p.add_argument("--reviews", nargs="+", default=[])
