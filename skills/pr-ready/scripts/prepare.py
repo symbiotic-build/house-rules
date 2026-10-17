@@ -116,55 +116,29 @@ def closing_fence(row, fence):
 
 
 def rule_lines(text):
-    """Annotate physical lines for conservative rewrap checks and source locations."""
-    rows, headings, fence, item = [], [], None, None
+    """Annotate physical lines with their source sections."""
+    rows, headings, fence = [], [], None
     for raw in re.findall(r"[^\n]*\n|[^\n]+$", text):
         row = raw.rstrip("\r\n")
-        section = " / ".join(title for _, title in headings) or "(root)"
         opening = re.match(r"^[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", row)
-        if fence or opening:
-            signature = [("exact", raw)]
-            if fence:
-                if closing_fence(row, fence):
-                    fence = None
-            else:
-                fence = opening[1][0], len(opening[1])
-            item = None
+        if fence:
+            if closing_fence(row, fence):
+                fence = None
+        elif opening:
+            fence = opening[1][0], len(opening[1])
         else:
             heading = re.match(r"^ {0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$", row)
-            prefix = re.match(r"^([ \t]*)((?:>[ \t]*)*)(?:(\d+[.)]|[-+*])([ \t]+))?", row)
-            indent, quotes, marker, _ = prefix.groups()
-            depth = len(indent.expandtabs(4))
-            structure = (depth, quotes, marker)
-            if marker:
-                item = (len(row[:prefix.end()].expandtabs(4)), structure)
-            elif row.strip() and item:
-                if depth == item[0] and not quotes:
-                    structure = item[1]
-                else:
-                    item = None
-            # Indented code (four or more columns beyond any list item's text) keeps exact text.
-            code = row.strip() and not marker and depth >= (item[0] if item else 0) + 4
             if heading:
                 level = len(heading[1])
                 while headings and headings[-1][0] >= level:
                     headings.pop()
                 headings.append((level, heading[2]))
-                section = " / ".join(title for _, title in headings)
-            # Structural rows, blank lines and hard breaks are never prose rewraps.
-            if not row.strip() or code or heading or quotes or "|" in row or "`" in row or row.endswith(("  ", "\t")):
-                signature = [("exact", raw)]
-            else:
-                # Only line breaks may move: words split on single spaces, so a run of
-                # spaces or a tab inside a line stays part of the compared text.
-                signature = ([("item", structure)] if marker else []) + [
-                    (structure, word) for word in row[prefix.end():].strip(" ").split(" ")]
-        rows.append(dict(raw=raw, section=section, signature=signature))
+        rows.append(dict(raw=raw, section=" / ".join(title for _, title in headings) or "(root)"))
     return rows
 
 
 def rule_changes(repo, base, head):
-    """Keep Git's zero-context blocks; only pure prose rewraps disappear."""
+    """Report every Git zero-context block, including compact same-word rewraps."""
     policy, patterns = rule_policy(repo, base)
     provenance_patterns = [rule_glob(pattern) for pattern in (*RULE_PROVENANCE_PATHS,
                                                              *policy["extra_provenance_paths"])]
@@ -183,16 +157,13 @@ def rule_changes(repo, base, head):
                     "-U0", base, head, "--", path)
         is_provenance = any(pattern.fullmatch(path) for pattern in provenance_patterns)
         for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", patch, re.M):
-            sides, signatures = [], []
+            sides = []
             for rows, line, count in ((old_rows, int(hunk[1]), int(hunk[2] or 1)),
                                       (new_rows, int(hunk[3]), int(hunk[4] or 1))):
                 selected = rows[line - 1:line - 1 + count] if count else []
-                signatures.append([token for row in selected for token in row["signature"]])
                 sides.append(dict(path=path, line=line, end_line=line + count - 1,
                                   section=selected[0]["section"], text="".join(row["raw"] for row in selected))
                              if selected else None)
-            if sides[0] and sides[1] and signatures[0] == signatures[1]:
-                continue
             old, new = sides
             if is_provenance:
                 # Approval evidence never pairs, even within one changed block.
@@ -200,8 +171,13 @@ def rule_changes(repo, base, head):
                                        new=new if kind == "added" else None, provenance=True)
                                   for kind, side in (("removed", old), ("added", new)) if side)
             else:
-                changes.append(dict(kind="changed" if old and new else "removed" if old else "added",
-                                    old=old, new=new))
+                kind = "changed" if old and new else "removed" if old else "added"
+                if old and new:
+                    old_lines, new_lines = ([line.strip() for line in side["text"].removesuffix("\n").split("\n")]
+                                            for side in (old, new))
+                    if old_lines != new_lines and " ".join(old_lines) == " ".join(new_lines):
+                        kind = "rewrapped"
+                changes.append(dict(kind=kind, old=old, new=new))
     # Exact copies only, with FIFO source order for repeated copies. No all-pairs work.
     additions = defaultdict(deque)
     for index, change in enumerate(changes):
@@ -285,17 +261,21 @@ def rule_report(changes, policy, base, head, declaration_text, declaration_sourc
         return render_rule_report(parts, policy, parts, [])
     out = ["## Rule text changes", f"Base: `{base}`; head: `{head}`",
            "; ".join(f"{kind}: {sum(item['kind'] == kind and not item.get('provenance') for item in changes)}"
-                     for kind in ("removed", "added", "changed", "moved"))]
+                     for kind in ("removed", "added", "changed", "moved", "rewrapped"))]
     out.append(f"Provenance entries: {sum(bool(item.get('provenance')) for item in changes)}")
     if not declared:
         out.append(f"UNDECLARED RULE CHANGES: {declaration_source} has no ## Rule changes section. Blocking.")
     out.extend(["", declaration_heading])
     out.extend([f"{number}: {line}" for number, line in declared] or ["(none)"])
-    index = [f"- RC{number} {'provenance ' if item.get('provenance') else ''}{item['kind']}: old {rule_location(item['old'])}; new {rule_location(item['new'])}"
+    index = [f"- RC{number} rewrapped: {rule_location(item['old'])} → {rule_location(item['new'])}; same words, line breaks moved"
+             if item["kind"] == "rewrapped" else
+             f"- RC{number} {'provenance ' if item.get('provenance') else ''}{item['kind']}: old {rule_location(item['old'])}; new {rule_location(item['new'])}"
              for number, item in enumerate(changes, 1)]
     detail = []
     provenance_started = False
     for number, item in enumerate(changes, 1):
+        if item["kind"] == "rewrapped":
+            continue  # The location index is the complete one-line rendering.
         if item.get("provenance") and not provenance_started:
             detail.extend(["", "### Provenance entries"])
             provenance_started = True
