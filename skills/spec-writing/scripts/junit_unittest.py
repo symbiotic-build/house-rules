@@ -245,7 +245,13 @@ class ParallelSuite(unittest.TestSuite):
             return super().run(result, debug)
         groups = [list(group) for _, group in itertools.groupby(tests, type)]
         if len(groups) < 2 or len({type(group[0]) for group in groups}) != len(groups):
-            return super().run(result, debug)
+            # A lone custom suite, such as one file's load_tests, still receives the allowance.
+            previous_jobs = getattr(result, 'jobs', 1)
+            result.jobs = self.jobs
+            try:
+                return super().run(result, debug)
+            finally:
+                result.jobs = previous_jobs
         # Keep custom run hooks in discovery order. Join ordinary class
         # workers before each hook; a hook can use the same class runner with
         # the full allowance, without nested pools or reserved idle workers.

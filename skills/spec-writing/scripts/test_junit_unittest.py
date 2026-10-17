@@ -306,6 +306,20 @@ class JUnitRunnerTests(unittest.TestCase):
                     self.assertEqual(result.stdout.count('module teardown'), 1)
                 self.assertEqual(ET.parse(root / 'report.xml').getroot().get('tests'), '2')
 
+    def test_single_custom_suite_receives_the_job_allowance(self):
+        source = ('import unittest\n'
+                  'class A(unittest.TestCase):\n def test_pass(self): pass\n'
+                  'class Hook(unittest.TestSuite):\n'
+                  ' def run(self, result, debug=False):\n'
+                  '  print("jobs", getattr(result, "jobs", 1))\n'
+                  '  return super().run(result, debug)\n'
+                  'def load_tests(loader, tests, pattern): return Hook(tests)\n')
+        for jobs in (1, 3):
+            with self.subTest(jobs=jobs):
+                result, _ = self.run_fixture(source, jobs=jobs)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f'jobs {jobs}', result.stdout)
+
     def test_parallel_executes_adjacent_custom_suites_including_failures(self):
         source = ('import unittest\n'
                   'class A(unittest.TestCase):\n'
