@@ -2,6 +2,47 @@
 
 Source notes for House Rules invariants and procedures.
 
+## rules/writing.md — Sequences: number only ordered steps
+
+Operator direction: 2026-10-16, after a readability pass under the new sequences rule turned a
+specification's 44 numbered items into about 1,045, including 39 one-item lists, and reviewers
+blocked plain rules that named two actions until told the rule's scope. The operator
+confirmed two lines: number only steps someone performs in order, since a rule, conditions,
+properties, alternatives or independent checks are not a sequence; and a single action is a
+sentence, never a one-item list. The specification-system change had already added the
+single-action line, so this change adds only the sequence-scope line.
+
+## Specification and design-document system — Profile, authoring and review
+
+Operator-approved design: 2026-10-16. Technical documents need canonical homes and useful
+reading order while preserving ordinary Markdown as both source and reading format.
+The writing rules now own a versioned technical-English profile and prose warning severity.
+They also own the general number, date, time and quantity notation selected by the operator.
+Code and literal examples retain their required notation.
+
+The spec-writing procedure and reusable specification and design-document outlines refer
+to shared authority and declaration owners. The generated entity index replaces the
+separate hand-maintained glossary requirement. The structure reference adds shared document
+and entity metadata, generated navigation and single-file navigation regions. Existing
+review lenses add fresh-reader, whole-scenario, reciprocal traceability and failure/recovery
+checks. These changes add no review panel or publication pipeline.
+
+## rules/writing.md — Sequences and structured detail
+
+Operator direction: 2026-10-15, while reviewing a specification. One walkthrough paragraph
+packed three calls, their parameters, three commits and the rows each wrote into four
+sentences; the operator called a rewrite with one numbered item per call and short
+sub-items "3000 times better and easier to follow" and expected the writing rules to produce
+it by default. "One fact per sentence" already applied, but nothing asked for a list when
+text describes a sequence of actions, and splitting sentences alone left dense blocks. A
+trial rewrite under the draft by a standard agent turned a short lookup table into bullets
+and wrote one sentence per line, so two lines were added. The changes:
+
+- Ordered actions in walkthroughs, procedures, worked examples and test scenarios get one
+  numbered item each, with short sub-items for inputs, written values and the observed result.
+- Keep a lookup table when every cell is a few words.
+- Short related sentences stay in one paragraph.
+
 ## rules/writing.md, rules/core.md, skills/decision-brief — Briefs checked before sending; settled decisions reopen on new evidence
 
 Operator correction: 2026-10-12, issue #107, rejecting the settled/unratified split in the
@@ -246,7 +287,7 @@ monospace code-block example, shown only under a fully written question list.
 ## Shared-rule owners and complete worker packs
 
 Operator direction: 2026-10-07, recorded in
-[complete worker role packs §10](docs/design/74-complete-worker-packs.md#10-decisions).
+[complete worker role packs §10](docs/design/74-complete-worker-packs.md).
 Writing with claim labels, Git rules and priority labels each have one shared owner under `rules/`.
 Normal lane sessions load those owners through the index and retain their session rules and skills.
 Warden packs include the shared owners directly and exclude session-only writing and lane procedures.

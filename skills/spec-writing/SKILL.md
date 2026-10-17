@@ -1,105 +1,246 @@
 ---
 name: spec-writing
-description: How to write specs, design docs, and system maps that pass the "buildable by a mid-level engineer without questions" bar — shape, worked examples, decision records, naming, and the reality-sweep that precedes writing. Use when writing or reviewing any spec, design doc, system map, or architecture document.
+description: Author and review specifications, design documents and system maps using canonical entity homes, generated navigation, reciprocal acceptance links and fresh-reader review. Use for single-file and multi-file technical documents, including conversion of an existing corpus.
 license: MIT
 ---
 
 # Spec Writing
 
-The acceptance test for every spec: **a mid-level engineer could implement the system
-from it without asking questions.** The document must explain the product and its implementation boundaries. Lifecycle: skill `design-flow`; placement: `STRUCTURE.md`.
+The reader should understand the system and a mid-level engineer should be able to
+implement it without unanswered contract questions. Apply the
+[specifications rules](../../rules/specifications.md) for document authority and context,
+and the [writing rules](../../rules/writing.md#house-technical-english) for prose.
+Declaration syntax belongs to the specification’s [exact source formats](../../docs/specs/spec-system/source-formats.md#source-format).
+Start with the checked [minimal corpus](../../docs/specs/spec-system/minimal-corpus.md#minimal-example).
+Lifecycle and approval follow [design-flow](../design-flow/SKILL.md);
+placement follows [STRUCTURE.md](../../STRUCTURE.md).
+
+Use the [specification template](templates/specification.md) or
+[design-document template](templates/design-document.md) as an outline. Combine roles
+when a short document needs fewer sections. Replace template guidance with authored
+content and adjust its links to the destination before checking the document.
 
 ## Before writing: sweep reality
 
-- Inspect the current implementation, its real consumers and constraints before writing. Use a multi-agent sweep for
-  cross-cutting work when delegation is permitted and fits the campaign resource
-  envelope. Otherwise perform the authoritative source sweep with the primary agent and
-  propose additional review if beneficial. Verify inherited claims against canonical code
-  (file:line), not against other documents.
-- Check for superseded decisions before re-deciding. Rank conflicting sources by recency and supersession.
-- On inherited/messy codebases, derive the clean system map + spec from the old code as
-  *reference*, then classify components easy/hard to rewrite, then build.
+Inspect the implementation, real consumers, constraints and settled decisions. Verify
+inherited claims against primary code and evidence, rather than another document's
+summary. Rank conflicting decisions by recency and explicit supersession. On an inherited
+codebase, use existing code as evidence for the intended clean system map and specification.
 
-## Shape (every doc)
+Check proposed names against existing names before introducing them. Review the
+[premise check](../../prompts/util/premise-check.md) for foundational choices before
+writing and before approval. Use [finding-unknowns](../finding-unknowns/SKILL.md) for
+unsettled questions, without reopening a settled choice merely because it is unfamiliar.
 
-- **TL;DR first.** Verdict/summary up front, detail below.
-- **Worked examples are mandatory**: real inputs → how they're validated/transformed →
-  what's stored. Multiple examples beat prose every time.
-- **Exact signatures, not descriptions**: real type/trait/schema definitions, module
-  layout, integration points. Keep exact definitions in the reference material and
-  explain their behavior in the walkthrough. Code alone does not explain a stored value.
-- **Diagrams**: format follows [rules/writing.md §Format](../../rules/writing.md#format) (doc tiers:
-  skill `design-canon` §Docs).
-- **Authoritative framing**: decisions are stated as decisions ("X does Y via Z"), with
-  a Decisions section recording each choice AND its rejected alternatives with why.
-  Tentative framing ("we could maybe...") is for the open-questions list only.
-- **No development history**: docs describe the system, not the editing history.
+<a id="author-the-document"></a>
+## Author the document
 
-## Readable by people
+**Procedure: produce an implementable document**
 
-Buildable is not enough: people read specs to understand, review and decide.
+1. **Review the outline.**
+   - Establish the reader, outcome, scope, non-goals and prerequisites.
+   - Sketch section purposes and a complete end-to-end scenario.
+   - Group concepts by the reader's task and the system behavior they explain together.
+     Good split: "Batch admission" contains capacity, validation and refusal homes;
+     "Submission and recovery" explains accepted work and restart behavior.
+     Bad split: "Capacity", "Validation", "Refusal", "Submission", "Recovery", one
+     chapter per term. Test each proposed chapter by explaining its coherent behavior
+     without sending the reader to another chapter for every sentence.
+   - Name chapter files from their title slugs using the format contract.
+   - Write each summary as what the reader learns or can do: for "Batch admission",
+     use "Determine whether a batch fits and what a refusal retains", not "Understand
+     batch admission". List only prerequisites whose concepts the section cannot be read
+     without; never fill the field mechanically with the previous chapter. The format
+     contract defines the title-restatement error and predecessor-chain warning.
+   - Register a valid draft skeleton: anchored sections with opening prose, explicit role
+     gaps, an empty entity index, no incomplete declarations and no dangling scenario selectors.
+   - Register each chapter's title anchor so its opening text belongs to the selected subtree.
+   - Inventory preserved Markdown inputs and evidence as well as the authored chapters.
+   - Leave homes unregistered until their headings and definitions exist.
+   - Generate navigation from that valid skeleton; no permissive generation mode is needed.
+   - Require successful generation and checking before assigning body sections.
+   - Read that navigation before assigning sections.
+2. **Establish entity homes.**
+   - Inventory concepts and canonical facts against the primary sources.
+   - Assign one editor for manifest and entity-index changes in the round.
+   - Assign one responsible owner to each entity home.
+   - Identify unresolved contracts and their decision owners.
+3. **Write the assigned sections.**
+   - Use disjoint source assignments and generated context when several authors work.
+   - Explain each mechanism's problem and ordinary behavior before its exceptional paths.
+   - Add reciprocal requirements and acceptance cases together using the exact source formats.
+   - Use one decision heading per choice. Put alternatives in one Rejected alternatives field;
+     do not repeat the same bold field label within a declaration or decision.
+   - Complete each failure declaration before registering scenarios that refer to it.
+   - Put long trace-link lists after the readable walkthrough. A scenario can omit its
+     optional Tests field when its linked requirements already select every case.
+   - Propose changes to another owner's facts instead of introducing replacement definitions.
+4. **Review the assembled document.**
+   - Run the pinned shared tool's `link` command to insert missing unambiguous body links.
+   - For documents written under the older linking rule, use `link --prune-repeats` to convert repeated links to plain labels.
+     It keeps the first direct link per home and level-2 scope; deeper subsections share that scope.
+     It preserves headings, tables, literals, generated regions, **Entities in this example** lines and required adjacent literal annotations.
+     Value-bearing labels and deliberate wording outside accepted forms stay linked. Snapshot and replacement safety match `link`.
+   - Resolve remaining `D12` findings, regenerate navigation and run `check`.
+   - Inspect the resulting map, link density and tables as a reader.
+   - Review technical meaning, design and cost, failure and recovery, and whole scenarios.
+   - Run the fresh-reader procedure below for the readability responsibility.
+5. **Integrate accepted resolutions.**
+   - Have one fixer integrate the accepted findings.
+   - Regenerate affected assignments and include linked tests selected by change impact.
+   - Recheck surrounding explanations, scenarios and reading order.
+   - Apply the existing design-flow approval boundary.
 
-- **Reading order**: what it is (one paragraph and one diagram) → one walkthrough of a real
-  example from start to finish → setup and use → the rules → reference (schemas, event and
-  error tables, acceptance tests).
-- **Why before rules**: each section opens with a short paragraph on the problem it solves,
-  then states its rules.
-- **One idea per paragraph**, sections short enough to read in one sitting, and one concrete
-  example next to each concept rather than only in an appendix.
-- **Plain terms**: define every term at first use and in a glossary; no unexplained acronyms
-  or internal labels; ask for concrete things, not abstractions. Explain terms in the
-  behavior they describe. Do not add a local glossary merely to explain invented names;
-  apply rules/writing.md's naming requirement instead.
-- **Tables for lookup, prose for understanding**: behaviour is not buried in table cells.
-- **Label authority**: decisions, assumptions, estimates and open questions are marked as such.
-- **Reader test**: read each section alone, pretending the rest is unavailable. A new engineer
-  must be able to say what problem it solves, what the rule is and when it applies. If not,
-  rewrite the explanation or split the section. For every worked example, explain each
-  shown stored value: what it represents and any unit or code meaning. Explain why the
-  step writes, changes or keeps those values and what the caller observes. For arrays,
-  state the element meanings and
-  which entries correspond. For shared slots, name the record type and mapped field.
-  A compact dump fails when the reader must decode it from a glossary or another section.
-  Use a name/value/meaning listing or equally clear prose. A reference table may repeat
-  exact encodings after the walkthrough explains them.
-- **Check explanations against the source**: verify every new meaning and reason against
-  the schema or protocol. Preserve qualifications and exceptions. A successful link,
-  heading or content-preservation check is not a successful reader test.
-- **Preserve meaning when rewriting**: move exact values to annotated listings when needed.
-  Reword or consolidate repeated text without losing a rule, value or exception. Verify
-  the resulting explanation; do not require the old value-dump sentence to stay intact.
-- **Polish after review**: review rounds add patches. Before merge, one pass restructures the
-  text, removes repetition and reruns the reader test.
-- **README**: a one-page user guide (what it does, how to use it, where the spec is), not a
-  second spec.
+Use the shared checker from the caller-supplied [House Rules revision](../../docs/specs/spec-system/source-formats.md#house-rules-revision).
+Record that resolved commit outside corpus metadata as the reference specifies. Setup and
+command arguments follow the format contract. Do not copy the implementation into the
+consumer repository. Inspect diagnostics before changing prose: structural errors and
+readability warnings have different authority under the specifications and writing rules.
 
-## Naming (spec work is naming work)
+## Explain behavior to readers
 
-- Names are isomorphic across docs, code, and UI — one concept, one name, everywhere.
-- Grep for collisions before introducing any name; a locally-good name that collides
-  with an existing concept is rejected.
-- No unexplained shorthands anywhere; disambiguate lookalikes (`STRUCTURE.md` §Naming
-  rules).
-- Split categories that carry different handling assumptions (e.g. *malformed* vs
-  *suspicious* input — wildly different security posture) into distinct named types.
+Choose the continuing example before assigning chapters under
+[reader progression](../../rules/specifications.md#reader-progression).
+Inventory outside procedures before writing. During assembly, check the introduction's
+placement against generated navigation and consolidate repeated explanations at their owner.
+Read only the map, then only map and tour, to check that each stopping point makes sense.
 
-## Content standards
+Write section openings under the purpose and entity-definition rule in
+[reader progression](../../rules/specifications.md#reader-progression).
+For each entity home, draft the definition sentence separately from its purpose and check
+that the generated index contains the definition alone.
+When touching an explanation owned elsewhere, add a one-line linked note naming what is
+explained later. Check each first-use gloss against what a reader needs at that point.
 
-- **Pipeline-order invariants and truth tiers** are explicit in the spec: the ordered
-  list of what runs before what, and which tier each consumer sees (skill `design-canon`).
-- **Parameters derived, not asserted**: every threshold/size/scale in a spec traces to a
-  constraint or measurement; a magic constant is a bug until justified.
-- **Premise check**: run the [premise check](../../prompts/util/premise-check.md) on every
-  foundational choice before writing and again before approval.
-- **Every policy configurable** (skill `design-canon` §Decisions).
+Use [rules/writing.md](../../rules/writing.md#sequences-and-structured-detail) for step structure.
+Keep schemas and signatures in lookup reference after the mechanisms. Omit lists of
+implementation artifacts that do not exist within the document’s scope. Use the executable
+fixtures inside this skill when the specification chapters are unavailable; their JSON and
+Markdown form a complete checked corpus. Read each fixture file, including adjacent
+qualification and literal-example annotations, rather than inventing declaration syntax.
+The format reference links the canonical grammar; do not duplicate its policy here.
+
+For every shown stored value, explain what it represents, its unit or code meaning, and
+why the action writes, changes or retains it. For arrays, explain element meanings and
+which entries correspond. For shared slots, identify the record type and mapped field.
+Check these explanations against the schema or protocol. A compact dump does not explain
+behavior merely because its encodings have names elsewhere.
+
+Trace a complete scenario across its sections, requirements and tests. For concurrent
+behavior, identify branches and synchronization points; consecutive numbering must not
+turn concurrency into a serial story. Examine entry, retained state, restart behavior,
+exits and public error mappings when reviewing a refusal or stop. Follow the failure
+contract in the specifications rules, including an explicit absence of recovery where
+that is the design.
+
+Preserve provisional qualifications, observed conditions, exceptions and resolution paths
+beside their homes. Check unlinked value restatements manually. A passing link check proves
+neither an explanation nor adequate evidence for a value or acceptance test.
+
+<a id="fresh-reader-review"></a>
+## Fresh-reader review
+
+**Procedure: test understanding in a fresh context**
+
+1. **Prepare the reader package.**
+   - Use the normal context selector from one snapshot.
+   - Supply source chapters, generated navigation, complete registry reference and relevant
+     linked homes, with the applicable decisions, profile and provenance.
+   - Mark registry material outside the reading dependencies as reference material.
+   - Exclude authoring conversation, prior findings, coaching and unpublished explanations.
+2. **Give a new reader a generic task.**
+   - Ask it to explain the system and follow the tour.
+   - Use two fresh readers using different models for system acceptance.
+   - Ask ten questions covering purpose, inputs, authority, reading order, identity, value
+     rules, ordinary result, refusal, recovery and execution context. Adapt their terms to
+     the system under review and require citations for each.
+   - Require zero unanswered questions, guesses or stuck points.
+   - Have each reader apply the document to a small concrete case in its own domain, using
+     only the chapters. Ask for a predicted output for a given input, or the input the
+     described system needs. Check it with that system's tool when one exists and retain
+     the first run's output. For the specification system, this means building a small
+     corpus whose first checker run has zero errors; a renderer reader instead predicts
+     or renders a small document's display.
+   - Ask it to explain a refusal and its recovery, or the declared absence of either.
+   - Require citations for ambiguity, hidden assumptions and places understanding fails.
+   - Have each reader rate every chapter "followed on first read: yes / with effort / no".
+     "With effort" means the reader had to re-read a passage or look elsewhere to
+     understand it. Record other wording issues separately as polish notes.
+     Require a quote of every choppy, abstract, formulaic or repeated passage.
+3. **Assess the answers against the document.**
+   - Do not repair missing explanations through code, external sources or author coaching.
+   - Distinguish a concrete reader problem from a stylistic preference or counter warning.
+   - Check that reference registry material did not conceal a missing explanation.
+   - Pass only when every chapter is rated "yes" by every reader and no quoted passage
+     remains unaddressed. Fix every polish note or answer it with a reason.
+     After repairs, obtain fresh ratings for affected chapters.
+4. **Refresh the affected document and context.**
+   - Integrate accepted findings through the editor and home owners.
+   - Regenerate navigation and affected packs, then recheck the changed scenarios.
+
+Use a new agent context for this pass when review is authorized. This procedure may fill
+the existing readability responsibility; it does not authorize another review panel.
+
+## Qualify the authoring pipeline
+
+For a fresh author run, use the normal session entry point with a pinned House Rules revision.
+The session loads the repository rules and this skill before applying a short feature brief.
+Check the new multi-chapter specification against the reader-progression rules, structural
+gate and fresh-reader procedure. Separately convert an existing unconverted design and a
+deliberately messy document through the conversion procedure. Require the same checks.
+Record the source revision and candidate digest with the run inputs and observed output.
+Compare implemented behavior with every approved design and operator decision.
+Report any difference and the explicit decision that permits it. A renderer
+has its own specification and linked display tests in its repository; do not claim its
+acceptance from the House Rules check. Repair defects in their rule, template, lens or
+checker owner and repeat the normal run; never repair generated output by hand.
+
+## Convert existing material
+
+**Procedure: replace an existing naming canon**
+
+1. **Inventory its content.**
+   - Account for every row and substantive prose rule.
+   - Distinguish names, meanings, rejected forms, patterns, mappings, transitions and decisions.
+2. **Move each item to its owner.**
+   - Use the format contract for identities, accepted and rejected forms, and field patterns.
+   - Move explanations, interface distinctions, states and requirements to complete homes.
+   - Apply the converted-document voice rule in reader progression. Quote conflicting
+     original passages in one provenance section; the new design speaks for itself.
+   - State each value's applicability before its table and preserve uncertainty in Status
+     and the linked open question in Basis under the authority-and-homes rule.
+   - Keep code-only identifiers with their code owner unless specification readers need them.
+   - Preserve rules that cannot be expressed as field patterns as linked requirements.
+3. **Check the replacement before removal.**
+   - Update metadata, direct links and loaders together.
+   - Generate navigation and review boundaries, actors, states and qualifications.
+   - Remove superseded material only after the replacement is complete.
+
+Use the same process for single-file documents through the shared metadata and an inline
+navigation region. When design intent becomes maintained specification, follow design-flow
+closeout and update the home rather than retaining two current contracts.
+
+## Content checks
+
+Check exact type, trait and schema definitions, module layout and integration points
+against the implementation sources. Explain their behavior in the walkthrough before
+using reference encodings. Review one overview diagram alongside the introductory text
+under [writing rules §Format](../../rules/writing.md#format). Describe the system rather
+than its editing history. Keep a README as a user guide pointing to the specification,
+rather than a second contract.
+
+Compare names across documents, code and user interfaces. Apply the writing rules' naming
+requirement and [STRUCTURE.md §Naming rules](../../STRUCTURE.md#naming-rules). Distinguish
+categories with different handling assumptions in their types. Check every threshold or
+scale against its supporting constraint or measurement. Follow
+[design-canon](../design-canon/SKILL.md) for pipeline ordering, truth tiers and configurable
+policies. During the final editing pass, consolidate repeated explanations without losing
+rules, values, exceptions or concrete examples, then repeat the reader test.
 
 ## Duty to critique
 
-Review a supplied spec against evidence and the requested outcome; critique per skill
-`operator-protocol` §Collaboration. When implementing, deliver the spec literally — if
-it says scores/metadata/IDs, never substitute a cruder proxy.
-If the specified mechanism seems wrong mid-build, escalate per skill `operator-protocol`
-§Decisions when the change is outside the approved decision boundary; otherwise record
-the deviation per skill `design-flow` §5. Requirement removals and spec edits that match
-existing code follow `design-flow` §Design changes; critique these rather than ratifying
-the implementation in the spec. Never silently implement a reduced version.
+Review a supplied specification against evidence and the requested outcome. Follow
+[operator-protocol](../operator-protocol/SKILL.md) for critique and decision handling.
+During implementation, deliver the approved contract literally. Requirement removals and
+mechanism changes follow [design-flow §Design changes](../design-flow/SKILL.md#design-changes).
+Propose document deviations for acceptance rather than silently reducing requirements.

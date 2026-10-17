@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Run a read-only review panel in parallel.
-# Usage: review-panel.sh [--rev COMMIT] [--repo DIR] [--session] <name> <checkout> <base-prompt> [reviewer ...]
+# Usage: review-panel.sh [--rev COMMIT] [--repo DIR] [--session] [--assignment JSON] <name> <checkout> <base-prompt> [reviewer ...]
 # Pin: --rev or REVIEW_HOUSE_RULES_REV is required; --repo or REVIEW_HOUSE_RULES_REPO names the clone.
 #   name: [A-Za-z0-9][A-Za-z0-9._-]*, a single directory name
 #   reviewer: a file stem in ../../../prompts/lenses/ (default: generalist-<family> for each configured family)
@@ -11,15 +11,19 @@
 # Output directory: ${REVIEW_PANEL_OUT:-<checkout>/.tmp/review-panel}/<name>/ with <reviewer>.md,
 #   raw logs, and summary.txt (verdict and wall time per reviewer).
 set -u
+# Reviewers receive the pack through a file or argument; other children receive EOF.
+exec < /dev/null
 here=$(cd "$(dirname "$0")" && pwd)
 rules_repo=${REVIEW_HOUSE_RULES_REPO:-$here/../../..}
 rules_rev=${REVIEW_HOUSE_RULES_REV:-}
 session_mode=0
+assignment=${REVIEW_SPEC_ASSIGNMENT:-}
+review_python=${REVIEW_PYTHON:-python3}
 while [ $# -gt 0 ]; do
   case $1 in
-    --rev|--repo)
+    --rev|--repo|--assignment)
       [ $# -ge 2 ] || { echo "$1 requires a value" >&2; exit 2; }
-      if [ "$1" = --rev ]; then rules_rev=$2; else rules_repo=$2; fi
+      case $1 in --rev) rules_rev=$2 ;; --repo) rules_repo=$2 ;; --assignment) assignment=$2 ;; esac
       shift 2 ;;
     --session) session_mode=1; shift ;;
     *) break ;;
@@ -68,11 +72,11 @@ if not rev:
     sys.exit("review panel requires --rev COMMIT or REVIEW_HOUSE_RULES_REV")
 try:
     pin = subprocess.run(["git", "--no-replace-objects", "-C", repo, "rev-parse", "--verify",
-                          "--end-of-options", rev + "^{commit}"], capture_output=True, timeout=5, check=True).stdout.decode().strip()
+                          "--end-of-options", rev + "^{commit}"], capture_output=True, timeout=5, check=True, stdin=subprocess.DEVNULL).stdout.decode().strip()
     for reviewer in reviewers:
         path = f"prompts/lenses/{reviewer}.md"
         entry = subprocess.run(["git", "--no-replace-objects", "-C", repo, "ls-tree", "-z", pin,
-                                "--", path], capture_output=True, timeout=5, check=True).stdout
+                                "--", path], capture_output=True, timeout=5, check=True, stdin=subprocess.DEVNULL).stdout
         if not entry or entry.split(b"\t", 1)[-1] != path.encode() + b"\0" or entry[:6] not in (b"100644", b"100755"):
             sys.exit(f"invalid reviewer: {reviewer!r}; no matching regular reviewer file at {pin[:12]}")
 except (OSError, subprocess.SubprocessError) as exc:
@@ -84,6 +88,7 @@ mkdir "$out" || { echo "review panel requires a fresh panel directory: $out" >&2
 
 : > "$out/summary.txt" || exit 1
 git --no-replace-objects -C "$rules_repo" show "$rules_rev:skills/pr-ready/scripts/prompt.py" > "$out/compiler.py" || exit 2
+git --no-replace-objects -C "$rules_repo" show "$rules_rev:skills/pr-ready/scripts/prepare.py" > "$out/preparer.py" || exit 2
 git --no-replace-objects -C "$rules_repo" show "$rules_rev:skills/pr-ready/scripts/review-panel.lenses" > "$out/lenses.conf" || exit 2
 
 base_args=(base "$dir")
@@ -92,6 +97,20 @@ resolved_base=$(python3 -I -B "$here/prepare.py" "${base_args[@]}") || {
   echo "panel failed: base resolution" >> "$out/summary.txt"
   exit 1
 }
+
+required_lenses=$(python3 -I -B "$out/preparer.py" rule-lenses "$dir" --base "$resolved_base" --rev "$review_rev" --no-fetch) || {
+  printf '%s\n' "$required_lenses" >&2
+  echo "panel failed: rule-change lens selection" >> "$out/summary.txt"
+  exit 1
+}
+for required_lens in $required_lenses; do
+  case " $* " in
+    *" $required_lens "*) ;;
+    *) set -- "$@" "$required_lens" ;;
+  esac
+done
+
+panel_reviewers="$*"
 
 run_one() {
   local r=$1
@@ -106,27 +125,31 @@ run_one() {
   read -r cli model tier effort <<<"$cfg"; [ "$tier" = - ] && tier=
   local prepare_args=(review "$dir" --rev "$review_rev" --context-only --lens "$r" --cli "$cli" --summary "$base" --base "$resolved_base" --no-fetch)
   # Keep one compilation in memory for both task budgeting and final publication.
-  if ! /usr/bin/python3 -I -B - "$out" "$rules_repo" "$rules_rev" "$dir" "$review_rev" "$r" "$session_mode" "$cli" \
-      "$here/prepare.py" "${prepare_args[@]}" 2> "$out/$r.prepare.err" <<'PY'
+  if ! "$review_python" -I -B - "$out" "$rules_repo" "$rules_rev" "$dir" "$review_rev" "$r" "$session_mode" "$cli" \
+      "$assignment" "$resolved_base" "$panel_reviewers" "${prepare_args[@]}" 2> "$out/$r.prepare.err" <<'PY'
+from contextlib import redirect_stdout
 from pathlib import Path
-import subprocess
 import sys
+import subprocess
 
-out, repo, rev, checkout, review_rev, reviewer, session, cli, preparer, *args = sys.argv[1:]
+out, repo, rev, checkout, review_rev, reviewer, session, cli, assignment, resolved_base, panel_reviewers, *args = sys.argv[1:]
 sys.path.insert(0, out)
-from compiler import Commit, PromptError, append_tasks, build_pack, publish
+from compiler import Commit, PromptError, append_tasks, build_pack, publish, review_plan
+from preparer import main as prepare_main
 
 try:
     with Commit(repo, rev) as source, Commit(checkout, review_rev) as target:
         pack, manifest = build_pack(source, role="reviewer", lens=reviewer, target=target,
-                                    omit_shared_rules=session == "1")
+                                    omit_shared_rules=session == "1",
+                                    assignment=Path(assignment).read_bytes() if assignment else None,
+                                    target_base=resolved_base, plan=review_plan(panel_reviewers.split()))
     # Check Git readers before preparing context or publishing any artifacts.
     if cli == "codex":
         args += ["--compiled-chars", str(len(pack.decode("utf-8")) + 1)]
     task = Path(out) / (reviewer + ".task")
-    with task.open("wb") as stream:
-        result = subprocess.run(["python3", "-I", "-B", preparer, *args], stdout=stream)
-    if result.returncode:
+    with task.open("w", encoding="utf-8") as stream, redirect_stdout(stream):
+        status = prepare_main(args, documentation_prepared="documentation" in manifest)
+    if status:
         sys.exit(2)
     pack, manifest = append_tasks(pack, manifest, [(task, "review-panel-" + reviewer)])
     publish(Path(out) / (reviewer + ".pack"), pack, manifest)
@@ -202,7 +225,7 @@ from pathlib import Path
 import subprocess, sys
 checkout, model, prompt = sys.argv[1:]
 text = Path(prompt).read_bytes().decode("utf-8")
-sys.exit(subprocess.run(["kimi", "-m", model, "-p", text], cwd=checkout).returncode)
+sys.exit(subprocess.run(["kimi", "-m", model, "-p", text], cwd=checkout, stdin=subprocess.DEVNULL).returncode)
 ' "$dir" "$model" "$prompt" > "$logs.md" 2> "$logs.err" || cli_status=$? ;;
       *)     echo "$r failed: unknown cli $cli" >> "$out/summary.txt"; return 1 ;;
     esac
@@ -231,7 +254,7 @@ for r in "$@"; do
 done
 status=0
 for pid in "${pids[@]}"; do wait "$pid" || status=1; done
-transient_inputs=("$out/lenses.conf")
+transient_inputs=("$out/lenses.conf" "$out/preparer.py")
 for r in "$@"; do transient_inputs+=("$out/$r.task"); done
 if ! rm -f -- "${transient_inputs[@]}"; then
   echo "panel failed: removing temporary compilation inputs" >> "$out/summary.txt"

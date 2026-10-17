@@ -8,8 +8,9 @@ Waste is a blocking class of the review bar. Look for:
   do. Name the simpler version.
 - Duplication: a second way to do something the codebase already does, copied logic,
   and repeated checks of the same condition.
-- Tests that guard no real behavior or defect: tautological, duplicate, or asserting
-  implementation details.
+- Tests that guard no real behavior or defect: tautological, duplicate, asserting
+  implementation details, or breaking another rule of
+  [Test discipline](../skills/test-discipline.md).
 - Scope creep: drive-by refactors, renames or formatting outside the PR's issue.
 - Documentation longer than the fact it carries, or the same rule stated in two places.
 - Repairs that add guards around a mechanism instead of fixing or removing it.

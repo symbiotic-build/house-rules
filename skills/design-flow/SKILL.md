@@ -78,7 +78,9 @@ rules/core.md §Security.
 
 ## 5. Implement
 
-One branch per issue per repository (`STRUCTURE.md`); test-first red→green. Before a work
+One branch per issue per repository (`STRUCTURE.md`). Acceptance cases and their expected
+values come from the spec before code; tests follow
+[Test discipline](../../prompts/skills/test-discipline.md). Before a work
 package's first code, a design-spec reviewer checks its spec sections against the recorded
 decisions. Implementation choices, escalation boundaries and reviewer-marked operator
 decisions follow the [worker rules](../../prompts/roles/implementer.md).

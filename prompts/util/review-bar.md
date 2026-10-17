@@ -49,3 +49,24 @@ Place each item honestly:
 Settled-decision disagreements follow [Code canon](../skills/code-canon.md).
 Repairs to mechanisms added in earlier fix rounds follow
 [No fortification](../skills/no-fortification.md).
+
+## Rule preservation
+
+Report items are Git changed blocks classified `removed`, `added`, `changed`, exact-copy `moved` or `rewrapped`, plus separate provenance entries.
+The class organizes evidence; it does not establish meaning or approval.
+A `rewrapped` item needs a disposition like every item. Open the diff at its reported
+locations and confirm the line-break move preserved heading, code, list, quote, table
+and hard-break structure; the compact report omits its old/new text.
+
+When the task context contains a non-empty Rule text changes section, give every listed
+item a disposition: `same meaning`, `approved change` or `regression`, with one line of
+evidence each. An `approved change` cites the approving line in the report's selected
+declaration source (PR body or `--summary`) or a recorded decision.
+A removal or weakening needs operator approval on record: a `CHANGELOG-RULES.md` entry
+or the operator's dated words quoted in the selected declaration source.
+The author's own declaration approves only same-meaning, stronger, intact
+moved and new rules.
+A `regression`, a missing disposition, a removal or weakening without cited approval,
+an undeclared change, or a report that failed closed is a Blocking finding.
+The rule-preservation lens supplies the element-by-element audit procedure;
+this obligation applies to every reviewer, including reviewers using other lenses.
