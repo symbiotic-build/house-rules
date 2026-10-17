@@ -13,6 +13,19 @@ from pathlib import Path
 from urllib.parse import quote, quote_from_bytes, unquote, urlsplit
 
 HERE = Path(__file__).resolve().parent
+
+
+def checker_unavailable():
+    """Name why the shared specification checker cannot run here, or return None."""
+    if sys.version_info < (3, 11):
+        return (f"this preparer runs Python {sys.version_info[0]}.{sys.version_info[1]} without REVIEW_PYTHON, "
+                "and the shared checker needs 3.11 or later")
+    if not (HERE.parents[1] / "spec-writing/scripts/spec_docs.py").is_file():
+        return "the shared checker skills/spec-writing is not staged beside this preparer"
+    import importlib.util
+    if importlib.util.find_spec("markdown_it") is None:
+        return "the shared checker's pinned dependencies are not installed for this Python"
+    return None
 CODEX_LIMIT = 800_000
 SPEC_LIMIT = 2_000_000
 COMMENT_LIMIT = 4_000
@@ -824,8 +837,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     elif needs_documentation and not assignment_path:
         parts.append("No registered documentation changed in this range.")
     elif unavailable:
-        parts.append("Registered documentation context was not prepared: this preparer runs Python "
-                     f"{sys.version_info[0]}.{sys.version_info[1]} without REVIEW_PYTHON, and the shared checker needs 3.11 or later. "
+        parts.append(f"Registered documentation context was not prepared: {unavailable}. "
                      "Review changed documentation from the diff.")
     parts.append(report)
     files = changed_files(repo, rng)
@@ -974,14 +986,18 @@ def main(argv=None, *, documentation_prepared=False):
         if args.command in ("review", "rule-lenses"):
             head = git(repo, "rev-parse", "--verify", "--end-of-options", args.rev + "^{commit}").strip()
             interpreter = os.environ.get("REVIEW_PYTHON")
-            if not documentation_prepared and sys.version_info < (3, 11) and any(
+            delegate = False
+            if not documentation_prepared and any(
                     git(repo, "ls-tree", "--name-only", head, "--", path).strip()
                     for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json")):
-                if not interpreter and getattr(args, "assignment", None):
-                    raise PrepareError("registered documentation requires the pinned tool environment; set REVIEW_PYTHON to its Python executable")
-                # A service without the pinned environment still reviews the code; the pack says what it lacks.
-                args.documentation_unavailable = not interpreter
-            if getattr(args, "documentation_unavailable", None) is False:
+                delegate = sys.version_info < (3, 11) and bool(interpreter)
+                missing_checker = None if delegate else checker_unavailable()
+                if missing_checker and getattr(args, "assignment", None):
+                    raise PrepareError(f"registered documentation requires the shared checker: {missing_checker}; "
+                                       "set REVIEW_PYTHON to the pinned tool environment's Python executable")
+                # A service without the checker still reviews the code; the pack says what it lacks.
+                args.documentation_unavailable = missing_checker
+            if delegate:
                 environment = noninteractive_env()
                 environment.pop("REVIEW_PYTHON", None)  # A misconfigured interpreter fails instead of recursing.
                 result = subprocess.run([interpreter, "-B", str(Path(__file__).resolve()),
