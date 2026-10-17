@@ -214,6 +214,7 @@ def run_class(index):
                 for name in ('failures', 'errors', 'skipped', 'expectedFailures'):
                     outcomes[name] = [(result.getDescription(test), message) for test, message in getattr(result, name)]
                 outcomes['unexpectedSuccesses'] = [result.getDescription(test) for test in result.unexpectedSuccesses]
+                outcomes['collectedDurations'] = getattr(result, 'collectedDurations', [])
         finally:
             stdout.flush()
             stderr.flush()
@@ -236,34 +237,45 @@ class ParallelSuite(unittest.TestSuite):
 
     def run(self, result, debug=False):
         tests = list(test_cases(self))
-        # Fail-fast must stop at the same test. Module fixtures must run once,
-        # including classes separated by a different module in a custom suite.
+        # Plan only independent, contiguous TestCase classes. Everything else
+        # belongs to ONE native enclosing traversal: calling hooks directly
+        # loses _testRunEntered, _previousTestClass, cleanup and stop semantics.
         modules = {sys.modules.get(type(test).__module__) for test in tests}
-        if result.failfast or debug or any(hasattr(module, name) for module in modules
-                                          for name in ('setUpModule', 'tearDownModule')):
-            return super().run(result, debug)
         groups = [list(group) for _, group in itertools.groupby(tests, type)]
-        if len(groups) < 2 or len({type(group[0]) for group in groups}) != len(groups):
-            return super().run(result, debug)
-        # Keep custom run hooks in discovery order. Join ordinary class
-        # workers before each hook; a hook can use the same class runner with
-        # the full allowance, without nested pools or reserved idle workers.
-        for custom, phase in itertools.groupby(groups, lambda group: isinstance(group[0], unittest.TestSuite)):
-            phase = list(phase)
-            if custom:
-                previous_jobs = getattr(result, 'jobs', 1)
-                result.jobs = self.jobs
-                try:
-                    for group in phase:
-                        group[0].run(result, debug)
-                finally:
-                    result.jobs = previous_jobs
-            else:
-                self.run_classes(result, phase)
+        previous_class = getattr(result, '_previousTestClass', None)
+        if previous_class is not None:
+            modules.add(sys.modules.get(previous_class.__module__))
+        active_fixture = previous_class is not None and (
+            getattr(previous_class, '_class_cleanups', ())
+            or any(inspect.getattr_static(previous_class, name, None)
+                   is not inspect.getattr_static(unittest.TestCase, name)
+                   for name in ('setUpClass', 'tearDownClass')))
+        if (debug or result.shouldStop or result.failfast
+                or unittest.case._module_cleanups
+                or getattr(result, '_moduleSetUpFailed', False)
+                or active_fixture
+                or any(not isinstance(test, unittest.TestCase)
+                       or type(test).run is not unittest.TestCase.run
+                       or type(test).__call__ is not unittest.TestCase.__call__ for test in tests)
+                or any(hasattr(module, name) for module in modules
+                       for name in ('setUpModule', 'tearDownModule'))
+                or len(groups) < 2
+                or len({type(group[0]) for group in groups}) != len(groups)):
+            # Custom suites may explicitly delegate their independent classes
+            # back here using result.jobs (DiagnosticCoverageSuite does this).
+            previous_jobs = getattr(result, 'jobs', 1)
+            result.jobs = 1 if debug or result.failfast else self.jobs
+            try:
+                return super().run(result, debug)
+            finally:
+                result.jobs = previous_jobs
+        self.run_classes(result, groups)
         return result
 
     def run_classes(self, result, groups):
         """Join a class phase and merge output and outcomes in discovery order."""
+        if result.shouldStop:
+            return
         options = dict(descriptions=result.descriptions, verbosity=self.verbosity,
                        root=result.root, buffer=result.buffer, tb_locals=result.tb_locals)
         # Fork retains discovery's dynamic selector modules and custom load_tests
@@ -278,6 +290,8 @@ class ParallelSuite(unittest.TestSuite):
                 for name in ('failures', 'errors', 'skipped', 'expectedFailures'):
                     getattr(result, name).extend((ReportedTest(test), message) for test, message in outcomes[name])
                 result.unexpectedSuccesses.extend(ReportedTest(test) for test in outcomes['unexpectedSuccesses'])
+                if hasattr(result, 'collectedDurations'):
+                    result.collectedDurations.extend(outcomes['collectedDurations'])
                 sys.stdout.flush()
                 sys.stdout.buffer.write(stdout)
                 sys.stdout.flush()

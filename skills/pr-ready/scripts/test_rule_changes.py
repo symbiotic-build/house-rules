@@ -5,13 +5,14 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from unittest import mock
 import shutil
 import subprocess
 import sys
 import sysconfig
 import unittest
 
-from test_prepare import PrepareFixture, SCRIPT
+from test_prepare import PrepareFixture, SCRIPT, prepare
 
 
 class RuleChangesTests(PrepareFixture, unittest.TestCase):
@@ -33,6 +34,57 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertIn("## Rule text changes", out)
         self.assertLess(out.index("## Rule text changes"), out.index("# 5. Change"))
         return out.split("## Rule text changes", 1)[1].split("# 4. Requirements", 1)[0]
+
+    def test_changed_block_acceptance(self):
+        """All review-round structures use the same public comparison/report path."""
+        prose = " ".join(["Retain every source and report every failure."] * 1800)
+        cases = [
+            ("list ancestry", {"source": "- For production:\n- Reject unsigned artifacts.\n"},
+             {"source": "- For production:\n  - Reject unsigned artifacts.\n"}, [(False, "changed")], False, ""),
+            ("paragraph indentation", {"source": "- For production:\n\nReject unsigned artifacts.\n"},
+             {"source": "- For production:\n\n  Reject unsigned artifacts.\n"}, [(False, "changed")], False, ""),
+            ("swapped steps", {"source": "1. Validate signatures.\n2. Deploy artifacts.\n"},
+             {"source": "2. Deploy artifacts.\n1. Validate signatures.\n"}, [(False, "moved")], False, ""),
+            ("fenced condition", {"source": "```python\nif production:\n    deploy()\nverify_signature()\n```\n"},
+             {"source": "```python\nif production:\n    deploy()\n    verify_signature()\n```\n"}, [(False, "changed")], False, ""),
+            ("prose rewrap", {"source": "Retain every source and\nreport every failure.\n"},
+             {"source": "Retain every source\nand report every failure.\n"}, [], False, ""),
+            ("list continuation rewrap", {"source": "- Retain every source and\n  report every failure.\n"},
+             {"source": "- Retain every source\n  and report every failure.\n"}, [], False, ""),
+            ("section move", {"source": "## Errors\nReport every failure.\n", "destination": ""},
+             {"source": "", "destination": "## Errors\nReport every failure.\n"}, [(False, "moved")], False, ""),
+            ("provenance quotation", {"source": "Retain records.\n", "CHANGELOG-RULES.md": ""},
+             {"source": "", "CHANGELOG-RULES.md": "Retain records.\n"},
+             [(False, "removed"), (True, "added")], False, ""),
+            ("fence-like example", {"source": ""}, {"source": "Retain records.\n"},
+             [(False, "added")], False, "```markdown\n```example\n## Rule changes\nFake approval.\n```\n"),
+            ("report allowance", {"source": ""}, {"source": "x" * 81000 + "\n"},
+             [(False, "added")], True, ""),
+            ("large harmless rewrap", {"source": prose + "\n"},
+             {"source": prose.replace(" and ", " and\n") + "\n"}, [], False, ""),
+        ]
+        for number, (name, before, after, expected, refused, declaration) in enumerate(cases):
+            with self.subTest(case=name):
+                def paths(files):
+                    return {(key if key == "CHANGELOG-RULES.md" else f"rules/case-{number}-{key}.md"): value
+                            for key, value in files.items()}
+                base = self.snapshot(paths(before))
+                head = self.snapshot(paths(after))
+                changes, policy, _ = prepare.rule_changes(self.repo, base, head)
+                actual = [(bool(item.get("provenance")), item["kind"]) for item in changes]
+                self.assertEqual(actual, expected)
+                if refused:
+                    with self.assertRaises(prepare.RuleReportTooLarge) as error:
+                        prepare.rule_report(changes, policy, base, head, declaration, "--summary text")
+                    self.assertIn("exceeds 80000 characters", error.exception.report)
+                    self.assertIn("every location follows", error.exception.report)
+                else:
+                    report = prepare.rule_report(changes, policy, base, head, declaration, "--summary text")
+                    if name == "fence-like example":
+                        self.assertEqual(prepare.declared_rule_changes(declaration), [])
+                        self.assertIn("UNDECLARED RULE CHANGES", report)
+                    if not expected:
+                        self.assertEqual(report, "No protected rule text changed.")
 
     def test_removed(self):
         base = self.snapshot({"rules/source.md": "# Execution\n- Keep the audit record.\n"})
@@ -59,30 +111,70 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(self.report(base, rev=head), report)
 
     def test_moved(self):
-        base = self.snapshot({"rules/source.md": "# Execution\n- Report every failure.\n"})
+        base = self.snapshot({"rules/source.md": "# Execution\n- Report every failure.\n",
+                              "rules/destination.md": "# Reporting\n"})
         self.snapshot({"rules/source.md": "# Execution\n", "rules/destination.md": "# Reporting\n- Report every failure.\n"})
         report = self.report(base)
         self.assertIn("removed: 0; added: 0; changed: 0; moved: 1", report)
         self.assertIn('Old: "rules/source.md":2 — "Execution"', report)
         self.assertIn('New: "rules/destination.md":2 — "Reporting"', report)
-        base = self.git(self.repo, "rev-parse", "HEAD")
-        self.snapshot({"rules/destination.md": "# Reporting\n## Errors\n- Report every failure.\n"})
-        report = self.report(base)
-        self.assertIn("moved: 1", report)
-        self.assertIn('"Reporting / Errors"', report)
 
-    def test_rewrap(self):
-        base = self.snapshot({"rules/source.md": "# Scope\nWrap this rule across\nlines without changing its words.\n\n- Always retain\n  the source.\n\n| Name | Rule |\n| --- | --- |\n| Audit | Retain it. |\n"})
-        self.snapshot({"rules/source.md": "# Scope\nWrap this rule across lines without changing its words.\n\n-  Always  retain the source.\n\n|Name|Rule|\n|:---|---:|\n|Audit|Retain it.|\n"})
-        status, out, err = self.context(base)
-        self.assertEqual(status, 0, err)
-        self.assertIn("No protected rule text changed.", out)
-        self.assertNotIn("## Rule text changes", out)
-        base = self.snapshot({"rules/source.md": "First half\nsecond half\n"})
-        self.snapshot({"rules/source.md": "First half\n\nsecond half\n"})
-        status, out, err = self.context(base)
-        self.assertEqual(status, 0, err)
-        self.assertIn("No protected rule text changed.", out)
+    def test_structural_spacing_is_reported(self):
+        cases = [
+            ("First half\nsecond half\n", "First half\n\nsecond half\n", "added"),
+            ("| Name | Rule |\n| --- | --- |\n", "|Name|Rule|\n|:---|---:|\n", "changed"),
+            ("> Keep records.\n", "Keep records.\n", "changed"),
+            ("- Keep records.\n", "+ Keep records.\n", "changed"),
+            ("- \n", "+ \n", "changed"),
+            ("- Keep records.\n- Report failures.\n", "- Keep records. Report failures.\n", "changed"),
+            ("Keep records.\n", " Keep records.\n", "changed"),
+            ("Keep records.  \nReport failures.\n", "Keep records. Report failures.\n", "changed"),
+            ("```python\ncheck(a, b)\n```\n", "```python\ncheck(a,  b)\n```\n", "changed"),
+            ("- ```python\n  check(a, b)\n  ```\n", "- ```python\n  check(a,  b)\n  ```\n", "changed"),
+            ("> ```python\n> check(a, b)\n> ```\n", "> ```python\n> check(a,  b)\n> ```\n", "changed"),
+        ]
+        for before, after, kind in cases:
+            with self.subTest(before=before):
+                base = self.snapshot({"rules/source.md": before})
+                head = self.snapshot({"rules/source.md": after})
+                changes, _, _ = prepare.rule_changes(self.repo, base, head)
+                self.assertEqual([item["kind"] for item in changes], [kind])
+
+    def test_exact_move_pairing_preserves_occurrences(self):
+        base = self.snapshot({"rules/a.md": "Keep records.\n", "rules/b.md": "Keep records.\n",
+                              "rules/c.md": "", "rules/d.md": "", "rules/e.md": ""})
+        head = self.snapshot({"rules/a.md": "", "rules/b.md": "", "rules/c.md": "Keep records.\n",
+                              "rules/d.md": "Keep records.\n", "rules/e.md": "Keep records.\n"})
+        changes, _, _ = prepare.rule_changes(self.repo, base, head)
+        self.assertEqual([item["kind"] for item in changes], ["moved", "moved", "added"])
+        self.assertEqual([(item["old"]["path"], item["new"]["path"]) for item in changes[:2]],
+                         [("rules/a.md", "rules/c.md"), ("rules/b.md", "rules/d.md")])
+
+    def test_rule_comparison_reads_only_changed_paths_and_base_policy(self):
+        base = self.snapshot({'.rule-changes.json': '{"version":1}',
+                              'rules/source.md': '- Never skip validation.\n',
+                              'unrelated/file.py': 'pass\n'})
+        head = self.snapshot({'rules/source.md': '- Avoid skipping validation.\n'})
+        with mock.patch.object(prepare, 'git', wraps=prepare.git) as calls:
+            changes, _, _ = prepare.rule_changes(self.repo, base, head)
+        self.assertEqual([item['kind'] for item in changes], ['changed'])
+        commands = [call.args[1:] for call in calls.call_args_list]
+        raw = [args for args in commands if args[:1] == ('diff',) and '--raw' in args]
+        self.assertEqual(len(raw), 1)
+        self.assertIn('--no-renames', raw[0])
+        self.assertIn('-z', raw[0])
+        tree_reads = [args for args in commands if args[:1] == ('ls-tree',)]
+        self.assertEqual([args[args.index('--') + 1:] for args in tree_reads],
+                         [('.rule-changes.json',)])
+
+    def test_recursive_wildcards_include_newlines(self):
+        paths = ('skills/policy\narchive/SKILL.md', 'prompts/a\nb/c\nd.md')
+        base = self.snapshot({path: '- Keep every result.\n' for path in paths})
+        self.snapshot({path: '' for path in paths})
+        report = self.report(base)
+        self.assertIn('removed: 2;', report)
+        for path in paths:
+            self.assertIn(json.dumps(path) + ':1', report)
 
     def test_added(self):
         base = self.snapshot({"rules/source.md": "# Scope\n"})
@@ -92,22 +184,17 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertIn("Old: (none)", report)
         self.assertIn("Retain every result.", report)
 
-    def test_units(self):
-        base = self.snapshot({"rules/source.md": "# Scope\nFirst rule. Second rule.\n\n- Parent rule.\n  - Child rule.\n\n| Rule |\n| --- |\n| Retain |\n\n```text\nKeep\nall lines.\n```\n"})
-        self.snapshot({"rules/source.md": "# Scope\n"})
-        report = self.report(base)
-        self.assertIn("removed: 7; added: 0; changed: 0; moved: 0", report)
-        for line, text in ((2, "First rule."), (2, "Second rule."), (4, "Parent rule."),
-                           (5, "Child rule."), (7, "| Rule |"), (9, "| Retain |"),
-                           (11, "```text Keep all lines. ```")):
-            self.assertIn(f'"rules/source.md":{line}', report)
-            self.assertIn(text, report)
-        base = self.snapshot({"rules/source.md": "# Scope\nName | Rule\n--- | ---\nAudit | Keep records.\n"})
-        self.snapshot({"rules/source.md": "# Scope\n"})
-        report = self.report(base)
-        self.assertIn("removed: 2;", report)
-        self.assertIn("| Name | Rule |", report)
-        self.assertIn("| Audit | Keep records. |", report)
+    def test_blocks_preserve_all_source_text(self):
+        text = ('First rule. Second rule.\n\n- Parent rule.\n  - Child rule.\n\n'
+                '| Rule |\n| --- |\n| Retain |\n\n```text\nKeep\nall lines.\n```\n')
+        base = self.snapshot({"rules/source.md": "# Scope\n" + text})
+        head = self.snapshot({"rules/source.md": "# Scope\n"})
+        changes, _, _ = prepare.rule_changes(self.repo, base, head)
+        self.assertEqual(len(changes), 1)
+        self.assertEqual(changes[0]["kind"], "removed")
+        self.assertEqual(changes[0]["old"]["text"], text)
+        self.assertEqual(changes[0]["old"]["line"], 2)
+        self.assertEqual(changes[0]["old"]["end_line"], 14)
 
     def test_deterministic(self):
         old = "# Scope\n- Never discard source A.\n- Never discard source B.\n- Repeated rule.\n- Repeated rule.\n"
@@ -123,7 +210,7 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
                                     text=True, timeout=5, stdin=subprocess.DEVNULL)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, expected[1])
-        self.assertIn("changed: 2; moved: 1", expected[1])
+        self.assertIn("added: 1; changed: 1; moved: 0", expected[1])
 
     def test_coverage(self):
         paths = ["INDEX.md", "STRUCTURE.md", "PREFERENCES.md", "INSTALL-AGENTS.md", "AGENTS.md",
@@ -267,7 +354,7 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertIn("removed: 0; added: 0; changed: 0; moved: 0", report)
         self.assertIn("Provenance entries: 2", report)
         # Both complete text and all provenance locations obey the existing size guard.
-        policy["max_report_chars"] = 1
+        policy["max_report_chars"] = 128
         base = self.snapshot({".rule-changes.json": json.dumps(policy)})
         self.snapshot({"history/archive.md": "# Archive\n"})
         status, out, err = self.context(base)
@@ -275,35 +362,60 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertIn("FAILED CLOSED", out)
         self.assertIn('RC1 provenance removed: old "history/archive.md":2', out)
 
-    def test_quoted_sentences_stay_whole(self):
+    def test_quotations_preserve_exact_block_and_location(self):
         for opening, closing in (('"', '"'), ("'", "'"), ('“', '”'), ('‘', '’')):
             with self.subTest(opening=opening):
-                quoted = opening + "Don't drop records.\nNever skip validation!" + closing
-                text = "The operator said " + quoted + "."
-                base = self.snapshot({"rules/source.md": "# Scope\n" + text + "\nReport every failure.\n"})
-                self.snapshot({"rules/source.md": "# Scope\n"})
-                report = self.report(base)
-                self.assertIn("removed: 2; added: 0; changed: 0; moved: 0", report)
-                self.assertIn(" ".join(text.split()), report)
-                self.assertIn('Old: "rules/source.md":2', report)
-                self.assertIn('Old: "rules/source.md":4', report)
-        base = self.snapshot({"rules/source.md": "# Scope\nDon't drop records. Keep `literal. code` intact.\nUnmatched “quote. Still split.\n"})
-        self.snapshot({"rules/source.md": "# Scope\n"})
-        report = self.report(base)
-        self.assertIn("removed: 4;", report)
-        self.assertIn("Keep `literal. code` intact.", report)
+                text = "The operator said " + opening + "Don't drop records.\nNever skip validation!" + closing + ".\n"
+                base = self.snapshot({"rules/source.md": "# Scope\n" + text + "Report every failure.\n"})
+                head = self.snapshot({"rules/source.md": "# Scope\n"})
+                changes, _, _ = prepare.rule_changes(self.repo, base, head)
+                self.assertEqual(len(changes), 1)
+                self.assertEqual(changes[0]["kind"], "removed")
+                self.assertEqual(changes[0]["old"]["text"], text + "Report every failure.\n")
+                self.assertEqual(changes[0]["old"]["line"], 2)
+
+    def test_declaration_closing_fence_requires_delimiter_only(self):
+        for delimiter in ("`", "~"):
+            with self.subTest(delimiter=delimiter):
+                fence = delimiter * 4
+                body = (f"{fence}markdown\n{delimiter * 3}\n## Rule changes\nFake short closure.\n"
+                        f"{fence}example\n## Rule changes\nFake trailing text.\n"
+                        f" {delimiter * 5}\t\n## Rule changes\nReal declaration.\n")
+                self.assertEqual(prepare.declared_rule_changes(body),
+                                 [(9, "## Rule changes"), (10, "Real declaration.")])
+
+    def test_allowance_includes_unchanged_report_declarations(self):
+        with self.assertRaises(prepare.RuleReportTooLarge) as error:
+            prepare.rule_report([], {"max_report_chars": 200}, "base", "head",
+                                "## Rule changes\n" + "declaration " * 100, "--summary text")
+        self.assertIn("exceeds 200 characters", error.exception.report)
 
     def test_oversize(self):
-        policy = json.dumps(dict(version=1, max_report_chars=1))
-        base = self.snapshot({".rule-changes.json": policy, "rules/source.md": "# Scope\n"})
-        self.snapshot({"rules/source.md": "# Scope\n" + "".join(f"- Required action {n}.\n" for n in range(12))})
+        policy = json.dumps(dict(version=1, max_report_chars=1200))
+        paths = [f"rules/item-{n:02}.md" for n in range(12)]
+        base = self.snapshot({".rule-changes.json": policy, **{path: "# Scope\n" for path in paths}})
+        self.snapshot({path: f"# Scope\n- Required action {n}.\n" for n, path in enumerate(paths)})
         status, out, err = self.context(base)
         self.assertEqual(status, 1, err)
         self.assertIn("FAILED CLOSED", out)
         self.assertIn("added: 12;", out)
-        for item in range(12):
-            self.assertIn(f'RC{item + 1} added: old (none); new "rules/source.md":{item + 2}', out)
+        for item, path in enumerate(paths, 1):
+            self.assertIn(f'RC{item} added: old (none); new "{path}":2', out)
         self.assertNotIn("# 5. Change", out)
+
+    def test_fenced_bytes_and_literal_paths(self):
+        paths = ('rules/a[1].md', 'rules/line\nname.md', 'rules/carriage\rname.md')
+        before = '```text\nkeep\r\nvalue\vexact\n```\n'
+        after = '```text\nkeep\r\nvalue\v exact\n```\n'
+        base = self.snapshot({path: before for path in paths})
+        head = self.snapshot({path: after for path in paths})
+        changes, _, _ = prepare.rule_changes(self.repo, base, head)
+        self.assertEqual(len(changes), len(paths))
+        for item in changes:
+            self.assertEqual(item["kind"], "changed")
+            self.assertEqual(item["old"]["text"], "value\vexact\n")
+            self.assertEqual(item["new"]["text"], "value\v exact\n")
+            self.assertEqual(item["old"]["line"], 3)
 
     def test_invalid_inputs(self):
         for policy in ({"version": 2}, {"version": 1, "extra_protected_paths": ["../outside.md"]},
@@ -336,6 +448,63 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         base = self.git(self.repo, "rev-parse", "HEAD")
         self.snapshot({"rules/source.md": "# Scope\nAvoid skipping validation.\nNew rule.\n"})
         self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2], (0, ""))
+        base = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.assertEqual(self.invoke('rule-lenses', str(self.repo), '--base', base, '--no-fetch')[:2], (0, ''))
+        self.snapshot({'rules/source.md': '# Scope\n'})
+        self.assertEqual(self.invoke('rule-lenses', str(self.repo), '--base', base, '--no-fetch')[:2],
+                         (0, 'rule-preservation\n'))
+        base = self.snapshot({'rules/source.md': '# Scope\n- Keep all records.\n'})
+        self.snapshot({'rules/source.md': '# Scope\n', 'rules/destination.md': '# Archive\n- Keep all records.\n'})
+        self.assertEqual(self.invoke('rule-lenses', str(self.repo), '--base', base, '--no-fetch')[:2],
+                         (0, 'rule-preservation\n'))
+
+    def test_panel_keeps_base_selected_before_lens_selection(self):
+        base = self.snapshot({'rules/source.md': '# Scope\n- Never skip validation.\n'})
+        head = self.snapshot({'rules/source.md': '# Scope\n- Avoid skipping validation.\n'})
+        self.git(self.repo, 'branch', 'comparison', base)
+        summary, output, env = self.panel_fixture()
+        Path(env['REVIEW_PANEL_CONF']).write_text('a = codex test-model - high\nb = codex test-model - high\n')
+        stub = self.binaries / 'codex'
+        stub.write_text('#!' + sys.executable + '\nimport pathlib,sys\n'
+                        'sys.stdin.buffer.read()\n'
+                        'pathlib.Path(sys.argv[sys.argv.index("-o")+1]).write_text("VERDICT: APPROVE")\n')
+        stub.chmod(0o755)
+        real_git = shutil.which('git')
+        marker = self.root / 'base-moved'
+        wrapper = self.binaries / 'git'
+        wrapper.write_text('#!' + sys.executable + '\nimport os,pathlib,subprocess,sys\n'
+                           'args=sys.argv[1:]\n'
+                           f'marker=pathlib.Path({str(marker)!r})\n'
+                           'if "diff" in args and ("--raw" in args or "--name-only" in args) and not marker.exists():\n'
+                           f'    result=subprocess.run([{real_git!r}, *args], capture_output=True)\n'
+                           f'    subprocess.run([{real_git!r}, "-C", {str(self.repo)!r}, "update-ref", '
+                           f'"refs/heads/comparison", {head!r}], check=True)\n'
+                           '    marker.touch()\n'
+                           '    sys.stdout.buffer.write(result.stdout)\n'
+                           '    sys.stderr.buffer.write(result.stderr)\n'
+                           '    sys.exit(result.returncode)\n'
+                           f'os.execv({real_git!r}, [{real_git!r}, *args])\n')
+        wrapper.chmod(0o755)
+        env['REVIEW_BASE'] = 'comparison'
+        result = subprocess.run(['bash', str(SCRIPT.with_name('review-panel.sh')), 'moving-base',
+                                 str(self.repo), str(summary), 'generalist-a'], env=env,
+                                capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(marker.exists())
+        for lens in ('generalist-a', 'rule-preservation'):
+            pack = (output / 'moving-base' / (lens + '.pack/pack.txt')).read_text()
+            self.assertIn(f'Base: `{base}`;', pack)
+            self.assertIn('changed: 1;', pack)
+            self.assertIn('Never skip validation.', pack)
+
+    def test_base_command_resolves_reference_once_and_returns_commit(self):
+        base = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.git(self.repo, 'branch', 'comparison', base)
+        with mock.patch.object(prepare, 'git', wraps=prepare.git) as calls:
+            status, out, err = self.invoke('base', str(self.repo), '--base', 'comparison', '--no-fetch')
+        self.assertEqual(status, 0, err)
+        self.assertEqual(out, base + '\n')
+        self.assertEqual(sum('comparison^{commit}' in call.args for call in calls.call_args_list), 1)
 
     def test_panel_adds_lens(self):
         base = self.snapshot({"rules/source.md": "# Scope\nNever skip validation.\n"})

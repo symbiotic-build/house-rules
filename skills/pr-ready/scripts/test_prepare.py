@@ -105,8 +105,7 @@ print(json.dumps(value))
         def fixture_run(command, **options):
             environment = options.get("env", os.environ)
             if (command[0] != "gh" or not stub.exists() or stub.read_bytes() != stub_bytes
-                    or shutil.which("gh", path=environment.get("PATH")) != str(stub)
-                    or self._testMethodName == "test_git_and_gh_are_noninteractive"):
+                    or shutil.which("gh", path=environment.get("PATH")) != str(stub)):
                 return run(command, **options)
             # Run the very same synthetic CLI program in-process. Keep the
             # real subprocess for the CLI/EOF contract and modified stubs.
@@ -353,7 +352,8 @@ class PanelExecutionTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(manifest["target"]["commit"], first)
         prompt = (pack / "pack.txt").read_text()
         self.assertIn("FIRST RULES", prompt)
-        self.assertIn(f"Range: `origin/trunk...{first}`; head: `{first}`", prompt)
+        comparison_base = self.git(self.repo, "merge-base", "origin/trunk", first)
+        self.assertIn(f"Range: `{comparison_base}..{first}`; head: `{first}`", prompt)
         self.assertIn("Title: First title", prompt)
         self.assertIn("FIRST SPEC", prompt)
         self.assertIn("+first_change = 2", prompt)
@@ -850,6 +850,9 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
         self.assertIn("unknown", prompt.split("# 1. Review pack")[0])
 
     def test_git_and_gh_are_noninteractive(self):
+        self.fixtures.write_text(json.dumps({"pr view": {"synthetic": True}}))
+        with mock.patch.object(subprocess, "Popen", side_effect=AssertionError("unchanged fixture must run in-process")):
+            self.assertEqual(prepare.gh_json(self.repo, "pr", "view"), {"synthetic": True})
         stub = "#!" + sys.executable + "\n" + "import os, sys\nprint(os.environ.get('GIT_TERMINAL_PROMPT'), os.environ.get('GH_PROMPT_DISABLED'), sys.stdin.read())\n"
         (self.binaries / "git").write_text(stub)
         (self.binaries / "git").chmod(0o755)
@@ -1761,7 +1764,9 @@ class BaseResolutionTests(PrepareFixture, unittest.TestCase):
                 code, out, err = self.invoke(command, str(self.repo))
                 self.assertEqual(code, 0, err)
                 head = self.git(self.repo, "rev-parse", "HEAD") if command == "review" else "HEAD"
-                self.assertIn(f"origin/trunk...{head}", out)
+                expected_range = (self.git(self.repo, "merge-base", "origin/trunk", head) + ".." + head
+                                  if command == "review" else f"origin/trunk...{head}")
+                self.assertIn(expected_range, out)
                 self.assertIn("cached", err)
                 update.assert_not_called()
 
@@ -1776,7 +1781,9 @@ class BaseResolutionTests(PrepareFixture, unittest.TestCase):
                 code, out, err = self.invoke(command, str(self.repo), "--base", "origin/trunk")
                 self.assertEqual(code, 0, err)
                 head = self.git(self.repo, "rev-parse", "HEAD") if command == "review" else "HEAD"
-                self.assertIn(f"origin/trunk...{head}", out)
+                expected_range = (self.git(self.repo, "merge-base", "origin/trunk", head) + ".." + head
+                                  if command == "review" else f"origin/trunk...{head}")
+                self.assertIn(expected_range, out)
                 self.assertIn("cached", err)
                 update.assert_not_called()
 

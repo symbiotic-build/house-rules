@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from difflib import SequenceMatcher
+from collections import defaultdict, deque
 from pathlib import Path
 from urllib.parse import quote, quote_from_bytes, unquote, urlsplit
 
@@ -44,8 +44,7 @@ RULE_PATHS = ("INDEX.md", "STRUCTURE.md", "PREFERENCES.md", "INSTALL-AGENTS.md",
               "CHANGELOG-RULES.md", "rules/**/*.md", "prompts/**/*.md", "skills/**/*.md",
               ".agents/rules.md", "CONTEXT.md")
 RULE_PROVENANCE_PATHS = ("CHANGELOG-RULES.md",)
-RULE_DEFAULTS = dict(version=1, extra_protected_paths=[], extra_provenance_paths=[], max_report_chars=80_000,
-                     similarity_threshold=0.6)
+RULE_DEFAULTS = dict(version=1, extra_protected_paths=[], extra_provenance_paths=[], max_report_chars=80_000)
 
 
 class RuleReportTooLarge(PrepareError):
@@ -74,16 +73,11 @@ def rule_glob(pattern):
             char = pattern[index]
             result += "[^/]*" if char == "*" else "[^/]" if char == "?" else re.escape(char)
             index += 1
-    return re.compile(result + r"\Z")
+    return re.compile(result + r"\Z", re.S)
 
 
-def rule_tree(repo, revision):
-    records = git(repo, "ls-tree", "-r", "-z", revision).split("\0")
-    return {record.split("\t", 1)[1]: record.split(" ", 1)[0] for record in records if record}
-
-
-def rule_blob(repo, revision, path, tree):
-    if tree[path] not in ("100644", "100755"):
+def rule_blob(repo, revision, path, mode):
+    if mode not in ("100644", "100755"):
         raise PrepareError(f"protected input is not a regular file: {revision}:{path}")
     text = git(repo, "show", f"{revision}:{path}")
     try:
@@ -93,12 +87,13 @@ def rule_blob(repo, revision, path, tree):
     return text
 
 
-def rule_policy(repo, base, tree):
+def rule_policy(repo, base):
     policy = dict(RULE_DEFAULTS)
     path = ".rule-changes.json"
-    if path in tree:
+    entry = git(repo, "ls-tree", "-z", base, "--", path)
+    if entry:
         try:
-            configured = json.loads(rule_blob(repo, base, path, tree))
+            configured = json.loads(rule_blob(repo, base, path, entry.split(" ", 1)[0]))
         except ValueError as exc:
             raise PrepareError(f"invalid {path}: {exc}") from exc
         if not isinstance(configured, dict) or set(configured) - set(policy):
@@ -108,193 +103,127 @@ def rule_policy(repo, base, tree):
         policy.update(configured)
     if (not isinstance(policy["extra_protected_paths"], list)
             or not isinstance(policy["extra_provenance_paths"], list)
-            or type(policy["max_report_chars"]) is not int or policy["max_report_chars"] < 1
-            or type(policy["similarity_threshold"]) not in (int, float)
-            or not 0 < policy["similarity_threshold"] <= 1):
-        raise PrepareError("invalid .rule-changes.json: paths, limit or similarity threshold")
+            or type(policy["max_report_chars"]) is not int or policy["max_report_chars"] < 1):
+        raise PrepareError("invalid .rule-changes.json: paths or limit")
     patterns = [rule_glob(pattern) for pattern in (*RULE_PATHS, *policy["extra_protected_paths"],
                                                  *policy["extra_provenance_paths"])]
     return policy, patterns
 
 
-def rule_units(path, text):
-    """Extract list items, table rows, sentences and whole fences with source locations."""
-    units, headings, pending = [], [], []
-    pending_kind, section, fence = "paragraph", "(root)", None
-    table_active = False
+def closing_fence(row, fence):
+    """Only a delimiter run and surrounding horizontal whitespace close a fence."""
+    return re.fullmatch(r"[ \t]*" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", row) is not None
 
-    def add(value, line):
-        value = " ".join(value.split())
-        if value:
-            units.append(dict(path=path, line=line, section=section, text=value))
 
-    def flush():
-        if not pending:
-            return
-        value = "\n".join(row for _, row in pending)
-        if pending_kind == "paragraph":
-            # Matched code and quotation spans retain their sentence punctuation.
-            masked = list(value)
-            spans = (r'''(`+).*?\1|"(?:\\.|[^"\\])*"|'''
-                     r"(?<!\w)'(?:\\.|'(?=\w)|[^'\\])*'(?!\w)|“[^”]*”|‘.*?’(?!\w)")
-            for match in re.finditer(spans, value, re.S):
-                for index in range(match.start(), match.end()):
-                    if masked[index] in ".!?":
-                        masked[index] = "x"
-            start = 0
-            for boundary in [*re.finditer(r"(?<=[.!?])\s+", "".join(masked)), None]:
-                end = boundary.start() if boundary else len(value)
-                add(value[start:end], pending[0][0] + value[:start].count("\n"))
-                start = boundary.end() if boundary else len(value)
-        else:
-            add(value, pending[0][0])
-        pending.clear()
-
-    def cells(value):
-        value = value.strip().removeprefix("|").removesuffix("|")
-        return [cell.strip() for cell in re.split(r"(?<!\\)\|", value)]
-
-    lines = text.splitlines()
-    for number, row in enumerate(lines, 1):
-        stripped = row.strip()
-        if fence:
-            pending.append((number, row))
-            if re.fullmatch(re.escape(fence[0]) + "{" + str(fence[1]) + r",}\s*", stripped):
-                flush()
-                fence = None
-                pending_kind = "paragraph"
-            continue
-        opening = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
-        if opening:
-            table_active = False
-            flush()
-            pending_kind = "fence"
-            fence = (opening[1][0], len(opening[1]))
-            pending.append((number, row))
-            continue
-        heading = re.match(r"^ {0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$", row)
-        setext = re.fullmatch(r" {0,3}(=+|-+)\s*", row) if pending_kind == "paragraph" and pending else None
-        if heading or setext:
-            table_active = False
-            level = len(heading[1]) if heading else 1 if setext[1][0] == "=" else 2
-            title = heading[2] if heading else " ".join(value.strip() for _, value in pending)
-            if heading:
-                flush()
+def rule_lines(text):
+    """Annotate physical lines for conservative rewrap checks and source locations."""
+    rows, headings, fence, item = [], [], None, None
+    for raw in re.findall(r"[^\n]*\n|[^\n]+$", text):
+        row = raw.rstrip("\r\n")
+        section = " / ".join(title for _, title in headings) or "(root)"
+        opening = re.match(r"^[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", row)
+        if fence or opening:
+            signature = [("exact", raw)]
+            if fence:
+                if closing_fence(row, fence):
+                    fence = None
             else:
-                pending.clear()
-            while headings and headings[-1][0] >= level:
-                headings.pop()
-            headings.append((level, " ".join(title.split())))
-            section = " / ".join(title for _, title in headings)
-            continue
-        if not stripped or re.fullmatch(r'<a\s+id=["\'][^"\']+["\']\s*>\s*</a>', stripped):
-            flush()
-            pending_kind = "paragraph"
-            table_active = False
-            continue
-        following = cells(lines[number]) if number < len(lines) else []
-        table_header = len(following) > 1 and all(re.fullmatch(r":?-{3,}:?", cell) for cell in following)
-        if re.search(r"(?<!\\)\|", stripped) and (table_active or table_header or
-                                                       stripped.startswith("|") and stripped.endswith("|")):
-            flush()
-            row_cells = cells(stripped)
-            if not all(re.fullmatch(r":?-+:?", cell) for cell in row_cells):
-                add("| " + " | ".join(row_cells) + " |", number)
-            pending_kind = "paragraph"
-            table_active = True
-            continue
-        table_active = False
-        item = re.match(r"^\s*(?:[-+*]|\d+[.)])\s+(.+)$", row)
-        if item:
-            flush()
-            pending_kind = "list"
-            pending.append((number, item[1]))
+                fence = opening[1][0], len(opening[1])
+            item = None
         else:
-            pending.append((number, row))
-    flush()
-    return units
-
-
-def rule_key(unit):
-    return unit["path"], unit["line"], unit["section"], unit["text"]
-
-
-def pair_rule_units(old, new, threshold, *, provenance=False):
-    """Cancel local copies, match moves, then greedily pair by similarity with stable ties."""
-    old, new = sorted(old, key=rule_key), sorted(new, key=rule_key)
-    old_left, new_left, changes = set(range(len(old))), set(range(len(new))), []
-    for local in ((True,) if provenance else (True, False)):
-        available = {}
-        for j in sorted(new_left):
-            unit = new[j]
-            key = (unit["text"], unit["path"], unit["section"]) if local else unit["text"]
-            available.setdefault(key, []).append(j)
-        for i in sorted(old_left):
-            unit = old[i]
-            key = (unit["text"], unit["path"], unit["section"]) if local else unit["text"]
-            if available.get(key):
-                j = available[key].pop(0)
-                old_left.remove(i)
-                new_left.remove(j)
-                if not local:
-                    changes.append(dict(kind="moved", old=old[i], new=new[j]))
-    if not provenance:
-        candidates = []
-        for i in sorted(old_left):
-            for j in sorted(new_left):
-                similarity = SequenceMatcher(None, old[i]["text"], new[j]["text"], autojunk=False).ratio()
-                if similarity >= threshold:
-                    candidates.append((-similarity, old[i]["path"] != new[j]["path"], i, j))
-        for _, _, i, j in sorted(candidates):
-            if i in old_left and j in new_left:
-                old_left.remove(i)
-                new_left.remove(j)
-                changes.append(dict(kind="changed", old=old[i], new=new[j]))
-    changes.extend(dict(kind="removed", old=old[i], new=None, provenance=provenance) for i in sorted(old_left))
-    changes.extend(dict(kind="added", old=None, new=new[j], provenance=provenance) for j in sorted(new_left))
-    return sorted(changes, key=lambda item: (rule_key(item["old"] or item["new"]), item["kind"]))
+            heading = re.match(r"^ {0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$", row)
+            prefix = re.match(r"^([ \t]*)((?:>[ \t]*)*)(?:(\d+[.)]|[-+*])([ \t]+))?", row)
+            indent, quotes, marker, _ = prefix.groups()
+            depth = len(indent.expandtabs(4))
+            structure = (depth, quotes, marker)
+            if marker:
+                item = (len(row[:prefix.end()].expandtabs(4)), structure)
+            elif row.strip() and item:
+                if depth == item[0] and not quotes:
+                    structure = item[1]
+                else:
+                    item = None
+            if heading:
+                level = len(heading[1])
+                while headings and headings[-1][0] >= level:
+                    headings.pop()
+                headings.append((level, heading[2]))
+                section = " / ".join(title for _, title in headings)
+            # Structural rows, blank lines and hard breaks are never prose rewraps.
+            if not row.strip() or heading or quotes or "|" in row or row.endswith(("  ", "\t")):
+                signature = [("exact", raw)]
+            else:
+                signature = ([("item", structure)] if marker else []) + [
+                    (structure, word) for word in row[prefix.end():].split()]
+        rows.append(dict(raw=raw, section=section, signature=signature))
+    return rows
 
 
 def rule_changes(repo, base, head):
-    base = git(repo, "merge-base", base, head).strip()
-    old_tree, new_tree = rule_tree(repo, base), rule_tree(repo, head)
-    policy, patterns = rule_policy(repo, base, old_tree)
+    """Keep Git's zero-context blocks; only pure prose rewraps disappear."""
+    policy, patterns = rule_policy(repo, base)
     provenance_patterns = [rule_glob(pattern) for pattern in (*RULE_PROVENANCE_PATHS,
                                                              *policy["extra_provenance_paths"])]
-    paths = git(repo, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z",
-                base, head).split("\0")
-    old, new, provenance_old, provenance_new = [], [], [], []
-    for path in sorted(set(paths) - {""}):
+    records = git(repo, "diff", "--no-color", "--raw", "--no-abbrev", "--no-ext-diff", "--no-textconv", "--no-renames", "-z",
+                  base, head).split("\0")
+    changes, provenance = [], []
+    for metadata, path in zip(records[::2], records[1::2]):
         if path.startswith("docs/") or not any(pattern.fullmatch(path) for pattern in patterns):
             continue
-        before = rule_blob(repo, base, path, old_tree) if path in old_tree else ""
-        after = rule_blob(repo, head, path, new_tree) if path in new_tree else ""
-        if " ".join(before.split()) == " ".join(after.split()):
-            continue
-        before_units, after_units = rule_units(path, before), rule_units(path, after)
-        if any(pattern.fullmatch(path) for pattern in provenance_patterns):
-            provenance_old.extend(before_units)
-            provenance_new.extend(after_units)
-        else:
-            old.extend(before_units)
-            new.extend(after_units)
-    changes = pair_rule_units(old, new, policy["similarity_threshold"])
-    changes.extend(pair_rule_units(provenance_old, provenance_new, policy["similarity_threshold"], provenance=True))
-    return changes, policy, base
+        old_mode, new_mode, _, _, _ = metadata[1:].split()
+        before = rule_blob(repo, base, path, old_mode) if old_mode != "000000" else ""
+        after = rule_blob(repo, head, path, new_mode) if new_mode != "000000" else ""
+        old_rows, new_rows = rule_lines(before), rule_lines(after)
+        patch = git(repo, "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames",
+                    "--text", "--diff-algorithm=myers", "--no-indent-heuristic", "--inter-hunk-context=0",
+                    "-U0", base, head, "--", path)
+        is_provenance = any(pattern.fullmatch(path) for pattern in provenance_patterns)
+        for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", patch, re.M):
+            sides, signatures = [], []
+            for rows, line, count in ((old_rows, int(hunk[1]), int(hunk[2] or 1)),
+                                      (new_rows, int(hunk[3]), int(hunk[4] or 1))):
+                selected = rows[line - 1:line - 1 + count] if count else []
+                signatures.append([token for row in selected for token in row["signature"]])
+                sides.append(dict(path=path, line=line, end_line=line + count - 1,
+                                  section=selected[0]["section"], text="".join(row["raw"] for row in selected))
+                             if selected else None)
+            if sides[0] and sides[1] and signatures[0] == signatures[1]:
+                continue
+            old, new = sides
+            if is_provenance:
+                # Approval evidence never pairs, even within one changed block.
+                provenance.extend(dict(kind=kind, old=old if kind == "removed" else None,
+                                       new=new if kind == "added" else None, provenance=True)
+                                  for kind, side in (("removed", old), ("added", new)) if side)
+            else:
+                changes.append(dict(kind="changed" if old and new else "removed" if old else "added",
+                                    old=old, new=new))
+    # Exact copies only, with FIFO source order for repeated copies. No all-pairs work.
+    additions = defaultdict(deque)
+    for index, change in enumerate(changes):
+        if change["kind"] == "added":
+            additions[change["new"]["text"]].append(index)
+    paired = set()
+    for change in changes:
+        if change["kind"] == "removed" and additions[change["old"]["text"]]:
+            index = additions[change["old"]["text"]].popleft()
+            change.update(kind="moved", new=changes[index]["new"])
+            paired.add(index)
+    changes = [change for index, change in enumerate(changes) if index not in paired]
+    return changes + provenance, policy, base
 
 
 def declared_rule_changes(body):
     lines = body.splitlines()
     start, fence = None, None
     for index, line in enumerate(lines):
-        opening = re.match(r"^\s*(`{3,}|~{3,})", line)
-        if opening:
-            if fence is None:
-                fence = opening[1][0], len(opening[1])
-            elif opening[1][0] == fence[0] and len(opening[1]) >= fence[1]:
+        if fence:
+            if closing_fence(line, fence):
                 fence = None
             continue
-        if fence:
+        opening = re.match(r"^[ \t]*(`{3,}|~{3,})", line)
+        if opening:
+            fence = opening[1][0], len(opening[1])
             continue
         if start is None:
             if re.fullmatch(r"##\s+Rule changes\s*#*\s*", line):
@@ -308,16 +237,29 @@ def rule_location(unit):
     if unit is None:
         return "(none)"
     # JSON quoting keeps unusual path and heading characters on one unambiguous line.
-    return f'{json.dumps(unit["path"], ensure_ascii=False)}:{unit["line"]} — {json.dumps(unit["section"], ensure_ascii=False)}'
+    location = f'{json.dumps(unit["path"], ensure_ascii=False)}:{unit["line"]} — {json.dumps(unit["section"], ensure_ascii=False)}'
+    if unit.get("end_line", unit["line"]) > unit["line"]:
+        location += f'; through line {unit["end_line"]}'
+    return location
+
+
+def render_rule_report(parts, policy, out, index):
+    """Check the sole allowance before joining the complete rendered report."""
+    if sum(len(display(part)) for part in parts) + len(parts) - 1 > policy["max_report_chars"]:
+        raise RuleReportTooLarge("\n".join([*out, "", "FAILED CLOSED: complete rule report exceeds "
+                                         f"{policy['max_report_chars']} characters; full text withheld, every location follows.",
+                                         *index]) + "\n")
+    return "\n".join(parts)
 
 
 def rule_report(changes, policy, base, head, declaration_text, declaration_source):
     declared = declared_rule_changes(declaration_text)
     declaration_heading = f"### Declared changes ({declaration_source} line numbers)"
     if not changes:
-        declaration = "\n".join(f"{number}: {line}" for number, line in declared)
-        return "No protected rule text changed." + (
-            "\n\n" + declaration_heading + "\n" + declaration if declared else "")
+        parts = ["No protected rule text changed."]
+        if declared:
+            parts.extend(["", declaration_heading, *(f"{number}: {line}" for number, line in declared)])
+        return render_rule_report(parts, policy, parts, [])
     out = ["## Rule text changes", f"Base: `{base}`; head: `{head}`",
            "; ".join(f"{kind}: {sum(item['kind'] == kind and not item.get('provenance') for item in changes)}"
                      for kind in ("removed", "added", "changed", "moved"))]
@@ -341,12 +283,8 @@ def rule_report(changes, policy, base, head, declaration_text, declaration_sourc
             value = unit["text"] if unit else "(none)"
             fence = "`" * max(3, max((len(m[0]) + 1 for m in re.finditer(r"`+", value)), default=3))
             detail.extend([f"{side.title()}: {rule_location(unit)}", fence + "text", value, fence])
-    rendered = "\n".join([*out, "", "### Item locations", *index, *detail])
-    if len(display(rendered)) > policy["max_report_chars"]:
-        raise RuleReportTooLarge("\n".join([*out, "", "FAILED CLOSED: complete rule report exceeds "
-                                         f"{policy['max_report_chars']} characters; full text withheld, every location follows.",
-                                         *index]) + "\n")
-    return rendered
+    parts = [*out, "", "### Item locations", *index, *detail]
+    return render_rule_report(parts, policy, out, index)
 
 
 
@@ -359,31 +297,33 @@ def display(text):
     return redact(text.encode("utf-8", errors="surrogateescape").decode("utf-8", errors="backslashreplace")).replace("\0", r"\x00")
 
 
-def run(repo, *args):
+def run(repo, *args, input=None):
     result = subprocess.run(args, cwd=repo, env=noninteractive_env(),
-                            stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            stdin=None if input is not None else subprocess.DEVNULL,
+                            input=input.encode("utf-8") if input is not None else None)
     # Decode bytes ourselves: text mode also rewrites CR/LF inside NUL-delimited paths.
     result.stdout = result.stdout.decode("utf-8", errors="surrogateescape")
     result.stderr = redact(result.stderr.decode("utf-8", errors="surrogateescape"))
     return result
 
 
-def git(repo, *args):
-    result = run(repo, "git", *args)
+def git(repo, *args, input=None):
+    result = run(repo, "git", *args, **({"input": input} if input is not None else {}))
     if result.returncode:
         raise PrepareError(result.stderr.strip() or "git command failed: " + " ".join(args))
     return result.stdout
 
 
-def resolve_base(repo, explicit=None, no_fetch=False):
-    """Return the chosen ref, its remote and whether it is safe to merge."""
+def resolve_base(repo, explicit=None, no_fetch=False, *, pin=False):
+    """Return the chosen ref (or captured commit), remote and merge freshness."""
     remotes = git(repo, "remote").splitlines()
     remote = "upstream" if "upstream" in remotes else "origin" if "origin" in remotes else None
     if explicit:
         selected = next((r for r in remotes if explicit.startswith((r + "/", "refs/remotes/" + r + "/"))), None)
-        git(repo, "rev-parse", "--verify", explicit + "^{commit}")
         if not selected or no_fetch:
-            return explicit, selected or remote, True
+            commit = git(repo, "rev-parse", "--verify", "--end-of-options", explicit + "^{commit}").strip()
+            return commit if pin else explicit, selected or remote, True
         remote = selected
         branch = explicit.removeprefix("refs/remotes/").removeprefix(remote + "/")
         base = explicit
@@ -401,9 +341,9 @@ def resolve_base(repo, explicit=None, no_fetch=False):
             if cached.returncode:
                 raise PrepareError(f"ls-remote {remote} failed and no cached default branch exists; specify --base REF")
             base = cached.stdout.strip().removeprefix("refs/remotes/")
-            git(repo, "rev-parse", "--verify", base + "^{commit}")
+            commit = git(repo, "rev-parse", "--verify", "--end-of-options", base + "^{commit}").strip()
             print(f"warning: ls-remote {remote} failed: {redact(advertised.stderr.strip())}; using cached base {base}; freshness could not be verified", file=sys.stderr)
-            return base, remote, False
+            return commit if pin else base, remote, False
         branch = match[1] if match else next((b for b in ("main", "master")
                                               if re.search(r"\srefs/heads/" + b + r"$", advertised.stdout, re.M)), None)
         if not branch:
@@ -413,10 +353,10 @@ def resolve_base(repo, explicit=None, no_fetch=False):
     fetched = run(repo, "git", "fetch", remote, f"+refs/heads/{branch}:{ref}")
     if fetched.returncode:
         print(f"warning: fetch {base} failed: {redact(fetched.stderr.strip())}", file=sys.stderr)
-    git(repo, "rev-parse", "--verify", ref + "^{commit}")
+    commit = git(repo, "rev-parse", "--verify", "--end-of-options", ref + "^{commit}").strip()
     if fetched.returncode:
         print(f"warning: using cached base {base}; freshness could not be verified", file=sys.stderr)
-    return base, remote, advertised_ok and fetched.returncode == 0
+    return commit if pin else base, remote, advertised_ok and fetched.returncode == 0
 
 
 def update(repo, base):
@@ -827,7 +767,8 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     if head is None:
         head = git(repo, "rev-parse", "--verify", "--end-of-options",
                    (getattr(args, "rev", None) or "HEAD") + "^{commit}").strip()
-    rng = f"{base}...{head}"
+    base = git(repo, "merge-base", base, head).strip()
+    rng = f"{base}..{head}"
     url = web_remote(repo, remote)
     pr, issues, comments, pr_link, texts, missing, notices = pr_context(repo, args, url)
     log = git(repo, "log", "--reverse", "--format=%H%x00%B%x00", f"{base}..{head}").split("\0")
@@ -854,10 +795,9 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         # Compilation stays with its owner. The standalone reporting path never
         # imports a sibling, and context-only legacy preparation needs none.
         # Without an explicit assignment, review derives one from changes since the merge base.
-        comparison_base = base if assignment_path else git(repo, "merge-base", base, head).strip()
-        request = dict(repo=str(repo), head=head, base=comparison_base, lens=lens, full=not context_only,
+        request = dict(repo=str(repo), head=head, base=base, lens=lens, full=not context_only,
                        documentation=bool(needs_documentation), derive=not assignment_path,
-                       assignment=str(assignment_path) if assignment_path else None)
+                       assignment=str(Path(assignment_path).resolve()) if assignment_path else None)
         compiled = run(repo, sys.executable, "-I", "-B", str(HERE / "prompt.py"),
                        "--preparer-context", json.dumps(request))
         if compiled.returncode:
@@ -1047,9 +987,11 @@ def main(argv=None, *, documentation_prepared=False):
                 sys.stdout.write(result.stdout.decode("utf-8"))
                 sys.stderr.write(redact(result.stderr.decode("utf-8")))
                 return result.returncode
-        base, remote, fresh = resolve_base(repo, args.base, args.no_fetch)
+        base, remote, fresh = resolve_base(repo, args.base, args.no_fetch,
+                                           pin=args.command in ("base", "review", "rule-lenses"))
         print(f"range: {base}...{head or 'HEAD'}", file=sys.stderr)
         if args.command == "rule-lenses":
+            base = git(repo, "merge-base", base, head).strip()
             changes, policy, rule_base = rule_changes(repo, base, head)
             rule_report(changes, policy, rule_base, head, "", "--summary text")
             if any(not item.get("provenance") and item["kind"] in ("removed", "changed", "moved") for item in changes):
