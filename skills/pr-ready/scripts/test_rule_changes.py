@@ -329,6 +329,11 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
                 line = len(prefix.splitlines()) + 1
                 self.assertEqual(prepare.declared_rule_changes(body),
                                  [(line, "## Rule changes"), (line + 1, "Real declaration.")])
+        # A delimiter indented four spaces does not close a fence, so the example heading stays inside it.
+        self.assertEqual(prepare.declared_rule_changes("```markdown\n    ```\n## Rule changes\nExample.\n```\n"), [])
+        # A backtick in a backtick fence's info text makes it no fence, so the real heading counts.
+        self.assertEqual(prepare.declared_rule_changes("```a`b\n## Rule changes\nReal.\n"),
+                         [(2, "## Rule changes"), (3, "Real.")])
         self.assertEqual(prepare.declared_rule_changes("   ## Rule changes\nReal.\n"),
                          [(1, "   ## Rule changes"), (2, "Real.")])
         body = "Write `<!--` to open a comment.\n## Rule changes\nReal declaration.\n"

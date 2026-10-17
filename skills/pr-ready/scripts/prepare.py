@@ -125,7 +125,15 @@ def rule_policy(repo, base):
 
 def closing_fence(row, fence):
     """Only a delimiter run and surrounding horizontal whitespace close a fence."""
-    return re.fullmatch(r"[ \t]*" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", row) is not None
+    return re.fullmatch(r" {0,3}" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", row) is not None
+
+
+def opening_fence(row):
+    """A fence opens at most three spaces in; a backtick fence's info text has no backtick."""
+    match = re.match(r"^ {0,3}(`{3,}|~{3,})(.*)$", row)
+    if not match or (match[1][0] == "`" and "`" in match[2]):
+        return None
+    return match[1][0], len(match[1])
 
 
 def rule_lines(text):
@@ -225,9 +233,9 @@ def declared_rule_changes(body):
         if re.match(r"^ {0,3}<!--", line):
             comment = "-->" not in line[line.index("<!--") + 4:]
             continue
-        opening = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        opening = opening_fence(line)
         if opening:
-            fence = opening[1][0], len(opening[1])
+            fence = opening
             continue
         if start is None:
             if re.fullmatch(r" {0,3}##[ \t]+Rule changes[ \t]*#*[ \t]*", line):
