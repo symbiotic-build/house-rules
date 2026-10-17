@@ -201,6 +201,7 @@ A non-empty report without that section prominently says `UNDECLARED RULE CHANGE
 The section is found by whole lines. Its heading is `## Rule changes`, indented at most three spaces.
 Lines inside fenced code blocks do not count; a fence is indented at most three spaces.
 Lines inside comments that start a line with `<!--` do not count either.
+
 Inline comments and code spans are not parsed. A source that hides or fakes the heading this way costs at most one wrong warning line.
 The author corrects the source, and every reported item still needs a disposition.
 
