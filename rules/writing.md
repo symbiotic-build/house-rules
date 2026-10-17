@@ -138,6 +138,9 @@ ASD-STE100 conformance. The checker reads this block; do not maintain a second l
   Preserve exact names, values, order and exceptions there.
 - A heading or outer list item does not make several actions one step. Writers and
   reviewers check the action boundaries, not only sentence length.
+- Number only steps someone performs in order. A rule, a set of conditions, properties,
+  alternatives or independent checks is not a sequence, even when it names several actions;
+  use bullets or a paragraph.
 - This format does not apply to a single action, an exact signature or schema, or a lookup
   table. Descriptive enumerations use bullets or compact tables. Operator decision options
   are exempt.
