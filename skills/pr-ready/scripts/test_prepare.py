@@ -2,6 +2,7 @@
 """Local integration tests: no network, GitHub writes or model calls."""
 import argparse
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -441,8 +442,9 @@ class PanelExecutionTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(data, (panel / "generalist-a.attempt-1.sent").read_bytes())
         self.assertIn(summary.read_bytes(), data)
         self.assertEqual(manifest["pack"], {"bytes": len(data), "sha256": __import__('hashlib').sha256(data).hexdigest()})
-        task = manifest["parts"][-1]
-        task_bytes = data[-task["bytes"]:]
+        task = next(part for part in manifest["parts"] if part["kind"] == "task")
+        task_end = data.index(b"\n# 7. Lens instructions\n\n") + len(b"\n# 7. Lens instructions\n\n")
+        task_bytes = data[task_end - task["bytes"]:task_end]
         self.assertEqual(task["source"], "review-panel-generalist-a")
         self.assertEqual(task["sha256"], __import__('hashlib').sha256(task_bytes).hexdigest())
         calls = [json.loads(line) for line in log.read_text().splitlines()]
@@ -817,6 +819,72 @@ else:
 
 
 class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
+    def test_compiled_structured_reviews_share_context_before_final_lenses(self):
+        self.write(self.repo, "src/core.py", "def action():\n    return 2\n")
+        self.commit(self.repo, "Update action")
+        summary, output, env = self.panel_fixture()
+        env.update(REVIEW_BASE="origin/trunk", REVIEW_PYTHON=sys.executable)
+        (self.binaries / "codex").write_text(
+            "#!" + sys.executable + "\nimport pathlib, sys\n"
+            "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n')\n")
+        lenses = ("correctness-security", "spec")
+        source = self.root / "panel-source"
+        revision = env["REVIEW_HOUSE_RULES_REV"]
+        compiler = source / "skills/pr-ready/scripts/prompt.py"
+        common_args = [sys.executable, "-B", str(compiler), "--repo", str(source),
+                       "--rev", revision, "--role", "reviewer", "--target", str(self.repo)]
+        common = subprocess.run(common_args, capture_output=True, check=True,
+                                stdin=subprocess.DEVNULL).stdout
+        for layout in ("structured", "pack"):
+            context = subprocess.run(
+                [sys.executable, "-B", str(SCRIPT), "review", str(self.repo), "--context-only",
+                 "--base", "origin/trunk", "--no-fetch", "--cli", "codex", "--format", layout,
+                 "--summary", str(summary)], capture_output=True, check=True, stdin=subprocess.DEVNULL).stdout
+            task = self.root / "context.txt"
+            task.write_bytes(context)
+            for assembly in (("one-call", "panel") if layout == "structured" else ("one-call",)):
+                with self.subTest(layout=layout, assembly=assembly):
+                    if assembly == "panel":
+                        result = subprocess.run(
+                            ["bash", str(SCRIPT.with_name("review-panel.sh")), "round", str(self.repo),
+                             str(summary), *lenses], capture_output=True, text=True, env=env,
+                            timeout=20, stdin=subprocess.DEVNULL)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    packs = []
+                    for lens in lenses:
+                        destination = (output / "round" / (lens + ".pack") if assembly == "panel"
+                                       else self.root / (layout + "-" + lens))
+                        if assembly == "one-call":
+                            subprocess.run([*common_args, "--lens", lens, "--task", str(task),
+                                            "--task-source", "review-context", "--out", str(destination)],
+                                           capture_output=True, check=True, stdin=subprocess.DEVNULL)
+                        pack = (destination / "pack.txt").read_bytes()
+                        manifest = json.loads((destination / "manifest.json").read_text())
+                        lens_text = subprocess.run(
+                            [sys.executable, "-B", str(compiler), "--repo", str(source), "--rev", revision,
+                             "prompts/lenses/" + lens + ".md"], capture_output=True, check=True,
+                            stdin=subprocess.DEVNULL).stdout
+                        if layout == "structured":
+                            expected = common + b"\n" + context + b"\n" + lens_text
+                        else:
+                            legacy = subprocess.run([*common_args, "--lens", lens], capture_output=True,
+                                                    check=True, stdin=subprocess.DEVNULL).stdout
+                            expected = legacy + b"\n" + context
+                        self.assertEqual(pack, expected)
+                        self.assertEqual(manifest["house_rules_revision"], revision)
+                        self.assertEqual(manifest["pack"], {
+                            "bytes": len(pack), "sha256": hashlib.sha256(pack).hexdigest()})
+                        task_part = next(part for part in manifest["parts"] if part["kind"] == "task")
+                        self.assertEqual((task_part["bytes"], task_part["sha256"]),
+                                         (len(context), hashlib.sha256(context).hexdigest()))
+                        self.assertEqual(manifest["parts"][-1]["kind"],
+                                         "lens" if layout == "structured" else "task")
+                        packs.append(pack)
+                    if layout == "structured":
+                        prefixes = [pack.split(b"# 7. Lens instructions\n", 1) for pack in packs]
+                        self.assertEqual(prefixes[0][0], prefixes[1][0])
+                        self.assertNotEqual(prefixes[0][1], prefixes[1][1])
+
     def test_different_lenses_share_every_byte_before_final_instructions(self):
         self.write(self.repo, "src/core.py", "def action():\n    return 2\n")
         self.commit(self.repo, "Update action")

@@ -6,7 +6,8 @@
 #   reviewer: a file stem in ../../../prompts/lenses/ (default: generalist-<family> for each configured family)
 # Config: ${REVIEW_PANEL_CONF:-<house-rules>/custom/review-panel.conf}, lines "<family> = <cli> <model> [tier] [effort]",
 #   cli one of codex | grok | kimi. Unconfigured families are omitted from the default selection.
-# Prompt order: role rules, lens, summary/task, spec, change (prepare.py review).
+# Structured prompt order: shared role/target rules, task context and change, then lens.
+# Pack and diff retain role rules, lens, target rules, then task context.
 # Range: ${REVIEW_BASE:-remote default branch}...HEAD; upstream preferred to origin.
 # Output directory: ${REVIEW_PANEL_OUT:-<checkout>/.tmp/review-panel}/<name>/ with <reviewer>.md,
 #   raw logs, and summary.txt (verdict and wall time per reviewer).

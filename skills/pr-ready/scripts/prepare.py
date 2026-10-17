@@ -991,8 +991,9 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     if context_only:
         parts = [f"The checkout under review is {repo}; read its files by absolute path.", *parts[2:]]
     lens_parts = []
-    if mode == "structured" and not context_only:
-        parts.pop(1)
+    if mode == "structured":
+        if not context_only:
+            parts.pop(1)
         lens_parts = ["# 7. Lens instructions\n" + instructions]
     if context is not None:
         parts.append(context)

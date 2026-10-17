@@ -27,6 +27,16 @@ class PromptError(Exception):
     """An input cannot be compiled; no compilation output may be published."""
 
 
+class CompiledPack(bytes):
+    """Compiled bytes with an in-memory lens span for deferred task assembly."""
+
+    def __new__(cls, data, lens_span=None, lens_last=False):
+        pack = super().__new__(cls, data)
+        pack.lens_span = lens_span
+        pack.lens_last = lens_last
+        return pack
+
+
 def relative_path(name):
     """Validate a whole-file repository path before handing it to Git."""
     if not name:
@@ -350,6 +360,7 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
                 "files": [], "parts": [], "skipped_repeats": [], "omitted_shared_rules": [], "target": None}
     expansion = Expansion(source, omit_shared_rules)
     parts = [f"House Rules revision: {source.revision}\n".encode()]
+    lens_index = None
     requested = []
     for kind, name in (("role", role), ("lens", lens)):
         if name is not None:
@@ -363,6 +374,8 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
         manifest["parts"].append({"kind": kind, "path": relative_path(path)})
         data = expansion.visit(path).encode("utf-8")
         if data:
+            if kind == "lens":
+                lens_index = len(parts)
             parts.append(data)
     if target is not None:
         data, manifest["target"] = target_rules(target)
@@ -387,7 +400,11 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
             parts[1] = expansion.loading().encode() + parts[1]
         else:
             parts.append(expansion.loading().encode().rstrip(b"\n") + b"\n")
-    pack = b"\n".join(ending(p) for p in parts if p)
+    lens_span = None
+    if lens_index is not None:
+        start = sum(len(ending(p)) + 1 for p in parts[:lens_index] if p)
+        lens_span = (start, start + len(ending(parts[lens_index])))
+    pack = CompiledPack(b"\n".join(ending(p) for p in parts if p), lens_span)
     manifest.update(files=expansion.files, skipped_repeats=expansion.repeats,
                     omitted_shared_rules=expansion.omitted)
     if budget_bytes is not None:
@@ -399,14 +416,33 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
 
 def append_tasks(pack, manifest, tasks):
     """Finish a compiled pack with literal tasks, without rereading pinned inputs."""
-    parts = [pack]
+    parts = []
+    lens_span = getattr(pack, "lens_span", None)
+    lens_last = getattr(pack, "lens_last", False)
     for file, name in tasks:
         data = ending(Path(file).read_bytes())
         data.decode("utf-8")
         manifest["parts"].append({"kind": "task", "source": logical_source(name), **fingerprint(data)})
         if data:
             parts.append(data)
-    pack = b"\n".join(parts)
+            # The preparer's existing final heading also identifies structured
+            # context when its change had to fall back to pack for size.
+            lens_last |= data.rstrip(b"\n").endswith(b"\n# 7. Lens instructions")
+    if lens_span is not None and lens_last:
+        start, end = lens_span
+        lens = pack[start:end]
+        parts = [part for part in (pack[:start].removesuffix(b"\n"),
+                                  pack[end:].removeprefix(b"\n"), *parts) if part]
+        prefix = b"\n".join(parts)
+        pack = CompiledPack(b"\n".join((prefix, lens)), (len(prefix) + 1, len(prefix) + 1 + len(lens)), True)
+        old_parts = list(manifest["parts"])
+        lens_part = next(part for part in old_parts if part["kind"] == "lens")
+        manifest["parts"] = [part for part in old_parts if part is not lens_part] + [lens_part]
+        for repeat in manifest["skipped_repeats"]:
+            part = old_parts[repeat["part"] - 1]
+            repeat["part"] = next(n for n, entry in enumerate(manifest["parts"], 1) if entry is part)
+    else:
+        pack = CompiledPack(b"\n".join([pack, *parts]), lens_span, lens_last)
     if "budget_bytes" in manifest and len(pack) > manifest["budget_bytes"]:
         raise PromptError(f"D25 complete pack requires {len(pack)} UTF-8 bytes; available budget is {manifest['budget_bytes']}")
     manifest["pack"] = fingerprint(pack)

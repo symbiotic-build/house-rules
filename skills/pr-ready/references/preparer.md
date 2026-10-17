@@ -21,6 +21,12 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   Structured prompt order: shared review rules, PR/issue context and requirements, then
   the change, complete changed source files and lens instructions last. Different lenses
   share the prefix before those final instructions. Pack and diff retain their existing order.
+  Structured `--context-only` output ends with the same `# 7. Lens instructions` heading,
+  without a lens body. The compiler uses that heading to place the selected lens last,
+  after target rules and task context. This also applies when the size guard uses pack for
+  the change. The panel retains the compiled lens span in memory until it appends context;
+  it does not reread pinned inputs or add manifest fields. Task hashes cover the unchanged
+  context bytes, and the pack hash covers the final order.
   The panel compiles context-only tasks with its pinned role, lens and target rules. Requirements
   are indexed as R1, R2, … with source links, most authoritative first: design/spec
   documents, linked issues (title, labels, body), non-bot
