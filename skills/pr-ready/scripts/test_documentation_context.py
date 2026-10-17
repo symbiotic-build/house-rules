@@ -23,18 +23,27 @@ TOOLS = ("scripts/spec_docs.py", "scripts/runtime.json", "scripts/requirements.l
 ASSIGNMENT = {"version": 1, "sections": ["example-demo#acceptance"]}
 
 
-class DocumentationContextTests(unittest.TestCase):
-    def setUp(self):
+class DocumentationFixture:
+    """Shared setup and assertions for independent test classes."""
+
+    @classmethod
+    def setUpClass(cls):
         temporary = tempfile.TemporaryDirectory()
-        self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
-        environment = patch.dict(os.environ, {
+        cls.addClassCleanup(temporary.cleanup)
+        cls.seed = Path(temporary.name)
+        helper = cls()
+        helper.root = cls.seed
+        cls.addClassCleanup(helper.doCleanups)
+        with patch.dict(os.environ, {
             "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
             "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.invalid",
             "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.invalid",
-        })
-        environment.start()
-        self.addCleanup(environment.stop)
+        }):
+            helper.build_fixture()
+        cls.checker = helper.checker
+        cls.seed_rule_revision, cls.seed_revision = helper.rule_revision, helper.revision
+
+    def build_fixture(self):
         self.rules, self.repo = self.root / "rules", self.root / "repo"
         for repo in (self.rules, self.repo):
             repo.mkdir()
@@ -65,6 +74,24 @@ class DocumentationContextTests(unittest.TestCase):
         self.assignment_file = self.root / "assignment.json"
         self.assignment_file.write_text(json.dumps(ASSIGNMENT))
 
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        environment = patch.dict(os.environ, {
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.invalid",
+            "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.invalid",
+        })
+        environment.start()
+        self.addCleanup(environment.stop)
+        self.rules, self.repo = self.root / "rules", self.root / "repo"
+        for name in ("rules", "repo"):
+            shutil.copytree(self.seed / name, self.root / name)
+        self.rule_revision, self.revision = self.seed_rule_revision, self.seed_revision
+        self.assignment_file = self.root / "assignment.json"
+        self.assignment_file.write_text(json.dumps(ASSIGNMENT))
+
     def git(self, repo, *args):
         return subprocess.run(["git", "--no-replace-objects", "-C", str(repo), *args],
                               capture_output=True, check=True, timeout=5, stdin=subprocess.DEVNULL).stdout.decode().strip()
@@ -92,37 +119,49 @@ class DocumentationContextTests(unittest.TestCase):
                 patch.object(prepare, "pr_context", return_value=({}, [], [], "(none)", [], [], [])):
             return prepare.review(self.repo, argparse.Namespace(**values), base or self.revision, None, self.revision)
 
-    def test_credential_bearing_documentation_refuses_before_publication(self):
-        for location in ('source', 'metadata'):
-            with self.subTest(location=location):
-                # Synthetic URL values only; build them at runtime so no credential is stored.
-                url = 'https://example.invalid/?' + 'api_key=' + 'synthetic-canary'
-                path = self.repo / ('docs/example/acceptance.md' if location == 'source' else 'docs/DOCUMENTS.json')
-                original = path.read_bytes()
-                if location == 'source':
-                    path.write_bytes(original + f'\n[External reference]({url})\n'.encode())
-                else:
-                    value = json.loads(original)
-                    value['documents'][0]['purpose'] += ' ' + url
-                    path.write_text(json.dumps(value))
-                c = self.checker.load_corpus(self.checker.Snapshot.from_git(self.repo))
-                for output, data in self.checker.generate_navigation(c).items():
-                    self.write(self.repo, output, data)
-                self.revision = self.commit(self.repo)
-                with self.assertRaisesRegex(prompt.PromptError, 'credential') as caught:
-                    self.pack()
-                self.assertNotIn('synthetic-canary', str(caught.exception))
-                output = self.root / ('refused-' + location)
-                result = subprocess.run([sys.executable, '-I', '-B', str(self.rules / 'skills/pr-ready/scripts/prompt.py'),
-                    '--repo', str(self.rules), '--rev', self.rule_revision, '--target', str(self.repo),
-                    '--assignment', str(self.assignment_file), '--out', str(output)],
-                    stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
-                self.assertEqual(result.returncode, 2)
-                self.assertEqual(result.stdout, b'')
-                self.assertNotIn(b'synthetic-canary', result.stderr)
-                self.assertFalse(output.exists())
-                path.write_bytes(original)
-                self.revision = self.commit(self.repo)
+
+class DocumentationReviewTests(DocumentationFixture, unittest.TestCase):
+    def test_relative_assignment_uses_callers_directory(self):
+        # A conflicting target file must not replace the caller's assignment.
+        (self.repo / 'assignment.json').write_text('{}')
+        result = subprocess.run([sys.executable, '-B', str(ROOT / 'skills/pr-ready/scripts/prepare.py'),
+                                 'review', str(self.repo), '--base', self.revision, '--no-fetch',
+                                 '--context-only', '--assignment', 'assignment.json'], cwd=self.root,
+                                stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b'# Complete registry', result.stdout)
+
+    def test_review_reuses_captured_base_for_report_documentation_and_diff(self):
+        self.write(self.repo, 'rules/example.md', '- Never skip validation.\n')
+        manifest_path = self.repo / 'docs/DOCUMENTS.json'
+        manifest = json.loads(manifest_path.read_text())
+        manifest['inventory'].append({'path': 'rules/example.md', 'kind': 'other', 'reason': 'Synthetic rule input.'})
+        manifest_path.write_text(json.dumps(manifest))
+        base = self.commit(self.repo)
+        self.git(self.repo, 'branch', 'comparison', base)
+        self.write(self.repo, 'rules/example.md', '- Avoid skipping validation.\n')
+        path = self.repo / 'docs/example/acceptance.md'
+        path.write_text(path.read_text().replace('**Result:** Return', '**Result:** Report'))
+        self.revision = self.commit(self.repo)
+        original = prepare.git
+        captures = []
+
+        def move_base(repo, *args, **kwargs):
+            result = original(repo, *args, **kwargs)
+            if args[:1] == ('merge-base',):
+                captures.append(result.strip())
+                self.git(self.repo, 'update-ref', 'refs/heads/comparison', self.revision)
+            return result
+
+        with patch.object(prepare, 'git', side_effect=move_base):
+            output = self.review(base='comparison', assignment=None)
+        self.assertEqual(captures, [base])
+        self.assertIn(f'Base: `{base}`;', output)
+        self.assertIn('base:example-demo#test-stale-revision', output)
+        self.assertIn('**Result:** Return', output)
+        self.assertIn('**Result:** Report', output)
+        self.assertIn('-**Result:** Return', output)
+        self.assertIn('+**Result:** Report', output)
 
     def test_review_preparer_compares_base_and_selects_unchanged_tests(self):
         base = self.revision
@@ -158,125 +197,6 @@ class DocumentationContextTests(unittest.TestCase):
         with self.assertRaisesRegex(prompt.PromptError, '--target-base'):
             with prompt.Commit(self.rules, self.rule_revision) as source, prompt.Commit(self.repo, self.revision) as target:
                 prompt.documentation_context(source, target, ASSIGNMENT, plan=prompt.review_plan(['generalist-a']))
-
-    def test_compiler_never_acquires_unrelated_binary_blobs(self):
-        self.write(self.repo, 'asset.bin', b'UNRELATED BLOB CANARY')
-        self.revision = self.commit(self.repo)
-        with patch.object(subprocess, 'run', wraps=subprocess.run) as run:
-            pack, _ = self.pack()
-        asset_oid = self.git(self.repo, 'rev-parse', 'HEAD:asset.bin').encode()
-        batches = [call.kwargs.get('input', b'') for call in run.call_args_list if 'cat-file' in call.args[0]]
-        self.assertTrue(batches)
-        self.assertFalse(any(asset_oid in batch for batch in batches))
-        lookups = [call.args[0] for call in run.call_args_list if 'ls-tree' in call.args[0] and '-rz' not in call.args[0]]
-        requested = [call[-1].removeprefix(':(literal)') for call in lookups]
-        expected = {prompt.COMPILER, *prompt.DOC_INPUTS, *prompt.DOC_METADATA,
-                    '.agents/rules.md', 'AGENTS.md', 'rules/specifications.md'}
-        self.assertEqual(set(requested), expected)
-        self.assertEqual(len(requested), len(expected), 'each requested path is looked up once')
-        self.assertNotIn(b'UNRELATED BLOB CANARY', pack)
-
-    def test_compiler_includes_registry_relevant_homes_provenance_and_exact_size(self):
-        pack, manifest = self.pack()
-        context = manifest["documentation"]
-        self.assertIn(b"# Complete registry", pack)
-        self.assertIn(b"Call capacity bounds documents in one native call.", pack)
-        self.assertIn(b"# Specification rules", pack)
-        self.assertIn("example.call-capacity", context["manifest"]["included"])
-        self.assertEqual(context["manifest"]["baseline"], self.revision)
-        self.assertEqual(context["size_bytes"], context["manifest"]["size_bytes"])
-        with prompt.Commit(self.rules, self.rule_revision) as source, prompt.Commit(self.repo, self.revision) as target:
-            selected = prompt.documentation_context(source, target, ASSIGNMENT)
-        self.assertEqual(len(selected["content"]), context["size_bytes"])
-        self.assertIn(f"({context['size_bytes']} UTF-8 bytes)".encode(), pack)
-        self.assertTrue(context["warnings"], "prose warnings accompany successful preparation")
-        self.assertEqual(manifest["pack"], prompt.fingerprint(pack))
-
-    def test_compiler_requires_assignment_and_both_metadata_files(self):
-        with self.assertRaisesRegex(prompt.PromptError, "explicit --assignment"):
-            self.pack(None)
-        (self.repo / "docs/ENTITIES.json").unlink()
-        self.revision = self.commit(self.repo)
-        with self.assertRaisesRegex(prompt.PromptError, "needs both"):
-            self.pack()
-
-    def test_unknown_sections_and_excessive_context_refuse_without_truncation(self):
-        with self.assertRaisesRegex(prompt.PromptError, "D06"):
-            self.pack({"version": 1, "sections": ["example-demo#absent"]})
-        with self.assertRaisesRegex(prompt.PromptError, "D25"):
-            self.pack({**ASSIGNMENT, "budget_bytes": 100})
-        pack, _ = self.pack()
-        self.assertIn(b"Call capacity bounds documents in one native call.", pack)
-
-    def test_complete_registry_does_not_recursively_expand_ordinary_home_links(self):
-        manifest_path = self.repo / "docs/DOCUMENTS.json"
-        manifest = json.loads(manifest_path.read_text())
-        manifest["documents"][0]["sections"][0]["explanatory_dependencies"] = []
-        manifest_path.write_text(json.dumps(manifest))
-        corpus = self.checker.load_corpus(self.checker.Snapshot.from_git(self.repo))
-        for path, data in self.checker.generate_navigation(corpus).items():
-            self.write(self.repo, path, data)
-        self.revision = self.commit(self.repo)
-        pack, context = self.pack()
-        selected = context["documentation"]["manifest"]
-        self.assertIn(b'"example.call-capacity"', pack, "the registry remains complete")
-        self.assertIn("example.log-group-limit", selected["included"])
-        self.assertNotIn("example.call-capacity", selected["included"])
-        self.assertNotIn("example-demo#settings", selected["included"])
-
-    def test_missing_home_refuses_before_publishing_any_pack(self):
-        (self.repo / "docs/example/settings.md").unlink()
-        self.revision = self.commit(self.repo)
-        output = self.root / "output"
-        result = subprocess.run([sys.executable, "-I", "-B", str(self.rules / "skills/pr-ready/scripts/prompt.py"),
-                                 "--repo", str(self.rules), "--rev", self.rule_revision, "--target", str(self.repo),
-                                 "--assignment", str(self.assignment_file), "--out", str(output)],
-                                stdin=None, input=b"", capture_output=True, timeout=5)
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn(b"D27", result.stderr)
-        self.assertEqual(result.stdout, b"")
-        self.assertFalse(output.exists())
-
-    def test_assignment_json_is_checked_without_losing_duplicate_fields(self):
-        for value in (b'{"version":1,"sections":[],"sections":["example-demo#acceptance"]}', b'{', b'null'):
-            with self.subTest(assignment=value), self.assertRaisesRegex(prompt.PromptError, "D02"):
-                self.pack(value)
-
-    def test_complete_pack_budget_counts_rules_tasks_and_unicode_bytes(self):
-        task = self.root / "task.txt"
-        task.write_text("Task: \N{SNOWMAN}" * 20)
-        pack, _ = self.pack(tasks=[(task, "task")])
-        with self.assertRaisesRegex(prompt.PromptError, "D25 complete pack"):
-            self.pack(tasks=[(task, "task")], budget_bytes=len(pack) - 1)
-        self.assertEqual(self.pack(tasks=[(task, "task")], budget_bytes=len(pack))[0], pack)
-
-    def test_commit_compiler_uses_pinned_helper_and_profile_after_live_edits(self):
-        baseline = self.pack()
-        for path in ("skills/spec-writing/scripts/spec_docs.py", "rules/writing.md"):
-            self.write(self.rules, path, "DIRTY HELPER CANARY")
-        self.write(self.repo, "docs/example/settings.md", "DIRTY HOME CANARY")
-        self.assertEqual(self.pack(), baseline)
-        self.commit(self.rules)
-        self.commit(self.repo)
-        self.assertEqual(self.pack(), baseline)
-
-    def test_missing_pinned_helper_fails_instead_of_importing_live_tool(self):
-        (self.rules / "skills/spec-writing/scripts/spec_docs.py").unlink()
-        self.rule_revision = self.commit(self.rules)
-        with self.assertRaisesRegex(prompt.PromptError, "missing file"):
-            self.pack()
-
-    def test_extracted_compiler_uses_matching_pinned_selector(self):
-        baseline = self.pack()[0]
-        extracted = self.root / "compiler.py"
-        shutil.copyfile(self.rules / "skills/pr-ready/scripts/prompt.py", extracted)
-        self.write(self.rules, "skills/spec-writing/scripts/spec_docs.py", "raise RuntimeError('LIVE CANARY')")
-        result = subprocess.run([sys.executable, "-I", "-B", str(extracted), "--repo", str(self.rules),
-                                 "--rev", self.rule_revision, "--target", str(self.repo),
-                                 "--target-rev", self.revision, "--assignment", str(self.assignment_file)],
-                                stdin=None, input=b"", capture_output=True, timeout=5)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout, baseline)
 
     def test_preparer_includes_mandatory_context_even_in_diff_mode(self):
         output = self.review()
@@ -371,6 +291,163 @@ class DocumentationContextTests(unittest.TestCase):
                 self.review()
         self.assertEqual(self.review(), baseline)
 
+
+class DocumentationSnapshotTests(DocumentationFixture, unittest.TestCase):
+    def test_compiler_never_acquires_unrelated_binary_blobs(self):
+        self.write(self.repo, 'asset.bin', b'UNRELATED BLOB CANARY')
+        self.revision = self.commit(self.repo)
+        with patch.object(subprocess, 'run', wraps=subprocess.run) as run:
+            pack, _ = self.pack()
+        asset_oid = self.git(self.repo, 'rev-parse', 'HEAD:asset.bin').encode()
+        batches = [call.kwargs.get('input', b'') for call in run.call_args_list if 'cat-file' in call.args[0]]
+        self.assertTrue(batches)
+        self.assertFalse(any(asset_oid in batch for batch in batches))
+        lookups = [call.args[0] for call in run.call_args_list if 'ls-tree' in call.args[0] and '-rz' not in call.args[0]]
+        requested = [call[-1].removeprefix(':(literal)') for call in lookups]
+        expected = {prompt.COMPILER, *prompt.DOC_INPUTS, *prompt.DOC_METADATA,
+                    '.agents/rules.md', 'AGENTS.md', 'rules/specifications.md'}
+        self.assertEqual(set(requested), expected)
+        self.assertEqual(len(requested), len(expected), 'each requested path is looked up once')
+        self.assertNotIn(b'UNRELATED BLOB CANARY', pack)
+
+
+    def test_commit_compiler_uses_pinned_helper_and_profile_after_live_edits(self):
+        baseline = self.pack()
+        for path in ("skills/spec-writing/scripts/spec_docs.py", "rules/writing.md"):
+            self.write(self.rules, path, "DIRTY HELPER CANARY")
+        self.write(self.repo, "docs/example/settings.md", "DIRTY HOME CANARY")
+        self.assertEqual(self.pack(), baseline)
+        self.commit(self.rules)
+        self.commit(self.repo)
+        self.assertEqual(self.pack(), baseline)
+
+    def test_missing_pinned_helper_fails_instead_of_importing_live_tool(self):
+        (self.rules / "skills/spec-writing/scripts/spec_docs.py").unlink()
+        self.rule_revision = self.commit(self.rules)
+        with self.assertRaisesRegex(prompt.PromptError, "missing file"):
+            self.pack()
+
+    def test_extracted_compiler_uses_matching_pinned_selector(self):
+        baseline = self.pack()[0]
+        extracted = self.root / "compiler.py"
+        shutil.copyfile(self.rules / "skills/pr-ready/scripts/prompt.py", extracted)
+        self.write(self.rules, "skills/spec-writing/scripts/spec_docs.py", "raise RuntimeError('LIVE CANARY')")
+        result = subprocess.run([sys.executable, "-I", "-B", str(extracted), "--repo", str(self.rules),
+                                 "--rev", self.rule_revision, "--target", str(self.repo),
+                                 "--target-rev", self.revision, "--assignment", str(self.assignment_file)],
+                                stdin=None, input=b"", capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, baseline)
+
+
+class DocumentationContextTests(DocumentationFixture, unittest.TestCase):
+    def test_credential_bearing_documentation_refuses_before_publication(self):
+        for location in ('source', 'metadata'):
+            with self.subTest(location=location):
+                # Synthetic URL values only; build them at runtime so no credential is stored.
+                url = 'https://example.invalid/?' + 'api_key=' + 'synthetic-canary'
+                path = self.repo / ('docs/example/acceptance.md' if location == 'source' else 'docs/DOCUMENTS.json')
+                original = path.read_bytes()
+                if location == 'source':
+                    path.write_bytes(original + f'\n[External reference]({url})\n'.encode())
+                else:
+                    value = json.loads(original)
+                    value['documents'][0]['purpose'] += ' ' + url
+                    path.write_text(json.dumps(value))
+                c = self.checker.load_corpus(self.checker.Snapshot.from_git(self.repo))
+                for output, data in self.checker.generate_navigation(c).items():
+                    self.write(self.repo, output, data)
+                self.revision = self.commit(self.repo)
+                with self.assertRaisesRegex(prompt.PromptError, 'credential') as caught:
+                    self.pack()
+                self.assertNotIn('synthetic-canary', str(caught.exception))
+                output = self.root / ('refused-' + location)
+                result = subprocess.run([sys.executable, '-I', '-B', str(self.rules / 'skills/pr-ready/scripts/prompt.py'),
+                    '--repo', str(self.rules), '--rev', self.rule_revision, '--target', str(self.repo),
+                    '--assignment', str(self.assignment_file), '--out', str(output)],
+                    stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+                self.assertEqual(result.returncode, 2)
+                self.assertEqual(result.stdout, b'')
+                self.assertNotIn(b'synthetic-canary', result.stderr)
+                self.assertFalse(output.exists())
+                path.write_bytes(original)
+                self.revision = self.commit(self.repo)
+
+
+    def test_compiler_includes_registry_relevant_homes_provenance_and_exact_size(self):
+        pack, manifest = self.pack()
+        context = manifest["documentation"]
+        self.assertIn(b"# Complete registry", pack)
+        self.assertIn(b"Call capacity bounds documents in one native call.", pack)
+        self.assertIn(b"# Specification rules", pack)
+        self.assertIn("example.call-capacity", context["manifest"]["included"])
+        self.assertEqual(context["manifest"]["baseline"], self.revision)
+        self.assertEqual(context["size_bytes"], context["manifest"]["size_bytes"])
+        with prompt.Commit(self.rules, self.rule_revision) as source, prompt.Commit(self.repo, self.revision) as target:
+            selected = prompt.documentation_context(source, target, ASSIGNMENT)
+        self.assertEqual(len(selected["content"]), context["size_bytes"])
+        self.assertIn(f"({context['size_bytes']} UTF-8 bytes)".encode(), pack)
+        self.assertTrue(context["warnings"], "prose warnings accompany successful preparation")
+        self.assertEqual(manifest["pack"], prompt.fingerprint(pack))
+
+    def test_compiler_requires_assignment_and_both_metadata_files(self):
+        with self.assertRaisesRegex(prompt.PromptError, "explicit --assignment"):
+            self.pack(None)
+        (self.repo / "docs/ENTITIES.json").unlink()
+        self.revision = self.commit(self.repo)
+        with self.assertRaisesRegex(prompt.PromptError, "needs both"):
+            self.pack()
+
+    def test_unknown_sections_and_excessive_context_refuse_without_truncation(self):
+        with self.assertRaisesRegex(prompt.PromptError, "D06"):
+            self.pack({"version": 1, "sections": ["example-demo#absent"]})
+        with self.assertRaisesRegex(prompt.PromptError, "D25"):
+            self.pack({**ASSIGNMENT, "budget_bytes": 100})
+        pack, _ = self.pack()
+        self.assertIn(b"Call capacity bounds documents in one native call.", pack)
+
+    def test_complete_registry_does_not_recursively_expand_ordinary_home_links(self):
+        manifest_path = self.repo / "docs/DOCUMENTS.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["documents"][0]["sections"][0]["explanatory_dependencies"] = []
+        manifest_path.write_text(json.dumps(manifest))
+        corpus = self.checker.load_corpus(self.checker.Snapshot.from_git(self.repo))
+        for path, data in self.checker.generate_navigation(corpus).items():
+            self.write(self.repo, path, data)
+        self.revision = self.commit(self.repo)
+        pack, context = self.pack()
+        selected = context["documentation"]["manifest"]
+        self.assertIn(b'"example.call-capacity"', pack, "the registry remains complete")
+        self.assertIn("example.log-group-limit", selected["included"])
+        self.assertNotIn("example.call-capacity", selected["included"])
+        self.assertNotIn("example-demo#settings", selected["included"])
+
+    def test_missing_home_refuses_before_publishing_any_pack(self):
+        (self.repo / "docs/example/settings.md").unlink()
+        self.revision = self.commit(self.repo)
+        output = self.root / "output"
+        result = subprocess.run([sys.executable, "-I", "-B", str(self.rules / "skills/pr-ready/scripts/prompt.py"),
+                                 "--repo", str(self.rules), "--rev", self.rule_revision, "--target", str(self.repo),
+                                 "--assignment", str(self.assignment_file), "--out", str(output)],
+                                stdin=None, input=b"", capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn(b"D27", result.stderr)
+        self.assertEqual(result.stdout, b"")
+        self.assertFalse(output.exists())
+
+    def test_assignment_json_is_checked_without_losing_duplicate_fields(self):
+        for value in (b'{"version":1,"sections":[],"sections":["example-demo#acceptance"]}', b'{', b'null'):
+            with self.subTest(assignment=value), self.assertRaisesRegex(prompt.PromptError, "D02"):
+                self.pack(value)
+
+    def test_complete_pack_budget_counts_rules_tasks_and_unicode_bytes(self):
+        task = self.root / "task.txt"
+        task.write_text("Task: \N{SNOWMAN}" * 20)
+        pack, _ = self.pack(tasks=[(task, "task")])
+        with self.assertRaisesRegex(prompt.PromptError, "D25 complete pack"):
+            self.pack(tasks=[(task, "task")], budget_bytes=len(pack) - 1)
+        self.assertEqual(self.pack(tasks=[(task, "task")], budget_bytes=len(pack))[0], pack)
+
     def test_panel_prepares_registered_context_once_and_stops_missing_assignment_before_dispatch(self):
         for folder in ("prompts", "rules"):
             shutil.copytree(ROOT / folder, self.rules / folder, dirs_exist_ok=True)
@@ -424,6 +501,8 @@ class DocumentationContextTests(unittest.TestCase):
         pack, manifest = self.pack(None)
         self.assertNotIn("documentation", manifest)
         self.assertNotIn(b"# Complete registry", pack)
+
+
 
 
 if __name__ == "__main__":
