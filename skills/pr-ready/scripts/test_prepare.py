@@ -525,7 +525,8 @@ pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n
 """)
         result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "no-user-config",
                                  str(self.repo), str(summary), "generalist-a"],
-                                capture_output=True, text=True, timeout=30, env=env)
+                                capture_output=True, text=True, timeout=30, env=env,
+                                stdin=subprocess.DEVNULL)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         args = json.loads(argv.read_text())
         self.assertIn("--ignore-user-config", args)
