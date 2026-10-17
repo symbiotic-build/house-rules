@@ -140,8 +140,8 @@ with cargo". The rule:
 - Builds and agents run at normal priority; no nice, renice or background classes.
 - Review panels and other read-only agents do not take the queue. Reviewer tools start
   without the user's tool configuration, on a checkout without build output.
-- An agent that finds the machine overloaded starts nothing new, stops only its own jobs
-  outside the queue and reports once.
+- An agent that finds the machine overloaded starts no new build or test, stops only its
+  own build and test commands that bypass the queue, and reports once.
 - Waits for another job use a process ID or a done file with a deadline, never a
   `pgrep -f` pattern the waiter's own command line contains.
 

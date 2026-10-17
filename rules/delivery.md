@@ -69,7 +69,7 @@
 - Start reviewer command-line tools without the user's own tool configuration, so a reviewer starts no MCP server, plugin or hook. Reviewers need only read access.
 - Point reviewers at a checkout without build output. A reviewer that searches a build tree loads the machine and finds nothing.
 - When the one-minute load average exceeds the online core count, start no new build or test command until it falls below that count.
-- At once stop your own jobs that run outside the queue, and rerun them through it after the load falls.
+- During that overload, at once stop your own build and test commands that bypass the queue, and rerun them through it after the load falls. Read-only reviewers keep running.
 - Report the load, the core count and the heaviest processes with their working directories to the operator once.
 - Wait for a job your shell did not start by its process ID or by a file the job writes when it ends. Give that wait a deadline, and fail visibly when it passes.
 - Never wait with `pgrep -f` on a pattern that your own command line contains. The pattern matches the waiting shell itself, so the wait never ends.
