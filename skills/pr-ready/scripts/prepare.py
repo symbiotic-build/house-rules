@@ -399,7 +399,8 @@ def display(text):
 def run(repo, *args, input=None):
     result = subprocess.run(args, cwd=repo, env=noninteractive_env(),
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            **({"input": input.encode("utf-8")} if input is not None else {"stdin": subprocess.DEVNULL}))
+                            stdin=None if input is not None else subprocess.DEVNULL,
+                            input=input.encode("utf-8") if input is not None else None)
     # Decode bytes ourselves: text mode also rewrites CR/LF inside NUL-delimited paths.
     result.stdout = result.stdout.decode("utf-8", errors="surrogateescape")
     result.stderr = redact(result.stderr.decode("utf-8", errors="surrogateescape"))
