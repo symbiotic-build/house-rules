@@ -81,8 +81,9 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   percent-encoded in links; NUL bytes are displayed as escapes. Size checks measure the
   final displayed prompt, including its terminating newline. The panel measures the pinned
   role, lens and target rules with the extracted compiler before context preparation.
-  Context preparation reserves that character count and the task separator in its existing
-  budget. The panel checks the complete compiled prompt again before dispatch.
+  Context preparation reserves the largest compiled character count and task separator
+  among selected reviewers in each family. The panel retains these compilations in memory
+  until it appends context. The panel checks each complete compiled prompt before dispatch.
   Codex prompts over 800,000 characters fall back to pack for the change, then trim comments,
   issue bodies and legacy spec documents in that order (largest first within each source type).
   Notices identify every trim. If the prompt still exceeds the limit after all trim
@@ -96,6 +97,9 @@ Repositories with `docs/ENTITIES.json` and `docs/DOCUMENTS.json` use the shared
 Supply `--assignment FILE` to `prompt.py` pack mode, `prepare.py review`, or
 `review-panel.sh`. The file uses the format contract's versioned assignment schema and
 explicit section selectors. A repository with only one metadata file fails preparation.
+For separate reviewer calls, pass the same complete `--reviewers LENS...` list to
+`prompt.py` and `prepare.py review`. Both use the panel's reviewer-plan format for
+documentation context. Without this option, each call plans only its selected reviewer.
 Missing assignments fail in `prompt.py` pack mode, including writer and reader packs.
 Without an assignment, `prepare.py review` uses the shared checker's source comparison
 to assign every head-registered section changed since the range's merge base.

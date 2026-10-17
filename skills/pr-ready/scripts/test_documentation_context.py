@@ -121,6 +121,45 @@ class DocumentationFixture:
 
 
 class DocumentationReviewTests(DocumentationFixture, unittest.TestCase):
+    def test_registered_documentation_uses_round_plan_before_each_final_lens(self):
+        for folder in ("prompts", "rules"):
+            shutil.copytree(ROOT / folder, self.rules / folder, dirs_exist_ok=True)
+        self.write(self.rules, "skills/pr-ready/scripts/review-panel.lenses",
+                   (ROOT / "skills/pr-ready/scripts/review-panel.lenses").read_bytes())
+        self.rule_revision = self.commit(self.rules)
+        task = self.root / "context.txt"
+        lenses = ("generalist-a", "design-spec")
+        compiler = self.rules / "skills/pr-ready/scripts/prompt.py"
+        preparer = self.rules / "skills/pr-ready/scripts/prepare.py"
+        environment = dict(os.environ, REVIEW_PYTHON=sys.executable)
+        for assembly in ("one-call", "standalone"):
+            with self.subTest(assembly=assembly):
+                packs = []
+                for lens in lenses:
+                    command = [sys.executable, "-B", str(preparer), "review", str(self.repo),
+                               "--base", self.revision, "--no-fetch", "--lens", lens,
+                               "--reviewers", *lenses]
+                    if assembly == "one-call":
+                        # The service appends this context to its compiled pack.
+                        task.write_text("Shared review context.\n\n# 7. Lens instructions\n")
+                        command = [sys.executable, "-B", str(compiler), "--repo", str(self.rules),
+                                   "--rev", self.rule_revision, "--role", "reviewer", "--lens", lens,
+                                   "--target", str(self.repo), "--target-base", self.revision,
+                                   "--assignment", str(self.assignment_file), "--task", str(task),
+                                   "--reviewers", *lenses]
+                    else:
+                        command += ["--assignment", str(self.assignment_file)]
+                    result = subprocess.run(command, env=environment, capture_output=True,
+                                            timeout=10, stdin=subprocess.DEVNULL)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    packs.append(result.stdout.split(b"# 7. Lens instructions\n", 1))
+                self.assertEqual([len(parts) for parts in packs], [2, 2])
+                self.assertEqual(packs[0][0], packs[1][0])
+                self.assertNotEqual(packs[0][1], packs[1][1])
+                self.assertIn(b"# Complete registry", packs[0][0])
+                self.assertIn(b'"id": "generalist-a"', packs[0][0])
+                self.assertIn(b'"id": "design-spec"', packs[0][0])
+
     def test_relative_assignment_uses_callers_directory(self):
         # A conflicting target file must not replace the caller's assignment.
         (self.repo / 'assignment.json').write_text('{}')

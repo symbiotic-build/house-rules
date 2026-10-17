@@ -361,6 +361,10 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
     expansion = Expansion(source, omit_shared_rules)
     parts = [f"House Rules revision: {source.revision}\n".encode()]
     lens_index = None
+    if plan is None and role == "reviewer":
+        plan = review_plan([lens or "generalist-a"])
+    context = (documentation_context(source, target, assignment, base=target_base, plan=plan)
+               if target is not None else None)
     requested = []
     for kind, name in (("role", role), ("lens", lens)):
         if name is not None:
@@ -368,6 +372,9 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
                 raise PromptError("invalid " + kind + " name: " + name)
             folder = "roles" if kind == "role" else "lenses"
             requested.append((kind, f"prompts/{folder}/{name}.md"))
+    if context is not None:
+        # Mandatory shared rules own their includes before any lens can.
+        requested.insert(1 if role is not None else 0, ("include", "rules/specifications.md"))
     requested.extend(("include", path) for path in includes)
     for kind, path in requested:
         expansion.part = len(manifest["parts"]) + 1
@@ -381,14 +388,7 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
         data, manifest["target"] = target_rules(target)
         parts.append(data)
         manifest["parts"].append({"kind": "target"})
-        if plan is None and role == "reviewer":
-            plan = review_plan([lens or "generalist-a"])
-        context = documentation_context(source, target, assignment, base=target_base, plan=plan)
         if context is not None:
-            rule = "rules/specifications.md"
-            if rule not in expansion.seen:
-                parts.append(expansion.visit(rule).encode("utf-8"))
-                manifest["parts"].append({"kind": "include", "path": rule})
             parts.append(documentation_part(context))
             manifest["documentation"] = {k: v for k, v in context.items() if k != "content"}
             manifest["parts"].append({"kind": "documentation"})
@@ -501,7 +501,8 @@ def preparer_context(request):
         assignment = Path(request["assignment"]).read_bytes() if request["assignment"] else None
         with Commit(request["repo"], request["head"]) as target:
             selected = documentation_context(WorkingTree(ROOT), target, assignment, base=request["base"],
-                                             plan=review_plan([request["lens"]]), derive_assignment=request.get("derive", False))
+                                             plan=review_plan(request.get("reviewers") or [request["lens"]]),
+                                             derive_assignment=request.get("derive", False))
         if selected is not None:
             context = documentation_part(selected).decode("utf-8")
             sections = selected["manifest"]["assignment"]["sections"]
@@ -517,6 +518,7 @@ def main(argv=None):
     for option in ("rev", "repo", "role", "lens", "target", "target-rev", "target-base", "out", "manifest", "assignment"):
         parser.add_argument("--" + option)
     parser.add_argument("--budget-bytes", type=int)
+    parser.add_argument("--reviewers", nargs="+", help="complete round reviewer list for shared documentation context")
     parser.add_argument("--include", action="append", default=[])
     parser.add_argument("--task", dest="tasks", action=TaskOption)
     parser.add_argument("--task-source", dest="tasks", action=TaskOption)
@@ -539,7 +541,7 @@ def main(argv=None):
                 raise PromptError("--" + option.replace("_", "-") + " must not be empty")
         pack_mode = bool(args.role is not None or args.lens is not None or args.include or args.tasks or
                          args.target is not None or args.no_target or args.out is not None or
-                         args.assignment is not None or args.budget_bytes is not None)
+                         args.assignment is not None or args.budget_bytes is not None or args.reviewers is not None)
         if (pack_mode or args.manifest is not None or args.target_rev is not None or args.repo is not None) and args.rev is None:
             raise PromptError("--rev is required for pack mode and manifest output")
         if args.out is not None and args.manifest is not None:
@@ -561,7 +563,8 @@ def main(argv=None):
                 output, manifest = build_pack(source, role=args.role, lens=args.lens, includes=args.include,
                                               tasks=args.tasks or (), target=target, omit_shared_rules=args.session,
                                               assignment=Path(args.assignment).read_bytes() if args.assignment else None,
-                                              budget_bytes=args.budget_bytes, target_base=args.target_base)
+                                              budget_bytes=args.budget_bytes, target_base=args.target_base,
+                                              plan=review_plan(args.reviewers) if args.reviewers else None)
                 used = [e["path"] for e in manifest["files"]]
             else:
                 compiler = source.compiler() if args.rev is not None else None

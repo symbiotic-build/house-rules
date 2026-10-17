@@ -69,6 +69,9 @@ prefix before the lens. The same order applies when the panel appends context to
 in-memory compilation. Lens spans are transient; the manifest schema does not change.
 The manifest records the resulting part order and hashes the unchanged task bytes and
 the complete reordered pack. Pack and diff context retain the default assembly order.
+When compiling reviewers separately, pass the same complete `--reviewers LENS...` list
+to each call so registered documentation uses one shared round plan. Mandatory
+specification rules expand before the lens, which keeps them in the shared prefix.
 
 Pack mode requires `--rev` and exactly one of `--target` or `--no-target`.
 Role and lens names match `[a-z0-9-]+`. `--target-rev` defaults to the target's

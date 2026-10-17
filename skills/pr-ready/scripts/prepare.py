@@ -696,6 +696,8 @@ def file_diff(repo, rng, path, mode, budget):
     """Bound every read, including a single enormous source line."""
     command = ["git"]
     if mode == "moved":
+        command.extend(["-c", "diff.suppressBlankEmpty=false", "-c", "diff.noprefix=false",
+                        "-c", "diff.mnemonicPrefix=false"])
         # Fixed colors identify Git's native moved blocks, independent of user config.
         for name, color in (("oldMoved", "blue"), ("newMoved", "cyan"),
                             ("oldMovedAlternative", "magenta"), ("newMovedAlternative", "yellow")):
@@ -967,6 +969,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         # imports a sibling, and context-only legacy preparation needs none.
         # Without an explicit assignment, review derives one from changes since the merge base.
         request = dict(repo=str(repo), head=head, base=base, lens=lens, full=not context_only,
+                       reviewers=getattr(args, "reviewers", None),
                        documentation=bool(needs_documentation), derive=not assignment_path,
                        assignment=str(Path(assignment_path).resolve()) if assignment_path else None)
         compiled = run(repo, sys.executable, "-I", "-B", str(HERE / "prompt.py"),
@@ -1114,6 +1117,7 @@ def main(argv=None, *, documentation_prepared=False):
             p.add_argument("--context-only", action="store_true", help="emit task context for the commit-built pack compiler")
             p.add_argument("--compiled-chars", type=int, default=0, help="characters reserved for compiled parts and task separator")
             p.add_argument("--assignment", type=Path, help="explicit shared-checker documentation assignment JSON")
+            p.add_argument("--reviewers", nargs="+", help="complete round reviewer list for shared documentation context")
             for option in ("pr", "spec", "tests", "lens", "summary"):
                 p.add_argument("--" + option)
             p.add_argument("--issue", action="append", default=[])

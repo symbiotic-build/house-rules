@@ -819,6 +819,55 @@ else:
 
 
 class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
+    def test_panel_different_length_lenses_share_context_at_fallback_threshold(self):
+        self.write(self.repo, "large.py", "payload = '" + "x" * 550_000 + "'\n")
+        self.commit(self.repo, "Add large source")
+        summary, output, env = self.panel_fixture()
+        source = self.root / "panel-source"
+        self.write(source, "prompts/lenses/generalist-a.md", "Long lens\n" + "L" * 300_000 + "\n")
+        self.commit(source, "Select a much longer lens")
+        env.update(REVIEW_BASE="origin/trunk", REVIEW_PYTHON=sys.executable,
+                   REVIEW_HOUSE_RULES_REV=self.git(source, "rev-parse", "HEAD"))
+        (self.binaries / "codex").write_text(
+            "#!" + sys.executable + "\nimport pathlib, sys\n"
+            "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n')\n")
+        lenses = ("generalist-a", "correctness-security")
+        result = subprocess.run(
+            ["bash", str(SCRIPT.with_name("review-panel.sh")), "threshold", str(self.repo),
+             str(summary), *lenses], capture_output=True, env=env, timeout=20, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        prefixes = [(output / "threshold" / (lens + ".pack/pack.txt")).read_bytes().split(
+            b"# 7. Lens instructions\n", 1)[0] for lens in lenses]
+        self.assertEqual(prefixes[0], prefixes[1])
+        self.assertIn(b"change part uses pack (hunk headers)", prefixes[0])
+
+    def test_compiled_change_numbers_ignore_callers_blank_context_format(self):
+        original = "first = 1\n\nsecond = 2\n\nresult = 1\n"
+        self.write(self.repo, "src/core.py", original)
+        self.commit(self.repo, "Establish blank context rows")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        self.write(self.repo, "src/core.py", original.replace("result = 1", "result = 2"))
+        self.commit(self.repo, "Change after blank context")
+        self.panel_source()
+        source = self.root / "panel-source"
+        for key, value in (("diff.suppressBlankEmpty", "true"), ("diff.noprefix", "true"),
+                           ("diff.mnemonicPrefix", "true"), ("color.diff", "always")):
+            self.git(self.repo, "config", key, value)
+        task = self.root / "context.txt"
+        result = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), "review", str(self.repo), "--context-only",
+             "--base", "origin/trunk", "--no-fetch"], capture_output=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        task.write_bytes(result.stdout)
+        result = subprocess.run(
+            [sys.executable, "-B", str(source / "skills/pr-ready/scripts/prompt.py"), "--repo", str(source),
+             "--rev", "HEAD", "--role", "reviewer", "--lens", "generalist-a", "--target", str(self.repo),
+             "--task", str(task)], capture_output=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        change = result.stdout.split(b"# 5. Change\n", 1)[1].split(b"# 6. Changed source files", 1)[0]
+        self.assertEqual(re.findall(rb"(?m)^ *\d+[-+].*$", change),
+                         [b"    5- result = 1", b"    5+"])
+
     def test_compiled_structured_reviews_share_context_before_final_lenses(self):
         self.write(self.repo, "src/core.py", "def action():\n    return 2\n")
         self.commit(self.repo, "Update action")
