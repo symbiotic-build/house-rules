@@ -185,7 +185,8 @@ PY
     logs=$out/$r.attempt-$attempt
     cli_status=0
     case $cli in
-      codex) codex exec --json --skip-git-repo-check -m "$model" -c model_reasoning_effort="${effort:-high}" \
+      # The user's Codex configuration would start its MCP servers, plugins and hooks in every reviewer.
+      codex) codex exec --json --skip-git-repo-check --ignore-user-config --disable shell_snapshot -m "$model" -c model_reasoning_effort="${effort:-high}" \
                ${tier:+-c service_tier="\"$tier\""} -s "$sandbox" -C "$dir" -o "$logs.md" - < "$prompt" \
                > "$logs.jsonl" 2> "$logs.err" || cli_status=$? ;;
       # Grok has no read-only sandbox that starts on every host, so the reviewer gets only read tools:

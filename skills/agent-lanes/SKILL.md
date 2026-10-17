@@ -1,6 +1,6 @@
 ---
 name: agent-lanes
-description: Parallel multi-agent orchestration — lane ownership, non-colliding file sets, worktrees, build output inside worktrees, lane cleanup, GPU serialization, subagent git limits, cross-repo etiquette. Use when fanning out subagents, workflows, teammates, or background jobs.
+description: Parallel multi-agent orchestration — lane ownership, non-colliding file sets, worktrees, build output inside worktrees, lane cleanup, the shared-machine build queue, GPU serialization, subagent git limits, cross-repo etiquette. Use when fanning out subagents, workflows, teammates, or background jobs, and before builds or test suites on a shared machine.
 license: MIT
 ---
 
@@ -45,6 +45,71 @@ explicit goals.
   measured-run concurrency: [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work)).
 - Builds and targeted tests follow `rust-canon` §Code rules and use the lane's own target
   directory, never a shared tree where a paused run may depend on the existing binary.
+
+## Shared machine
+
+Commands for the build-queue rules in
+[rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work). The queue is
+machine-local: the machine's build kit installs wrappers named `cargo`, `cmake`, `make`, `ninja`
+and `ctest` ahead of the real tools on `PATH`, plus `build-queue` for anything else. All of
+them share one lock and one budget, with hold limits for hung commands. Record the kit in the
+machine's capability index (`custom/INDEX.md`, from [CUSTOM-INDEX.example.md](../../CUSTOM-INDEX.example.md)).
+
+```bash
+cargo test -p intake                      # queued automatically
+cmake --build build --target all          # queued; --parallel above the budget is lowered
+build-queue ./build/bin/collection_test   # a test binary or script: queue it by name
+command -v cmake                          # check: the wrapper, not the real tool
+```
+
+- Queue each heavy command on its own. Never queue a shell, an editor, a watcher or a whole
+  script of edits and waits.
+- Call the tools by name. An absolute path such as `/opt/homebrew/bin/cmake` skips the queue.
+- A tool started inside a queued command skips the queue, so a build script that runs cmake
+  does not deadlock.
+- On a machine without the kit, stop and tell the operator; do not start parallel builds.
+- Review from a detached worktree at the reviewed head, so no build output sits beside the
+  code: `git worktree add --detach <lane folder>/review <head>`.
+  Remove it with the lane (§Lane cleanup).
+- `skills/pr-ready/scripts/review-panel.sh` starts Codex reviewers with
+  `--ignore-user-config --disable shell_snapshot`, so each reviewer is one process instead of
+  the user's MCP servers, plugins and hooks.
+
+**Overloaded machine.** Check the load before a heavy job and whenever commands slow down,
+and apply the overload rules with these commands.
+
+```bash
+getconf _NPROCESSORS_ONLN                         # online cores
+sysctl -n vm.loadavg                              # macOS; Linux: cat /proc/loadavg
+ps -Ao pid,ppid,pcpu,etime,command -r | head -20  # macOS; Linux: ps -eo pid,ppid,pcpu,etime,args --sort=-pcpu
+lsof -a -d cwd -p <pid>                           # working directory: which lane owns it
+```
+
+In the report, mark which of the heaviest processes are yours.
+
+**Waiting for another job.** Wait on its process ID or on a file it writes when it ends,
+with a deadline, and fail when the deadline passes. A `pgrep -f` pattern also matches the
+waiting shell's own command line. Use one of these two waits.
+
+By process ID:
+
+```bash
+deadline=$(( $(date +%s) + 3600 ))
+while kill -0 "$pid" 2>/dev/null; do
+  [ "$(date +%s)" -lt "$deadline" ] || { echo "timeout: $pid still running" >&2; exit 1; }
+  sleep 10
+done
+```
+
+By the file the job writes when it ends:
+
+```bash
+deadline=$(( $(date +%s) + 3600 ))
+until [ -e "$done_file" ]; do
+  [ "$(date +%s)" -lt "$deadline" ] || { echo "timeout: no $done_file" >&2; exit 1; }
+  sleep 10
+done
+```
 
 ## Lane cleanup
 

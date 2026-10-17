@@ -513,6 +513,25 @@ class PanelExecutionTests(PrepareFixture, unittest.TestCase):
         notice = next(line for line in prompt.splitlines() if line.startswith("Size guard:"))
         self.assertIn("generalist-a: " + notice, (output / "round" / "summary.txt").read_text())
 
+    def test_codex_reviewers_ignore_user_configuration(self):
+        """User Codex configuration starts MCP servers, plugins and hooks in every reviewer."""
+        summary, output, env = self.panel_fixture()
+        env["REVIEW_BASE"] = "origin/trunk"
+        argv = self.root / "codex-argv.json"
+        (self.binaries / "codex").write_text("#!" + sys.executable + "\n" + f"""import json, pathlib, sys
+pathlib.Path({str(argv)!r}).write_text(json.dumps(sys.argv[1:]))
+sys.stdin.read()
+pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n')
+""")
+        result = subprocess.run(["bash", str(SCRIPT.with_name("review-panel.sh")), "no-user-config",
+                                 str(self.repo), str(summary), "generalist-a"],
+                                capture_output=True, text=True, timeout=30, env=env,
+                                stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        args = json.loads(argv.read_text())
+        self.assertIn("--ignore-user-config", args)
+        self.assertEqual(args[args.index("--disable") + 1], "shell_snapshot")
+
     def test_panel_reviewer_cli_failure_returns_nonzero(self):
         summary, output, env = self.panel_fixture()
         env["REVIEW_BASE"] = "origin/trunk"

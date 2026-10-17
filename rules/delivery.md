@@ -59,13 +59,27 @@
 - Record the machine load with each run.
 - Mark a run taken under overlap with another benchmark, measured run, build or test suite invalid, and rerun it.
 - The one exception: contention is the declared study and resource policy permits it.
+- On a shared machine, every build and test command goes through the machine's one build queue, shared by cargo and every other build tool: one such command at a time.
+  A shared machine runs several agents at once, or a person uses it while agents work.
+  The queue covers cargo, cmake builds, make, ninja, ctest, benchmarks, and test binaries or scripts run on their own.
+- The queue gives each command the build budget as its thread limit: total cores minus efficiency cores minus 2, unless the operator sets another budget.
+- Builds and agents run at normal priority. Never use nice, renice or background quality-of-service classes.
+- Queue one command at a time. Never hold the queue while you edit, read output or wait for CI, a review or the operator.
+- Review panels and other read-only agents do not take the build queue.
+- Start reviewer command-line tools without the user's own tool configuration, so a reviewer starts no MCP server, plugin or hook. Reviewers need only read access.
+- Point reviewers at a checkout without build output. A reviewer that searches a build tree loads the machine and finds nothing.
+- When the one-minute load average exceeds the online core count, start no new build or test command until it falls below that count.
+- During that overload, at once stop your own build and test commands that bypass the queue, and rerun them through it after the load falls. Read-only reviewers keep running.
+- Report the load, the core count and the heaviest processes with their working directories to the operator once.
+- Wait for a job your shell did not start by its process ID or by a file the job writes when it ends. Give that wait a deadline, and fail visibly when it passes.
+- Never wait with `pgrep -f` on a pattern that your own command line contains. The pattern matches the waiting shell itself, so the wait never ends.
 - Bound memory-heavy concurrency by verified host capacity and the approved resource envelope.
 - Declare every touched repository in the work item.
 - Flag shared kit or application programming interface impacts on other consumers in the handoff.
 - Require one adversarial verification pass per deliverable.
 - Count CI review, including Warden, as that pass when it covers the deliverable.
 - Do not add a separate local pass when CI covers the deliverable.
-- Follow `agent-lanes` for mechanics.
+- Follow `agent-lanes` for mechanics, and `agent-lanes` §Shared machine for the build queue commands.
 
 ## Work tracking & continuity
 
