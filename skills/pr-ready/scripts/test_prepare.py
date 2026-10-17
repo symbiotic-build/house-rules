@@ -838,6 +838,70 @@ else:
 
 
 class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
+    def test_panel_reuses_family_context_when_comments_change_between_preparations(self):
+        self.write(self.repo, "src/core.py", "result = 2\n")
+        self.commit(self.repo, "Change result")
+        summary, output, env = self.panel_fixture()
+        self.github(self.pr("Review requirements"), pr_comments=[self.comment(1)])
+        stub = self.binaries / "gh"
+        stub.write_text(stub.read_text().replace(
+            "value = fixtures[key]",
+            "value = fixtures[key]\n"
+            "if 'issues/1/comments?' in key:\n"
+            "    calls = pathlib.Path(os.environ['GH_TEST_LOG']).read_text().splitlines()\n"
+            "    if sum('issues/1/comments?' in call for call in calls) > 1:\n"
+            "        value = [[" + repr(self.comment(2, body="New requirement during preparation")) + "]]"))
+        env.update(REVIEW_BASE="origin/trunk", REVIEW_PYTHON=sys.executable)
+        (self.binaries / "codex").write_text(
+            "#!" + sys.executable + "\nimport pathlib, sys\n"
+            "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n')\n")
+        lenses = ("generalist-a", "correctness-security")
+        result = subprocess.run(
+            ["bash", str(SCRIPT.with_name("review-panel.sh")), "comments", str(self.repo),
+             str(summary), *lenses], capture_output=True, env=env, timeout=20, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        prefixes = [(output / "comments" / (lens + ".pack/pack.txt")).read_bytes().split(
+            b"# 7. Lens instructions\n", 1)[0] for lens in lenses]
+        self.assertIn(b"Comment body 1", prefixes[0])
+        self.assertEqual(prefixes[0], prefixes[1])
+
+    def test_standalone_reviewers_share_reservation_at_fallback_threshold(self):
+        self.write(self.repo, "large.py", "payload = '" + "x" * 550_000 + "'\n")
+        self.commit(self.repo, "Add large source")
+        self.panel_source()
+        source = self.root / "panel-source"
+        self.write(source, "prompts/lenses/generalist-a.md", "Long lens\n" + "L" * 300_000 + "\n")
+        self.write(source, "skills/pr-ready/scripts/review-panel.lenses",
+                   SCRIPT.with_name("review-panel.lenses").read_text())
+        lenses = ("generalist-a", "correctness-security")
+        prefixes = []
+        for lens in lenses:
+            result = subprocess.run(
+                [sys.executable, "-B", str(source / "skills/pr-ready/scripts/prepare.py"),
+                 "review", str(self.repo), "--base", "origin/trunk", "--no-fetch",
+                 "--lens", lens, "--reviewers", *lenses], capture_output=True, timeout=10,
+                stdin=subprocess.DEVNULL)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            prefixes.append(result.stdout.split(b"# 7. Lens instructions\n", 1)[0])
+        self.assertIn(b"change part uses pack (hunk headers)", prefixes[0])
+        self.assertEqual(prefixes[0], prefixes[1])
+
+    def test_regular_file_replaced_by_symlink_keeps_both_native_sections(self):
+        path = self.repo / "src/core.py"
+        path.unlink()
+        path.symlink_to("destination.py")
+        self.write(self.repo, "src/later.py", "later = 2\n")
+        self.commit(self.repo, "Replace source with symlink")
+        result = self.review()
+        change = result.split("# 5. Change\n", 1)[1].split("# 6. Changed source files", 1)[0]
+        self.assertIn("deleted file mode 100644", change)
+        self.assertIn("new file mode 120000", change)
+        self.assertEqual(re.findall(r"(?m)^ *\d+[-] .*", change),
+                         ["    1- def action():", "    2-     return 1"])
+        full = result.split("# 6. Changed source files\n", 1)[1].split("# 7. Lens instructions", 1)[0]
+        self.assertEqual(re.findall(r"(?m)^ *\d+  .*", full),
+                         ["    1  destination.py", "    1  later = 2"])
+
     def test_panel_different_length_lenses_share_context_at_fallback_threshold(self):
         self.write(self.repo, "large.py", "payload = '" + "x" * 550_000 + "'\n")
         self.commit(self.repo, "Add large source")
@@ -992,9 +1056,13 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
     def test_submodule_is_listed_without_requiring_its_external_commit(self):
         self.git(self.repo, "update-index", "--add", "--cacheinfo", "160000", "1" * 40, "vendor/example")
         self.git(self.repo, "commit", "-m", "Record submodule")
-        prompt = self.review()
-        full = prompt.split("# 6. Changed source files\n", 1)[1].split("# 7. Lens instructions", 1)[0].strip()
-        self.assertEqual(full, "- vendor/example: submodule; no full file content.")
+        for setting in ("short", "log", "diff"):
+            with self.subTest(setting=setting):
+                self.git(self.repo, "config", "diff.submodule", setting)
+                prompt = self.review()
+                full = prompt.split("# 6. Changed source files\n", 1)[1].split("# 7. Lens instructions", 1)[0].strip()
+                self.assertEqual(full, "- vendor/example: submodule; no full file content.")
+                self.assertIn("    1+ Subproject commit " + "1" * 40, prompt)
 
     def test_diff_rows_use_head_numbers_and_old_numbers_for_removals(self):
         self.write(self.repo, "tests/example.py", "start\nold\nend\n")

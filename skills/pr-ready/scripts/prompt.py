@@ -350,7 +350,7 @@ def documentation_part(context):
 
 
 def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=None, omit_shared_rules=False,
-               assignment=None, budget_bytes=None, target_base=None, plan=None):
+               assignment=None, budget_bytes=None, target_base=None, plan=None, structured=False):
     """Assemble revision, role, lens, extras, repository rules and literal tasks in order."""
     if target is not None and target.repo.resolve() == source.repo.resolve():
         # Different revisions in one repository still use one batch process.
@@ -359,6 +359,7 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
     manifest = {"format": 1, "compiler": compiler, "house_rules_revision": source.revision,
                 "files": [], "parts": [], "skipped_repeats": [], "omitted_shared_rules": [], "target": None}
     expansion = Expansion(source, omit_shared_rules)
+    structured = structured or any(structured_task(Path(file).read_bytes()) for file, _ in tasks)
     parts = [f"House Rules revision: {source.revision}\n".encode()]
     lens_index = None
     if plan is None and role == "reviewer":
@@ -372,10 +373,14 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
                 raise PromptError("invalid " + kind + " name: " + name)
             folder = "roles" if kind == "role" else "lenses"
             requested.append((kind, f"prompts/{folder}/{name}.md"))
-    if context is not None:
+    if structured:
+        requested = [item for item in requested if item[0] != "lens"]
+    if context is not None and structured:
         # Mandatory shared rules own their includes before any lens can.
         requested.insert(1 if role is not None else 0, ("include", "rules/specifications.md"))
     requested.extend(("include", path) for path in includes)
+    if structured and lens is not None:
+        requested.append(("lens", f"prompts/lenses/{lens}.md"))
     for kind, path in requested:
         expansion.part = len(manifest["parts"]) + 1
         manifest["parts"].append({"kind": kind, "path": relative_path(path)})
@@ -389,6 +394,10 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
         parts.append(data)
         manifest["parts"].append({"kind": "target"})
         if context is not None:
+            if not structured:
+                expansion.part = len(manifest["parts"]) + 1
+                manifest["parts"].append({"kind": "include", "path": "rules/specifications.md"})
+                parts.append(expansion.visit("rules/specifications.md").encode("utf-8"))
             parts.append(documentation_part(context))
             manifest["documentation"] = {k: v for k, v in context.items() if k != "content"}
             manifest["parts"].append({"kind": "documentation"})
@@ -414,6 +423,11 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
     return append_tasks(pack, manifest, tasks)
 
 
+def structured_task(data):
+    """Recognize the preparer's final structured-context heading."""
+    return data.rstrip(b"\n").endswith(b"\n# 7. Lens instructions")
+
+
 def append_tasks(pack, manifest, tasks):
     """Finish a compiled pack with literal tasks, without rereading pinned inputs."""
     parts = []
@@ -427,7 +441,7 @@ def append_tasks(pack, manifest, tasks):
             parts.append(data)
             # The preparer's existing final heading also identifies structured
             # context when its change had to fall back to pack for size.
-            lens_last |= data.rstrip(b"\n").endswith(b"\n# 7. Lens instructions")
+            lens_last |= structured_task(data)
     if lens_span is not None and lens_last:
         start, end = lens_span
         lens = pack[start:end]
@@ -494,9 +508,13 @@ class TaskOption(argparse.Action):
 def preparer_context(request):
     """Keep legacy preparer compilation here while reporting remains standalone."""
     common, instructions, context, sections = "", "", None, None
+    reservation = 0
     if request["full"]:
         common, _ = expand(file="prompts/roles/reviewer.md")
         instructions, _ = expand(file="prompts/lenses/" + request["lens"] + ".md")
+        for reviewer in request.get("reservation_reviewers", []):
+            selected, _ = expand(file="prompts/lenses/" + reviewer + ".md")
+            reservation = max(reservation, len(selected) - len(instructions))
     if request["documentation"]:
         assignment = Path(request["assignment"]).read_bytes() if request["assignment"] else None
         with Commit(request["repo"], request["head"]) as target:
@@ -506,7 +524,8 @@ def preparer_context(request):
         if selected is not None:
             context = documentation_part(selected).decode("utf-8")
             sections = selected["manifest"]["assignment"]["sections"]
-    return dict(common=common, instructions=instructions, documentation=context, sections=sections)
+    return dict(common=common, instructions=instructions, documentation=context, sections=sections,
+                reservation=reservation)
 
 
 def main(argv=None):

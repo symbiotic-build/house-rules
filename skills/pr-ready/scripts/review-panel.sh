@@ -160,28 +160,38 @@ for reviewer, family, cli in members:
             pack, manifest = build_pack(source, role="reviewer", lens=reviewer, target=target,
                                         omit_shared_rules=session == "1",
                                         assignment=Path(assignment).read_bytes() if assignment else None,
-                                        target_base=resolved_base, plan=plan)
+                                        target_base=resolved_base, plan=plan, structured=cli == "codex")
         compiled[reviewer] = pack, manifest
         reservations[family] = max(reservations.get(family, 0), len(pack.decode("utf-8")) + 1)
     except errors as exc:
         failure(reviewer, exc)
         sys.exit(1)
 
-status = 0
+status, prepared = 0, {}
 for reviewer, family, cli in members:
     try:
         pack, manifest = compiled[reviewer]
-        args = ["review", checkout, "--rev", review_rev, "--context-only", "--lens", reviewer,
-                "--cli", cli, "--summary", summary, "--base", resolved_base, "--no-fetch",
-                "--reviewers", *[member[0] for member in members]]
-        if cli == "codex":
-            args += ["--compiled-chars", str(reservations[family])]
-        task = Path(out) / (reviewer + ".task")
-        with task.open("w", encoding="utf-8") as stream, redirect_stdout(stream), \
-                (Path(out) / (reviewer + ".prepare.err")).open("w", encoding="utf-8") as diagnostics, redirect_stderr(diagnostics):
-            result = prepare_main(args, documentation_prepared="documentation" in manifest)
-        if result:
-            raise PromptError("context preparation failed; see preparation diagnostics")
+        diagnostics_path = Path(out) / (reviewer + ".prepare.err")
+        if family not in prepared:
+            # Live context is captured once for the whole family, even on failure.
+            prepared[family] = None
+            args = ["review", checkout, "--rev", review_rev, "--context-only", "--lens", reviewer,
+                    "--cli", cli, "--summary", summary, "--base", resolved_base, "--no-fetch",
+                    "--reviewers", *[member[0] for member in members]]
+            if cli == "codex":
+                args += ["--compiled-chars", str(reservations[family])]
+            task = Path(out) / (reviewer + ".task")
+            with task.open("w", encoding="utf-8") as stream, redirect_stdout(stream), \
+                    diagnostics_path.open("w", encoding="utf-8") as diagnostics, redirect_stderr(diagnostics):
+                result = prepare_main(args, documentation_prepared="documentation" in manifest)
+            if result:
+                raise PromptError("context preparation failed; see preparation diagnostics")
+            prepared[family] = task, diagnostics_path
+        if prepared[family] is None:
+            raise PromptError("family context preparation failed; see the family's first reviewer diagnostics")
+        task, family_diagnostics = prepared[family]
+        if family_diagnostics != diagnostics_path:
+            diagnostics_path.write_bytes(family_diagnostics.read_bytes())
         pack, manifest = append_tasks(pack, manifest, [(task, "review-panel-" + reviewer)])
         publish(Path(out) / (reviewer + ".pack"), pack, manifest)
     except errors as exc:

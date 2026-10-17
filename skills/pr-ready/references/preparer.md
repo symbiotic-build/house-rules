@@ -4,8 +4,9 @@ Details of `scripts/prepare.py` and `scripts/review-panel.sh`, moved out of the 
 loop stays readable. The skill states what to do; this file states exactly how the tools behave.
 
 Review task fields: [review template](review-prompt.md). `scripts/review-panel.sh` runs
-  the base resolver once, then `scripts/prepare.py review --base REF --no-fetch` per
-  lens and CLI. Preparation failures, reviewer CLI failures, and reports without a
+  the base resolver once, then `scripts/prepare.py review --base REF --no-fetch --context-only`
+  once per model family. Every reviewer in that family compiles the same captured task bytes.
+  Preparation failures, reviewer CLI failures, and reports without a
   `VERDICT: APPROVE` or `VERDICT: REQUEST_CHANGES` token anywhere in the report
   (Markdown emphasis is accepted; `scripts/verdict.py` fails closed: any `REQUEST_CHANGES`
   token means `REQUEST_CHANGES`, and `APPROVE` requires every token to agree)
@@ -20,7 +21,10 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   `[a-z0-9-]+` and an existing file stem in `prompts/lenses/`, with no duplicates.
   Structured prompt order: shared review rules, PR/issue context and requirements, then
   the change, complete changed source files and lens instructions last. Different lenses
-  share the prefix before those final instructions. Pack and diff retain their existing order.
+  share the prefix before those final instructions when one task is prepared once and compiled per lens, as the panel does.
+  Separate standalone calls share the layout, but live inputs such as new comments can differ between calls.
+  Pack and diff retain their existing order, including specification rules after target rules unless an earlier include owns them.
+  Structured assembly expands explicit shared includes and mandatory specification rules before lenses, preserving duplicate suppression.
   Structured `--context-only` output ends with the same `# 7. Lens instructions` heading,
   without a lens body. The compiler uses that heading to place the selected lens last,
   after target rules and task context. This also applies when the size guard uses pack for
@@ -84,6 +88,8 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   Context preparation reserves the largest compiled character count and task separator
   among selected reviewers in each family. The panel retains these compilations in memory
   until it appends context. The panel checks each complete compiled prompt before dispatch.
+  Standalone calls with `--reviewers LENS...` also reserve the largest selected lens in the selected reviewer's family.
+  Without that option, standalone calls reserve only their selected lens.
   Codex prompts over 800,000 characters fall back to pack for the change, then trim comments,
   issue bodies and legacy spec documents in that order (largest first within each source type).
   Notices identify every trim. If the prompt still exceeds the limit after all trim

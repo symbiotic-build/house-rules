@@ -697,7 +697,8 @@ def file_diff(repo, rng, path, mode, budget):
     command = ["git"]
     if mode == "moved":
         command.extend(["-c", "diff.suppressBlankEmpty=false", "-c", "diff.noprefix=false",
-                        "-c", "diff.mnemonicPrefix=false"])
+                        "-c", "diff.mnemonicPrefix=false", "-c", "diff.submodule=short",
+                        "-c", "core.quotePath=true"])
         # Fixed colors identify Git's native moved blocks, independent of user config.
         for name, color in (("oldMoved", "blue"), ("newMoved", "cyan"),
                             ("oldMovedAlternative", "magenta"), ("newMovedAlternative", "yellow")):
@@ -707,7 +708,7 @@ def file_diff(repo, rng, path, mode, budget):
     command.extend(["diff", "--no-ext-diff", "--no-textconv", "--no-renames"])
     if mode == "moved":
         command.extend(["--color=always", "--color-moved=zebra", "--color-moved-ws=allow-indentation-change",
-                        "--word-diff=none", "-O/dev/null", "-U10", rng, "--",
+                        "--word-diff=none", "--src-prefix=a/", "--dst-prefix=b/", "-O/dev/null", "-U10", rng, "--",
                         *[":(literal)" + item for item in path]])
     else:
         command.extend(["-U0" if mode == "pack" else "-U3" if kind(path) == "test" else "-U10",
@@ -758,6 +759,13 @@ def structured_change(repo, rng, files, head, budget, full_file_cap):
     if not paths:
         return "# 6. Changed source files\n(none)"
     patch = file_diff(repo, rng, paths, "moved", budget)
+    def quoted_path(prefix, path):
+        # Git's core.quotePath=true C quoting operates on filename bytes.
+        escapes = dict(zip(b'\a\b\t\n\v\f\r"\\', (r'\a', r'\b', r'\t', r'\n', r'\v', r'\f', r'\r', r'\"', r'\\')))
+        raw = os.fsencode(prefix + path)
+        escaped = "".join(escapes.get(byte, chr(byte) if 32 <= byte < 127 else f"\\{byte:03o}") for byte in raw)
+        return '"' + escaped + '"' if escaped != raw.decode("ascii", errors="replace") else escaped
+    owners = {"diff --git " + quoted_path("a/", path) + " " + quoted_path("b/", path): path for path in paths}
     sections, moves, runs = {}, defaultdict(deque), []
     path, old, new, active = None, None, None, None
     for raw in patch.split("\n"):
@@ -767,10 +775,10 @@ def structured_change(repo, rng, files, head, budget, full_file_cap):
             row = row[color.end():]
         row = re.sub(r"\x1b\[(?:0)?m$", "", row)
         if row.startswith("diff --git "):
-            if len(sections) >= len(paths):
+            if row not in owners:
                 raise PrepareError("unexpected file in structured diff")
-            path = paths[len(sections)]
-            sections[path] = []
+            path = owners[row]
+            sections.setdefault(path, [])
             old, new, active = None, None, None
         elif path is not None:
             hunk = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)", row)
@@ -961,15 +969,20 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     assignment_path = getattr(args, "assignment", None)
     unavailable = getattr(args, "documentation_unavailable", False)
     needs_documentation = not documentation_prepared and not unavailable and (registered or assignment_path)
-    context, sections, common, instructions = None, None, "", ""
+    context, sections, common, instructions, reservation = None, None, "", "", 0
     if not context_only or needs_documentation:
+        reservation_reviewers = []
         if not context_only:
-            lens_settings(lens)
+            family = lens_settings(lens)[0]
+            if getattr(args, "reviewers", None):
+                reservation_reviewers = [reviewer for reviewer in set([lens, *args.reviewers])
+                                         if lens_settings(reviewer)[0] == family]
         # Compilation stays with its owner. The standalone reporting path never
         # imports a sibling, and context-only legacy preparation needs none.
         # Without an explicit assignment, review derives one from changes since the merge base.
         request = dict(repo=str(repo), head=head, base=base, lens=lens, full=not context_only,
                        reviewers=getattr(args, "reviewers", None),
+                       reservation_reviewers=reservation_reviewers,
                        documentation=bool(needs_documentation), derive=not assignment_path,
                        assignment=str(Path(assignment_path).resolve()) if assignment_path else None)
         compiled = run(repo, sys.executable, "-I", "-B", str(HERE / "prompt.py"),
@@ -980,6 +993,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
             result = json.loads(compiled.stdout)
             common, instructions, context = result["common"], result["instructions"], result["documentation"]
             sections = result.get("sections")
+            reservation = result.get("reservation", 0)
         except (ValueError, KeyError, TypeError) as exc:
             raise PrepareError("invalid review compiler response") from exc
     mode = args.format or ("structured" if args.cli == "codex" else "pack")
@@ -1019,7 +1033,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     compiled_chars = getattr(args, "compiled_chars", 0)
     if compiled_chars < 0 or (compiled_chars and not context_only):
         raise PrepareError("--compiled-chars requires context-only mode and a nonnegative count")
-    limit = CODEX_LIMIT - compiled_chars
+    limit = CODEX_LIMIT - compiled_chars - reservation
     if args.cli == "codex" and context is not None and getattr(args, "assignment", None) is None:
         mandatory_size = len(display(context))
         if mandatory_size > limit:

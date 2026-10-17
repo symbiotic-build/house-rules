@@ -64,14 +64,16 @@ parts have one empty line between them. Task include lines remain literal.
 
 For structured review context, the preparer's final `# 7. Lens instructions` heading
 selects a different order: revision header, shared role and includes, repository rules,
-documentation context, literal tasks, then the expanded lens. Every reviewer shares the
-prefix before the lens. The same order applies when the panel appends context to an
+documentation context, literal tasks, then the expanded lens. Reviewers compiled from
+one captured task share the prefix before the lens. The same order applies when the panel appends context to an
 in-memory compilation. Lens spans are transient; the manifest schema does not change.
 The manifest records the resulting part order and hashes the unchanged task bytes and
 the complete reordered pack. Pack and diff context retain the default assembly order.
 When compiling reviewers separately, pass the same complete `--reviewers LENS...` list
-to each call so registered documentation uses one shared round plan. Mandatory
-specification rules expand before the lens, which keeps them in the shared prefix.
+to each call so registered documentation uses one shared round plan. Separate live
+preparations can capture different comments. In structured assembly, explicit shared
+includes and mandatory specification rules expand before the lens, keeping them in the shared prefix.
+Pack and diff retain specification rules after target rules unless an earlier include owns them.
 
 Pack mode requires `--rev` and exactly one of `--target` or `--no-target`.
 Role and lens names match `[a-z0-9-]+`. `--target-rev` defaults to the target's

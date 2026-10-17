@@ -121,6 +121,29 @@ class DocumentationFixture:
 
 
 class DocumentationReviewTests(DocumentationFixture, unittest.TestCase):
+    def test_specification_rules_follow_target_in_pack_and_diff_only(self):
+        self.write(self.rules, "prompts/roles/reviewer.md", "Role rules\n")
+        self.write(self.rules, "prompts/lenses/generalist-a.md", "Lens instructions\n")
+        self.write(self.rules, "rules/specifications.md", "Specification rules\n")
+        self.rule_revision = self.commit(self.rules)
+        self.write(self.repo, "AGENTS.md", "Target rules\n")
+        manifest_path = self.repo / "docs/DOCUMENTS.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["inventory"].append({"path": "AGENTS.md", "kind": "other", "reason": "Synthetic target rules."})
+        manifest_path.write_text(json.dumps(manifest))
+        self.revision = self.commit(self.repo)
+        task = self.root / "task.txt"
+        for layout in ("pack", "diff", "structured"):
+            with self.subTest(layout=layout):
+                task.write_text("Task context\n" + ("\n# 7. Lens instructions\n" if layout == "structured" else ""))
+                pack, _ = self.pack(role="reviewer", lens="generalist-a", target_base=self.revision,
+                                    tasks=[(task, "review-context")])
+                markers = [line for line in pack.splitlines() if line in
+                           (b"Role rules", b"Lens instructions", b"Target rules", b"Specification rules")]
+                self.assertEqual(markers, [b"Role rules", b"Specification rules", b"Target rules", b"Lens instructions"]
+                                 if layout == "structured" else
+                                 [b"Role rules", b"Lens instructions", b"Target rules", b"Specification rules"])
+
     def test_registered_documentation_uses_round_plan_before_each_final_lens(self):
         for folder in ("prompts", "rules"):
             shutil.copytree(ROOT / folder, self.rules / folder, dirs_exist_ok=True)
