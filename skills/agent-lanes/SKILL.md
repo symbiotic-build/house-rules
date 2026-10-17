@@ -89,7 +89,9 @@ In the report, mark which of the heaviest processes are yours.
 
 **Waiting for another job.** Wait on its process ID or on a file it writes when it ends,
 with a deadline, and fail when the deadline passes. A `pgrep -f` pattern also matches the
-waiting shell's own command line.
+waiting shell's own command line. Use one of these two waits.
+
+By process ID:
 
 ```bash
 deadline=$(( $(date +%s) + 3600 ))
@@ -97,6 +99,12 @@ while kill -0 "$pid" 2>/dev/null; do
   [ "$(date +%s)" -lt "$deadline" ] || { echo "timeout: $pid still running" >&2; exit 1; }
   sleep 10
 done
+```
+
+By the file the job writes when it ends:
+
+```bash
+deadline=$(( $(date +%s) + 3600 ))
 until [ -e "$done_file" ]; do
   [ "$(date +%s)" -lt "$deadline" ] || { echo "timeout: no $done_file" >&2; exit 1; }
   sleep 10

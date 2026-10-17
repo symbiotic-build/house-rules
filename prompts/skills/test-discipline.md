@@ -90,9 +90,13 @@ regression test.
 
 ### Upkeep
 
-On a shared machine, every build and test command goes through the machine's build queue:
-call cargo, cmake, make, ninja and ctest by name, and run a test binary or script as
-`build-queue <command>`.
+On a shared machine, every build and test command goes through the machine's one build
+queue, shared by cargo and every other build tool: one such command at a time. Call cargo,
+cmake, make, ninja and ctest by name; run a benchmark, test binary or script on its own as
+`build-queue <command>`. Queue one command at a time, and never hold the queue while you
+edit, read output or wait for CI, a review or the operator. When the one-minute load average
+exceeds the online core count, start no new build or test command until it falls below that
+count, and at once stop your own jobs that run outside the queue, then rerun them through it.
 
 Remove a known looping or hanging test at once, keep its defect tracked, and replace it
 with a small, explicitly bounded test. Stop a command holding the shared build queue after
