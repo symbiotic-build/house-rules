@@ -815,7 +815,7 @@
             "decisions",
             "alternatives"
           ],
-          "summary": "Read the operator decision and implementation proposals.",
+          "summary": "Read the operator decision and the settled lead decisions.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },

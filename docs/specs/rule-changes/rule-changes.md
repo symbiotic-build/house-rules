@@ -41,7 +41,7 @@ Use this map to choose the next explanation to read.
 - [Tour](rule-changes.md#tour) — Follow a removal, weakening, move and re-wrap.
 - [Report and review](rule-changes.md#report) — Compare protected text and preserve complete evidence.
 - [Requirements](rule-changes.md#requirements) — Find the required report and review results.
-- [Decisions](rule-changes.md#decisions) — Read the operator decision and implementation proposals.
+- [Decisions](rule-changes.md#decisions) — Read the operator decision and the settled lead decisions.
 - [Open questions](rule-changes.md#questions) — Identify the remaining service integration.
 - [Reference](rule-changes.md#reference) — Configure coverage and call the shared selector.
 - [Acceptance](rule-changes.md#acceptance) — Run behavior checks and inspect reviewer obligations.
@@ -189,7 +189,7 @@ A `rewrapped` item renders once, on one line: identity, kind, old location → n
 It contains no old/new text. Its rendered line alone contributes to the report allowance.
 All other items include exact old/new text; absent sides display `(none)`. Totals include all five kinds.
 
-No-change output is one line: `No protected rule text changed.`
+With no protected change, the report status is one line, `No protected rule text changed.`, followed by any declaration evidence.
 The report precedes the change in full preparation and context-only preparation.
 
 The declared-changes source is the PR body when `--pr` is given; otherwise it is the supplied `--summary` text.
@@ -248,7 +248,7 @@ No approval is possible from an incomplete report.
 <a id="requirements"></a>
 ## Requirements
 
-These obligations implement the [operator decision](#decision-rule-review). Their status is specified; the document remains a proposal for lead acceptance.
+These obligations implement the [operator decision](#decision-rule-review). Their status is specified and settled by the decisions below.
 
 <a id="req-rule-report"></a>
 ### Requirement: report protected changes
@@ -313,7 +313,7 @@ Existing full-pack and registered-document compilation remains the compiler's re
 <a id="decisions"></a>
 ## Decisions
 
-The operator selected a report plus mandatory review of meaning. Implementation details below are proposals within that scope.
+The operator selected a report plus mandatory review of meaning. The comparison, item kinds, report allowance and declaration detection below are settled lead decisions within that scope; their records name the authority.
 
 <a id="decision-rule-review"></a>
 ### Report and mandatory audit
