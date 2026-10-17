@@ -27,7 +27,7 @@
 - Send failing jobs to a CI-repair investigator.
 - Require a specialized agent to verify UI work visually with screenshots.
 - Do not rely only on programmatic assertions.
-- Follow `../prompts/skills/test-discipline.md` §Test discipline for duration, hanging-test removal, build-queue hold limits, and scale-test replacement.
+- Follow `../prompts/skills/test-discipline.md` §Test discipline for what each test must prove, tests for systems that keep durable state, duration, hanging-test removal, build-queue hold limits, and scale-test replacement.
 - Follow `../skills/pr-ready/references/guards.md` for guard/test upkeep and daily whole-system audits.
 - Require an explicit maximum cost/token/runtime boundary before launching external or paid work.
 - Apply this launch-boundary requirement only to external or paid work.
@@ -41,6 +41,7 @@
 - Obtain operator approval before stopping materially paid work, except under rules/core.md §Operator correction or safety requirements.
 - Follow `handoff-continuity` §Authorized, bounded, and durable external runs for procedure.
 
+<a id="git"></a>
 ## Git
 
 - Follow [Git rules](git.md).
@@ -69,7 +70,6 @@
 - Point reviewers at a checkout without build output. A reviewer that searches a build tree loads the machine and finds nothing.
 - When the one-minute load average exceeds the online core count, start no new build or test command until it falls below that count.
 - At once stop your own jobs that run outside the queue, and rerun them through it after the load falls.
-- Stop no other session's jobs; rules/core.md §Security limits stopping to processes your work started.
 - Report the load, the core count and the heaviest processes with their working directories to the operator once.
 - Wait for a job your shell did not start by its process ID or by a file the job writes when it ends. Give that wait a deadline, and fail visibly when it passes.
 - Never wait with `pgrep -f` on a pattern that your own command line contains. The pattern matches the waiting shell itself, so the wait never ends.

@@ -89,6 +89,7 @@ current source root or a previous root recorded in a receipt. A copy is owned on
 it matches a receipt. Reuse or replace only owned entries; report any other same-name
 entry as a conflict.
 
+<a id="install-house-rules-instructions-and-skills"></a>
 ## 3. Install House Rules instructions and Skills
 
 For each selected product and configuration home:

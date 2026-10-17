@@ -1,5 +1,6 @@
 from pathlib import Path
 import hashlib
+import io
 import json
 import os
 import shutil
@@ -17,12 +18,34 @@ SCRIPT = Path(__file__).with_name("prompt.py")
 ROOT = SCRIPT.parents[3]
 
 
+
+def repository_markdown():
+    """Read candidate Markdown paths without traversing ignored test scratch."""
+    inventory = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                               stdin=subprocess.DEVNULL, capture_output=True, check=True).stdout
+    return [ROOT / os.fsdecode(path) for path in inventory.split(b"\0") if path.endswith(b".md")]
+
+def invoke_prompt(arguments, root, data=b""):
+    """Exercise the same entry point without starting another interpreter."""
+    stdin = io.TextIOWrapper(io.BytesIO(data), encoding="utf-8")
+    output = io.BytesIO()
+    stdout = io.TextIOWrapper(output, encoding="utf-8")
+    stderr = io.StringIO()
+    with patch.object(prompt, "ROOT", root), patch.object(sys, "stdin", stdin), \
+            patch.object(sys, "stdout", stdout), patch.object(sys, "stderr", stderr):
+        status = prompt.main(list(map(str, arguments)))
+        stdout.flush()
+    return subprocess.CompletedProcess(arguments, status, output.getvalue(), stderr.getvalue().encode())
+
+
 class PromptTest(unittest.TestCase):
     def run_prompt(self, *args, text="", script=SCRIPT, cwd=None):
-        return subprocess.run(
-            [sys.executable, str(script), *args], input=text, capture_output=True,
-            text=True, timeout=5, cwd=cwd,
-        )
+        if cwd is not None:
+            return subprocess.run([sys.executable, str(script), *args], stdin=None, input=text,
+                                  capture_output=True, text=True, timeout=5, cwd=cwd)
+        result = invoke_prompt(args, script.parents[3], text.encode())
+        result.stdout, result.stderr = result.stdout.decode(), result.stderr.decode()
+        return result
 
     def fixture(self):
         tmp = tempfile.TemporaryDirectory()
@@ -38,6 +61,17 @@ class PromptTest(unittest.TestCase):
         self.assertEqual(result.stdout, "")
         self.assertEqual(len(result.stderr.splitlines()), 1)
         self.assertIn(message, result.stderr)
+
+    def test_owner_inventory_excludes_ignored_transient_markdown(self):
+        scratch = ROOT / ".tmp"
+        scratch.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=scratch) as temporary:
+            directory = Path(temporary) / "directory.md"
+            directory.mkdir()
+            (Path(temporary) / "vanished.md").symlink_to("absent")
+            paths = repository_markdown()
+            self.assertIn(ROOT / "rules/core.md", paths)
+            self.assertFalse(any(path.is_relative_to(Path(temporary)) for path in paths))
 
     def test_every_role_expands_with_all_code_change_rules(self):
         roles = sorted((ROOT / "prompts/roles").glob("*.md"))
@@ -83,7 +117,7 @@ class PromptTest(unittest.TestCase):
         root, script = self.fixture()
         (root / "child.md").write_bytes(b"Title\r\n\r\nBody")
         result = subprocess.run(
-            [sys.executable, str(script)], input=b"Before\r\n@rule house-rules:child.md\r\nAfter\n",
+            [sys.executable, str(script)], stdin=None, input=b"Before\r\n@rule house-rules:child.md\r\nAfter\n",
             capture_output=True, timeout=5,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -221,7 +255,8 @@ class CompleteWorkerPackTest(unittest.TestCase):
                     args = ("--session",) if session else ()
                     result = self.run_prompt(*args, text=source)
                     # A lens may include another lens; compare its expanded text.
-                    body, _ = prompt.expand(file=lens.relative_to(ROOT).as_posix(), session=session)
+                    expansion = prompt.Expansion(prompt.WorkingTree(ROOT), session=session)
+                    body = expansion.visit(lens.relative_to(ROOT).as_posix())
                     self.assertEqual(result.stdout.count(body), 1)
                     for owner in self.shared:
                         self.assertEqual(result.stdout.count((ROOT / owner).read_text()),
@@ -416,7 +451,7 @@ class CollectionAcceptanceTest(unittest.TestCase):
             self.assertIn(requirement, issue_form)
         self.assertIn("Code references are full-SHA permalinks.", guide)
         self.assertIn('Label each claim that no test covers as "From code reading" or "Hypothesis".', guide)
-        owners = [p for p in ROOT.rglob("*.md")
+        owners = [p for p in repository_markdown()
                   if "The title names the behavior in plain words" in p.read_text()]
         self.assertEqual(owners, [contract_path])
         for role in ("checker", "triager"):
@@ -752,11 +787,12 @@ class RuleOwnershipTest(unittest.TestCase):
         for path in (ROOT / "prompts/lenses").glob("*.md"):
             with self.subTest(path=path.name):
                 self.assertNotRegex(path.read_text(), r"skill `")
-                self.assertNotIn("spec-writing", path.read_text())
+                self.assertNotIn("@rule house-rules:skills/spec-writing/", path.read_text())
         design = self.text("prompts/lenses/design-spec.md")
         self.assertIn("@rule house-rules:prompts/lenses/naming-readability.md", design)
         self.assertNotIn("non-blocking unless they hide or garble a rule", design)
         reader = self.text("prompts/lenses/naming-readability.md")
+        self.assertIn("../../skills/spec-writing/SKILL.md#fresh-reader-review", reader)
         self.assertIn("missing why, example or term definition", reader)
         self.assertIn("Report violations of these requirements as document requirement defects", reader)
         self.assertIn("Do not accept a glossary elsewhere as closure", reader)
@@ -927,7 +963,7 @@ class RuleOwnershipTest(unittest.TestCase):
         self.assertIn("../../../prompts/skills/test-discipline.md", guards)
         for phrase in ("Every guard and every test logs", "pruning or narrowing guards and tests"):
             with self.subTest(phrase=phrase):
-                owners = [p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*.md")
+                owners = [p.relative_to(ROOT).as_posix() for p in repository_markdown()
                           if phrase in " ".join(p.read_text().split())]
                 self.assertEqual(owners, ["prompts/skills/test-discipline.md"])
 
@@ -935,7 +971,7 @@ class RuleOwnershipTest(unittest.TestCase):
         skill = self.text("skills/pr-ready/SKILL.md")
         self.assertIn("../../prompts/roles/implementer.md", skill)
         marker = "In a repository without PR CI,"
-        owners = [p.relative_to(ROOT).as_posix() for p in ROOT.rglob("*.md")
+        owners = [p.relative_to(ROOT).as_posix() for p in repository_markdown()
                   if marker in p.read_text()]
         self.assertEqual(owners, ["prompts/roles/implementer.md"])
 
@@ -1406,6 +1442,7 @@ class RuleIndexTest(unittest.TestCase):
         targets = re.findall(r"\[[^]]+\]\(([^)]+)\)", index)
         required = {"rules/core.md", "rules/outcome.md", "rules/delivery.md", "rules/writing.md",
                     "rules/git.md", "rules/priority-labels.md", "rules/session-writing.md",
+                    "rules/specifications.md",
                     "STRUCTURE.md", "PREFERENCES.md"}
         required.update(str(path.relative_to(ROOT))
                         for path in (ROOT / "skills").glob("*/SKILL.md"))
@@ -1895,14 +1932,16 @@ class AcceptedScopeRegressionTest(unittest.TestCase):
 
 
 class AlwaysLoadedWritingTest(unittest.TestCase):
-    def test_original_introduction_is_preserved_in_its_rule_owners(self):
+    def test_introduction_preserves_rule_owners_and_names_the_defined_profile(self):
         general = " ".join((ROOT / "rules/writing.md").read_text().split())
         operator = " ".join((ROOT / "skills/operator-writing/SKILL.md").read_text().split())
+        self.assertNotIn("about 80 %", operator)
         for sentence, owner, other in (
             ("The reader must understand the text without any other document.", general, operator),
             ("They should know what happened, why it matters and what to do, in that order.", general, operator),
-            ("This skill combines a controlled language (ASD-STE100, applied at about 80 %) "
-             "with an explanation-first structure and a reader test.", operator, general),
+            ("This skill applies the versioned House technical English profile in "
+             "[rules/writing.md](../../rules/writing.md#house-technical-english), an explanation-first "
+             "structure and a reader test.", operator, general),
             ("Decisions use skill `decision-brief` for their full content; "
              "this skill sets how all of it is written.", operator, general),
         ):
@@ -1969,8 +2008,38 @@ class AlwaysLoadedWritingTest(unittest.TestCase):
 
 
 
-class CommitPackTest(unittest.TestCase):
-    """Small Git fixtures prove the compiler contract without model calls."""
+class CommitPackFixture:
+    """Shared setup and assertions for independent test classes."""
+
+    @classmethod
+    def setUpClass(cls):
+        temporary = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(temporary.cleanup)
+        cls.seed = Path(temporary.name)
+        helper = cls()
+        helper.repo, helper.target = cls.seed / "house-rules", cls.seed / "target"
+        with patch.dict(os.environ, {
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "test@example.invalid",
+            "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "test@example.invalid",
+        }):
+            helper.build_fixture()
+        cls.seed_revision = helper.rev
+
+    def build_fixture(self):
+        for repo in (self.repo, self.target):
+            repo.mkdir()
+            self.git(repo, "init", "-b", "main")
+        self.script = self.repo / "skills/pr-ready/scripts/prompt.py"
+        self.write(self.repo, "skills/pr-ready/scripts/prompt.py", SCRIPT.read_bytes())
+        self.write(self.repo, "prompts/roles/reviewer.md", b"Role\n@rule house-rules:rules/writing.md\n@rule house-rules:common.md\n")
+        self.write(self.repo, "rules/writing.md", b"Shared\n")
+        self.write(self.repo, "common.md", b"Common\n")
+        self.write(self.repo, "prompts/lenses/security.md", b"Lens\n@rule house-rules:common.md\n")
+        self.write(self.repo, "extra.md", b"Extra")
+        self.write(self.repo, "unrelated.md", b"Not requested")
+        self.rev = self.commit(self.repo)
+        self.commit(self.target, empty=True)
 
     def setUp(self):
         scratch = ROOT / ".tmp"
@@ -1987,24 +2056,15 @@ class CommitPackTest(unittest.TestCase):
         self.addCleanup(env.stop)
         self.repo = self.root / "house-rules"
         self.target = self.root / "target"
-        for repo in (self.repo, self.target):
-            repo.mkdir()
-            self.git(repo, "init", "-b", "main")
+        for name in ("house-rules", "target"):
+            shutil.copytree(self.seed / name, self.root / name)
         self.script = self.repo / "skills/pr-ready/scripts/prompt.py"
-        self.write(self.repo, "skills/pr-ready/scripts/prompt.py", SCRIPT.read_bytes())
-        self.write(self.repo, "prompts/roles/reviewer.md", b"Role\n@rule house-rules:rules/writing.md\n@rule house-rules:common.md\n")
-        self.write(self.repo, "rules/writing.md", b"Shared\n")
-        self.write(self.repo, "common.md", b"Common\n")
-        self.write(self.repo, "prompts/lenses/security.md", b"Lens\n@rule house-rules:common.md\n")
-        self.write(self.repo, "extra.md", b"Extra")
-        self.write(self.repo, "unrelated.md", b"Not requested")
-        self.rev = self.commit(self.repo)
-        self.commit(self.target, empty=True)
+        self.rev = self.seed_revision
         self.manifest = self.root / "manifest.json"
 
-    def git(self, repo, *args, data=None):
+    def git(self, repo, *args, data=b""):
         result = subprocess.run(["git", "--no-replace-objects", "-C", str(repo), *args],
-                                input=data, capture_output=True, timeout=5)
+                                stdin=None, input=data, capture_output=True, timeout=5)
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout.decode().strip()
 
@@ -2019,12 +2079,12 @@ class CommitPackTest(unittest.TestCase):
         return self.git(repo, "rev-parse", "HEAD")
 
     def run_pack(self, *args, rev=None, target=False, env=None, script=None):
-        return subprocess.run([
-            "/usr/bin/python3", "-B", str(script or self.script), "--repo", str(self.repo),
-            "--rev", rev or self.rev, "--role", "reviewer",
-            *( ["--target", str(self.target)] if target else ["--no-target"] ),
-            *map(str, args),
-        ], capture_output=True, timeout=5, env=env)
+        arguments = ["--repo", str(self.repo), "--rev", rev or self.rev, "--role", "reviewer",
+                     *(["--target", str(self.target)] if target else ["--no-target"]), *map(str, args)]
+        if script is not None or env is not None or self.script.read_bytes() != SCRIPT.read_bytes() or self._testMethodName == "test_pack_helper_finishes_with_callers_standard_input_left_open":
+            return subprocess.run([sys.executable, "-B", str(script or self.script), *arguments],
+                                  capture_output=True, timeout=5, env=env, stdin=subprocess.DEVNULL)
+        return invoke_prompt(arguments, self.repo)
 
     def good(self, *args, **kwargs):
         result = self.run_pack("--manifest", self.manifest, *args, **kwargs)
@@ -2036,6 +2096,44 @@ class CommitPackTest(unittest.TestCase):
         self.assertEqual(result.stdout, b"")
         self.assertEqual(len(result.stderr.splitlines()), 1, result.stderr)
         self.assertIn(message.encode(), result.stderr)
+
+    def managed(self, own=True):
+        return ("# AGENTS.md\nThis repository is managed by [House Rules](https://example.invalid/house-rules). "
+                "Read House Rules `INDEX.md` first and follow it.\n" +
+                ("This repository's own rules are in [.agents/rules.md](.agents/rules.md).\n" if own else ""))
+
+    def assert_target_files(self, expected, rev):
+        baseline, _ = self.good()
+        pack, manifest = self.good(target=True)
+        parts = []
+        records = []
+        for path, data in expected:
+            heading = f"Repository rules (<target>/{path} at {rev[:12]}):\n".encode()
+            parts.append(heading + data + (b"" if data.endswith(b"\n") else b"\n"))
+            records.append({"path": path, "commit": rev,
+                            "blob": self.git(self.target, "rev-parse", rev + ":" + path),
+                            "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+        target_text = (b"\n".join(parts) if parts else
+                       b"Repository rules: this repository has no rules of its own.\n")
+        self.assertEqual(pack, baseline + b"\n" + target_text)
+        self.assertEqual(manifest["target"], {"commit": rev, "files": records})
+        self.assertEqual(manifest["parts"][-1], {"kind": "target"})
+        self.assertEqual(manifest["pack"], prompt.fingerprint(pack))
+        self.assertNotIn(str(self.target), json.dumps(manifest))
+        return pack, manifest
+
+
+class CommitPackTest(CommitPackFixture, unittest.TestCase):
+    def test_pack_helper_finishes_with_callers_standard_input_left_open(self):
+        read_fd, write_fd = os.pipe()
+        original = os.dup(0)
+        try:
+            os.dup2(read_fd, 0)
+            self.good()
+        finally:
+            os.dup2(original, 0)
+            for descriptor in (original, read_fd, write_fd):
+                os.close(descriptor)
 
     def test_commit_output_ignores_dirty_files_and_other_branch(self):
         before = self.good()
@@ -2109,9 +2207,9 @@ class CommitPackTest(unittest.TestCase):
             for listing in ([], ["--list"]):
                 with self.subTest(pin=pin, listing=listing):
                     result = subprocess.run([
-                        "/usr/bin/python3", "-B", str(self.script), *pin,
+                        sys.executable, "-B", str(self.script), *pin,
                         "--session", *listing, "rules/entry.md",
-                    ], capture_output=True, timeout=5)
+                    ], capture_output=True, timeout=5, stdin=subprocess.DEVNULL)
                     self.assertEqual(result.returncode, 0, result.stderr)
                     expected = (b"rules/entry.md\n" if listing else
                                 b"Loading path: session; shared rules come from the live House Rules index.\n\nRequested entry\n")
@@ -2131,29 +2229,6 @@ class CommitPackTest(unittest.TestCase):
                         self.assertNotRegex(pack.decode(), r"(?m)^@rule ")
                         self.assertEqual(bool(manifest["omitted_shared_rules"]), session)
 
-    def test_invalid_entries_revision_self_check_and_cli_fail_without_outputs(self):
-        link = self.repo / "link.md"
-        link.symlink_to("common.md")
-        self.write(self.repo, "directory/child.md", "Child")
-        rev = self.commit(self.repo)
-        for path in ("link.md", "directory", "../outside", "/etc/passwd", "common.md#section", "a/../common.md"):
-            with self.subTest(path=path):
-                dest = self.root / "publish"
-                self.bad(self.run_pack("--include", path, "--out", dest, rev=rev), "prompt:")
-                self.assertFalse(dest.exists())
-        self.bad(self.run_pack(rev="does-not-exist"), "commit")
-        self.script.write_bytes(self.script.read_bytes() + b"\n# Dirty compiler\n")
-        self.bad(self.run_pack(), "compiler differs")
-        for args in (("--manifest", self.manifest), ("--role", "reviewer", "--no-target"),
-                     ("--rev", self.rev, "--role", "reviewer"),
-                     ("--rev", self.rev, "--role", "reviewer", "--target", self.target, "--no-target"),
-                     ("--rev", self.rev, "common.md", "--role", "reviewer", "--no-target"),
-                     ("--task-source", "orphan")):
-            result = subprocess.run(["/usr/bin/python3", str(self.script), *map(str, args)],
-                                    input=b"", capture_output=True, timeout=5)
-            self.bad(result, "prompt:")
-        self.assertFalse(self.manifest.exists())
-
     def test_task_source_must_follow_task_and_cannot_be_machine_path(self):
         task = self.root / "task.txt"
         task.write_text("Task")
@@ -2164,53 +2239,11 @@ class CommitPackTest(unittest.TestCase):
         self.bad(self.run_pack("--task", task, "--include", "extra.md", "--task-source", "name"),
                  "immediately")
 
-    def test_empty_options_fail_without_substituting_defaults_or_output_modes(self):
-        for option in ("--rev", "--target-rev", "--out", "--manifest", "--repo", "--target"):
-            with self.subTest(option=option):
-                self.bad(self.run_pack(option, "", target=True), option + " must not be empty")
-        for option in ("--rev", "--manifest"):
-            with self.subTest(legacy_option=option):
-                result = subprocess.run(["/usr/bin/python3", "-B", str(self.script), option, ""],
-                                        input=b"Literal", capture_output=True, timeout=5)
-                self.bad(result, option + " must not be empty")
-
-    def test_abbreviated_task_source_is_rejected_without_traceback(self):
-        task = self.root / "task.txt"
-        task.write_text("Task")
-        for args in (("--task-so", "orphan"),
-                     ("--task", task, "--include", "extra.md", "--task-so", "name")):
-            self.bad(self.run_pack(*args), "unrecognized arguments: --task-so")
-
     def test_pack_refuses_standard_input_text_instead_of_dropping_it(self):
-        result = subprocess.run(["/usr/bin/python3", str(self.script), "--rev", self.rev,
+        result = subprocess.run([sys.executable, str(self.script), "--rev", self.rev,
                                  "--role", "reviewer", "--no-target"],
-                                input=b"Unexpected task on stdin", capture_output=True, timeout=5)
+                                stdin=None, input=b"Unexpected task on stdin", capture_output=True, timeout=5)
         self.bad(result, "standard-input text cannot be combined with pack parts")
-
-    def managed(self, own=True):
-        return ("# AGENTS.md\nThis repository is managed by [House Rules](https://example.invalid/house-rules). "
-                "Read House Rules `INDEX.md` first and follow it.\n" +
-                ("This repository's own rules are in [.agents/rules.md](.agents/rules.md).\n" if own else ""))
-
-    def assert_target_files(self, expected, rev):
-        baseline, _ = self.good()
-        pack, manifest = self.good(target=True)
-        parts = []
-        records = []
-        for path, data in expected:
-            heading = f"Repository rules (<target>/{path} at {rev[:12]}):\n".encode()
-            parts.append(heading + data + (b"" if data.endswith(b"\n") else b"\n"))
-            records.append({"path": path, "commit": rev,
-                            "blob": self.git(self.target, "rev-parse", rev + ":" + path),
-                            "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()})
-        target_text = (b"\n".join(parts) if parts else
-                       b"Repository rules: this repository has no rules of its own.\n")
-        self.assertEqual(pack, baseline + b"\n" + target_text)
-        self.assertEqual(manifest["target"], {"commit": rev, "files": records})
-        self.assertEqual(manifest["parts"][-1], {"kind": "target"})
-        self.assertEqual(manifest["pack"], prompt.fingerprint(pack))
-        self.assertNotIn(str(self.target), json.dumps(manifest))
-        return pack, manifest
 
     def test_target_includes_both_rule_files_unchanged_in_order(self):
         expected = [(".agents/rules.md", b"Own\r\n@rule house-rules:missing.md"),
@@ -2277,19 +2310,6 @@ class CommitPackTest(unittest.TestCase):
                 self.assertIn("resume note", section)
                 self.assertIn("fresh pack and manifest", section)
 
-    def test_invalid_target_sources_fail_even_when_the_other_file_exists(self):
-        for invalid, other in (("AGENTS.md", ".agents/rules.md"), (".agents/rules.md", "AGENTS.md")):
-            for path in ("AGENTS.md", ".agents/rules.md"):
-                (self.target / path).unlink(missing_ok=True)
-            self.write(self.target, other, self.managed() if other == "AGENTS.md" else "Own")
-            (self.target / invalid).symlink_to(other)
-            self.commit(self.target)
-            self.bad(self.run_pack(target=True), "regular file")
-        with prompt.Commit(self.target, "HEAD") as target, prompt.Commit(self.repo, self.rev) as source:
-            with patch.object(target, "read", side_effect=OSError("read error")):
-                with self.assertRaisesRegex((prompt.PromptError, OSError), "read error"):
-                    prompt.build_pack(source, target=target)
-
     def test_house_rules_own_portable_pointer_never_selects_index(self):
         self.write(self.target, "AGENTS.md", (ROOT / "AGENTS.md").read_bytes())
         self.write(self.target, ".agents/rules.md", "Own repository rules\n")
@@ -2303,8 +2323,8 @@ class CommitPackTest(unittest.TestCase):
 
     def test_legacy_commit_file_and_stdin_do_not_gain_revision_header(self):
         for args, data in ((["extra.md"], b""), ([], b"@rule house-rules:extra.md\n")):
-            result = subprocess.run(["/usr/bin/python3", str(self.script), "--rev", self.rev, *args],
-                                    input=data, capture_output=True, timeout=5)
+            result = subprocess.run([sys.executable, str(self.script), "--rev", self.rev, *args],
+                                    stdin=None, input=data, capture_output=True, timeout=5)
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertEqual(result.stdout, b"Extra")
 
@@ -2335,17 +2355,6 @@ class CommitPackTest(unittest.TestCase):
                         prompt.publish(failed, pack, manifest)
             self.assertFalse(failed.exists())
             self.assertEqual(list(self.root.glob("." + failed.name + "-*")), [])
-
-    def test_stdout_write_failure_is_nonzero(self):
-        class Broken:
-            def write(self, data):
-                raise BrokenPipeError("closed output")
-            def flush(self):
-                pass
-        with patch.object(sys, "stdout") as stdout:
-            stdout.buffer = Broken()
-            self.assertNotEqual(prompt.main(["--repo", str(self.repo), "--rev", self.rev,
-                                            "--role", "reviewer", "--no-target"]), 0)
 
     def test_only_requested_paths_use_one_protected_batch_per_repository(self):
         self.write(self.target, ".agents/rules.md", "Own\n")
@@ -2384,7 +2393,8 @@ class CommitPackTest(unittest.TestCase):
         self.assertEqual(set(lookups),
                          {(str(self.repo), p) for p in ("skills/pr-ready/scripts/prompt.py",
                            "prompts/roles/reviewer.md", "prompts/lenses/security.md", "common.md", "rules/writing.md")} |
-                         {(str(self.target), "AGENTS.md"), (str(self.target), ".agents/rules.md")})
+                         {(str(self.target), p) for p in ("AGENTS.md", ".agents/rules.md",
+                                                         "docs/ENTITIES.json", "docs/DOCUMENTS.json")})
         self.assertFalse(any("unrelated.md" in r for r in requests))
         self.assertTrue(all(re.fullmatch(r"[0-9a-f]{40}:[^\n]+\n", r) for r in requests))
 
@@ -2411,7 +2421,7 @@ class CommitPackTest(unittest.TestCase):
         # Extraction is the dispatcher's native Git read, protected like compiler reads.
         extract.write_bytes(subprocess.run(["git", "--no-replace-objects", "-C", str(self.repo),
                             "show", self.rev + ":skills/pr-ready/scripts/prompt.py"],
-                            check=True, capture_output=True, timeout=5).stdout)
+                            check=True, capture_output=True, timeout=5, stdin=subprocess.DEVNULL).stdout)
         baseline = self.good(target=True, script=extract)
         for repo, rev, paths in ((self.repo, self.rev, ["skills/pr-ready/scripts/prompt.py", "common.md"]),
                                  (self.target, target_rev, [".agents/rules.md", "AGENTS.md"])):
@@ -2427,6 +2437,74 @@ class CommitPackTest(unittest.TestCase):
                 self.git(repo, "replace", original, substitute)
                 self.assertEqual(self.good("--target-rev", target_rev, target=True, script=extract), baseline)
                 self.git(repo, "replace", "-d", original)
+
+
+class CommitPackRefusalTest(CommitPackFixture, unittest.TestCase):
+    def test_invalid_entries_revision_self_check_and_cli_fail_without_outputs(self):
+        link = self.repo / "link.md"
+        link.symlink_to("common.md")
+        self.write(self.repo, "directory/child.md", "Child")
+        rev = self.commit(self.repo)
+        for path in ("link.md", "directory", "../outside", "/etc/passwd", "common.md#section", "a/../common.md"):
+            with self.subTest(path=path):
+                dest = self.root / "publish"
+                self.bad(self.run_pack("--include", path, "--out", dest, rev=rev), "prompt:")
+                self.assertFalse(dest.exists())
+        self.bad(self.run_pack(rev="does-not-exist"), "commit")
+        self.script.write_bytes(self.script.read_bytes() + b"\n# Dirty compiler\n")
+        self.bad(self.run_pack(), "compiler differs")
+        for args in (("--manifest", self.manifest), ("--role", "reviewer", "--no-target"),
+                     ("--rev", self.rev, "--role", "reviewer"),
+                     ("--rev", self.rev, "--role", "reviewer", "--target", self.target, "--no-target"),
+                     ("--rev", self.rev, "common.md", "--role", "reviewer", "--no-target"),
+                     ("--task-source", "orphan")):
+            result = subprocess.run([sys.executable, str(self.script), *map(str, args)],
+                                    stdin=None, input=b"", capture_output=True, timeout=5)
+            self.bad(result, "prompt:")
+        self.assertFalse(self.manifest.exists())
+
+    def test_empty_options_fail_without_substituting_defaults_or_output_modes(self):
+        for option in ("--rev", "--target-rev", "--out", "--manifest", "--repo", "--target"):
+            with self.subTest(option=option):
+                self.bad(self.run_pack(option, "", target=True), option + " must not be empty")
+        for option in ("--rev", "--manifest"):
+            with self.subTest(legacy_option=option):
+                result = subprocess.run([sys.executable, "-B", str(self.script), option, ""],
+                                        stdin=None, input=b"Literal", capture_output=True, timeout=5)
+                self.bad(result, option + " must not be empty")
+
+    def test_abbreviated_task_source_is_rejected_without_traceback(self):
+        task = self.root / "task.txt"
+        task.write_text("Task")
+        for args in (("--task-so", "orphan"),
+                     ("--task", task, "--include", "extra.md", "--task-so", "name")):
+            self.bad(self.run_pack(*args), "unrecognized arguments: --task-so")
+
+    def test_invalid_target_sources_fail_even_when_the_other_file_exists(self):
+        for invalid, other in (("AGENTS.md", ".agents/rules.md"), (".agents/rules.md", "AGENTS.md")):
+            for path in ("AGENTS.md", ".agents/rules.md"):
+                (self.target / path).unlink(missing_ok=True)
+            self.write(self.target, other, self.managed() if other == "AGENTS.md" else "Own")
+            (self.target / invalid).symlink_to(other)
+            self.commit(self.target)
+            self.bad(self.run_pack(target=True), "regular file")
+        with prompt.Commit(self.target, "HEAD") as target, prompt.Commit(self.repo, self.rev) as source:
+            with patch.object(target, "read", side_effect=OSError("read error")):
+                with self.assertRaisesRegex((prompt.PromptError, OSError), "read error"):
+                    prompt.build_pack(source, target=target)
+
+    def test_stdout_write_failure_is_nonzero(self):
+        class Broken:
+            def write(self, data):
+                raise BrokenPipeError("closed output")
+            def flush(self):
+                pass
+        with patch.object(sys, "stdout") as stdout, patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO())):
+            stdout.buffer = Broken()
+            self.assertNotEqual(prompt.main(["--repo", str(self.repo), "--rev", self.rev,
+                                            "--role", "reviewer", "--no-target"]), 0)
+
+
 
 
 if __name__ == "__main__":

@@ -42,5 +42,6 @@ At session start and after every reset or compaction, read these files in full:
 - Assumptions, causal claims, or verification needing deliberate checkpoints: load [reasoning-moves](skills/reasoning-moves/SKILL.md).
 - Rust implementation or crate scaffolding: load [rust-canon](skills/rust-canon/SKILL.md).
 - Writing or reviewing specs, design documents, or system maps: load [spec-writing](skills/spec-writing/SKILL.md).
+- Specifications, design documents, or their agent context: load [specification rules](rules/specifications.md).
 - Dependency defects, upstream reports or fixes, or maintainer feedback: load [upstream-contribution](skills/upstream-contribution/SKILL.md).
 - Creating, claiming, handing off, closing, coordinating, or checking tracked work: load [work-tracking](skills/work-tracking/SKILL.md).

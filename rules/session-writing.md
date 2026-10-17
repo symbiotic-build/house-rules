@@ -17,6 +17,9 @@
 
 ## Questions to the operator
 
+Numbered question headings apply only to operator-facing questions, never to specifications
+or design documents. Those documents use unnumbered open-question sections.
+
 Questions the operator must answer come after the explanation.
 Use [rules/writing.md §Claim labels](writing.md#claim-labels). Example:
 

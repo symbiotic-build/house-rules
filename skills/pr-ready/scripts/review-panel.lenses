@@ -9,6 +9,7 @@ generalist-b b read-only
 generalist-c c read-only
 naming-readability b read-only
 performance a read-only
+rule-preservation b read-only
 security a read-only
 spec-waste a read-only
 spec a read-only

@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "entities": {
+    "example.writer": {
+      "kind": "component",
+      "home": {
+        "section": "example-demo#acceptance",
+        "anchor": "writer"
+      },
+      "scope": ["example-demo"],
+      "forms": ["writer"],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "example.acceptance": {
+      "kind": "mechanism",
+      "home": {
+        "section": "example-demo#acceptance",
+        "anchor": "acceptance"
+      },
+      "scope": ["example-demo"],
+      "forms": ["acceptance"],
+      "symbols": [],
+      "rejected_forms": [
+        {
+          "text": "acceptance gate",
+          "replacement": "acceptance",
+          "reason": "Use one name for this stage."
+        }
+      ]
+    },
+    "example.log-group-limit": {
+      "kind": "setting",
+      "home": {
+        "section": "example-demo#settings",
+        "anchor": "log-group-limit"
+      },
+      "scope": ["example-demo"],
+      "forms": ["log group byte limit"],
+      "symbols": ["log_group_max_bytes"],
+      "rejected_forms": []
+    },
+    "example.commit-capacity": {
+      "kind": "setting",
+      "home": {
+        "section": "example-demo#settings",
+        "anchor": "commit-capacity"
+      },
+      "scope": ["example-demo"],
+      "forms": ["commit capacity"],
+      "symbols": ["commit_max_documents"],
+      "rejected_forms": []
+    },
+    "example.call-capacity": {
+      "kind": "setting",
+      "home": {
+        "section": "example-demo#settings",
+        "anchor": "call-capacity"
+      },
+      "scope": ["example-demo"],
+      "forms": ["call capacity"],
+      "symbols": ["call_max_documents"],
+      "rejected_forms": []
+    }
+  },
+  "naming_rules": [
+    {
+      "id": "setting-symbol",
+      "kind": "setting",
+      "field": "symbols",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "message": "Use lower-case words separated by underscores."
+    }
+  ]
+}
