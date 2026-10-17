@@ -312,8 +312,11 @@ def main(argv=None):
     """Accept report options followed by the unchanged unittest command line."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--report', required=True, type=Path)
-    parser.add_argument('--jobs', type=positive_jobs, default=os.cpu_count() or 1,
-                        help='maximum worker processes (default: CPU count); 1 runs serially')
+    parser.add_argument('--jobs', type=positive_jobs, default=1,
+                        help='maximum worker processes (default: 1, native serial traversal); '
+                        'N > 1 opts into parallel classes, which must be independent: '
+                        'no result.stop() from inside tests, no module cleanups registered '
+                        'while tests run, and no state shared across classes')
     parser.add_argument('--selectors-file', type=Path, help=argparse.SUPPRESS)
     args, unittest_args = parser.parse_known_args(argv)
     class ReportingRunner(unittest.TextTestRunner):
