@@ -143,6 +143,8 @@ def rule_lines(text):
                     structure = item[1]
                 else:
                     item = None
+            # Indented code (four or more columns beyond any list item's text) keeps exact text.
+            code = row.strip() and not marker and depth >= (item[0] if item else 0) + 4
             if heading:
                 level = len(heading[1])
                 while headings and headings[-1][0] >= level:
@@ -150,11 +152,13 @@ def rule_lines(text):
                 headings.append((level, heading[2]))
                 section = " / ".join(title for _, title in headings)
             # Structural rows, blank lines and hard breaks are never prose rewraps.
-            if not row.strip() or heading or quotes or "|" in row or "`" in row or row.endswith(("  ", "\t")):
+            if not row.strip() or code or heading or quotes or "|" in row or "`" in row or row.endswith(("  ", "\t")):
                 signature = [("exact", raw)]
             else:
+                # Only line breaks may move: words split on single spaces, so a run of
+                # spaces or a tab inside a line stays part of the compared text.
                 signature = ([("item", structure)] if marker else []) + [
-                    (structure, word) for word in row[prefix.end():].split()]
+                    (structure, word) for word in row[prefix.end():].strip(" ").split(" ")]
         rows.append(dict(raw=raw, section=section, signature=signature))
     return rows
 
@@ -227,12 +231,22 @@ def declared_rule_changes(body):
             continue
         visible = ""
         while line:
-            prefix, marker, line = line.partition("-->" if comment else "<!--")
-            if not comment:
-                visible += prefix
-            if not marker:
-                break
-            comment = not comment
+            if comment:
+                _, marker, line = line.partition("-->")
+                comment = not marker
+                continue
+            # An inline code span is literal: a comment opener inside it starts no comment.
+            span = re.match(r"([^`<]*(?:<(?!!--)[^`<]*)*)(`+)", line)
+            opener = line.find("<!--")
+            if span and (opener < 0 or span.end(1) < opener):
+                close = line.find(span[2], span.end())
+                if close >= 0 and line[close:close + len(span[2]) + 1] != span[2] + "`":
+                    visible += line[:close + len(span[2])]
+                    line = line[close + len(span[2]):]
+                    continue
+            prefix, marker, line = line.partition("<!--")
+            visible += prefix
+            comment = bool(marker)
         line = visible
         if start is None:
             if re.fullmatch(r"##\s+Rule changes\s*#*\s*", line):

@@ -132,6 +132,11 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
             ("```python\ncheck(a, b)\n```\n", "```python\ncheck(a,  b)\n```\n", "changed"),
             ("- ```python\n  check(a, b)\n  ```\n", "- ```python\n  check(a,  b)\n  ```\n", "changed"),
             ("> ```python\n> check(a, b)\n> ```\n", "> ```python\n> check(a,  b)\n> ```\n", "changed"),
+            ('Example:\n\n    assert name != "release  unsigned.zip"\n',
+             'Example:\n\n    assert name != "release unsigned.zip"\n', "changed"),
+            ("- Item:\n\n      check(a, b)\n", "- Item:\n\n      check(a,  b)\n", "changed"),
+            ('Reject the name "release  unsigned.zip".\n', 'Reject the name "release unsigned.zip".\n', "changed"),
+            ("Keep\trecords.\n", "Keep records.\n", "changed"),
         ]
         for before, after, kind in cases:
             with self.subTest(before=before):
@@ -300,6 +305,9 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
                                  [(line, "## Rule changes"), (line + 1, "Real declaration.")])
         body = "## Rule changes\nReal declaration.\n<!--\n## Tests\n-->\nStill declared.\n## Tests\n"
         self.assertEqual(prepare.declared_rule_changes(body), list(enumerate(body.splitlines()[:6], 1)))
+        body = "Write `<!--` to open a comment.\n## Rule changes\nReal declaration.\n"
+        self.assertEqual(prepare.declared_rule_changes(body),
+                         [(2, "## Rule changes"), (3, "Real declaration.")])
         body = "```html\n<!--\n```\n## Rule changes\nReal declaration.\n"
         self.assertEqual(prepare.declared_rule_changes(body),
                          [(4, "## Rule changes"), (5, "Real declaration.")])
