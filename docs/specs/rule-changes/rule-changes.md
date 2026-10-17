@@ -226,7 +226,10 @@ There is one limit on the rendered report, checked before joining the output; no
 **Retained state:** Git and the checkout remain unchanged. The report is derived in memory; no index or approval state is stored.
 
 **Recovery:** The lead narrows the review range or adjusts the base configuration through an approved change, then prepares again.
-Malformed or unreadable inputs require repair before preparation. No approval is possible from an incomplete report.
+Malformed or unreadable inputs require repair before preparation.
+For unreadable or malformed protected-path configuration, the lead reviews the repair against the last commit with a valid configuration.
+The lead keeps the complete repair diff as evidence. Without a valid baseline, preparation stays blocked.
+No approval is possible from an incomplete report.
 
 **Authority:** The lead supplies the revised review input; a reviewer cannot waive missing evidence.
 

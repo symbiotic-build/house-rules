@@ -150,6 +150,21 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertEqual([(item["old"]["path"], item["new"]["path"]) for item in changes[:2]],
                          [("rules/a.md", "rules/c.md"), ("rules/b.md", "rules/d.md")])
 
+    def test_inline_code_spacing_is_reported(self):
+        before = "Reject `a  b`.\n"
+        after = "Reject `a b`.\n"
+        base = self.snapshot({"rules/source.md": before})
+        head = self.snapshot({"rules/source.md": after})
+        changes, policy, _ = prepare.rule_changes(self.repo, base, head)
+        self.assertEqual([item["kind"] for item in changes], ["changed"])
+        self.assertEqual(changes[0]["old"]["text"], before)
+        self.assertEqual(changes[0]["new"]["text"], after)
+        report = prepare.rule_report(changes, policy, base, head, "", "--summary text")
+        self.assertIn(before, report)
+        self.assertIn(after, report)
+        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2],
+                         (0, "rule-preservation\n"))
+
     def test_rule_comparison_reads_only_changed_paths_and_base_policy(self):
         base = self.snapshot({'.rule-changes.json': '{"version":1}',
                               'rules/source.md': '- Never skip validation.\n',
@@ -267,6 +282,27 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(status, 0, err)
         self.assertIn("No protected rule text changed.", out)
         self.assertIn("7: Approved: retain records.", out)
+
+    def test_declarations_ignore_html_comments(self):
+        base = self.snapshot({"rules/source.md": "# Scope\n"})
+        head = self.snapshot({"rules/source.md": "# Scope\nRetain records.\n"})
+        changes, policy, _ = prepare.rule_changes(self.repo, base, head)
+        for comment in ("<!-- ## Rule changes -->\n",
+                        "<!--\n## Rule changes\nTemplate declaration.\n-->\n",
+                        "<!-- note -->\n<!--\n```markdown\n## Rule changes\n-->\n"):
+            with self.subTest(comment=comment):
+                self.assertEqual(prepare.declared_rule_changes(comment), [])
+                report = prepare.rule_report(changes, policy, base, head, comment, "--summary text")
+                self.assertIn("UNDECLARED RULE CHANGES", report)
+                body = comment + "## Rule changes\nReal declaration.\n## Tests\nUnrelated.\n"
+                line = len(comment.splitlines()) + 1
+                self.assertEqual(prepare.declared_rule_changes(body),
+                                 [(line, "## Rule changes"), (line + 1, "Real declaration.")])
+        body = "## Rule changes\nReal declaration.\n<!--\n## Tests\n-->\nStill declared.\n## Tests\n"
+        self.assertEqual(prepare.declared_rule_changes(body), list(enumerate(body.splitlines()[:6], 1)))
+        body = "```html\n<!--\n```\n## Rule changes\nReal declaration.\n"
+        self.assertEqual(prepare.declared_rule_changes(body),
+                         [(4, "## Rule changes"), (5, "Real declaration.")])
 
     def test_summary_declarations(self):
         base = self.snapshot({"rules/source.md": "# Scope\n"})

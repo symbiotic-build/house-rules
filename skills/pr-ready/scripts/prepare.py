@@ -150,7 +150,7 @@ def rule_lines(text):
                 headings.append((level, heading[2]))
                 section = " / ".join(title for _, title in headings)
             # Structural rows, blank lines and hard breaks are never prose rewraps.
-            if not row.strip() or heading or quotes or "|" in row or row.endswith(("  ", "\t")):
+            if not row.strip() or heading or quotes or "|" in row or "`" in row or row.endswith(("  ", "\t")):
                 signature = [("exact", raw)]
             else:
                 signature = ([("item", structure)] if marker else []) + [
@@ -215,16 +215,25 @@ def rule_changes(repo, base, head):
 
 def declared_rule_changes(body):
     lines = body.splitlines()
-    start, fence = None, None
+    start, fence, comment = None, None, False
     for index, line in enumerate(lines):
         if fence:
             if closing_fence(line, fence):
                 fence = None
             continue
-        opening = re.match(r"^[ \t]*(`{3,}|~{3,})", line)
+        opening = None if comment else re.match(r"^[ \t]*(`{3,}|~{3,})", line)
         if opening:
             fence = opening[1][0], len(opening[1])
             continue
+        visible = ""
+        while line:
+            prefix, marker, line = line.partition("-->" if comment else "<!--")
+            if not comment:
+                visible += prefix
+            if not marker:
+                break
+            comment = not comment
+        line = visible
         if start is None:
             if re.fullmatch(r"##\s+Rule changes\s*#*\s*", line):
                 start = index
