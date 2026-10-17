@@ -555,6 +555,59 @@ class DocumentationContextTests(DocumentationFixture, unittest.TestCase):
         self.assertFalse((output / "missing/generalist-a.attempt-1.md").exists())
         self.assertFalse((output / "missing/generalist-a.pack").exists())
 
+    def test_panel_keeps_assignment_when_file_replaced_between_compilations(self):
+        for folder in ("prompts", "rules"):
+            shutil.copytree(ROOT / folder, self.rules / folder, dirs_exist_ok=True)
+        self.write(self.rules, "skills/pr-ready/scripts/review-panel.lenses",
+                   (ROOT / "skills/pr-ready/scripts/review-panel.lenses").read_bytes())
+        self.rule_revision = self.commit(self.rules)
+        binaries = self.root / "bin"
+        binaries.mkdir()
+        replacement = json.dumps({"version": 1, "sections": ["example-demo#settings"]})
+        real_git = shutil.which("git")
+        wrapper = binaries / "git"
+        # The first compilation closes its Git batch after building its pack.
+        # Replace the assignment at that boundary, without timing or sleeps.
+        wrapper.write_text("#!" + sys.executable + "\n" +
+                           "import os, pathlib, subprocess, sys\n" +
+                           "args = sys.argv[1:]\n" +
+                           "if args[-2:] == ['cat-file', '--batch']:\n" +
+                           f"    status = subprocess.call([{real_git!r}, *args])\n" +
+                           f"    replacement = pathlib.Path({str(self.root / 'replacement.json')!r})\n" +
+                           f"    replacement.write_text({replacement!r})\n" +
+                           f"    os.replace(replacement, {str(self.assignment_file)!r})\n" +
+                           "    sys.exit(status)\n" +
+                           f"os.execv({real_git!r}, [{real_git!r}, *args])\n")
+        wrapper.chmod(0o755)
+        reviewer = binaries / "codex"
+        reviewer.write_text("#!/bin/sh\nwhile [ \"$1\" != '-o' ]; do shift; done\n"
+                            "printf 'VERDICT: APPROVE\\n' > \"$2\"\ncat > /dev/null\n")
+        reviewer.chmod(0o755)
+        config = self.root / "panel.conf"
+        config.write_text("a = codex synthetic-model - high\n")
+        task = self.root / "task.txt"
+        task.write_text("Review the selected documentation.\n")
+        output = self.root / "panels"
+        environment = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                           REVIEW_HOUSE_RULES_REPO=str(self.rules), REVIEW_HOUSE_RULES_REV=self.rule_revision,
+                           REVIEW_PYTHON=sys.executable, REVIEW_PANEL_CONF=str(config), REVIEW_PANEL_OUT=str(output),
+                           REVIEW_BASE=self.revision)
+        lenses = ("generalist-a", "correctness-security")
+        result = subprocess.run(
+            ["bash", str(ROOT / "skills/pr-ready/scripts/review-panel.sh"), "--assignment",
+             str(self.assignment_file), "replacement", str(self.repo), str(task), *lenses],
+            env=environment, capture_output=True, timeout=20, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.assignment_file.read_text(), replacement)
+        packs = [output / "replacement" / (lens + ".pack") for lens in lenses]
+        self.assertEqual([json.loads((pack / "manifest.json").read_bytes())["documentation"]
+                          ["manifest"]["assignment"]["sections"] for pack in packs],
+                         [ASSIGNMENT["sections"], ASSIGNMENT["sections"]])
+        prefixes = [(pack / "pack.txt").read_bytes().split(b"# 7. Lens instructions\n", 1)[0]
+                    for pack in packs]
+        self.assertIn(b"# Complete registry", prefixes[0])
+        self.assertEqual(prefixes[0], prefixes[1])
+
     def test_legacy_repository_needs_no_checker_or_assignment(self):
         shutil.rmtree(self.repo / "docs")
         self.revision = self.commit(self.repo)

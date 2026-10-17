@@ -827,11 +827,12 @@ def structured_change(repo, rng, files, head, budget, full_file_cap):
             continue
         obj = f"{head}:{path}"
         exists = git(repo, "ls-tree", "-z", head, "--", ":(literal)" + path)
-        if not exists:
-            listings.append(f"- {display(path)}: deleted; no head content.")
-            continue
-        if exists.split(" ", 2)[1] == "commit":
+        object_type = exists.split(" ", 2)[1] if exists else None
+        if object_type == "commit":
             listings.append(f"- {display(path)}: submodule; no full file content.")
+            continue
+        if object_type != "blob":
+            listings.append(f"- {display(path)}: deleted; no head content.")
             continue
         size = int(git(repo, "cat-file", "-s", obj))
         note = None

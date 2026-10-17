@@ -838,6 +838,36 @@ else:
 
 
 class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
+    def test_file_replaced_by_directory_lists_deleted_source_and_only_numbers_child_blob(self):
+        (self.repo / "src/core.py").unlink()
+        self.write(self.repo, "src/core.py/implementation.py", "result = 2\n")
+        self.commit(self.repo, "Replace source with directory")
+        full = self.review().split("# 6. Changed source files\n", 1)[1].split(
+            "# 7. Lens instructions", 1)[0].strip()
+        self.assertEqual(full, "- src/core.py: deleted; no head content.\n\n"
+                         "## src/core.py/implementation.py (complete at head, numbered)\n\n"
+                         "```\n    1  result = 2\n```")
+
+    def test_second_family_reviewer_reports_size_guard_without_missing_task_error(self):
+        self.write(self.repo, "large.py", "# " + "x" * 800_001 + "\n")
+        self.commit(self.repo, "Add large source")
+        summary, output, env = self.panel_fixture()
+        env.update(REVIEW_BASE="origin/trunk", REVIEW_PYTHON=sys.executable)
+        (self.binaries / "codex").write_text(
+            "#!/bin/sh\nwhile [ \"$1\" != '-o' ]; do shift; done\n"
+            "printf 'VERDICT: APPROVE\\n' > \"$2\"\ncat > /dev/null\n")
+        lenses = ("generalist-a", "correctness-security")
+        result = subprocess.run(
+            ["bash", str(SCRIPT.with_name("review-panel.sh")), "notices", str(self.repo),
+             str(summary), *lenses], capture_output=True, text=True, env=env, timeout=20,
+            stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("No such file or directory", result.stderr)
+        notice = "Size guard: prompt exceeds 800,000 characters; change part uses pack (hunk headers)."
+        recorded = (output / "notices/summary.txt").read_text().splitlines()
+        self.assertEqual(sorted(line for line in recorded if ": Size guard:" in line),
+                         sorted(lens + ": " + notice for lens in lenses))
+
     def test_panel_reuses_family_context_when_comments_change_between_preparations(self):
         self.write(self.repo, "src/core.py", "result = 2\n")
         self.commit(self.repo, "Change result")

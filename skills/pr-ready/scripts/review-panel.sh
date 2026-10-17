@@ -153,13 +153,19 @@ def failure(reviewer, exc):
     with (Path(out) / "summary.txt").open("a", encoding="utf-8") as stream:
         print(reviewer + " failed: context preparation or prompt compilation (see " + reviewer + ".prepare.err)", file=stream)
 
+try:
+    assignment_bytes = Path(assignment).read_bytes() if assignment else None
+except errors as exc:
+    failure(members[0][0], exc)
+    sys.exit(1)
+
 # Keep compiled bytes in memory until every selected lens has contributed its size.
 for reviewer, family, cli in members:
     try:
         with Commit(repo, rev) as source, Commit(checkout, review_rev) as target:
             pack, manifest = build_pack(source, role="reviewer", lens=reviewer, target=target,
                                         omit_shared_rules=session == "1",
-                                        assignment=Path(assignment).read_bytes() if assignment else None,
+                                        assignment=assignment_bytes,
                                         target_base=resolved_base, plan=plan, structured=cli == "codex")
         compiled[reviewer] = pack, manifest
         reservations[family] = max(reservations.get(family, 0), len(pack.decode("utf-8")) + 1)
@@ -219,7 +225,7 @@ run_one() {
   fi
   ln -s "$r.pack/pack.txt" "$prompt" || return 1
   cat "$out/$r.prepare.err" >&2
-  sed -n '/^# 3\. Pull request and issue/q; /^Size guard:/p' "$out/$r.task" |
+  sed -n '/^# 3\. Pull request and issue/q; /^Size guard:/p' "$out/$r.pack/pack.txt" |
     while IFS= read -r notice; do printf '%s: %s\n' "$r" "$notice"; done >> "$out/summary.txt"
   t0=$(date +%s)
   # Transient provider errors (capacity, overload, rate limits) are retried twice, 60 s apart;
