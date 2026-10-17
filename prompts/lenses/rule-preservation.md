@@ -3,8 +3,9 @@
 Audit the Rule text changes section in the task context using this procedure.
 The shared [review bar](../util/review-bar.md) owns mandatory dispositions and Blocking conditions.
 
-1. Read the report totals, every item and its old/new locations. Read the PR description's
-   declared Rule changes beside it. A failed-closed report cannot support approval.
+1. Read the report totals, every item and its old/new locations. Read the declared Rule
+   changes from the report's selected source (PR body or `--summary`) beside it.
+   A failed-closed report cannot support approval.
 2. For each item, read old and new text in their complete source sections at the reported
    base and head. List the rule's actor, condition, action, strength words
    (`never`, `always`, `must`, `only`), numbers, exceptions, scope and cross-references.
@@ -15,11 +16,11 @@ The shared [review bar](../util/review-bar.md) owns mandatory dispositions and B
    and exceptions. Search the existing rule homes to establish whether removed text
    survives elsewhere; an apparent move must not conceal text now missing everywhere.
    For a new rule, check conflicts and duplicates against existing homes: one home per rule.
-4. Reconcile detected items with declared changes. Cite the exact description line or
+4. Reconcile detected items with declared changes. Cite the exact selected-source line or
    recorded decision for every approved change. A declaration is an author claim;
    verify that it supplies approval for the actual effect. A removal or weakening needs
    operator approval on record (a `CHANGELOG-RULES.md` entry or the operator's dated words
-   quoted in the description); an author's declaration does not approve it. Flag undeclared items and
+   quoted in the selected declaration source); an author's declaration does not approve it. Flag undeclared items and
    declarations that conceal a removal or weakening.
 5. Output one table row per report item: location, class, effect, disposition, evidence.
    The evidence identifies changed elements or explains why every element survives.

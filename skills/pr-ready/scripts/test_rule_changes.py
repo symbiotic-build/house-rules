@@ -5,13 +5,14 @@ import importlib.util
 import json
 import os
 from pathlib import Path
+from unittest import mock
 import shutil
 import subprocess
 import sys
 import sysconfig
 import unittest
 
-from test_prepare import PrepareFixture, SCRIPT
+from test_prepare import PrepareFixture, SCRIPT, prepare
 
 
 class RuleChangesTests(PrepareFixture, unittest.TestCase):
@@ -83,6 +84,46 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         status, out, err = self.context(base)
         self.assertEqual(status, 0, err)
         self.assertIn("No protected rule text changed.", out)
+
+    def test_list_ancestry_changes_are_reported(self):
+        base = self.snapshot({'rules/source.md': '# Scope\n- For production deployments:\n- Reject unsigned artifacts.\n'})
+        self.snapshot({'rules/source.md': '# Scope\n- For production deployments:\n  - Reject unsigned artifacts.\n'})
+        report = self.report(base)
+        self.assertIn('moved: 1', report)
+        self.assertIn('list ancestry: ["For production deployments:"]', report)
+        self.assertIn('Reject unsigned artifacts.', report)
+        base = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.snapshot({'rules/source.md': '# Scope\n-  For production\n   deployments:\n    - Reject unsigned artifacts.\n'})
+        self.assertIn('No protected rule text changed.', self.context(base)[1])
+        base = self.snapshot({'rules/source.md': '# Scope\n- For production deployments:\n- Reject unsigned artifacts.\n'})
+        self.snapshot({'rules/source.md': '# Scope\n- For production deployments:\n - Reject unsigned artifacts.\n'})
+        self.assertIn('No protected rule text changed.', self.context(base)[1])
+
+    def test_rule_comparison_reads_only_changed_paths_and_base_policy(self):
+        base = self.snapshot({'.rule-changes.json': '{"version":1}',
+                              'rules/source.md': '- Never skip validation.\n',
+                              'unrelated/file.py': 'pass\n'})
+        head = self.snapshot({'rules/source.md': '- Avoid skipping validation.\n'})
+        with mock.patch.object(prepare, 'git', wraps=prepare.git) as calls:
+            changes, _, _ = prepare.rule_changes(self.repo, base, head)
+        self.assertEqual([item['kind'] for item in changes], ['changed'])
+        commands = [call.args[1:] for call in calls.call_args_list]
+        raw = [args for args in commands if args[:1] == ('diff',) and '--raw' in args]
+        self.assertEqual(len(raw), 1)
+        self.assertIn('--no-renames', raw[0])
+        self.assertIn('-z', raw[0])
+        tree_reads = [args for args in commands if args[:1] == ('ls-tree',)]
+        self.assertEqual([args[args.index('--') + 1:] for args in tree_reads],
+                         [('.rule-changes.json',)])
+
+    def test_recursive_wildcards_include_newlines(self):
+        paths = ('skills/policy\narchive/SKILL.md', 'prompts/a\nb/c\nd.md')
+        base = self.snapshot({path: '- Keep every result.\n' for path in paths})
+        self.snapshot({path: '' for path in paths})
+        report = self.report(base)
+        self.assertIn('removed: 2;', report)
+        for path in paths:
+            self.assertIn(json.dumps(path) + ':1', report)
 
     def test_added(self):
         base = self.snapshot({"rules/source.md": "# Scope\n"})
@@ -267,7 +308,7 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertIn("removed: 0; added: 0; changed: 0; moved: 0", report)
         self.assertIn("Provenance entries: 2", report)
         # Both complete text and all provenance locations obey the existing size guard.
-        policy["max_report_chars"] = 1
+        policy["max_report_chars"] = 128
         base = self.snapshot({".rule-changes.json": json.dumps(policy)})
         self.snapshot({"history/archive.md": "# Archive\n"})
         status, out, err = self.context(base)
@@ -294,7 +335,7 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertIn("Keep `literal. code` intact.", report)
 
     def test_oversize(self):
-        policy = json.dumps(dict(version=1, max_report_chars=1))
+        policy = json.dumps(dict(version=1, max_report_chars=1200))
         base = self.snapshot({".rule-changes.json": policy, "rules/source.md": "# Scope\n"})
         self.snapshot({"rules/source.md": "# Scope\n" + "".join(f"- Required action {n}.\n" for n in range(12))})
         status, out, err = self.context(base)
@@ -304,6 +345,30 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         for item in range(12):
             self.assertIn(f'RC{item + 1} added: old (none); new "rules/source.md":{item + 2}', out)
         self.assertNotIn("# 5. Change", out)
+
+    def test_oversized_blob_refuses_before_loading_or_comparing(self):
+        for side in ('base', 'head'):
+            with self.subTest(side=side):
+                small = '# Scope\n- Keep records.\n'
+                large = '# Scope\n```text\n' + 'x' * 2048 + '\n```\n'
+                path = f'rules/{side}.md'
+                base = self.snapshot({'.rule-changes.json': json.dumps(dict(version=1, max_report_chars=1024)),
+                                      path: large if side == 'base' else small})
+                self.snapshot({path: large if side == 'head' else small})
+                with mock.patch.object(prepare, 'rule_blob', wraps=prepare.rule_blob) as blobs, \
+                        mock.patch.object(prepare, 'pair_rule_units', wraps=prepare.pair_rule_units) as compare, \
+                        mock.patch.object(prepare, 'git', wraps=prepare.git) as calls:
+                    status, out, err = self.context(base)
+                self.assertEqual(status, 1, err)
+                self.assertIn('FAILED CLOSED', out)
+                self.assertIn('1024', out)
+                self.assertIn('comparison not performed', out)
+                self.assertNotIn('## Rule text changes', out)
+                self.assertNotIn('# 5. Change', out)
+                compare.assert_not_called()
+                self.assertEqual([call.args[2] for call in blobs.call_args_list], ['.rule-changes.json'])
+                self.assertEqual(sum(call.args[1:3] == ('cat-file', '--batch-check')
+                                     for call in calls.call_args_list), 1)
 
     def test_invalid_inputs(self):
         for policy in ({"version": 2}, {"version": 1, "extra_protected_paths": ["../outside.md"]},
@@ -336,6 +401,63 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         base = self.git(self.repo, "rev-parse", "HEAD")
         self.snapshot({"rules/source.md": "# Scope\nAvoid skipping validation.\nNew rule.\n"})
         self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2], (0, ""))
+        base = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.assertEqual(self.invoke('rule-lenses', str(self.repo), '--base', base, '--no-fetch')[:2], (0, ''))
+        self.snapshot({'rules/source.md': '# Scope\n'})
+        self.assertEqual(self.invoke('rule-lenses', str(self.repo), '--base', base, '--no-fetch')[:2],
+                         (0, 'rule-preservation\n'))
+        base = self.snapshot({'rules/source.md': '# Scope\n- Keep all records.\n'})
+        self.snapshot({'rules/source.md': '# Scope\n', 'rules/destination.md': '# Archive\n- Keep all records.\n'})
+        self.assertEqual(self.invoke('rule-lenses', str(self.repo), '--base', base, '--no-fetch')[:2],
+                         (0, 'rule-preservation\n'))
+
+    def test_panel_keeps_base_selected_before_lens_selection(self):
+        base = self.snapshot({'rules/source.md': '# Scope\n- Never skip validation.\n'})
+        head = self.snapshot({'rules/source.md': '# Scope\n- Avoid skipping validation.\n'})
+        self.git(self.repo, 'branch', 'comparison', base)
+        summary, output, env = self.panel_fixture()
+        Path(env['REVIEW_PANEL_CONF']).write_text('a = codex test-model - high\nb = codex test-model - high\n')
+        stub = self.binaries / 'codex'
+        stub.write_text('#!' + sys.executable + '\nimport pathlib,sys\n'
+                        'sys.stdin.buffer.read()\n'
+                        'pathlib.Path(sys.argv[sys.argv.index("-o")+1]).write_text("VERDICT: APPROVE")\n')
+        stub.chmod(0o755)
+        real_git = shutil.which('git')
+        marker = self.root / 'base-moved'
+        wrapper = self.binaries / 'git'
+        wrapper.write_text('#!' + sys.executable + '\nimport os,pathlib,subprocess,sys\n'
+                           'args=sys.argv[1:]\n'
+                           f'marker=pathlib.Path({str(marker)!r})\n'
+                           'if "diff" in args and ("--raw" in args or "--name-only" in args) and not marker.exists():\n'
+                           f'    result=subprocess.run([{real_git!r}, *args], capture_output=True)\n'
+                           f'    subprocess.run([{real_git!r}, "-C", {str(self.repo)!r}, "update-ref", '
+                           f'"refs/heads/comparison", {head!r}], check=True)\n'
+                           '    marker.touch()\n'
+                           '    sys.stdout.buffer.write(result.stdout)\n'
+                           '    sys.stderr.buffer.write(result.stderr)\n'
+                           '    sys.exit(result.returncode)\n'
+                           f'os.execv({real_git!r}, [{real_git!r}, *args])\n')
+        wrapper.chmod(0o755)
+        env['REVIEW_BASE'] = 'comparison'
+        result = subprocess.run(['bash', str(SCRIPT.with_name('review-panel.sh')), 'moving-base',
+                                 str(self.repo), str(summary), 'generalist-a'], env=env,
+                                capture_output=True, text=True, timeout=15, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(marker.exists())
+        for lens in ('generalist-a', 'rule-preservation'):
+            pack = (output / 'moving-base' / (lens + '.pack/pack.txt')).read_text()
+            self.assertIn(f'Base: `{base}`;', pack)
+            self.assertIn('changed: 1;', pack)
+            self.assertIn('Never skip validation.', pack)
+
+    def test_base_command_resolves_reference_once_and_returns_commit(self):
+        base = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.git(self.repo, 'branch', 'comparison', base)
+        with mock.patch.object(prepare, 'git', wraps=prepare.git) as calls:
+            status, out, err = self.invoke('base', str(self.repo), '--base', 'comparison', '--no-fetch')
+        self.assertEqual(status, 0, err)
+        self.assertEqual(out, base + '\n')
+        self.assertEqual(sum('comparison^{commit}' in call.args for call in calls.call_args_list), 1)
 
     def test_panel_adds_lens(self):
         base = self.snapshot({"rules/source.md": "# Scope\nNever skip validation.\n"})

@@ -54,10 +54,11 @@ Repairs to mechanisms added in earlier fix rounds follow
 
 When the task context contains a non-empty Rule text changes section, give every listed
 item a disposition: `same meaning`, `approved change` or `regression`, with one line of
-evidence each. An `approved change` cites the PR description line that approves the
-actual change or a recorded decision. A removal or weakening needs operator approval on
-record: a `CHANGELOG-RULES.md` entry or the operator's dated words quoted in the PR
-description. The author's own declaration approves only same-meaning, stronger, intact
+evidence each. An `approved change` cites the approving line in the report's selected
+declaration source (PR body or `--summary`) or a recorded decision.
+A removal or weakening needs operator approval on record: a `CHANGELOG-RULES.md` entry
+or the operator's dated words quoted in the selected declaration source.
+The author's own declaration approves only same-meaning, stronger, intact
 moved and new rules.
 A `regression`, a missing disposition, a removal or weakening without cited approval,
 an undeclared change, or a report that failed closed is a Blocking finding.

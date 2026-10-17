@@ -353,7 +353,8 @@ class PanelExecutionTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(manifest["target"]["commit"], first)
         prompt = (pack / "pack.txt").read_text()
         self.assertIn("FIRST RULES", prompt)
-        self.assertIn(f"Range: `origin/trunk...{first}`; head: `{first}`", prompt)
+        comparison_base = self.git(self.repo, "merge-base", "origin/trunk", first)
+        self.assertIn(f"Range: `{comparison_base}..{first}`; head: `{first}`", prompt)
         self.assertIn("Title: First title", prompt)
         self.assertIn("FIRST SPEC", prompt)
         self.assertIn("+first_change = 2", prompt)
@@ -1761,7 +1762,9 @@ class BaseResolutionTests(PrepareFixture, unittest.TestCase):
                 code, out, err = self.invoke(command, str(self.repo))
                 self.assertEqual(code, 0, err)
                 head = self.git(self.repo, "rev-parse", "HEAD") if command == "review" else "HEAD"
-                self.assertIn(f"origin/trunk...{head}", out)
+                expected_range = (self.git(self.repo, "merge-base", "origin/trunk", head) + ".." + head
+                                  if command == "review" else f"origin/trunk...{head}")
+                self.assertIn(expected_range, out)
                 self.assertIn("cached", err)
                 update.assert_not_called()
 
@@ -1776,7 +1779,9 @@ class BaseResolutionTests(PrepareFixture, unittest.TestCase):
                 code, out, err = self.invoke(command, str(self.repo), "--base", "origin/trunk")
                 self.assertEqual(code, 0, err)
                 head = self.git(self.repo, "rev-parse", "HEAD") if command == "review" else "HEAD"
-                self.assertIn(f"origin/trunk...{head}", out)
+                expected_range = (self.git(self.repo, "merge-base", "origin/trunk", head) + ".." + head
+                                  if command == "review" else f"origin/trunk...{head}")
+                self.assertIn(expected_range, out)
                 self.assertIn("cached", err)
                 update.assert_not_called()
 

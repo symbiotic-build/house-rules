@@ -116,14 +116,17 @@ Approved removal: “Keep the audit record. Retain the approval.”
 ## Report and review
 
 The preparer compares captured Git text before rendering the change or dispatching reviewers.
-Its order is [rule-change configuration](#configuration), unit extraction, exact matching, similarity pairing, rendering and lens selection.
+Its order is [rule-change configuration](#configuration), blob-size checks, unit extraction, exact matching, similarity pairing, rendering and lens selection.
+One raw Git diff supplies changed paths and modes; one path-scoped tree lookup locates the base configuration.
+Rule comparison retains changed-path metadata instead of inventories of both complete trees.
 
 <a id="rule-change-report"></a>
 ### Rule-change report
 
 A rule-change report is the complete comparison of protected Markdown units between review revisions.
 It prevents changed obligations from disappearing inside a large diff.
-The review base is the merge base of the resolved base and head, matching the preparer's three-dot diff.
+The dispatch process pins the base commit before lens selection and preparation.
+Preparation captures its merge base with head once and reuses that comparison base for the report, documentation context and diff.
 The report names both immutable revisions. Working-tree edits do not affect it.
 
 List items and table rows are individual units. Paragraph sentences are individual units.
@@ -132,15 +135,17 @@ This includes single and double quotation marks; apostrophes within words are no
 Unmatched quotation marks do not shield sentence boundaries.
 
 Fenced code blocks are whole units. Headings describe section scope and are location metadata.
-Units retain file, first source line and heading ancestry. Whitespace and Markdown line wrapping normalize away.
+Units retain file, first source line and heading ancestry. List units also retain their ancestor items as scope metadata.
+
+Whitespace and Markdown line wrapping normalize away when they preserve list ancestry.
 List markers and table separator rows carry no rule text. Text inside a unit retains punctuation and strength words.
 
 Provenance files record why rules changed. Their text never pairs with rules or other provenance units as moves or changes.
 Exact copies in the same provenance file and section cancel; remaining units appear as added or removed in a separate `Provenance entries` part.
 Those entries retain identities, locations and text, but do not enter rule totals or trigger the rule-preservation lens.
 
-For rule units, exact copies in the same file and section cancel first, including repeated occurrences.
-Remaining identical copies pair as moves across files or sections.
+For rule units, exact copies in the same file, section and list ancestry cancel first, including repeated occurrences.
+Remaining identical copies pair as moves across files, sections or list ancestors.
 Remaining pairs above the configured similarity threshold become changes, in descending similarity order.
 Ties use same-file preference, then old and new source order: path, line, section and text.
 Unpaired old units are removals; unpaired new units are additions.
@@ -164,9 +169,9 @@ A review disposition is a reviewer's judgment and evidence for one reported item
 The shared [review bar](../../../prompts/util/review-bar.md) owns the mandatory obligation for every compiled review input.
 The [rule-preservation lens](../../../prompts/lenses/rule-preservation.md) owns the element-by-element audit procedure.
 Each item receives `same meaning`, `approved change` or `regression`, plus one evidence line.
-An approved change cites a description line or recorded decision.
+An approved change cites an approving line in the report's selected declaration source (PR body or `--summary`) or a recorded decision.
 
-A removal or weakening needs operator approval on record: a `CHANGELOG-RULES.md` entry or the operator's dated words quoted in the description. The author's own declaration approves only same-meaning, stronger, intact moved and new rules.
+A removal or weakening needs operator approval on record: a `CHANGELOG-RULES.md` entry or the operator's dated words quoted in the selected declaration source. The author's own declaration approves only same-meaning, stronger, intact moved and new rules.
 
 The lens compares actor, condition, action, strength, numbers, exceptions, scope and cross-references.
 It checks destination scope for moves and existing homes for new rules, including conflicts and duplicates.
@@ -176,11 +181,14 @@ A regression, missing disposition, unapproved removal or weakening, undeclared c
 <a id="failure-rule-report"></a>
 ### Failure state: incomplete rule report
 
-This refusal preserves evidence when the complete text cannot fit the configured report size.
+This refusal prevents incomplete evidence from supporting approval and rejects oversized blobs before reading or comparing protected text.
 
-**Trigger:** Rendered report text exceeds the configured character limit, or protected inputs or configuration cannot be read correctly.
+**Trigger:** A base or head protected blob exceeds the report allowance in bytes, rendered report text exceeds the character allowance, or inputs cannot be read correctly.
 
-**Outcome:** Preparation exits nonzero. Oversize output says `FAILED CLOSED` and lists every item's identity, class and old/new location.
+**Outcome:** Preparation exits nonzero. Oversize output says `FAILED CLOSED`.
+Before reading protected contents, one batched Git metadata call checks all changed protected blobs at base and head.
+A blob above the allowance causes refusal without comparison or a report section; no unit locations are available.
+When blobs fit but the rendered report exceeds the allowance, refusal lists every item's identity, class and old/new location.
 
 **Retained state:** Git and the checkout remain unchanged. The report is derived in memory; no index or approval state is stored.
 
@@ -310,13 +318,13 @@ Unknown fields, unsupported versions, malformed patterns and invalid limits fail
 | version | 1 | Accepted format |
 | extra_protected_paths | [] | Additional repository-relative globs |
 | extra_provenance_paths | [] | Additional provenance globs |
-| max_report_chars | 80000 | Complete report character allowance |
+| max_report_chars | 80000 | Report character allowance; also the per-blob byte allowance before reading |
 | similarity_threshold | 0.6 | Minimum changed-pair similarity |
 
 Default protected paths are `INDEX.md`, `STRUCTURE.md`, `PREFERENCES.md`, `INSTALL-AGENTS.md`, `AGENTS.md`, `CHANGELOG-RULES.md`,
 `rules/**/*.md`, `prompts/**/*.md`, `skills/**/*.md`, `.agents/rules.md` and `CONTEXT.md`.
 `CHANGELOG-RULES.md` is the default provenance path.
-Glob `**/` matches zero or more directories; `*` matches within one path segment.
+Glob `**/` matches zero or more directories; `*` matches within one path segment. Recursive wildcards include newline characters.
 Only regular UTF-8 protected files are accepted. Invalid encoding or nonregular protected inputs fail visibly.
 
 The [preparer](../../../skills/pr-ready/scripts/prepare.py) exposes `review --context-only` for the report and
@@ -344,11 +352,11 @@ Detection checks the caller-visible result.
 
 **Requirements:** [Required behavior](#req-rule-report).
 
-**Inputs:** Deleted, weakened, moved, added, re-wrapped and whitespace-only units.
+**Inputs:** Deleted, weakened, moved, added, re-wrapped, whitespace-only and list-ancestry changes.
 
-**Expected:** All classes and both texts are correct; harmless wrapping is absent.
+**Expected:** All classes and both texts are correct; changed list ancestry is reported and harmless wrapping is absent.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_removed](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_changed](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_moved](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_rewrap](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_added](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_units](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_deterministic](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_removed](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_changed](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_moved](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_rewrap](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_added](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_units](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_deterministic](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_list_ancestry_changes_are_reported](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-coverage"></a>
 ### Coverage
@@ -363,7 +371,7 @@ Coverage checks the caller-visible result.
 
 **Expected:** Only protected paths are compared, including the repository extension.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_coverage](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_extended_paths](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_base_policy](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_coverage](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_extended_paths](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_base_policy](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_rule_comparison_reads_only_changed_paths_and_base_policy](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_recursive_wildcards_include_newlines](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-declarations"></a>
 ### Declarations
@@ -419,11 +427,12 @@ Failure behavior checks the caller-visible result.
 
 **Requirements:** [Required behavior](#req-rule-report).
 
-**Inputs:** An oversize report and malformed protected inputs.
+**Inputs:** An oversize report, an oversized base or head blob, and malformed protected inputs.
 
-**Expected:** Every location survives oversize refusal; invalid input fails visibly.
+**Expected:** Rendered-report refusal retains every location. Oversized blobs cause refusal before protected text reads or comparison, without a report section.
+Invalid input fails visibly.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_oversize](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_invalid_inputs](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_oversize](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_invalid_inputs](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_oversized_blob_refuses_before_loading_or_comparing](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-dispatch"></a>
 ### Dispatch
@@ -436,9 +445,10 @@ Dispatch checks the caller-visible result.
 
 **Inputs:** Removed, changed, moved, added and unchanged reviews.
 
-**Expected:** The selector and lane panel add the required lens alongside normal reviewers.
+**Expected:** The selector returns `rule-preservation` for removals, changes and moves; additions and unchanged input return no lens.
+The lane panel adds the required lens alongside normal reviewers.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_selector](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_adds_lens](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_selector](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_adds_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_keeps_base_selected_before_lens_selection](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_base_command_resolves_reference_once_and_returns_commit](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-portability"></a>
 ### Portability

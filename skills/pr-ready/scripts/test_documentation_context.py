@@ -121,6 +121,48 @@ class DocumentationFixture:
 
 
 class DocumentationReviewTests(DocumentationFixture, unittest.TestCase):
+    def test_relative_assignment_uses_callers_directory(self):
+        # A conflicting target file must not replace the caller's assignment.
+        (self.repo / 'assignment.json').write_text('{}')
+        result = subprocess.run([sys.executable, '-B', str(ROOT / 'skills/pr-ready/scripts/prepare.py'),
+                                 'review', str(self.repo), '--base', self.revision, '--no-fetch',
+                                 '--context-only', '--assignment', 'assignment.json'], cwd=self.root,
+                                stdin=subprocess.DEVNULL, capture_output=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(b'# Complete registry', result.stdout)
+
+    def test_review_reuses_captured_base_for_report_documentation_and_diff(self):
+        self.write(self.repo, 'rules/example.md', '- Never skip validation.\n')
+        manifest_path = self.repo / 'docs/DOCUMENTS.json'
+        manifest = json.loads(manifest_path.read_text())
+        manifest['inventory'].append({'path': 'rules/example.md', 'kind': 'other', 'reason': 'Synthetic rule input.'})
+        manifest_path.write_text(json.dumps(manifest))
+        base = self.commit(self.repo)
+        self.git(self.repo, 'branch', 'comparison', base)
+        self.write(self.repo, 'rules/example.md', '- Avoid skipping validation.\n')
+        path = self.repo / 'docs/example/acceptance.md'
+        path.write_text(path.read_text().replace('**Result:** Return', '**Result:** Report'))
+        self.revision = self.commit(self.repo)
+        original = prepare.git
+        captures = []
+
+        def move_base(repo, *args, **kwargs):
+            result = original(repo, *args, **kwargs)
+            if args[:1] == ('merge-base',):
+                captures.append(result.strip())
+                self.git(self.repo, 'update-ref', 'refs/heads/comparison', self.revision)
+            return result
+
+        with patch.object(prepare, 'git', side_effect=move_base):
+            output = self.review(base='comparison', assignment=None)
+        self.assertEqual(captures, [base])
+        self.assertIn(f'Base: `{base}`;', output)
+        self.assertIn('base:example-demo#test-stale-revision', output)
+        self.assertIn('**Result:** Return', output)
+        self.assertIn('**Result:** Report', output)
+        self.assertIn('-**Result:** Return', output)
+        self.assertIn('+**Result:** Report', output)
+
     def test_review_preparer_compares_base_and_selects_unchanged_tests(self):
         base = self.revision
         path = self.repo / 'docs/example/acceptance.md'
