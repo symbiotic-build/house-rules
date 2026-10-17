@@ -1,9 +1,11 @@
 """Exercise the dependency-free runner through its real command line."""
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
 import tempfile
+import textwrap
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -11,6 +13,290 @@ RUNNER = Path(__file__).with_name('junit_unittest.py').resolve()
 
 
 class JUnitRunnerTests(unittest.TestCase):
+    def test_parallel_matches_native_suite_traversal(self):
+        """Each row compares native serial traversal with the worker allowance."""
+        plain = '''
+                class A(unittest.TestCase):
+                    def test_pass(self): print('A')
+                class B(unittest.TestCase):
+                    def test_pass(self): print('B')
+        '''
+        hooks = '''
+            class A(unittest.TestCase):
+                @classmethod
+                def setUpClass(cls): cls.live = True; print('setup')
+                @classmethod
+                def tearDownClass(cls): cls.live = False; print('teardown')
+                def test_first(self): self.assertTrue(self.live); print('first')
+                def test_second(self): self.assertTrue(self.live); print('second')
+            class B(unittest.TestCase):
+                def test_pass(self): print('B')
+            class Hook(unittest.TestSuite):
+                def run(self, result, debug=False):
+                    print('hook')
+                    return super().run(result, debug)
+            def load_tests(loader, tests, pattern):
+                return unittest.TestSuite([Hook([A('test_first')]),
+                    Hook([A('test_second')]), B('test_pass')])
+        '''
+        # name, source, unittest arguments, direct-run mode, exit, XML counts, output
+        rows = [
+            ('class fixtures and cleanups', '''
+                class A(unittest.TestCase):
+                    @classmethod
+                    def setUpClass(cls):
+                        print('setup'); cls.live = True
+                        cls.addClassCleanup(print, 'cleanup first')
+                        cls.addClassCleanup(print, 'cleanup second')
+                    @classmethod
+                    def tearDownClass(cls): cls.live = False; print('teardown')
+                    def test_a(self): self.assertTrue(self.live); print('a')
+                    def test_b(self): self.assertTrue(self.live); print('b')
+                class B(unittest.TestCase):
+                    def test_pass(self): print('B')
+            ''', (), '', 0, (3, 0, 0, 0),
+             'setup\na\nb\nteardown\ncleanup second\ncleanup first\nB\n'),
+            ('class setup failure and cleanup failure', '''
+                class A(unittest.TestCase):
+                    @classmethod
+                    def setUpClass(cls):
+                        cls.addClassCleanup(print, 'cleanup')
+                        cls.addClassCleanup(lambda: 1/0)
+                        raise ValueError('setup failed')
+                    def test_a(self): self.fail('must not run')
+                    def test_b(self): self.fail('must not run')
+                class B(unittest.TestCase):
+                    def test_pass(self): print('B')
+            ''', (), '', 1, (3, 0, 2, 0), 'cleanup\nB\n'),
+            ('class teardown failure still cleans up', '''
+                class A(unittest.TestCase):
+                    @classmethod
+                    def setUpClass(cls): cls.addClassCleanup(print, 'cleanup')
+                    @classmethod
+                    def tearDownClass(cls): raise ValueError('teardown failed')
+                    def test_pass(self): print('A')
+                class B(unittest.TestCase):
+                    def test_pass(self): print('B')
+            ''', (), '', 1, (3, 0, 1, 0), 'A\ncleanup\nB\n'),
+            ('class decorator and setup skips', '''
+                @unittest.skip('class skip')
+                class A(unittest.TestCase):
+                    @classmethod
+                    def setUpClass(cls): raise AssertionError('must not run')
+                    def test_pass(self): self.fail('must not run')
+                class B(unittest.TestCase):
+                    @classmethod
+                    def setUpClass(cls):
+                        cls.addClassCleanup(print, 'cleanup')
+                        raise unittest.SkipTest('setup skip')
+                    def test_pass(self): self.fail('must not run')
+            ''', (), '', 0, (2, 0, 0, 2), 'cleanup\n'),
+            ('case lifecycle expected failures and subtests', '''
+                class A(unittest.TestCase):
+                    def setUp(self): self.addCleanup(print, 'case cleanup')
+                    @unittest.expectedFailure
+                    def test_expected(self): self.fail('expected')
+                    @unittest.expectedFailure
+                    def test_unexpected(self): pass
+                    def test_subtests(self):
+                        with self.subTest(i=1): self.fail('subtest failure')
+                        with self.subTest(i=2): raise ValueError('subtest error')
+                        with self.subTest(i=3): self.skipTest('subtest skip')
+                class B(unittest.TestCase):
+                    def setUp(self):
+                        self.addCleanup(print, 'failed setup cleanup')
+                        raise ValueError('case setup failed')
+                    def test_pass(self): self.fail('must not run')
+            ''', (), '', 1, (4, 2, 2, 2),
+             'case cleanup\ncase cleanup\ncase cleanup\nfailed setup cleanup\n'),
+            ('module fixtures', plain + '''
+                def setUpModule():
+                    print('module setup')
+                    unittest.addModuleCleanup(print, 'module cleanup')
+                def tearDownModule(): print('module teardown')
+            ''', (), '', 0, (2, 0, 0, 0),
+             'module setup\nA\nB\nmodule teardown\nmodule cleanup\n'),
+            ('module setup failure', plain + '''
+                def setUpModule():
+                    unittest.addModuleCleanup(print, 'module cleanup')
+                    raise ValueError('module setup failed')
+            ''', (), '', 1, (1, 0, 1, 0), 'module cleanup\n'),
+            ('module skip', plain + '''
+                def setUpModule():
+                    unittest.addModuleCleanup(print, 'module cleanup')
+                    raise unittest.SkipTest('module skip')
+            ''', (), '', 0, (1, 0, 0, 1), 'module cleanup\n'),
+            ('module teardown failure', plain + '''
+                def tearDownModule(): raise ValueError('module teardown failed')
+            ''', (), '', 1, (3, 0, 1, 0), 'A\nB\n'),
+            ('import module cleanup without module functions', plain + '''
+                marker = pathlib.Path('cleanup-marker')
+                marker.touch()
+                unittest.addModuleCleanup(print, 'module cleanup')
+                unittest.addModuleCleanup(marker.unlink)
+            ''', (), '', 0, (2, 0, 0, 0), 'A\nB\nmodule cleanup\n'),
+            ('explicit module cleanup', plain + '''
+                unittest.addModuleCleanup(print, 'module cleanup')
+                unittest.doModuleCleanups()
+            ''', (), '', 0, (2, 0, 0, 0), 'module cleanup\nA\nB\n'),
+            ('adjacent hooks share class fixture', hooks, (), '', 0,
+             (3, 0, 0, 0), 'hook\nsetup\nfirst\nhook\nsecond\nteardown\nB\n'),
+            ('adjacent hooks retain failure', hooks.replace(
+                "self.assertTrue(self.live); print('second')",
+                "print('second'); self.fail('hook failure')"), (), '', 1,
+             (3, 1, 0, 0), 'hook\nsetup\nfirst\nhook\nsecond\nteardown\nB\n'),
+            ('lone hook receives allowance', plain + '''
+                class Hook(unittest.TestSuite):
+                    def run(self, result, debug=False):
+                        pathlib.Path('jobs').write_text(str(getattr(result, 'jobs', 1)))
+                        print('hook start')
+                        super().run(result, debug)
+                        print('hook end')
+                        return result
+                def load_tests(loader, tests, pattern): return Hook(tests)
+            ''', (), '', 0, (2, 0, 0, 0), 'hook start\nA\nB\nhook end\n'),
+            ('hook stop prevents later class', plain + '''
+                class Hook(unittest.TestSuite):
+                    def run(self, result, debug=False):
+                        print('stop'); result.stop(); return result
+                def load_tests(loader, tests, pattern):
+                    return unittest.TestSuite([A('test_pass'), Hook(), B('test_pass')])
+            ''', (), '', 0, (1, 0, 0, 0), 'A\nstop\n'),
+            ('custom case stop prevents later class', plain + '''
+                def run(self, result):
+                    super(A, self).run(result)
+                    result.stop()
+                A.run = run
+            ''', (), '', 0, (1, 0, 0, 0), 'A\n'),
+            ('custom case call stops before later class', plain + '''
+                def call(self, result):
+                    super(A, self).run(result)
+                    result.stop()
+                A.__call__ = call
+            ''', (), '', 0, (1, 0, 0, 0), 'A\n'),
+            ('failfast', plain.replace("print('A')", "self.fail('stop')"),
+             ('-f',), '', 1, (1, 1, 0, 0), ''),
+            ('preexisting stop', plain, (), 'stop', 0, (0, 0, 0, 0), ''),
+            ('debug', plain, (), 'debug', 0, (0, 0, 0, 0), 'A\nB\n'),
+            ('native debug result', plain, (), 'suite-debug', 0, (0, 0, 0, 0), 'A\nB\n'),
+            ('debug propagates exception', plain.replace("print('A')",
+                "raise ValueError('debug failure')"), (), 'debug', 1,
+             (0, 0, 0, 0), 'debug failure\n'),
+            ('explicit delegation ordering', plain + '''
+                parent = os.getpid()
+                class Hook(unittest.TestSuite):
+                    def run(self, result, debug=False):
+                        jobs = getattr(result, 'jobs', 1)
+                        pathlib.Path('jobs').write_text(str(jobs))
+                        print('hook start')
+                        assert not pathlib.Path('A').exists() and not pathlib.Path('B').exists()
+                        if jobs > 1:
+                            from junit_unittest import ParallelSuite
+                            ParallelSuite(unittest.TestSuite(list(self)), jobs, 2).run(result, debug)
+                        else:
+                            super().run(result, debug)
+                        assert pathlib.Path('A').exists() and pathlib.Path('B').exists()
+                        print('hook end')
+                        return result
+                def test_worker(self):
+                    jobs = int(pathlib.Path('jobs').read_text())
+                    self.assertEqual(os.getpid() == parent, jobs == 1)
+                    pathlib.Path(type(self).__name__).touch()
+                    print(type(self).__name__)
+                A.test_pass = B.test_pass = test_worker
+                def load_tests(loader, tests, pattern): return Hook(tests)
+            ''', (), '', 0, (2, 0, 0, 0), 'hook start\nA\nB\nhook end\n'),
+            ('active class fixture across delegation', '''
+                parent = os.getpid()
+                class A(unittest.TestCase):
+                    @classmethod
+                    def setUpClass(cls): print('setup')
+                    @classmethod
+                    def tearDownClass(cls): print('teardown')
+                    def test_pass(self): print('A')
+                class B(unittest.TestCase):
+                    def test_pass(self):
+                        self.assertEqual(os.getpid(), parent)
+                        print(type(self).__name__)
+                class C(B): pass
+                class Hook(unittest.TestSuite):
+                    def run(self, result, debug=False):
+                        print('hook start')
+                        if getattr(result, 'jobs', 1) > 1:
+                            from junit_unittest import ParallelSuite
+                            ParallelSuite(unittest.TestSuite(list(self)), result.jobs, 2).run(result, debug)
+                        else:
+                            super().run(result, debug)
+                        print('hook end')
+                        return result
+                def load_tests(loader, tests, pattern):
+                    return unittest.TestSuite([A('test_pass'), Hook([B('test_pass'), C('test_pass')])])
+            ''', (), '', 0, (3, 0, 0, 0), 'setup\nA\nhook start\nteardown\nB\nC\nhook end\n'),
+        ]
+        if hasattr(unittest.TestResult, 'addDuration'):
+            rows.append(('durations', plain, ('--durations', '0'), '', 0,
+                         (2, 0, 0, 0), 'A\nB\n'))
+        for name, body, arguments, mode, status, counts, output in rows:
+            with self.subTest(behavior=name):
+                directory = tempfile.TemporaryDirectory()
+                self.addCleanup(directory.cleanup)
+                root = Path(directory.name)
+                # Sources share indentation, including concatenated fixture additions.
+                source = ('import os, pathlib, unittest\n' + textwrap.dedent(body))
+                (root / 'test_sample.py').write_text(source)
+                reports = []
+                summaries = []
+                for jobs in (1, 2):
+                    for marker in ('A', 'B'):
+                        (root / marker).unlink(missing_ok=True)
+                    if mode:
+                        driver = f'''
+import sys, unittest
+sys.path.insert(0, {str(RUNNER.parent)!r})
+from junit_unittest import JUnitResult, ParallelSuite
+suite = unittest.defaultTestLoader.discover('.')
+result = JUnitResult(unittest.runner._WritelnDecorator(sys.stderr), True, 2)
+if {mode!r} == 'stop': result.stop()
+status = 0
+try:
+    if {jobs} > 1: suite = ParallelSuite(suite, {jobs}, 2)
+    if {mode!r} == 'suite-debug': suite.debug()
+    else: suite.run(result, {mode!r} == 'debug')
+except ValueError as exc:
+    print(exc); status = 1
+result.write_report('report.xml')
+print('native testsRun', result.testsRun, file=sys.stderr)
+sys.exit(status or int(not result.wasSuccessful()))
+'''
+                        command = [sys.executable, '-B', '-c', driver]
+                    else:
+                        command = [sys.executable, '-B', str(RUNNER), '--report', 'report.xml',
+                                   '--jobs', str(jobs), 'discover', '-s', '.', '-v', *arguments]
+                    # Explicit delegates import the same runner used by the command.
+                    import os
+                    result = subprocess.run(command, cwd=root, stdin=subprocess.DEVNULL,
+                        env=dict(os.environ, PYTHONPATH=str(RUNNER.parent)),
+                        capture_output=True, text=True, timeout=5)
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    self.assertEqual(result.stdout, output, result.stderr)
+                    summaries.append(re.findall(
+                        r'Ran \d+ tests?|(?:FAILED|OK).*|native testsRun \d+', result.stderr))
+                    report = ET.parse(root / 'report.xml').getroot()
+                    self.assertEqual(tuple(int(report.get(key)) for key in
+                        ('tests', 'failures', 'errors', 'skipped')), counts, result.stderr)
+                    if (root / 'jobs').exists():
+                        self.assertEqual((root / 'jobs').read_text(), str(jobs))
+                    if name == 'durations':
+                        summary = result.stderr.split('Slowest test durations', 1)[1]
+                        for cls in ('A', 'B'):
+                            self.assertIn(f'test_pass (test_sample.{cls}.test_pass)', summary)
+                    report.attrib.pop('time')
+                    for case in report:
+                        self.assertGreaterEqual(float(case.attrib.pop('time')), 0)
+                    reports.append(ET.tostring(report))
+                self.assertEqual(reports[0], reports[1])
+                self.assertEqual(summaries[0], summaries[1])
+
     def run_fixture(self, source, report='report.xml', arguments=(), jobs=1):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
