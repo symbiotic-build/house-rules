@@ -27,8 +27,8 @@ jobs:
       - name: Check report helper syntax
         run: node --check skills/audit-report-authoring/scripts/lint-report-set.mjs
       - name: Test installation sync
-        run: .tmp/spec-docs-env/bin/python scripts/test_sync.py
+        run: .tmp/spec-docs-env/bin/python skills/spec-writing/scripts/junit_unittest.py --jobs 4 --report .tmp/test-reports/sync.xml discover -s scripts -p test_sync.py
       - name: Test transcript extraction
-        run: .tmp/spec-docs-env/bin/python -B -m unittest discover -s skills/operator-protocol/scripts
+        run: .tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/junit_unittest.py --jobs 4 --report .tmp/test-reports/operator-protocol.xml discover -s skills/operator-protocol/scripts
       - name: Prepare every role and lens as the review service does
-        run: .tmp/spec-docs-env/bin/python -B scripts/check_review_staging.py && .tmp/spec-docs-env/bin/python -B -m unittest discover -s scripts -p 'test_check_review_staging.py'
+        run: .tmp/spec-docs-env/bin/python -B scripts/check_review_staging.py && .tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/junit_unittest.py --jobs 4 --report .tmp/test-reports/review-staging.xml discover -s scripts -p 'test_check_review_staging.py'
