@@ -2,7 +2,7 @@
 """Run ordinary unittest arguments and write a standard-library JUnit report."""
 import argparse
 import importlib
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 from contextlib import redirect_stdout, redirect_stderr
 import itertools
 import multiprocessing
@@ -215,6 +215,7 @@ def run_class(index):
                     outcomes[name] = [(result.getDescription(test), message) for test, message in getattr(result, name)]
                 outcomes['unexpectedSuccesses'] = [result.getDescription(test) for test in result.unexpectedSuccesses]
                 outcomes['collectedDurations'] = getattr(result, 'collectedDurations', [])
+                outcomes['shouldStop'] = result.shouldStop
         finally:
             stdout.flush()
             stderr.flush()
@@ -278,27 +279,44 @@ class ParallelSuite(unittest.TestSuite):
             return
         options = dict(descriptions=result.descriptions, verbosity=self.verbosity,
                        root=result.root, buffer=result.buffer, tb_locals=result.tb_locals)
+
+        def merge(count, cases, outcomes, stdout, stderr):
+            result.testsRun += count
+            result.cases.extend(cases)
+            for name in ('failures', 'errors', 'skipped', 'expectedFailures'):
+                getattr(result, name).extend((ReportedTest(test), message) for test, message in outcomes[name])
+            result.unexpectedSuccesses.extend(ReportedTest(test) for test in outcomes['unexpectedSuccesses'])
+            if hasattr(result, 'collectedDurations'):
+                result.collectedDurations.extend(outcomes['collectedDurations'])
+            sys.stdout.flush()
+            sys.stdout.buffer.write(stdout)
+            sys.stdout.flush()
+            result.stream.flush()
+            result.stream.stream.buffer.write(stderr)
+            result.stream.flush()
+
         # Fork retains discovery's dynamic selector modules and custom load_tests
         # objects without rediscovering tests or running a fixture in the parent.
         with ProcessPoolExecutor(max_workers=min(self.jobs, len(groups)),
                                  mp_context=multiprocessing.get_context('fork'),
                                  initializer=initialize_classes, initargs=(groups, options)) as workers:
-            for count, cases, outcomes, stdout, stderr in workers.map(
-                    run_class, range(len(groups))):
-                result.testsRun += count
-                result.cases.extend(cases)
-                for name in ('failures', 'errors', 'skipped', 'expectedFailures'):
-                    getattr(result, name).extend((ReportedTest(test), message) for test, message in outcomes[name])
-                result.unexpectedSuccesses.extend(ReportedTest(test) for test in outcomes['unexpectedSuccesses'])
-                if hasattr(result, 'collectedDurations'):
-                    result.collectedDurations.extend(outcomes['collectedDurations'])
-                sys.stdout.flush()
-                sys.stdout.buffer.write(stdout)
-                sys.stdout.flush()
-                result.stream.flush()
-                result.stream.stream.buffer.write(stderr)
-                result.stream.flush()
-
+            # At most `jobs` classes are in flight, so a stop request reaches every
+            # class not yet started. Finished classes merge in discovery order.
+            in_flight, finished, submitted, merged, stopping = {}, {}, 0, 0, False
+            while in_flight or (submitted < len(groups) and not stopping):
+                while not stopping and submitted < len(groups) and len(in_flight) < self.jobs:
+                    in_flight[workers.submit(run_class, submitted)] = submitted
+                    submitted += 1
+                done, _ = wait(in_flight, return_when=FIRST_COMPLETED)
+                for future in done:
+                    index = in_flight.pop(future)
+                    finished[index] = future.result()
+                    stopping = stopping or finished[index][2].get('shouldStop', False)
+                while merged in finished:
+                    merge(*finished.pop(merged))
+                    merged += 1
+        if stopping:
+            result.stop()
 
 
 def positive_jobs(value):
@@ -312,8 +330,11 @@ def main(argv=None):
     """Accept report options followed by the unchanged unittest command line."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--report', required=True, type=Path)
-    parser.add_argument('--jobs', type=positive_jobs, default=os.cpu_count() or 1,
-                        help='maximum worker processes (default: CPU count); 1 runs serially')
+    parser.add_argument('--jobs', type=positive_jobs, default=1,
+                        help='maximum worker processes (default: 1, native serial traversal); '
+                        'N > 1 opts into parallel classes, which must be independent: '
+                        'no result.stop() from inside tests, no module cleanups registered '
+                        'while tests run, and no state shared across classes')
     parser.add_argument('--selectors-file', type=Path, help=argparse.SUPPRESS)
     args, unittest_args = parser.parse_known_args(argv)
     class ReportingRunner(unittest.TextTestRunner):

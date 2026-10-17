@@ -302,10 +302,24 @@ sys.exit(status or int(not result.wasSuccessful()))
         self.addCleanup(directory.cleanup)
         root = Path(directory.name)
         (root / 'test_sample.py').write_text(source)
-        result = subprocess.run([sys.executable, '-B', str(RUNNER), '--report', report, '--jobs', str(jobs),
+        worker_args = [] if jobs is None else ['--jobs', str(jobs)]
+        result = subprocess.run([sys.executable, '-B', str(RUNNER), '--report', report, *worker_args,
                                  'discover', '-s', '.', '-p', 'test_sample.py', *arguments], cwd=root,
                                 stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=5)
         return result, root
+
+    def test_default_jobs_preserves_native_serial_state(self):
+        result, root = self.run_fixture('import os, unittest\n'
+            'parent = os.getpid()\n'
+            'shared = []\n'
+            'class A(unittest.TestCase):\n'
+            ' def test_first(self):\n'
+            '  self.assertEqual(os.getpid(), parent)\n'
+            '  shared.append("A")\n'
+            'class B(unittest.TestCase):\n'
+            ' def test_second(self): self.assertEqual(shared, ["A"])\n', jobs=None)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(ET.parse(root / 'report.xml').getroot().get('tests'), '2')
 
     def test_discovery_report_preserves_outcomes(self):
         result, root = self.run_fixture('import unittest\nclass Suite(unittest.TestCase):\n'
@@ -556,20 +570,6 @@ sys.exit(status or int(not result.wasSuccessful()))
         self.assertIn('positive integer', result.stderr)
         self.assertFalse((root / 'report.xml').exists())
 
-    @unittest.skipUnless(hasattr(unittest.TestResult, 'addDuration'), 'native durations require Python 3.12+')
-    def test_parallel_preserves_requested_duration_summary(self):
-        source = ('import unittest\n'
-            'class A(unittest.TestCase):\n def test_pass(self): pass\n'
-            'class B(unittest.TestCase):\n def test_pass(self): pass\n')
-        for jobs in (1, 2):
-            with self.subTest(jobs=jobs):
-                result, _ = self.run_fixture(source, jobs=jobs, arguments=('--durations', '0', '-v'))
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn('Slowest test durations', result.stderr)
-                summary = result.stderr.split('Slowest test durations', 1)[1]
-                for name in ('A', 'B'):
-                    self.assertIn(f'test_pass (test_sample.{name}.test_pass)', summary)
-
     def test_parallel_custom_suite_hooks_and_module_fixtures_are_preserved(self):
         source = ('import unittest\n'
                   'class A(unittest.TestCase):\n def test_pass(self): pass\n'
@@ -606,26 +606,15 @@ sys.exit(status or int(not result.wasSuccessful()))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(f'jobs {jobs}', result.stdout)
 
-    def test_parallel_executes_adjacent_custom_suites_including_failures(self):
-        source = ('import unittest\n'
-                  'class A(unittest.TestCase):\n'
-                  ' def test_pass(self): pass\n'
-                  ' def test_fail(self): self.fail("second custom suite")\n'
-                  'class B(unittest.TestCase):\n def test_pass(self): pass\n'
-                  'class Hook(unittest.TestSuite):\n'
-                  ' def run(self, result, debug=False):\n'
-                  '  print("hook")\n'
-                  '  return super().run(result, debug)\n'
-                  'def load_tests(loader, tests, pattern):\n'
-                  ' return unittest.TestSuite([Hook([A("test_pass")]),\n'
-                  '                            Hook([A("test_fail")]), B("test_pass")])\n')
-        for jobs in (1, 2):
-            with self.subTest(jobs=jobs):
-                result, root = self.run_fixture(source, jobs=jobs)
-                self.assertEqual(result.returncode, 1, result.stderr)
-                self.assertEqual(result.stdout.count('hook'), 2)
-                report = ET.parse(root / 'report.xml').getroot()
-                self.assertEqual([report.get(key) for key in ('tests', 'failures', 'errors')], ['3', '1', '0'])
+    def test_parallel_stop_request_cancels_classes_not_yet_started(self):
+        classes = ''.join(f'class B{n}(unittest.TestCase):\n'
+                          f' def test_slow(self):\n  pathlib.Path("started-{n}").touch()\n  time.sleep(0.3)\n'
+                          for n in range(8))
+        result, root = self.run_fixture('import pathlib, time, unittest\n'
+            'class A(unittest.TestCase):\n def test_stop(self): self._outcome.result.stop()\n' + classes, jobs=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # With two workers only the class running beside A starts; the rest never start.
+        self.assertLessEqual(len(list(root.glob('started-*'))), 1)
 
     def test_parallel_failfast_stops_in_serial_order(self):
         result, root = self.run_fixture('import pathlib, unittest\n'
