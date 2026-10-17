@@ -8,7 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from difflib import SequenceMatcher
+from collections import defaultdict, deque
 from pathlib import Path
 from urllib.parse import quote, quote_from_bytes, unquote, urlsplit
 
@@ -44,8 +44,7 @@ RULE_PATHS = ("INDEX.md", "STRUCTURE.md", "PREFERENCES.md", "INSTALL-AGENTS.md",
               "CHANGELOG-RULES.md", "rules/**/*.md", "prompts/**/*.md", "skills/**/*.md",
               ".agents/rules.md", "CONTEXT.md")
 RULE_PROVENANCE_PATHS = ("CHANGELOG-RULES.md",)
-RULE_DEFAULTS = dict(version=1, extra_protected_paths=[], extra_provenance_paths=[], max_report_chars=80_000,
-                     similarity_threshold=0.6)
+RULE_DEFAULTS = dict(version=1, extra_protected_paths=[], extra_provenance_paths=[], max_report_chars=80_000)
 
 
 class RuleReportTooLarge(PrepareError):
@@ -104,231 +103,127 @@ def rule_policy(repo, base):
         policy.update(configured)
     if (not isinstance(policy["extra_protected_paths"], list)
             or not isinstance(policy["extra_provenance_paths"], list)
-            or type(policy["max_report_chars"]) is not int or policy["max_report_chars"] < 1
-            or type(policy["similarity_threshold"]) not in (int, float)
-            or not 0 < policy["similarity_threshold"] <= 1):
-        raise PrepareError("invalid .rule-changes.json: paths, limit or similarity threshold")
+            or type(policy["max_report_chars"]) is not int or policy["max_report_chars"] < 1):
+        raise PrepareError("invalid .rule-changes.json: paths or limit")
     patterns = [rule_glob(pattern) for pattern in (*RULE_PATHS, *policy["extra_protected_paths"],
                                                  *policy["extra_provenance_paths"])]
     return policy, patterns
 
 
-def rule_units(path, text):
-    """Extract list items, table rows, sentences and whole fences with source locations."""
-    units, headings, pending = [], [], []
-    pending_kind, section, fence = "paragraph", "(root)", None
-    list_stack, ancestry, item_content_indent = [], (), 0
-    table_active = False
+def closing_fence(row, fence):
+    """Only a delimiter run and surrounding horizontal whitespace close a fence."""
+    return re.fullmatch(r"[ \t]*" + re.escape(fence[0]) + "{" + str(fence[1]) + r",}[ \t]*", row) is not None
 
-    def add(value, line):
-        value = " ".join(value.split())
-        if value:
-            unit = dict(path=path, line=line, section=section, text=value)
-            if pending_kind == "list":
-                unit["ancestry"] = ancestry
-            units.append(unit)
 
-    def flush():
-        if not pending:
-            return
-        value = "\n".join(row for _, row in pending)
-        if pending_kind == "paragraph":
-            # Matched code and quotation spans retain their sentence punctuation.
-            masked = list(value)
-            spans = (r'''(`+).*?\1|"(?:\\.|[^"\\])*"|'''
-                     r"(?<!\w)'(?:\\.|'(?=\w)|[^'\\])*'(?!\w)|“[^”]*”|‘.*?’(?!\w)")
-            for match in re.finditer(spans, value, re.S):
-                for index in range(match.start(), match.end()):
-                    if masked[index] in ".!?":
-                        masked[index] = "x"
-            start = 0
-            for boundary in [*re.finditer(r"(?<=[.!?])\s+", "".join(masked)), None]:
-                end = boundary.start() if boundary else len(value)
-                add(value[start:end], pending[0][0] + value[:start].count("\n"))
-                start = boundary.end() if boundary else len(value)
-        else:
-            add(value, pending[0][0])
-            if pending_kind == "list":
-                list_stack.append((item_content_indent, " ".join(value.split())))
-        pending.clear()
-
-    def cells(value):
-        value = value.strip().removeprefix("|").removesuffix("|")
-        return [cell.strip() for cell in re.split(r"(?<!\\)\|", value)]
-
-    lines = text.splitlines()
-    for number, row in enumerate(lines, 1):
-        stripped = row.strip()
-        if fence:
-            pending.append((number, row))
-            if re.fullmatch(re.escape(fence[0]) + "{" + str(fence[1]) + r",}\s*", stripped):
-                flush()
-                fence = None
-                pending_kind = "paragraph"
-            continue
-        opening = re.match(r"^(`{3,}|~{3,})(.*)$", stripped)
-        if opening:
-            table_active = False
-            flush()
-            pending_kind = "fence"
-            fence = (opening[1][0], len(opening[1]))
-            pending.append((number, row))
-            continue
-        heading = re.match(r"^ {0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$", row)
-        setext = re.fullmatch(r" {0,3}(=+|-+)\s*", row) if pending_kind == "paragraph" and pending else None
-        if heading or setext:
-            table_active = False
-            level = len(heading[1]) if heading else 1 if setext[1][0] == "=" else 2
-            title = heading[2] if heading else " ".join(value.strip() for _, value in pending)
-            if heading:
-                flush()
+def rule_lines(text):
+    """Annotate physical lines for conservative rewrap checks and source locations."""
+    rows, headings, fence, item = [], [], None, None
+    for raw in re.findall(r"[^\n]*\n|[^\n]+$", text):
+        row = raw.rstrip("\r\n")
+        section = " / ".join(title for _, title in headings) or "(root)"
+        opening = re.match(r"^[ \t]*(?:(?:[-+*]|\d+[.)])[ \t]+)?(`{3,}|~{3,})", row)
+        if fence or opening:
+            signature = [("exact", raw)]
+            if fence:
+                if closing_fence(row, fence):
+                    fence = None
             else:
-                pending.clear()
-            while headings and headings[-1][0] >= level:
-                headings.pop()
-            headings.append((level, " ".join(title.split())))
-            section = " / ".join(title for _, title in headings)
-            list_stack.clear()
-            continue
-        if not stripped or re.fullmatch(r'<a\s+id=["\'][^"\']+["\']\s*>\s*</a>', stripped):
-            flush()
-            pending_kind = "paragraph"
-            table_active = False
-            continue
-        following = cells(lines[number]) if number < len(lines) else []
-        table_header = len(following) > 1 and all(re.fullmatch(r":?-{3,}:?", cell) for cell in following)
-        if re.search(r"(?<!\\)\|", stripped) and (table_active or table_header or
-                                                       stripped.startswith("|") and stripped.endswith("|")):
-            flush()
-            pending_kind = "paragraph"
-            row_cells = cells(stripped)
-            if not all(re.fullmatch(r":?-+:?", cell) for cell in row_cells):
-                add("| " + " | ".join(row_cells) + " |", number)
-            table_active = True
-            continue
-        table_active = False
-        item = re.match(r"^(\s*)(?:[-+*]|\d+[.)])\s+(.+)$", row)
-        if item:
-            flush()
-            item_indent = len(item[1].expandtabs(4))
-            # A child must reach the parent's content column; smaller leading
-            # spacing alone does not turn a sibling into a descendant.
-            while list_stack and list_stack[-1][0] > item_indent:
-                list_stack.pop()
-            ancestry = tuple(text for _, text in list_stack)
-            item_content_indent = len(row[:item.start(2)].expandtabs(4))
-            pending_kind = "list"
-            pending.append((number, item[2]))
+                fence = opening[1][0], len(opening[1])
+            item = None
         else:
-            if pending_kind == "paragraph" and not row[:1].isspace():
-                list_stack.clear()
-            pending.append((number, row))
-    flush()
-    return units
-
-
-def rule_key(unit):
-    return unit["path"], unit["line"], unit["section"], unit["text"]
-
-
-def pair_rule_units(old, new, threshold, *, provenance=False):
-    """Cancel local copies, match moves, then greedily pair by similarity with stable ties."""
-    old, new = sorted(old, key=rule_key), sorted(new, key=rule_key)
-    old_left, new_left, changes = set(range(len(old))), set(range(len(new))), []
-    for local in ((True,) if provenance else (True, False)):
-        available = {}
-        for j in sorted(new_left):
-            unit = new[j]
-            key = (unit["text"], unit["path"], unit["section"], unit.get("ancestry", ())) if local else unit["text"]
-            available.setdefault(key, []).append(j)
-        for i in sorted(old_left):
-            unit = old[i]
-            key = (unit["text"], unit["path"], unit["section"], unit.get("ancestry", ())) if local else unit["text"]
-            if available.get(key):
-                j = available[key].pop(0)
-                old_left.remove(i)
-                new_left.remove(j)
-                if not local:
-                    changes.append(dict(kind="moved", old=old[i], new=new[j]))
-    if not provenance:
-        candidates = []
-        for i in sorted(old_left):
-            for j in sorted(new_left):
-                similarity = SequenceMatcher(None, old[i]["text"], new[j]["text"], autojunk=False).ratio()
-                if similarity >= threshold:
-                    candidates.append((-similarity, old[i]["path"] != new[j]["path"], i, j))
-        for _, _, i, j in sorted(candidates):
-            if i in old_left and j in new_left:
-                old_left.remove(i)
-                new_left.remove(j)
-                changes.append(dict(kind="changed", old=old[i], new=new[j]))
-    changes.extend(dict(kind="removed", old=old[i], new=None, provenance=provenance) for i in sorted(old_left))
-    changes.extend(dict(kind="added", old=None, new=new[j], provenance=provenance) for j in sorted(new_left))
-    return sorted(changes, key=lambda item: (rule_key(item["old"] or item["new"]), item["kind"]))
+            heading = re.match(r"^ {0,3}(#{1,6})\s+(.+?)(?:\s+#+)?\s*$", row)
+            prefix = re.match(r"^([ \t]*)((?:>[ \t]*)*)(?:(\d+[.)]|[-+*])([ \t]+))?", row)
+            indent, quotes, marker, _ = prefix.groups()
+            depth = len(indent.expandtabs(4))
+            structure = (depth, quotes, marker)
+            if marker:
+                item = (len(row[:prefix.end()].expandtabs(4)), structure)
+            elif row.strip() and item:
+                if depth == item[0] and not quotes:
+                    structure = item[1]
+                else:
+                    item = None
+            if heading:
+                level = len(heading[1])
+                while headings and headings[-1][0] >= level:
+                    headings.pop()
+                headings.append((level, heading[2]))
+                section = " / ".join(title for _, title in headings)
+            # Structural rows, blank lines and hard breaks are never prose rewraps.
+            if not row.strip() or heading or quotes or "|" in row or row.endswith(("  ", "\t")):
+                signature = [("exact", raw)]
+            else:
+                signature = ([("item", structure)] if marker else []) + [
+                    (structure, word) for word in row[prefix.end():].split()]
+        rows.append(dict(raw=raw, section=section, signature=signature))
+    return rows
 
 
 def rule_changes(repo, base, head):
-    """Compare changed paths at the caller's captured comparison base and head."""
+    """Keep Git's zero-context blocks; only pure prose rewraps disappear."""
     policy, patterns = rule_policy(repo, base)
     provenance_patterns = [rule_glob(pattern) for pattern in (*RULE_PROVENANCE_PATHS,
                                                              *policy["extra_provenance_paths"])]
-    records = git(repo, "diff", "--raw", "--no-abbrev", "--no-ext-diff", "--no-textconv", "--no-renames", "-z",
+    records = git(repo, "diff", "--no-color", "--raw", "--no-abbrev", "--no-ext-diff", "--no-textconv", "--no-renames", "-z",
                   base, head).split("\0")
-    paths, objects = [], set()
+    changes, provenance = [], []
     for metadata, path in zip(records[::2], records[1::2]):
         if path.startswith("docs/") or not any(pattern.fullmatch(path) for pattern in patterns):
             continue
-        old_mode, new_mode, old_blob, new_blob, _ = metadata[1:].split()
-        for revision, mode, blob in ((base, old_mode, old_blob), (head, new_mode, new_blob)):
-            if mode == "000000":
-                continue
-            if mode not in ("100644", "100755"):
-                raise PrepareError(f"protected input is not a regular file: {revision}:{path}")
-            objects.add(blob)
-        paths.append((path, old_mode, new_mode))
-    # Git supplies sizes without acquiring any protected bodies. Check all sides
-    # before loading even the first path or invoking unit extraction and pairing.
-    if objects:
-        sizes = git(repo, "cat-file", "--batch-check", input="\n".join(sorted(objects)) + "\n")
-        for record in sizes.splitlines():
-            fields = record.split()
-            if len(fields) != 3 or fields[1] != "blob" or not fields[2].isdigit():
-                raise PrepareError("cannot inspect protected blob size: " + record)
-            if int(fields[2]) > policy["max_report_chars"]:
-                raise RuleReportTooLarge("FAILED CLOSED: protected input exceeds report allowance of "
-                                         f"{policy['max_report_chars']} bytes; full text withheld; comparison not performed.\n")
-    old, new, provenance_old, provenance_new = [], [], [], []
-    for path, old_mode, new_mode in sorted(paths):
+        old_mode, new_mode, _, _, _ = metadata[1:].split()
         before = rule_blob(repo, base, path, old_mode) if old_mode != "000000" else ""
         after = rule_blob(repo, head, path, new_mode) if new_mode != "000000" else ""
-        before_units, after_units = rule_units(path, before), rule_units(path, after)
-        if (" ".join(before.split()) == " ".join(after.split()) and
-                [(unit["text"], unit["ancestry"]) for unit in before_units if "ancestry" in unit] ==
-                [(unit["text"], unit["ancestry"]) for unit in after_units if "ancestry" in unit]):
-            continue
-        if any(pattern.fullmatch(path) for pattern in provenance_patterns):
-            provenance_old.extend(before_units)
-            provenance_new.extend(after_units)
-        else:
-            old.extend(before_units)
-            new.extend(after_units)
-    changes = pair_rule_units(old, new, policy["similarity_threshold"])
-    changes.extend(pair_rule_units(provenance_old, provenance_new, policy["similarity_threshold"], provenance=True))
-    return changes, policy, base
+        old_rows, new_rows = rule_lines(before), rule_lines(after)
+        patch = git(repo, "--literal-pathspecs", "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames",
+                    "--text", "--diff-algorithm=myers", "--no-indent-heuristic", "--inter-hunk-context=0",
+                    "-U0", base, head, "--", path)
+        is_provenance = any(pattern.fullmatch(path) for pattern in provenance_patterns)
+        for hunk in re.finditer(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@", patch, re.M):
+            sides, signatures = [], []
+            for rows, line, count in ((old_rows, int(hunk[1]), int(hunk[2] or 1)),
+                                      (new_rows, int(hunk[3]), int(hunk[4] or 1))):
+                selected = rows[line - 1:line - 1 + count] if count else []
+                signatures.append([token for row in selected for token in row["signature"]])
+                sides.append(dict(path=path, line=line, end_line=line + count - 1,
+                                  section=selected[0]["section"], text="".join(row["raw"] for row in selected))
+                             if selected else None)
+            if sides[0] and sides[1] and signatures[0] == signatures[1]:
+                continue
+            old, new = sides
+            if is_provenance:
+                # Approval evidence never pairs, even within one changed block.
+                provenance.extend(dict(kind=kind, old=old if kind == "removed" else None,
+                                       new=new if kind == "added" else None, provenance=True)
+                                  for kind, side in (("removed", old), ("added", new)) if side)
+            else:
+                changes.append(dict(kind="changed" if old and new else "removed" if old else "added",
+                                    old=old, new=new))
+    # Exact copies only, with FIFO source order for repeated copies. No all-pairs work.
+    additions = defaultdict(deque)
+    for index, change in enumerate(changes):
+        if change["kind"] == "added":
+            additions[change["new"]["text"]].append(index)
+    paired = set()
+    for change in changes:
+        if change["kind"] == "removed" and additions[change["old"]["text"]]:
+            index = additions[change["old"]["text"]].popleft()
+            change.update(kind="moved", new=changes[index]["new"])
+            paired.add(index)
+    changes = [change for index, change in enumerate(changes) if index not in paired]
+    return changes + provenance, policy, base
 
 
 def declared_rule_changes(body):
     lines = body.splitlines()
     start, fence = None, None
     for index, line in enumerate(lines):
-        opening = re.match(r"^\s*(`{3,}|~{3,})", line)
-        if opening:
-            if fence is None:
-                fence = opening[1][0], len(opening[1])
-            elif opening[1][0] == fence[0] and len(opening[1]) >= fence[1]:
+        if fence:
+            if closing_fence(line, fence):
                 fence = None
             continue
-        if fence:
+        opening = re.match(r"^[ \t]*(`{3,}|~{3,})", line)
+        if opening:
+            fence = opening[1][0], len(opening[1])
             continue
         if start is None:
             if re.fullmatch(r"##\s+Rule changes\s*#*\s*", line):
@@ -343,18 +238,28 @@ def rule_location(unit):
         return "(none)"
     # JSON quoting keeps unusual path and heading characters on one unambiguous line.
     location = f'{json.dumps(unit["path"], ensure_ascii=False)}:{unit["line"]} — {json.dumps(unit["section"], ensure_ascii=False)}'
-    if unit.get("ancestry"):
-        location += "; list ancestry: " + json.dumps(unit["ancestry"], ensure_ascii=False)
+    if unit.get("end_line", unit["line"]) > unit["line"]:
+        location += f'; through line {unit["end_line"]}'
     return location
+
+
+def render_rule_report(parts, policy, out, index):
+    """Check the sole allowance before joining the complete rendered report."""
+    if sum(len(display(part)) for part in parts) + len(parts) - 1 > policy["max_report_chars"]:
+        raise RuleReportTooLarge("\n".join([*out, "", "FAILED CLOSED: complete rule report exceeds "
+                                         f"{policy['max_report_chars']} characters; full text withheld, every location follows.",
+                                         *index]) + "\n")
+    return "\n".join(parts)
 
 
 def rule_report(changes, policy, base, head, declaration_text, declaration_source):
     declared = declared_rule_changes(declaration_text)
     declaration_heading = f"### Declared changes ({declaration_source} line numbers)"
     if not changes:
-        declaration = "\n".join(f"{number}: {line}" for number, line in declared)
-        return "No protected rule text changed." + (
-            "\n\n" + declaration_heading + "\n" + declaration if declared else "")
+        parts = ["No protected rule text changed."]
+        if declared:
+            parts.extend(["", declaration_heading, *(f"{number}: {line}" for number, line in declared)])
+        return render_rule_report(parts, policy, parts, [])
     out = ["## Rule text changes", f"Base: `{base}`; head: `{head}`",
            "; ".join(f"{kind}: {sum(item['kind'] == kind and not item.get('provenance') for item in changes)}"
                      for kind in ("removed", "added", "changed", "moved"))]
@@ -378,12 +283,8 @@ def rule_report(changes, policy, base, head, declaration_text, declaration_sourc
             value = unit["text"] if unit else "(none)"
             fence = "`" * max(3, max((len(m[0]) + 1 for m in re.finditer(r"`+", value)), default=3))
             detail.extend([f"{side.title()}: {rule_location(unit)}", fence + "text", value, fence])
-    rendered = "\n".join([*out, "", "### Item locations", *index, *detail])
-    if len(display(rendered)) > policy["max_report_chars"]:
-        raise RuleReportTooLarge("\n".join([*out, "", "FAILED CLOSED: complete rule report exceeds "
-                                         f"{policy['max_report_chars']} characters; full text withheld, every location follows.",
-                                         *index]) + "\n")
-    return rendered
+    parts = [*out, "", "### Item locations", *index, *detail]
+    return render_rule_report(parts, policy, out, index)
 
 
 

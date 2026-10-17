@@ -11,7 +11,7 @@ How does changed text reach a mandatory audit?
 
 ```mermaid
 flowchart TD
-    A["Base and head rule text"] --> B["Report changed units"]
+    A["Base and head rule text"] --> B["Report changed blocks"]
     B --> C["Select audit lens"]
     C --> D["Disposition for every item"]
     D --> E["Blocking findings or approval"]
@@ -52,21 +52,25 @@ Each technical term below links to its defining Markdown section.
 
 - [Rule-change configuration](rule-changes.md#configuration) (`rule-changes.configuration`) — Rule-change configuration is optional versioned JSON at .rule-changes.json in the review base commit.
 - [Review disposition](rule-changes.md#review-disposition) (`rule-changes.review-disposition`) — A review disposition is a reviewer's judgment and evidence for one reported item.
-- [Rule-change report](rule-changes.md#rule-change-report) (`rule-changes.rule-change-report`) — A rule-change report is the complete comparison of protected Markdown units between review revisions.
+- [Rule-change report](rule-changes.md#rule-change-report) (`rule-changes.rule-change-report`) — A rule-change report is the complete comparison of protected Markdown changed blocks between review revisions.
 <!-- /spec-docs:navigation -->
 
 <a id="tour"></a>
 ## Tour
 
-Follow one edit through detection and review. These synthetic files are the complete input.
-Both files are protected by the [rule-change configuration](#configuration).
+Follow one edit through detection and review. These synthetic files and the summary are the complete input.
+All rule files are protected by the [rule-change configuration](#configuration).
+The destination file already exists in the base, containing only `# Reporting` and its final newline.
 
 **Base: rules/source.md**
 
 ```markdown
 # Execution
 - Keep the audit record.
+
 - Never skip validation.
+
+## Errors
 - Report every failure.
 
 Wrap this rule across
@@ -77,7 +81,10 @@ lines without changing its words.
 
 ```markdown
 # Execution
+
 - Avoid skipping validation.
+
+## Errors
 
 Wrap this rule across lines without changing its words.
 ```
@@ -89,67 +96,95 @@ Wrap this rule across lines without changing its words.
 - Report every failure.
 ```
 
-**Head: CHANGELOG-RULES.md**
+**Head: CHANGELOG-RULES.md** (absent in the base)
 
 ```markdown
 # Approval
 Approved removal: “Keep the audit record. Retain the approval.”
 ```
 
+**Selected --summary text**
+
+```markdown
+Audit example
+## Rule changes
+Remove the audit-record rule; operator approval is in CHANGELOG-RULES.md.
+Change validation wording; operator approval is still required for weakening.
+Move failure reporting to rules/destination.md without changing its meaning.
+Rewrap the remaining paragraph.
+```
+
 **Procedure: prepare and audit the edit**
 
 1. **Prepare the review.** The report contains a removal, a change with both texts and a move with both locations.
-   - The removed text is `Keep the audit record.`
-   - The changed text is `Never skip validation.` → `Avoid skipping validation.`
-   - The moved text is `Report every failure.`
-   - The re-wrap produces no item.
-   - The changelog quotation stays whole in Provenance entries; the rule remains removed.
-2. **Read the declared changes.** The selected source's `## Rule changes` section appears with its original line numbers.
-   - Use the PR body when a PR is given; otherwise use the `--summary` text.
-   - The report names the selected source.
+   - The removed block is source line 2: `- Keep the audit record.`
+   - The changed block is source line 4 → line 3: `- Never skip validation.` → `- Avoid skipping validation.`
+   - The moved block is source line 7 → destination line 2: `- Report every failure.`
+   - The rewrap produces no item.
+   - The changelog block stays whole in Provenance entries; the rule remains removed.
+2. **Read the declared changes.** The summary's section appears verbatim with original lines 2–6.
+   - Lines 3–5 declare the removal, wording change and move; line 6 declares the rewrap.
+   - When an explicit PR is given, its body replaces this summary as the selected source.
    - Without that section, the report prominently flags an undeclared change.
 3. **Audit every item.** The normal panel gains the rule-preservation lens.
-   - Without cited approval, the removal and weakening are Blocking findings.
+   - Without cited operator approval, the removal and weakening are Blocking findings.
    - The move can receive `same meaning` only after the reviewer checks its destination scope.
 
 <a id="report"></a>
 ## Report and review
 
 The preparer compares captured Git text before rendering the change or dispatching reviewers.
-Its order is [rule-change configuration](#configuration), blob-size checks, unit extraction, exact matching, similarity pairing, rendering and lens selection.
-One raw Git diff supplies changed paths and modes; one path-scoped tree lookup locates the base configuration.
-Rule comparison retains changed-path metadata instead of inventories of both complete trees.
+
+**Procedure: build the comparison**
+
+1. **Load base policy.** Resolve the [rule-change configuration](#configuration) from the pinned comparison base.
+2. **Read changed paths.** Use one NUL-delimited raw Git diff with renames disabled; retain paths and modes without whole-tree inventories.
+3. **Extract changed blocks.** Read base and head blobs for each protected changed path and take Git's zero-context hunks.
+4. **Drop pure rewraps.** Check the words and Markdown structure before classifying the remaining blocks.
+5. **Classify blocks.** Pair exact removed and added copies as moves.
+6. **Check the allowance.** Refuse oversized complete reports before joining the rendered output.
+7. **Select the lens.** Dispatch from the resulting rule items; provenance entries do not select a lens.
 
 <a id="rule-change-report"></a>
 ### Rule-change report
 
-A rule-change report is the complete comparison of protected Markdown units between review revisions.
+A rule-change report is the complete comparison of protected Markdown changed blocks between review revisions.
 It prevents changed obligations from disappearing inside a large diff.
 The dispatch process pins the base commit before lens selection and preparation.
 Preparation captures its merge base with head once and reuses that comparison base for the report, documentation context and diff.
 The report names both immutable revisions. Working-tree edits do not affect it.
 
-List items and table rows are individual units. Paragraph sentences are individual units.
-Sentence punctuation inside matched straight or typographic quotation marks never splits a unit.
-This includes single and double quotation marks; apostrophes within words are not quotation boundaries.
-Unmatched quotation marks do not shield sentence boundaries.
+Each zero-context Git hunk is one changed block, with its complete old and new text and source line ranges.
+Git runs with renames disabled, the Myers algorithm, no indentation heuristic and no inter-hunk context.
 
-Fenced code blocks are whole units. Headings describe section scope and are location metadata.
-Units retain file, first source line and heading ancestry. List units also retain their ancestor items as scope metadata.
+Paths come from NUL-delimited metadata and are passed as literal path arguments.
+Hunk line ranges select text from the pinned blobs, so quoted patch filenames never determine source identity.
+Headings outside fences supply section metadata; headings themselves remain changed text when Git includes them.
+There is no sentence splitting, semantic unit extraction or cancellation of unchanged-looking siblings.
+A procedure reorder therefore remains visible.
 
-Whitespace and Markdown line wrapping normalize away when they preserve list ancestry.
-List markers and table separator rows carry no rule text. Text inside a unit retains punctuation and strength words.
+A block disappears only for a pure prose rewrap: identical words in identical order and identical indentation depth and list/blockquote markers for every logical line.
+A logical line joins prose continuation lines within one paragraph or list item.
+List continuation lines inherit their item's marker and indentation only at its content column.
+Each item keeps a distinct boundary, including an empty item.
+Blank lines, headings, blockquote rows, table rows and Markdown hard breaks are preserved exactly; ambiguous formatting stays reported.
 
-Provenance files record why rules changed. Their text never pairs with rules or other provenance units as moves or changes.
-Exact copies in the same provenance file and section cancel; remaining units appear as added or removed in a separate `Provenance entries` part.
-Those entries retain identities, locations and text, but do not enter rule totals or trigger the rule-preservation lens.
+Fenced content is compared byte-exact, including indentation, spaces and line endings.
+Only a matching delimiter run of sufficient length with surrounding horizontal whitespace closes a fence.
+Fence-like example content with trailing text cannot expose a false declaration heading.
 
-For rule units, exact copies in the same file, section and list ancestry cancel first, including repeated occurrences.
-Remaining identical copies pair as moves across files, sections or list ancestors.
-Remaining pairs above the configured similarity threshold become changes, in descending similarity order.
-Ties use same-file preference, then old and new source order: path, line, section and text.
-Unpaired old units are removals; unpaired new units are additions.
-This lexical pairing is deterministic evidence organization, never a claim of semantic equivalence.
+A block with removed and added lines is `changed`; an old-only block is `removed`; a new-only block is `added`.
+An exact removed block copied elsewhere in the same range pairs with an exact added block as `moved`, retaining both locations.
+Move identity includes every byte, including Markdown markers and final newlines.
+Repeated copies pair in Git path and hunk order, first removed occurrence to first available added occurrence.
+No partial-block matching or similarity pairing occurs; nonidentical blocks keep their Git classification.
+
+Git supplies the comparison; the added work scans source lines and changed blocks and uses a hash table of exact additions for moves.
+It does not compare every removed block with every added block.
+
+Provenance files record why rules changed. Their text never pairs with rule blocks or other provenance entries.
+A provenance block contributes its removed side and added side separately to `Provenance entries`.
+Those entries retain identities, locations and exact text, but do not enter rule totals or trigger the rule-preservation lens.
 
 Every item receives a stable report-local identity and class, old/new locations and old/new text.
 Absent sides display `(none)`. Totals include all four classes.
@@ -181,14 +216,12 @@ A regression, missing disposition, unapproved removal or weakening, undeclared c
 <a id="failure-rule-report"></a>
 ### Failure state: incomplete rule report
 
-This refusal prevents incomplete evidence from supporting approval and rejects oversized blobs before reading or comparing protected text.
+This refusal prevents incomplete evidence from supporting approval.
 
-**Trigger:** A base or head protected blob exceeds the report allowance in bytes, rendered report text exceeds the character allowance, or inputs cannot be read correctly.
+**Trigger:** The complete report exceeds the configured character allowance after pure rewraps are dropped, or inputs cannot be read correctly.
 
-**Outcome:** Preparation exits nonzero. Oversize output says `FAILED CLOSED`.
-Before reading protected contents, one batched Git metadata call checks all changed protected blobs at base and head.
-A blob above the allowance causes refusal without comparison or a report section; no unit locations are available.
-When blobs fit but the rendered report exceeds the allowance, refusal lists every item's identity, class and old/new location.
+**Outcome:** Preparation exits nonzero. Oversize output says `FAILED CLOSED` and lists every item's identity, class and old/new location.
+There is one limit on the rendered report, checked before joining the output; no separate blob-size limit rejects harmless large rewraps.
 
 **Retained state:** Git and the checkout remain unchanged. The report is derived in memory; no index or approval state is stored.
 
@@ -207,13 +240,13 @@ These obligations implement the [operator decision](#decision-rule-review). Thei
 <a id="req-rule-report"></a>
 ### Requirement: report protected changes
 
-Expose every changed unit without treating a lexical match as approval.
+Expose every changed block without treating exact copying as approval.
 
 **Actor:** Preparer.
 
 **Condition:** A review compares base and head.
 
-**Result:** Produce the [rule-change report](#rule-change-report) using the [rule-change configuration](#configuration), including source-labelled declarations, quotation-aware units, separate provenance entries and deterministic rule pairing.
+**Result:** Produce the [rule-change report](#rule-change-report) using the [rule-change configuration](#configuration), including source-labelled declarations, exact Git blocks, separate provenance entries and exact-copy moves.
 
 **Verification:** Real Git fixture comparisons.
 
@@ -283,14 +316,21 @@ Existing sentence-lock tests remain in this change; removal is a separate author
 <a id="decision-rule-mechanics"></a>
 ### Deterministic comparison and base configuration
 
-**Choice:** Use greedy lexical pairing and base-commit [rule-change configuration](#configuration) with fixed default coverage.
+**Choice:** Use Git changed blocks, conservative rewrap suppression, exact-copy moves and one report-size allowance.
+Keep base-commit [rule-change configuration](#configuration) and fixed default coverage.
 
-**Authority:** Implementation proposal for the lead to accept.
+**Authority:** Lead decision recorded 2026-10-17 after review rounds 3–4; replaces lexical unit matching and the earlier per-blob refusal.
 
-**Reason:** This supplies reproducible evidence without another model call or persistent index.
+**Reason:** Round 3 found lost list ancestry. Round 4 found lost paragraph indentation, sibling order and fenced-code conditions.
+Review instrumentation counted 4 000 000 similarity calls for 2 000 unmatched units per side; it bypassed expensive matching, so this is an operation count, not runtime.
+The per-blob allowance rejected a harmless 80 001-byte prose rewrap before comparison.
+Git already supplies changed blocks; reviewers judge meaning after the report preserves the evidence.
 Base configuration prevents a candidate from reducing its own coverage or increasing its own report allowance.
 
-**Rejected alternatives:** A stored projection duplicates Git. A semantic classifier adds judgment before the mandatory human-readable audit.
+**Rejected alternatives:** Extending semantic unit matching repeats the same structural-loss class.
+All-pairs similarity adds quadratic work without proving meaning preservation.
+A separate blob limit rejects harmless input without bounding aggregate pairing work.
+A stored projection duplicates Git; no persistent index is needed.
 
 <a id="questions"></a>
 ## Open questions
@@ -318,8 +358,7 @@ Unknown fields, unsupported versions, malformed patterns and invalid limits fail
 | version | 1 | Accepted format |
 | extra_protected_paths | [] | Additional repository-relative globs |
 | extra_provenance_paths | [] | Additional provenance globs |
-| max_report_chars | 80000 | Report character allowance; also the per-blob byte allowance before reading |
-| similarity_threshold | 0.6 | Minimum changed-pair similarity |
+| max_report_chars | 80000 | Complete rendered report character allowance |
 
 Default protected paths are `INDEX.md`, `STRUCTURE.md`, `PREFERENCES.md`, `INSTALL-AGENTS.md`, `AGENTS.md`, `CHANGELOG-RULES.md`,
 `rules/**/*.md`, `prompts/**/*.md`, `skills/**/*.md`, `.agents/rules.md` and `CONTEXT.md`.
@@ -335,7 +374,7 @@ The service must run the same selector from its pinned preparer, add the lens fr
 There is no automatic service adoption in this repository.
 
 For the tour, the reference counts are one removed, one changed, one moved and zero added.
-The moved item names source line 4 and destination line 2; the re-wrap has no item.
+The moved item names source line 7 and destination line 2; the re-wrap has no item.
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -352,11 +391,11 @@ Detection checks the caller-visible result.
 
 **Requirements:** [Required behavior](#req-rule-report).
 
-**Inputs:** Deleted, weakened, moved, added, re-wrapped, whitespace-only and list-ancestry changes.
+**Inputs:** Deleted, changed, added and exact moved blocks; list ancestry, paragraph indentation, reordered steps, fenced conditions and harmless rewraps.
 
-**Expected:** All classes and both texts are correct; changed list ancestry is reported and harmless wrapping is absent.
+**Expected:** Structural changes remain reported with their Git block kind; prose and list continuation rewraps are absent. Large harmless rewraps are accepted.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_removed](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_changed](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_moved](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_rewrap](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_added](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_units](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_deterministic](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_list_ancestry_changes_are_reported](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_changed_block_acceptance](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_blocks_preserve_all_source_text](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_structural_spacing_is_reported](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_exact_move_pairing_preserves_occurrences](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_deterministic](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_fenced_bytes_and_literal_paths](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-coverage"></a>
 ### Coverage
@@ -406,7 +445,7 @@ Provenance comparisons preserve rule removals and approval evidence separately.
 <a id="test-rule-report-quotations"></a>
 ### Quotations
 
-Quotation checks preserve complete quoted sentences and their source locations.
+Quotation checks preserve exact quoted text inside Git blocks and their source locations.
 
 **Method:** test.
 
@@ -414,9 +453,9 @@ Quotation checks preserve complete quoted sentences and their source locations.
 
 **Inputs:** Matched straight and typographic quotes, apostrophes, inline code and unmatched quotes.
 
-**Expected:** Matched quotations stay whole; sentences outside them still split at the correct source lines.
+**Expected:** The removed block retains every quotation byte and its original first line; quotation punctuation never splits a block.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_quoted_sentences_stay_whole](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_quotations_preserve_exact_block_and_location](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-failure"></a>
 ### Failure behavior
@@ -427,12 +466,11 @@ Failure behavior checks the caller-visible result.
 
 **Requirements:** [Required behavior](#req-rule-report).
 
-**Inputs:** An oversize report, an oversized base or head blob, and malformed protected inputs.
+**Inputs:** An oversize report, a large harmless rewrap, and malformed protected inputs.
 
-**Expected:** Rendered-report refusal retains every location. Oversized blobs cause refusal before protected text reads or comparison, without a report section.
-Invalid input fails visibly.
+**Expected:** Report refusal retains every location; large harmless rewraps succeed. Invalid input fails visibly.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_oversize](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_invalid_inputs](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_oversized_blob_refuses_before_loading_or_comparing](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_oversize](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_invalid_inputs](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_changed_block_acceptance](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-dispatch"></a>
 ### Dispatch
@@ -474,7 +512,7 @@ Inspect reviewer obligations in every compiled pack.
 
 **Requirements:** [Dispatch and accounting](#req-rule-review).
 
-**Inputs:** Detected items and declared changes from the tour.
+**Inputs:** Detected items and the selected summary from the tour, declaration lines 2–6 and specific changes on lines 3–5.
 
 **Expected:** Every item receives evidence and a disposition; missing approval or accounting blocks review.
 

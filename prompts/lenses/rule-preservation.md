@@ -5,7 +5,9 @@ The shared [review bar](../util/review-bar.md) owns mandatory dispositions and B
 
 1. Read the report totals, every item and its old/new locations. Read the declared Rule
    changes from the report's selected source (PR body or `--summary`) beside it.
-   A failed-closed report cannot support approval.
+   Items are Git changed blocks: `removed`, `added`, `changed` or exact-copy `moved`.
+   Audit every rule within a block, including changed order and indentation.
+   Provenance entries remain separate approval evidence. A failed-closed report cannot support approval.
 2. For each item, read old and new text in their complete source sections at the reported
    base and head. List the rule's actor, condition, action, strength words
    (`never`, `always`, `must`, `only`), numbers, exceptions, scope and cross-references.

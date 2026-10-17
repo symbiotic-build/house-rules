@@ -18,7 +18,7 @@ Changes to documents, specifications, rules, prompts or skills add
 rule's premise and the reader requirements. A panel limited to three targets uses
 [`spec-waste`](../../../prompts/lenses/spec-waste.md) in place of `spec` and `waste`.
 
-The report-required `rule-preservation` lens audits removed, changed or moved rule units
+The report-required `rule-preservation` lens audits removed, changed or moved rule blocks
 alongside the normal panel. The lane dispatcher selects it with the pinned preparer's
 `rule-lenses` command before dispatch, including for a requested quick panel.
 The service dispatcher must use the same command and add the

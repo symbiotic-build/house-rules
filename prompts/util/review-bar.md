@@ -52,6 +52,9 @@ Repairs to mechanisms added in earlier fix rounds follow
 
 ## Rule preservation
 
+Report items are Git changed blocks classified `removed`, `added`, `changed` or exact-copy `moved`, plus separate provenance entries.
+The class organizes evidence; it does not establish meaning or approval.
+
 When the task context contains a non-empty Rule text changes section, give every listed
 item a disposition: `same meaning`, `approved change` or `regression`, with one line of
 evidence each. An `approved change` cites the approving line in the report's selected
