@@ -281,6 +281,51 @@
       ],
       "symbols": [],
       "rejected_forms": []
+    },
+    "rule-changes.rule-change-report": {
+      "kind": "data",
+      "home": {
+        "section": "rule-changes#report",
+        "anchor": "rule-change-report"
+      },
+      "scope": [
+        "rule-changes"
+      ],
+      "forms": [
+        "rule-change report"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "rule-changes.review-disposition": {
+      "kind": "data",
+      "home": {
+        "section": "rule-changes#report",
+        "anchor": "review-disposition"
+      },
+      "scope": [
+        "rule-changes"
+      ],
+      "forms": [
+        "review disposition"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "rule-changes.configuration": {
+      "kind": "data",
+      "home": {
+        "section": "rule-changes#reference",
+        "anchor": "configuration"
+      },
+      "scope": [
+        "rule-changes"
+      ],
+      "forms": [
+        "rule-change configuration"
+      ],
+      "symbols": [],
+      "rejected_forms": []
     }
   },
   "naming_rules": []

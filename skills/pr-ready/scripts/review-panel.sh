@@ -98,6 +98,18 @@ resolved_base=$(python3 -I -B "$here/prepare.py" "${base_args[@]}") || {
   exit 1
 }
 
+required_lenses=$(python3 -I -B "$out/preparer.py" rule-lenses "$dir" --base "$resolved_base" --rev "$review_rev" --no-fetch) || {
+  printf '%s\n' "$required_lenses" >&2
+  echo "panel failed: rule-change lens selection" >> "$out/summary.txt"
+  exit 1
+}
+for required_lens in $required_lenses; do
+  case " $* " in
+    *" $required_lens "*) ;;
+    *) set -- "$@" "$required_lens" ;;
+  esac
+done
+
 panel_reviewers="$*"
 
 run_one() {

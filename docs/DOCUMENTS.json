@@ -547,6 +547,15 @@
     {
       "path": "docs/specs/spec-system/acceptance-evidence.md",
       "kind": "specification"
+    },
+    {
+      "path": "docs/specs/rule-changes/rule-changes.md",
+      "kind": "specification"
+    },
+    {
+      "path": "prompts/lenses/rule-preservation.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
     }
   ],
   "documents": [
@@ -738,6 +747,109 @@
           "prerequisites": [
             "spec-system#requirements"
           ],
+          "explanatory_dependencies": []
+        }
+      ],
+      "scenarios": []
+    },
+    {
+      "id": "rule-changes",
+      "title": "Rule changes",
+      "status": "draft",
+      "purpose": "Report rule text changes and require an explicit review disposition for each item.",
+      "audience": "Maintainers and review-service integrators familiar with Git revisions and review packs.",
+      "scope": "Protected Markdown comparison, review context and mandatory audit dispatch.",
+      "non_goals": "Automatic semantic approval, sentence-lock test deletion and service implementation.",
+      "navigation": {
+        "path": "docs/specs/rule-changes/rule-changes.md",
+        "region": "rule-changes"
+      },
+      "sections": [
+        {
+          "id": "rule-changes",
+          "path": "docs/specs/rule-changes/rule-changes.md",
+          "anchor": "rule-changes",
+          "roles": [],
+          "summary": "Read the purpose and review boundary.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "tour",
+          "path": "docs/specs/rule-changes/rule-changes.md",
+          "anchor": "tour",
+          "roles": [
+            "tour"
+          ],
+          "summary": "Follow a removal, weakening, move and re-wrap.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "report",
+          "path": "docs/specs/rule-changes/rule-changes.md",
+          "anchor": "report",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Compare protected text and preserve complete evidence.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "requirements",
+          "path": "docs/specs/rule-changes/rule-changes.md",
+          "anchor": "requirements",
+          "roles": [
+            "requirements"
+          ],
+          "summary": "Find the required report and review results.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "decisions",
+          "path": "docs/specs/rule-changes/rule-changes.md",
+          "anchor": "decisions",
+          "roles": [
+            "decisions",
+            "alternatives"
+          ],
+          "summary": "Read the operator decision and the settled lead decisions.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "questions",
+          "path": "docs/specs/rule-changes/rule-changes.md",
+          "anchor": "questions",
+          "roles": [
+            "questions"
+          ],
+          "summary": "Identify the remaining service integration.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "reference",
+          "path": "docs/specs/rule-changes/rule-changes.md",
+          "anchor": "reference",
+          "roles": [
+            "reference"
+          ],
+          "summary": "Configure coverage and call the shared selector.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "acceptance",
+          "path": "docs/specs/rule-changes/rule-changes.md",
+          "anchor": "acceptance",
+          "roles": [
+            "acceptance"
+          ],
+          "summary": "Run behavior checks and inspect reviewer obligations.",
+          "prerequisites": [],
           "explanatory_dependencies": []
         }
       ],

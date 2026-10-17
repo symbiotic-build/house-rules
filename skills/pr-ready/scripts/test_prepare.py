@@ -352,7 +352,8 @@ class PanelExecutionTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(manifest["target"]["commit"], first)
         prompt = (pack / "pack.txt").read_text()
         self.assertIn("FIRST RULES", prompt)
-        self.assertIn(f"Range: `origin/trunk...{first}`; head: `{first}`", prompt)
+        comparison_base = self.git(self.repo, "merge-base", "origin/trunk", first)
+        self.assertIn(f"Range: `{comparison_base}..{first}`; head: `{first}`", prompt)
         self.assertIn("Title: First title", prompt)
         self.assertIn("FIRST SPEC", prompt)
         self.assertIn("+first_change = 2", prompt)
@@ -992,14 +993,19 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
             self.assertEqual(prompt.count(rule.read_text()), 1)
 
     def test_missing_prompt_include_fails_without_emitting_review(self):
-        import prompt
-
-        with mock.patch.object(prompt, "expand", side_effect=prompt.PromptError("missing rule")):
+        # Exercise the actual compiler boundary rather than an in-process mock.
+        tool = self.root / "tool"
+        scripts = tool / "skills/pr-ready/scripts"
+        scripts.mkdir(parents=True)
+        shutil.copyfile(SCRIPT.with_name("prompt.py"), scripts / "prompt.py")
+        shutil.copyfile(SCRIPT.with_name("review-panel.lenses"), scripts / "review-panel.lenses")
+        self.write(tool, "prompts/roles/reviewer.md", "@rule house-rules:missing-rule.md\n")
+        with mock.patch.object(prepare, "HERE", scripts):
             code, out, err = self.invoke("review", str(self.repo), "--base", "origin/trunk",
                                          "--no-fetch")
         self.assertEqual(code, 1)
         self.assertEqual(out, "")
-        self.assertIn("missing rule", err)
+        self.assertIn("missing-rule.md", err)
 
     def test_pr_design_and_summary_precedence_with_optional_gh(self):
         self.add_review_change()
@@ -1758,7 +1764,9 @@ class BaseResolutionTests(PrepareFixture, unittest.TestCase):
                 code, out, err = self.invoke(command, str(self.repo))
                 self.assertEqual(code, 0, err)
                 head = self.git(self.repo, "rev-parse", "HEAD") if command == "review" else "HEAD"
-                self.assertIn(f"origin/trunk...{head}", out)
+                expected_range = (self.git(self.repo, "merge-base", "origin/trunk", head) + ".." + head
+                                  if command == "review" else f"origin/trunk...{head}")
+                self.assertIn(expected_range, out)
                 self.assertIn("cached", err)
                 update.assert_not_called()
 
@@ -1773,7 +1781,9 @@ class BaseResolutionTests(PrepareFixture, unittest.TestCase):
                 code, out, err = self.invoke(command, str(self.repo), "--base", "origin/trunk")
                 self.assertEqual(code, 0, err)
                 head = self.git(self.repo, "rev-parse", "HEAD") if command == "review" else "HEAD"
-                self.assertIn(f"origin/trunk...{head}", out)
+                expected_range = (self.git(self.repo, "merge-base", "origin/trunk", head) + ".." + head
+                                  if command == "review" else f"origin/trunk...{head}")
+                self.assertIn(expected_range, out)
                 self.assertIn("cached", err)
                 update.assert_not_called()
 
