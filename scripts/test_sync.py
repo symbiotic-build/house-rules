@@ -27,7 +27,44 @@ SPEC.loader.exec_module(sync)
 # The always-load rule files the fixture index lists (the real index lists the same seven).
 RULES = ("core", "outcome", "delivery", "writing", "git", "priority-labels", "session-writing")
 
-class SyncTests(unittest.TestCase):
+class SyncFixture:
+    """Shared setup and assertions for independent test classes."""
+
+    seed_directory = None
+
+    @classmethod
+    def setUpClass(cls):
+        if SyncFixture.seed_directory is not None:
+            cls.seed = Path(SyncFixture.seed_directory.name)
+            return
+        temporary = tempfile.TemporaryDirectory()
+        SyncFixture.seed_directory = temporary
+        cls.seed = Path(temporary.name)
+        helper = cls()
+        helper.base = cls.seed
+        with mock.patch.dict(os.environ, {
+            "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull,
+            "GIT_AUTHOR_NAME": "Test Author", "GIT_AUTHOR_EMAIL": "test@example.invalid",
+            "GIT_COMMITTER_NAME": "Test Author", "GIT_COMMITTER_EMAIL": "test@example.invalid",
+        }):
+            helper.build_fixture()
+
+    def build_fixture(self):
+        self.origin = self.base / "origin"
+        self.origin.mkdir()
+        self.git(self.origin, "init", "-b", "main")
+        self.write(self.origin / ".gitignore", "custom/\n")
+        shutil.copyfile(REPO / "INSTALL-AGENTS.md", self.origin / "INSTALL-AGENTS.md")
+        self.write(self.origin / "skills/sample/SKILL.md", "# Sample\n")
+        self.write(self.origin / "INDEX.md", "# Index\n\n## Always load\n\n" + "".join(
+            f"- [{name}](rules/{name}.md)\n" for name in RULES) + "\n## Load when needed\n")
+        for name in RULES:
+            self.write(self.origin / f"rules/{name}.md", f"# {name} rules\n")
+        self.commit(self.origin, [".gitignore", "INSTALL-AGENTS.md", "INDEX.md", "skills/sample/SKILL.md",
+                                  *(f"rules/{name}.md" for name in RULES)])
+        self.root = self.base / "House Rules checkout"
+        self.git(self.base, "clone", str(self.origin), str(self.root))
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="house-rules-sync-")
         self.addCleanup(self.tmp.cleanup)
@@ -43,19 +80,11 @@ class SyncTests(unittest.TestCase):
         for variable in ("CLAUDE_CONFIG_DIR", "CODEX_HOME", "KIMI_CODE_HOME"):
             os.environ.pop(variable, None)
         self.origin = self.base / "origin"
-        self.origin.mkdir()
-        self.git(self.origin, "init", "-b", "main")
-        self.write(self.origin / ".gitignore", "custom/\n")
-        shutil.copyfile(REPO / "INSTALL-AGENTS.md", self.origin / "INSTALL-AGENTS.md")
-        self.write(self.origin / "skills/sample/SKILL.md", "# Sample\n")
-        self.write(self.origin / "INDEX.md", "# Index\n\n## Always load\n\n" + "".join(
-            f"- [{name}](rules/{name}.md)\n" for name in RULES) + "\n## Load when needed\n")
-        for name in RULES:
-            self.write(self.origin / f"rules/{name}.md", f"# {name} rules\n")
-        self.commit(self.origin, [".gitignore", "INSTALL-AGENTS.md", "INDEX.md", "skills/sample/SKILL.md",
-                                  *(f"rules/{name}.md" for name in RULES)])
         self.root = self.base / "House Rules checkout"
-        self.git(self.base, "clone", str(self.origin), str(self.root))
+        for name in ("origin", "House Rules checkout"):
+            shutil.copytree(self.seed / name, self.base / name)
+        config = self.root / ".git/config"
+        config.write_text(config.read_text().replace(str(self.seed / "origin"), str(self.origin)))
         self.home = self.base / "user"
         self.home.mkdir()
         self.claude = self.home / ".claude"
@@ -69,7 +98,7 @@ class SyncTests(unittest.TestCase):
         self.addCleanup(patch.stop)
 
     def git(self, root, *args):
-        return subprocess.run(["git", "-C", str(root), *args], check=True,
+        return subprocess.run(["git", "-C", str(root), *args], stdin=subprocess.DEVNULL, check=True,
                               capture_output=True, text=True).stdout.strip()
 
     def write(self, path, text):
@@ -93,6 +122,46 @@ class SyncTests(unittest.TestCase):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.symlink_to(target, target_is_directory=True)
 
+    def assert_conflicts(self, entries):
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        for entry in entries:
+            self.assertIn(str(entry), out)
+            self.assertTrue(sync.present(entry))
+
+    def changed_during_fetch(self, mutation):
+        self.write(self.origin / "remote", "fixture")
+        self.commit(self.origin, ["remote"])
+        real_git = sync.git
+
+        def git(root, *args):
+            result = real_git(root, *args)
+            if "fetch" in args:
+                if mutation == "dirty":
+                    self.write(self.root / "dirty", "fixture")
+                elif mutation == "branch":
+                    self.git(self.root, "checkout", "-b", "other")
+                else:
+                    self.git(self.root, "commit", "--allow-empty", "-m", "Concurrent edit")
+            return result
+
+        with mock.patch.object(sync, "git", side_effect=git) as calls:
+            code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn("changed during update", out)
+        self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
+
+    def install_fixture(self):
+        for key, home in sync.homes(self.root, self.home):
+            instruction = sync.instruction_file(key, home)
+            self.write(instruction, sync.template(self.root) + "\n")
+        for folder in (self.claude / "skills", self.home / ".agents/skills"):
+            path = folder / "sample"
+            if not path.is_symlink():
+                self.link(path, self.root / "skills/sample")
+
+
+class SyncTests(SyncFixture, unittest.TestCase):
     def test_removed_fix_option_is_rejected_without_installation_writes(self):
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit) as stopped:
@@ -138,23 +207,6 @@ class SyncTests(unittest.TestCase):
         self.assertIn("At session start and after every context compaction or reset, read "
                       f"`{self.root}/INDEX.md`.", sync.template(self.root))
 
-    def test_old_index_blocks_are_stale_in_every_known_home(self):
-        self.install_fixture()
-        old_block = sync.template(self.root).replace('/INDEX.md', '/AGENTS.md')
-        paths = [self.claude / 'CLAUDE.md', self.codex / 'AGENTS.md',
-                 self.kimi / 'AGENTS.md', self.codex / 'AGENTS.override.md']
-        for path in paths:
-            with self.subTest(path=path):
-                self.write(path, old_block)
-                findings, selected = [], []
-                sync.verify(self.root, self.home, findings, selected)
-                self.assertEqual(findings, [f'stale block: {path}'])
-                self.assertEqual(path.read_text(), old_block)
-                if path.name == 'AGENTS.override.md':
-                    path.unlink()
-                else:
-                    self.write(path, sync.template(self.root))
-
     def test_renamed_index_is_required_without_old_index_fallback(self):
         index = self.root / 'INDEX.md'
         self.write(self.root / 'AGENTS.md', index.read_text())
@@ -165,21 +217,6 @@ class SyncTests(unittest.TestCase):
         index.unlink()
         self.assertEqual(sync.always_load(self.root, findings), [])
         self.assertEqual(findings, [f'missing index: {index}'])
-
-    def test_update_preserves_ignored_files_colliding_with_incoming_paths(self):
-        path = "custom/INDEX.md"
-        self.write(self.root / path, "Machine-local index\n")
-        self.write(self.origin / path, "Incoming tracked file\n")
-        self.git(self.origin, "add", "--force", "--", path)
-        self.git(self.origin, "commit", "-m", "Add colliding path")
-        head = self.git(self.root, "rev-parse", "HEAD")
-        code, out, err = self.invoke()
-        self.assertEqual((self.root / path).read_text(), "Machine-local index\n")
-        self.assertEqual(self.git(self.root, "rev-parse", "HEAD"), head)
-        self.assertEqual(code, 2, out + err)
-        self.assertIn("ERROR:", err)
-        self.assertIn("missing block", out)
-        self.assertIn("3 homes checked", out)
 
     def test_later_verification_errors_preserve_earlier_findings(self):
         real_read, real_scan = Path.read_bytes, os.scandir
@@ -209,6 +246,32 @@ class SyncTests(unittest.TestCase):
                 failure = "instruction read" if operation == "read" else "skill scan"
                 self.assertIn(f"fixture {failure} denied", err)
 
+    def test_documented_sync_command_quotes_source_paths_with_spaces(self):
+        text = (REPO / "INSTALL-AGENTS.md").read_text(encoding="utf-8")
+        command = re.search(r"^python3 .*scripts/sync\.py.*$", text, re.M).group()
+        root = "/opt/House Rules"
+        self.assertEqual(shlex.split(command.replace("<HOUSE_RULES_ROOT>", root), comments=True),
+                         ["python3", f"{root}/scripts/sync.py"])
+
+
+class SyncHomeTests(SyncFixture, unittest.TestCase):
+    def test_old_index_blocks_are_stale_in_every_known_home(self):
+        self.install_fixture()
+        old_block = sync.template(self.root).replace('/INDEX.md', '/AGENTS.md')
+        paths = [self.claude / 'CLAUDE.md', self.codex / 'AGENTS.md',
+                 self.kimi / 'AGENTS.md', self.codex / 'AGENTS.override.md']
+        for path in paths:
+            with self.subTest(path=path):
+                self.write(path, old_block)
+                findings, selected = [], []
+                sync.verify(self.root, self.home, findings, selected)
+                self.assertEqual(findings, [f'stale block: {path}'])
+                self.assertEqual(path.read_text(), old_block)
+                if path.name == 'AGENTS.override.md':
+                    path.unlink()
+                else:
+                    self.write(path, sync.template(self.root))
+
     def test_documented_windows_homes_preserve_backslashes(self):
         text = (REPO / "INSTALL-AGENTS.md").read_text(encoding="utf-8")
         values = [r"C:\Users\example\.codex-extra", r"\\server\share\.codex-extra"]
@@ -217,13 +280,6 @@ class SyncTests(unittest.TestCase):
                 line = f"CODEX_HOME='{value}'"
                 self.assertTrue(line in text, f"missing quoted example: {line}")
                 self.assertEqual(shlex.split(line, comments=True), [f"CODEX_HOME={value}"])
-
-    def test_documented_sync_command_quotes_source_paths_with_spaces(self):
-        text = (REPO / "INSTALL-AGENTS.md").read_text(encoding="utf-8")
-        command = re.search(r"^python3 .*scripts/sync\.py.*$", text, re.M).group()
-        root = "/opt/House Rules"
-        self.assertEqual(shlex.split(command.replace("<HOUSE_RULES_ROOT>", root), comments=True),
-                         ["python3", f"{root}/scripts/sync.py"])
 
     def test_bad_configuration_and_invalid_codex_home_fail_visibly(self):
         for text in ("UNKNOWN=/example\n", 'CODEX_HOME="relative"\n', "CODEX_HOME=$(false)\n"):
@@ -287,84 +343,6 @@ class SyncTests(unittest.TestCase):
         self.assertFalse(sync.present(system / "sample"))
         self.assertEqual((system / "marker").read_text(), "Protected\n")
 
-    def assert_conflicts(self, entries):
-        code, out, err = self.invoke()
-        self.assertEqual(code, 1, out + err)
-        for entry in entries:
-            self.assertIn(str(entry), out)
-            self.assertTrue(sync.present(entry))
-
-    def test_feature_branch_and_detached_head_are_not_pulled(self):
-        self.git(self.root, "checkout", "-b", "work")
-        self.assertIn("not main", self.invoke()[1])
-        self.git(self.root, "checkout", "--detach")
-        self.assertIn("detached HEAD", self.invoke()[1])
-
-    def test_git_failure_reaches_caller(self):
-        self.git(self.root, "remote", "set-url", "origin", str(self.base / "absent"))
-        code, out, err = self.invoke()
-        self.assertEqual(code, 2)
-        self.assertIn("ERROR:", err)
-        self.assertIn("missing block", out)
-        self.assertIn("3 homes checked", out)
-        self.assertFalse((self.claude / "CLAUDE.md").exists())
-
-    def test_hidden_untracked_files_prevent_pull(self):
-        self.git(self.root, "config", "status.showUntrackedFiles", "no")
-        self.write(self.root / "hidden-untracked", "fixture")
-        with mock.patch.object(sync, "git", wraps=sync.git) as calls:
-            code, out, err = self.invoke()
-        self.assertEqual(code, 1, err)
-        self.assertIn("dirty", out)
-        self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
-
-    def changed_during_fetch(self, mutation):
-        self.write(self.origin / "remote", "fixture")
-        self.commit(self.origin, ["remote"])
-        real_git = sync.git
-
-        def git(root, *args):
-            result = real_git(root, *args)
-            if "fetch" in args:
-                if mutation == "dirty":
-                    self.write(self.root / "dirty", "fixture")
-                elif mutation == "branch":
-                    self.git(self.root, "checkout", "-b", "other")
-                else:
-                    self.git(self.root, "commit", "--allow-empty", "-m", "Concurrent edit")
-            return result
-
-        with mock.patch.object(sync, "git", side_effect=git) as calls:
-            code, out, err = self.invoke()
-        self.assertEqual(code, 1, out + err)
-        self.assertIn("changed during update", out)
-        self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
-
-    def test_rechecks_cleanliness_after_fetch(self):
-        self.changed_during_fetch("dirty")
-
-    def test_rechecks_branch_after_fetch(self):
-        self.changed_during_fetch("branch")
-
-    def test_rechecks_revision_after_fetch(self):
-        self.changed_during_fetch("revision")
-
-    def test_rechecks_before_pull(self):
-        self.write(self.origin / "remote", "fixture")
-        self.commit(self.origin, ["remote"])
-        real_git = sync.git
-
-        def git(root, *args):
-            result = real_git(root, *args)
-            if "rev-list" in args:
-                self.write(self.root / "concurrent-untracked", "fixture")
-            return result
-
-        with mock.patch.object(sync, "git", side_effect=git) as calls:
-            code, out, err = self.invoke()
-        self.assertEqual(code, 1, out + err)
-        self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
-
     def test_named_home_instruction_duplicates_are_reported(self):
         self.install_fixture()
         for name in ("AGENTS.md", "CLAUDE.md"):
@@ -378,31 +356,6 @@ class SyncTests(unittest.TestCase):
                 self.assertIn(str(path), out)
                 self.assertEqual(path.read_bytes(), before)
                 path.unlink()
-
-    def test_source_status_errors_preserve_installed_links(self):
-        self.install_fixture()
-        real_stat = Path.stat
-        real_is_dir, real_is_file = Path.is_dir, Path.is_file
-        for denied in (self.root / "skills/sample", self.root / "skills/sample/SKILL.md"):
-            with self.subTest(denied=denied):
-                def stat(path, *args, **kwargs):
-                    if path == denied:
-                        raise PermissionError("source status unavailable")
-                    return real_stat(path, *args, **kwargs)
-
-                # Model Python 3.14's error-suppressing predicates on older Python too.
-                def predicate(method):
-                    return lambda path: False if path == denied else method(path)
-
-                with mock.patch.object(Path, "stat", autospec=True, side_effect=stat), \
-                        mock.patch.object(Path, "is_dir", autospec=True,
-                                          side_effect=predicate(real_is_dir)), \
-                        mock.patch.object(Path, "is_file", autospec=True,
-                                          side_effect=predicate(real_is_file)):
-                    code, _, err = self.invoke()
-                self.assertEqual(code, 2, err)
-                self.assertIn("source status unavailable", err)
-                self.assertTrue((self.claude / "skills/sample").is_symlink())
 
     def test_broken_default_homes_are_visible(self):
         self.claude.rmdir()
@@ -418,27 +371,6 @@ class SyncTests(unittest.TestCase):
                     self.assertIn(str(self.claude), err)
                 finally:
                     self.claude.unlink()
-
-    def test_report_disables_optional_git_locks(self):
-        real_run = subprocess.run
-
-        def run(command, **kwargs):
-            if command[0] == "git":
-                self.assertTrue("--no-optional-locks" in command or
-                                kwargs.get("env", {}).get("GIT_OPTIONAL_LOCKS") == "0")
-            return real_run(command, **kwargs)
-
-        with mock.patch.object(subprocess, "run", side_effect=run):
-            sync.update(self.root)
-
-    def install_fixture(self):
-        for key, home in sync.homes(self.root, self.home):
-            instruction = sync.instruction_file(key, home)
-            self.write(instruction, sync.template(self.root) + "\n")
-        for folder in (self.claude / "skills", self.home / ".agents/skills"):
-            path = folder / "sample"
-            if not path.is_symlink():
-                self.link(path, self.root / "skills/sample")
 
     def test_missing_links_stale_and_missing_blocks_are_reported_without_writes(self):
         original = "Operator rules\n<!-- house-rules:begin -->\nstale\n<!-- house-rules:end -->\nTail\n"
@@ -592,27 +524,6 @@ class SyncTests(unittest.TestCase):
         self.assertIn(f"missing or stale skill link: {path}", out)
         self.assertEqual(os.readlink(path), str(old / "skills/sample"))
 
-    def test_dirty_checkout_is_reported_and_never_pulled(self):
-        self.write(self.root / "untracked", "dirty\n")
-        with mock.patch.object(sync, "git", wraps=sync.git) as calls:
-            code, out, err = self.invoke()
-        self.assertEqual(code, 1, err)
-        self.assertIn("dirty", out)
-        self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
-        self.assertIn("3 homes checked", out)
-
-    def test_diverged_and_ahead_checkouts_are_reported_and_never_pulled(self):
-        self.write(self.root / "local", "local\n")
-        self.commit(self.root, ["local"])
-        self.assertIn("ahead", self.invoke()[1])
-        self.write(self.origin / "remote", "remote\n")
-        self.commit(self.origin, ["remote"])
-        with mock.patch.object(sync, "git", wraps=sync.git) as calls:
-            code, out, err = self.invoke()
-        self.assertEqual(code, 1, err)
-        self.assertIn("diverged", out)
-        self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
-
     def test_receipt_and_skill_scan_errors_reach_caller(self):
         directory = self.root / "custom/installations"
         directory.mkdir(parents=True)
@@ -645,6 +556,132 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(code, 1, err)
         self.assertIn(f"instruction symlink has no regular target: {path}", out)
         self.assertTrue(path.is_symlink())
+
+
+class SyncSourceTests(SyncFixture, unittest.TestCase):
+    def test_update_preserves_ignored_files_colliding_with_incoming_paths(self):
+        path = "custom/INDEX.md"
+        self.write(self.root / path, "Machine-local index\n")
+        self.write(self.origin / path, "Incoming tracked file\n")
+        self.git(self.origin, "add", "--force", "--", path)
+        self.git(self.origin, "commit", "-m", "Add colliding path")
+        head = self.git(self.root, "rev-parse", "HEAD")
+        code, out, err = self.invoke()
+        self.assertEqual((self.root / path).read_text(), "Machine-local index\n")
+        self.assertEqual(self.git(self.root, "rev-parse", "HEAD"), head)
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("ERROR:", err)
+        self.assertIn("missing block", out)
+        self.assertIn("3 homes checked", out)
+
+    def test_feature_branch_and_detached_head_are_not_pulled(self):
+        self.git(self.root, "checkout", "-b", "work")
+        self.assertIn("not main", self.invoke()[1])
+        self.git(self.root, "checkout", "--detach")
+        self.assertIn("detached HEAD", self.invoke()[1])
+
+    def test_git_failure_reaches_caller(self):
+        self.git(self.root, "remote", "set-url", "origin", str(self.base / "absent"))
+        code, out, err = self.invoke()
+        self.assertEqual(code, 2)
+        self.assertIn("ERROR:", err)
+        self.assertIn("missing block", out)
+        self.assertIn("3 homes checked", out)
+        self.assertFalse((self.claude / "CLAUDE.md").exists())
+
+    def test_hidden_untracked_files_prevent_pull(self):
+        self.git(self.root, "config", "status.showUntrackedFiles", "no")
+        self.write(self.root / "hidden-untracked", "fixture")
+        with mock.patch.object(sync, "git", wraps=sync.git) as calls:
+            code, out, err = self.invoke()
+        self.assertEqual(code, 1, err)
+        self.assertIn("dirty", out)
+        self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
+
+    def test_rechecks_cleanliness_after_fetch(self):
+        self.changed_during_fetch("dirty")
+
+    def test_rechecks_branch_after_fetch(self):
+        self.changed_during_fetch("branch")
+
+    def test_rechecks_revision_after_fetch(self):
+        self.changed_during_fetch("revision")
+
+    def test_rechecks_before_pull(self):
+        self.write(self.origin / "remote", "fixture")
+        self.commit(self.origin, ["remote"])
+        real_git = sync.git
+
+        def git(root, *args):
+            result = real_git(root, *args)
+            if "rev-list" in args:
+                self.write(self.root / "concurrent-untracked", "fixture")
+            return result
+
+        with mock.patch.object(sync, "git", side_effect=git) as calls:
+            code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
+
+    def test_source_status_errors_preserve_installed_links(self):
+        self.install_fixture()
+        real_stat = Path.stat
+        real_is_dir, real_is_file = Path.is_dir, Path.is_file
+        for denied in (self.root / "skills/sample", self.root / "skills/sample/SKILL.md"):
+            with self.subTest(denied=denied):
+                def stat(path, *args, **kwargs):
+                    if path == denied:
+                        raise PermissionError("source status unavailable")
+                    return real_stat(path, *args, **kwargs)
+
+                # Model Python 3.14's error-suppressing predicates on older Python too.
+                def predicate(method):
+                    return lambda path: False if path == denied else method(path)
+
+                with mock.patch.object(Path, "stat", autospec=True, side_effect=stat), \
+                        mock.patch.object(Path, "is_dir", autospec=True,
+                                          side_effect=predicate(real_is_dir)), \
+                        mock.patch.object(Path, "is_file", autospec=True,
+                                          side_effect=predicate(real_is_file)):
+                    code, _, err = self.invoke()
+                self.assertEqual(code, 2, err)
+                self.assertIn("source status unavailable", err)
+                self.assertTrue((self.claude / "skills/sample").is_symlink())
+
+    def test_report_disables_optional_git_locks(self):
+        real_run = subprocess.run
+
+        def run(command, **kwargs):
+            if command[0] == "git":
+                self.assertTrue("--no-optional-locks" in command or
+                                kwargs.get("env", {}).get("GIT_OPTIONAL_LOCKS") == "0")
+            return real_run(command, **kwargs)
+
+        with mock.patch.object(subprocess, "run", side_effect=run):
+            sync.update(self.root)
+
+    def test_dirty_checkout_is_reported_and_never_pulled(self):
+        self.write(self.root / "untracked", "dirty\n")
+        with mock.patch.object(sync, "git", wraps=sync.git) as calls:
+            code, out, err = self.invoke()
+        self.assertEqual(code, 1, err)
+        self.assertIn("dirty", out)
+        self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
+        self.assertIn("3 homes checked", out)
+
+    def test_diverged_and_ahead_checkouts_are_reported_and_never_pulled(self):
+        self.write(self.root / "local", "local\n")
+        self.commit(self.root, ["local"])
+        self.assertIn("ahead", self.invoke()[1])
+        self.write(self.origin / "remote", "remote\n")
+        self.commit(self.origin, ["remote"])
+        with mock.patch.object(sync, "git", wraps=sync.git) as calls:
+            code, out, err = self.invoke()
+        self.assertEqual(code, 1, err)
+        self.assertIn("diverged", out)
+        self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
+
+
 
 
 class PointerTemplateTests(unittest.TestCase):
@@ -714,6 +751,12 @@ settings.
                       'INDEX.md, all rule, skill and prompt files, and the configured '
                       'decisions file in full.',
                       (REPO / 'prompts/util/transcript-gaps.md').read_text())
+
+
+
+def load_tests(loader, tests, pattern):
+    SyncTests.setUpClass()
+    return tests
 
 
 if __name__ == "__main__":

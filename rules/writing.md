@@ -12,6 +12,7 @@ happened, why it matters and what to do, in that order.
 - A count or label ("the 11 questions", "question 4", "9a-1") never replaces the items it
   names.
 
+<a id="communication-rules"></a>
 ## Communication rules
 
 - Support claims with evidence.
@@ -22,9 +23,12 @@ happened, why it matters and what to do, in that order.
 
 - One fact per sentence. Prefer short sentences; split one that carries more than one fact.
   Length is never a reason to drop content.
-- Short related sentences stay in one paragraph.
+- Each paragraph develops one point. Connect its sentences through cause and effect,
+  condition and consequence, or claim and example. Put unrelated assertions in a list,
+  not a paragraph. Short related sentences stay in one paragraph.
 - Active voice, simple tense. Name who does what.
-- One term per concept. Define it once at first use, then never use a synonym.
+- One term per concept and one meaning per term. Define it once at first use, then never
+  use a synonym or reuse its accepted form for another concept.
 - No unexplained acronyms, internal labels or IDs as a replacement for meaning. An ID may
   follow the plain description, never replace it.
 - In newly designed or redesigned internal storage, schemas and protocols, use readable
@@ -36,6 +40,7 @@ happened, why it matters and what to do, in that order.
   their use does not permit invented abbreviations in stored names.
 - Concrete over abstract: a real name, number, example or before/after, not "the
   mechanism" or "the invariant".
+- Put the concrete case an abstract rule governs beside that rule.
 - Keep the source's uncertainty and qualifiers. Never add a cause, frequency or number the
   evidence does not show. Never drop a hedge, exception or consequence that changes what a
   statement means for the reader.
@@ -56,6 +61,8 @@ happened, why it matters and what to do, in that order.
   Give each option or item its own short section instead.
 - Keep a lookup table when every cell is a few words.
 - Diagrams are Mermaid in files and chat, never ASCII art or indented text trees.
+  State the single question each diagram answers before the diagram. Give adjacent term-home
+  links and explain its answer. Separate diagrams with explanatory text.
   Orient them vertically, with groups and comparisons stacked rather than side by side.
   Draw unconnected groups as separate diagrams, with text between them; one diagram would
   place them side by side.
@@ -69,22 +76,77 @@ happened, why it matters and what to do, in that order.
 - Group longer lists only when helpful.
 - Preserve sequence, identifiers, and coverage when grouping.
 
+## House technical English
+
+Use this versioned profile of selected controlled-language practices. It does not claim
+ASD-STE100 conformance. The checker reads this block; do not maintain a second limits file.
+
+<!-- spec-docs:profile -->
+```json
+{
+  "version": 1,
+  "name": "house-technical-english",
+  "procedure_sentence_words": 20,
+  "descriptive_sentence_words": 25,
+  "descriptive_paragraph_sentences": 6,
+  "severity": "warning"
+}
+```
+<!-- /spec-docs:profile -->
+
+- Give each instruction one independent action. Put a condition before its action.
+  Use active imperative voice in procedures. Simultaneous actions may share an instruction
+  when separating them changes behavior.
+- Treat sentence and paragraph targets as warnings. Never fail continuous integration or
+  pack generation because of prose heuristics or warning counts.
+- Preserve conditions, exceptions, uncertainty and consequences when shortening text.
+  A warning alone does not demonstrate a reader problem or require a rewrite.
+- Exclude the full STE dictionary, universal part-of-speech checks, full verb restrictions
+  and aerospace safety-notice conventions from this profile.
+
+### Counting visible prose
+
+- Count whitespace-separated words. Identifiers and hyphenated tokens count as one word;
+  separate numbers and measurement words count separately. Count parenthetical prose.
+  Do not count markup or link destinations.
+- End a counting sentence at `.`, `?` or `!` followed by whitespace or block end.
+  Decimal points and code-span punctuation do not split sentences. A colon introducing
+  a vertical list ends its introduction.
+- Exclude code blocks, exact signatures, declaration encodings and attributed quotations.
+  Their surrounding explanations remain in scope.
+
+## Numbers, dates and times
+
+- Use ISO 80000-1 number formatting in prose: a plain space separates groups of three
+  digits, and a dot is the decimal marker. Examples: 2 048; 4 194 304; 0.1; 1 234.5.
+- Use ISO 8601 date-only values such as 2026-10-16 without a time zone.
+- Use a 24-hour time with a zone, such as 14:05 UTC.
+  A timestamp combines date, time and zone: 2026-10-16 14:05 UTC.
+- Put a space before unit symbols: 10 min, 1 s, 4 MiB.
+- Code, identifiers, configuration, data and literal examples retain their required format.
+  A renderer may replace grouping spaces with narrow no-break spaces.
+- Format deviations produce writing warnings, never blocking failures.
+
 ## Sequences and structured detail
 
 - In walkthroughs, procedures, worked examples and test scenarios, put each ordered action
-  or call in its own numbered item. Start with a short bold action. Put the exact call
-  beside it when one is shown.
-- Under each item, use short sub-items for inputs, written or changed values, and the
-  result the caller observes. Include only the parts that apply.
-- Give several rows or values separate labeled items when explaining their meanings.
-  Preserve exact names, values, order and exceptions.
+  or call in its own numbered item under **Procedure: descriptive label**. Use at least
+  two ordered actions. Start each item with a short bold action. Put the exact call beside
+  it when one is shown. A single action is a sentence.
+- Keep each step's action and caller-visible result in one or two plain lines.
+  Put exact rows, values, counts and encodings in a labelled detail block beneath its step.
+  Preserve exact names, values, order and exceptions there.
 - A heading or outer list item does not make several actions one step. Writers and
   reviewers check the action boundaries, not only sentence length.
 - Number only steps someone performs in order. A rule, a set of conditions, properties,
   alternatives or independent checks is not a sequence, even when it names several actions;
   use bullets or a paragraph.
-- A single action is a sentence, never a one-item list.
-- This format does not apply to an exact signature or schema, or a lookup table.
+- This format does not apply to a single action, an exact signature or schema, or a lookup
+  table. Descriptive enumerations use bullets or compact tables. Operator decision options
+  are exempt.
+- Keep required instructions beside the action that needs them. Put informational detail
+  in an ordinary blockquote labelled **Detail — descriptive label**. Every line of a
+  detail block carries the `>` prefix.
 
 Before:
 
@@ -92,6 +154,8 @@ Before:
 `files.publish { id }` changes its state and returns a publication receipt.
 
 After:
+
+**Procedure: create and publish a file**
 
 1. **Create the file:** `files.create { name: "draft" }`.
    - Writes the file row.

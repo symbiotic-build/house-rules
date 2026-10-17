@@ -41,6 +41,7 @@
 - Obtain operator approval before stopping materially paid work, except under rules/core.md §Operator correction or safety requirements.
 - Follow `handoff-continuity` §Authorized, bounded, and durable external runs for procedure.
 
+<a id="git"></a>
 ## Git
 
 - Follow [Git rules](git.md).

@@ -45,7 +45,7 @@ def present(path):
 
 def git(root, *args):
     result = subprocess.run(["git", "--no-optional-locks", "-C", str(root), *args],
-                            capture_output=True, text=True, check=True)
+                            stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True)
     return result.stdout.strip()
 
 

@@ -6,11 +6,13 @@ license: MIT
 
 # Operator Writing
 
-This skill combines a controlled language (ASD-STE100, applied at about 80 %) with an
-explanation-first structure and a reader test.
+This skill applies the versioned House technical English profile in
+[rules/writing.md](../../rules/writing.md#house-technical-english), an explanation-first
+structure and a reader test.
 
 Follow [rules/writing.md](../../rules/writing.md) for general writing rules.
 
+<a id="communication-rules"></a>
 ## Communication rules
 
 - Follow `operator-writing` for every operator-facing text’s structure, language, options, Mermaid diagrams, and reader test.

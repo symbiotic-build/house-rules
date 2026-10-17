@@ -70,6 +70,7 @@ Verification invariant: rules/delivery.md §Verification. Local work follows
 
 - Follow rules/delivery.md §Verification for iteration gates and renewal of invalidated verification evidence.
 
+<a id="push-and-ci"></a>
 ## 2. Push and CI
 
 - Write the PR body, review comments, replies and commit messages in the forms of skill

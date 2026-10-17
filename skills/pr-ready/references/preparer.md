@@ -27,7 +27,7 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   `--pr`, repeatable `--issue`, `--spec PATH`, `--tests ID,ID`,
   `--test-prefix PREFIX` (default `PT`, the acceptance-test ID prefix, e.g. `PT1`)
   and `--summary FILE`. Use the repository's prefix, such as `--test-prefix AT` for `AT1`.
-  The selected spec document is included whole, preserving headings and content;
+  Without shared documentation metadata, the selected spec document is included whole, preserving headings and content;
   explicit section selectors are rejected. Test IDs are collected from PR/issue bodies
   and range commit messages and checked within the selected document; they do not
   narrow its content. Spec selection is
@@ -51,10 +51,12 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   are reported at the top. An explicitly requested PR or issue that cannot be resolved
   is an error. Deleted maintainer accounts retain their comments with an unknown-author
   notice. Null PR and issue bodies are treated as empty. URL userinfo and credential-like
-  query values are redacted from warnings, errors and prompts. A later GitHub read failure names the failed source and preserves already
+  query values are redacted from warnings, errors and prompts. Mandatory documentation context
+  that requires this redaction is refused before publication or dispatch, using the same
+  policy from the pinned preparer. Its source bytes and provenance are never rewritten. A later GitHub read failure names the failed source and preserves already
   fetched context. Comments are capped at 4,000 characters with a cut notice.
   Codex defaults to `structured` (full diffs), others to `pack` (file index and hunk
-  headers); `--format diff` omits spec content. `--format` overrides defaults;
+  headers); `--format diff` omits legacy spec content. `--format` overrides defaults;
   diff reads are bounded before prompt construction, using numstat first and streaming
   hunk headers for pack mode. Changed paths use NUL-delimited metadata and byte-preserving
   decoding, then literal Git pathspecs. Non-UTF-8 bytes are displayed as escapes and
@@ -64,7 +66,56 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   Context preparation reserves that character count and the task separator in its existing
   budget. The panel checks the complete compiled prompt again before dispatch.
   Codex prompts over 800,000 characters fall back to pack for the change, then trim comments,
-  issue bodies and spec documents in that order (largest first within each source type).
+  issue bodies and legacy spec documents in that order (largest first within each source type).
   Notices identify every trim. If the prompt still exceeds the limit after all trim
   steps, preparation exits nonzero without emitting a prompt; the error names the limit,
   final size and completed trims. The panel reports this as a preparation failure.
+
+## Registered specifications
+
+Repositories with `docs/ENTITIES.json` and `docs/DOCUMENTS.json` use the shared
+[context selector](../../spec-writing/references/format.md) through the prompt compiler.
+Supply `--assignment FILE` to `prompt.py` pack mode, `prepare.py review`, or
+`review-panel.sh`. The file uses the format contract's versioned assignment schema and
+explicit section selectors. A repository with only one metadata file fails preparation.
+Missing assignments fail in `prompt.py` pack mode, including writer and reader packs.
+Without an assignment, `prepare.py review` uses the shared checker's source comparison
+to assign every head-registered section changed since the range's merge base.
+Existing selection adds tests linked to changed requirements and applicable decisions.
+If no registered section changed, it omits the documentation pack and states one line:
+`No registered documentation changed in this range.` Explicit assignments keep their behavior.
+Invalid sources, unknown selectors and excessive mandatory context
+fail before a pack is published. Derived context uses the existing size guards;
+an oversized review names its selected sections and fails without truncating documentation.
+Use assignment `required_test_reviews` rather than
+the legacy `--spec` and `--tests` options for these repositories.
+
+The compiler's manifest contains a `documentation` record with the selector's manifest,
+exact UTF-8 byte count, tool-input fingerprints and advisory warnings. The pack includes
+the byte report and the selector's complete output. Mandatory context follows
+[specification rules](../../../rules/specifications.md#agent-context). It remains present
+in every preparer format and is reserved before optional requirement bodies or diffs.
+The compiler's optional `--budget-bytes N` bounds the complete pack, including rules and
+literal tasks; later `append_tasks` calls enforce that same limit. Supply the available
+dispatch budget after reserving response space. Assignment byte limits separately bound
+the documentation context. The existing complete-prompt character guard still runs.
+
+Commit-built compilers read the checker, runtime contract, dependency lock, format
+contract and writing profile from their House Rules pin. Standalone preparation uses
+its tool checkout's matching files. The panel extracts both compiler and preparer from
+the pin and selects documentation once before preparing optional task context. It keeps
+documentation provenance in the compiled manifest. No live helper fallback is used.
+The staging check therefore copies `skills/spec-writing/` alongside the existing tool
+set and checks a real documentation fixture and an extracted compiler.
+
+Use the specification tool's supported Python environment as described in its format
+contract. When `prepare.py review` runs on Python 3.9 or 3.10 with registered documentation,
+set `REVIEW_PYTHON` to that environment's Python executable. The preparer delegates to it;
+an unsupported environment fails visibly without installing dependencies. When the shared
+checker cannot run (Python below 3.11 without `REVIEW_PYTHON`, `skills/spec-writing` not
+staged beside the preparer, or its pinned dependencies missing) and no `--assignment` is
+given, the review proceeds without the documentation pack and states why in the prompt;
+with `--assignment`, it fails visibly.
+The panel accepts `REVIEW_PYTHON` for that interpreter and
+`REVIEW_SPEC_ASSIGNMENT` as an alternative to `--assignment`. These options select
+existing tooling and input; they install no dependencies or model configuration.

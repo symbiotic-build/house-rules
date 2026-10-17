@@ -1,0 +1,45 @@
+{
+  "documents": [
+    {
+      "audience": "Authors familiar with Markdown.",
+      "id": "example",
+      "navigation": {
+        "path": "docs/example.md",
+        "region": "example"
+      },
+      "non_goals": "A production service.",
+      "purpose": "The batcher accepts items until its batch fills.",
+      "scenarios": [],
+      "scope": "One synthetic submission rule.",
+      "sections": [
+        {
+          "anchor": "example",
+          "explanatory_dependencies": [],
+          "id": "main",
+          "path": "docs/example.md",
+          "prerequisites": [],
+          "roles": [
+            "tour",
+            "mechanism",
+            "requirements",
+            "decisions",
+            "questions",
+            "reference",
+            "acceptance"
+          ],
+          "summary": "Follow submission and inspect its evidence."
+        }
+      ],
+      "status": "draft",
+      "title": "Bounded batches"
+    }
+  ],
+  "inventory": [
+    {
+      "kind": "specification",
+      "path": "docs/example.md"
+    }
+  ],
+  "test_runners": [],
+  "version": 1
+}
