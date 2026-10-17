@@ -21,7 +21,9 @@ stay green when it does not. Write the tests that do that and no others.
 - **One behavior per test,** named as condition and outcome; variants go in one
   table-driven test. *Check:* a failure names the behavior that broke.
 - **Assert the whole relevant result once.** No assertion that only checks "no error",
-  truthiness or a count any output satisfies. *Check:* a realistic wrong result fails it.
+  truthiness or a count any output satisfies, unless that is the complete success result,
+  such as a validator that returns nothing and raises on invalid input. *Check:* a
+  realistic wrong result fails it.
 - **No wording tests.** Never read source, rule, prompt, style or workflow files to assert
   their wording, including which commands a workflow runs. Tests over repository files are
   right when they check structure that a loader or tool consumes: links resolve, every
