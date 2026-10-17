@@ -612,6 +612,18 @@ assert redact(noise + 'api_key=fake)tail&x=1') == noise + 'api_key=[REDACTED]&x=
     def test_oxford_comma_issue_lists(self):
         self.assertEqual(prepare.issue_refs("Resolves #2, #3, and #4"), ["#2", "#3", "#4"])
 
+    def test_qualified_issue_references_ignore_paths_and_anchors(self):
+        cases = (
+            ("Tracked in symbiotic-sh/warden#267.", ["symbiotic-sh/warden#267"]),
+            ("(see owner/repo#12)", ["owner/repo#12"]),
+            ("https://github.com/o/r/blob/abc/skills/design-flow/SKILL.md#5-implement", []),
+            ("[guide](skills/design-flow/SKILL.md#5)", []),
+            ("docs/a/b.md#3 and ../x/y.md#4", []),
+        )
+        for text, expected in cases:
+            with self.subTest(text=text):
+                self.assertEqual(prepare.issue_refs(text), expected)
+
     def test_large_diff_memory_is_bounded_before_pack_fallback(self):
         self.write(self.repo, "large.py", "# " + "x" * 12_000_000 + "\n")
         self.commit(self.repo, "Large line")

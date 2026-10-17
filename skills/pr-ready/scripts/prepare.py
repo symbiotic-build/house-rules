@@ -190,7 +190,8 @@ def gh_json(repo, *args):
 
 def issue_refs(text):
     # Bare numbers require a linking keyword; qualified references and URLs do not.
-    ref = r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+|[\w.-]+/[\w.-]+#\d+"
+    # A qualified owner/repo#N stands alone: not inside a path or URL, not an anchor such as #5-implement.
+    ref = r"https://github\.com/[\w.-]+/[\w.-]+/issues/\d+|(?<![\w./-])[\w.-]+/[\w.-]+#\d+(?![\w-])"
     pattern = r"(?:" + ref + r")|\b(?:refs|closes|fixes|resolves)\s+((?:#\d+(?:\s*(?:,\s*(?:and\s+)?|and\s+))?)+)"
     found = []
     for match in re.finditer(pattern, text, re.I):
