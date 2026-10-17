@@ -197,6 +197,8 @@ An automatically discovered PR does not override that summary.
 Commit titles and messages are not declaration sources. A missing summary supplies no declarations.
 The report names the source and copies its Rule changes section verbatim with original line numbers, including subsections.
 A non-empty report without that section prominently says `UNDECLARED RULE CHANGES`.
+The section is found by whole lines: a `## Rule changes` heading indented at most three spaces, outside fenced code blocks (fences indented at most three spaces) and outside comments that start a line with `<!--`.
+Inline comments and code spans are not parsed. A source that hides or fakes the heading this way produces at most a wrong warning line; the author corrects the source, and every reported item still needs a disposition.
 
 <a id="review-disposition"></a>
 ### Review disposition

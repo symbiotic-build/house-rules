@@ -207,6 +207,11 @@ def rule_changes(repo, base, head):
 
 
 def declared_rule_changes(body):
+    """Find the declaration section by whole lines, outside fences and whole-line comments.
+
+    Line-based by design: inline comments and code spans are not parsed. The declaration is
+    advisory (every reported item needs a disposition), so a rare miss or extra match costs
+    one warning line, not hidden evidence."""
     lines = body.splitlines()
     start, fence, comment = None, None, False
     for index, line in enumerate(lines):
@@ -214,33 +219,20 @@ def declared_rule_changes(body):
             if closing_fence(line, fence):
                 fence = None
             continue
-        opening = None if comment else re.match(r"^[ \t]*(`{3,}|~{3,})", line)
+        if comment:
+            comment = "-->" not in line
+            continue
+        if re.match(r"^ {0,3}<!--", line):
+            comment = "-->" not in line[line.index("<!--") + 4:]
+            continue
+        opening = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
         if opening:
             fence = opening[1][0], len(opening[1])
             continue
-        visible = ""
-        while line:
-            if comment:
-                _, marker, line = line.partition("-->")
-                comment = not marker
-                continue
-            # An inline code span is literal: a comment opener inside it starts no comment.
-            span = re.match(r"([^`<]*(?:<(?!!--)[^`<]*)*)(`+)", line)
-            opener = line.find("<!--")
-            if span and (opener < 0 or span.end(1) < opener):
-                close = line.find(span[2], span.end())
-                if close >= 0 and line[close:close + len(span[2]) + 1] != span[2] + "`":
-                    visible += line[:close + len(span[2])]
-                    line = line[close + len(span[2]):]
-                    continue
-            prefix, marker, line = line.partition("<!--")
-            visible += prefix
-            comment = bool(marker)
-        line = visible
         if start is None:
-            if re.fullmatch(r"##\s+Rule changes\s*#*\s*", line):
+            if re.fullmatch(r" {0,3}##[ \t]+Rule changes[ \t]*#*[ \t]*", line):
                 start = index
-        elif re.match(r"^#{1,2}\s+", line):
+        elif re.match(r"^ {0,3}#{1,2}[ \t]+", line):
             return list(enumerate(lines[start:index], start + 1))
     return list(enumerate(lines[start:], start + 1)) if start is not None else []
 

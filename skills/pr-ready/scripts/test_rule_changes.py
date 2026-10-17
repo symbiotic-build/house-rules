@@ -323,6 +323,14 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
                                  [(line, "## Rule changes"), (line + 1, "Real declaration.")])
         body = "## Rule changes\nReal declaration.\n<!--\n## Tests\n-->\nStill declared.\n## Tests\n"
         self.assertEqual(prepare.declared_rule_changes(body), list(enumerate(body.splitlines()[:6], 1)))
+        for prefix in ("Handle `x `` <!--`.\n", "Example:\n\n    ```\n", "Write `<!--` to open a comment.\n"):
+            with self.subTest(prefix=prefix):
+                body = prefix + "## Rule changes\nReal declaration.\n"
+                line = len(prefix.splitlines()) + 1
+                self.assertEqual(prepare.declared_rule_changes(body),
+                                 [(line, "## Rule changes"), (line + 1, "Real declaration.")])
+        self.assertEqual(prepare.declared_rule_changes("   ## Rule changes\nReal.\n"),
+                         [(1, "   ## Rule changes"), (2, "Real.")])
         body = "Write `<!--` to open a comment.\n## Rule changes\nReal declaration.\n"
         self.assertEqual(prepare.declared_rule_changes(body),
                          [(2, "## Rule changes"), (3, "Real declaration.")])
