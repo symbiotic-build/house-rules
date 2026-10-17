@@ -606,6 +606,16 @@ sys.exit(status or int(not result.wasSuccessful()))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(f'jobs {jobs}', result.stdout)
 
+    def test_parallel_stop_request_cancels_classes_not_yet_started(self):
+        classes = ''.join(f'class B{n}(unittest.TestCase):\n'
+                          f' def test_slow(self):\n  pathlib.Path("started-{n}").touch()\n  time.sleep(0.3)\n'
+                          for n in range(8))
+        result, root = self.run_fixture('import pathlib, time, unittest\n'
+            'class A(unittest.TestCase):\n def test_stop(self): self._outcome.result.stop()\n' + classes, jobs=2)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # With two workers only the class running beside A starts; the rest never start.
+        self.assertLessEqual(len(list(root.glob('started-*'))), 1)
+
     def test_parallel_failfast_stops_in_serial_order(self):
         result, root = self.run_fixture('import pathlib, unittest\n'
             'class A(unittest.TestCase):\n def test_fail(self): self.fail("stop here")\n'
