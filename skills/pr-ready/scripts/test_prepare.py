@@ -2,6 +2,7 @@
 """Local integration tests: no network, GitHub writes or model calls."""
 import argparse
 import contextlib
+import hashlib
 import importlib.util
 import io
 import json
@@ -356,7 +357,7 @@ class PanelExecutionTests(PrepareFixture, unittest.TestCase):
         self.assertIn(f"Range: `{comparison_base}..{first}`; head: `{first}`", prompt)
         self.assertIn("Title: First title", prompt)
         self.assertIn("FIRST SPEC", prompt)
-        self.assertIn("+first_change = 2", prompt)
+        self.assertIn("first_change = 2", prompt)
         self.assertIn("Commit message " + first[:12], prompt)
         self.assertNotIn(second, prompt)
         for canary in ("SECOND RULES", "SECOND SPEC", "Second title", "second_change"):
@@ -441,8 +442,9 @@ class PanelExecutionTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(data, (panel / "generalist-a.attempt-1.sent").read_bytes())
         self.assertIn(summary.read_bytes(), data)
         self.assertEqual(manifest["pack"], {"bytes": len(data), "sha256": __import__('hashlib').sha256(data).hexdigest()})
-        task = manifest["parts"][-1]
-        task_bytes = data[-task["bytes"]:]
+        task = next(part for part in manifest["parts"] if part["kind"] == "task")
+        task_end = data.index(b"\n# 7. Lens instructions\n\n") + len(b"\n# 7. Lens instructions\n\n")
+        task_bytes = data[task_end - task["bytes"]:task_end]
         self.assertEqual(task["source"], "review-panel-generalist-a")
         self.assertEqual(task["sha256"], __import__('hashlib').sha256(task_bytes).hexdigest())
         calls = [json.loads(line) for line in log.read_text().splitlines()]
@@ -835,6 +837,285 @@ else:
 
 
 
+class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
+    def test_file_replaced_by_directory_lists_deleted_source_and_only_numbers_child_blob(self):
+        (self.repo / "src/core.py").unlink()
+        self.write(self.repo, "src/core.py/implementation.py", "result = 2\n")
+        self.commit(self.repo, "Replace source with directory")
+        full = self.review().split("# 6. Changed source files\n", 1)[1].split(
+            "# 7. Lens instructions", 1)[0].strip()
+        self.assertEqual(full, "- src/core.py: deleted; no head content.\n\n"
+                         "## src/core.py/implementation.py (complete at head, numbered)\n\n"
+                         "```\n    1  result = 2\n```")
+
+    def test_second_family_reviewer_reports_size_guard_without_missing_task_error(self):
+        self.write(self.repo, "large.py", "# " + "x" * 800_001 + "\n")
+        self.commit(self.repo, "Add large source")
+        summary, output, env = self.panel_fixture()
+        env.update(REVIEW_BASE="origin/trunk", REVIEW_PYTHON=sys.executable)
+        (self.binaries / "codex").write_text(
+            "#!/bin/sh\nwhile [ \"$1\" != '-o' ]; do shift; done\n"
+            "printf 'VERDICT: APPROVE\\n' > \"$2\"\ncat > /dev/null\n")
+        lenses = ("generalist-a", "correctness-security")
+        result = subprocess.run(
+            ["bash", str(SCRIPT.with_name("review-panel.sh")), "notices", str(self.repo),
+             str(summary), *lenses], capture_output=True, text=True, env=env, timeout=20,
+            stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertNotIn("No such file or directory", result.stderr)
+        notice = "Size guard: prompt exceeds 800,000 characters; change part uses pack (hunk headers)."
+        recorded = (output / "notices/summary.txt").read_text().splitlines()
+        self.assertEqual(sorted(line for line in recorded if ": Size guard:" in line),
+                         sorted(lens + ": " + notice for lens in lenses))
+
+    def test_panel_reuses_family_context_when_comments_change_between_preparations(self):
+        self.write(self.repo, "src/core.py", "result = 2\n")
+        self.commit(self.repo, "Change result")
+        summary, output, env = self.panel_fixture()
+        self.github(self.pr("Review requirements"), pr_comments=[self.comment(1)])
+        stub = self.binaries / "gh"
+        stub.write_text(stub.read_text().replace(
+            "value = fixtures[key]",
+            "value = fixtures[key]\n"
+            "if 'issues/1/comments?' in key:\n"
+            "    calls = pathlib.Path(os.environ['GH_TEST_LOG']).read_text().splitlines()\n"
+            "    if sum('issues/1/comments?' in call for call in calls) > 1:\n"
+            "        value = [[" + repr(self.comment(2, body="New requirement during preparation")) + "]]"))
+        env.update(REVIEW_BASE="origin/trunk", REVIEW_PYTHON=sys.executable)
+        (self.binaries / "codex").write_text(
+            "#!" + sys.executable + "\nimport pathlib, sys\n"
+            "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n')\n")
+        lenses = ("generalist-a", "correctness-security")
+        result = subprocess.run(
+            ["bash", str(SCRIPT.with_name("review-panel.sh")), "comments", str(self.repo),
+             str(summary), *lenses], capture_output=True, env=env, timeout=20, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        prefixes = [(output / "comments" / (lens + ".pack/pack.txt")).read_bytes().split(
+            b"# 7. Lens instructions\n", 1)[0] for lens in lenses]
+        self.assertIn(b"Comment body 1", prefixes[0])
+        self.assertEqual(prefixes[0], prefixes[1])
+
+    def test_standalone_reviewers_share_reservation_at_fallback_threshold(self):
+        self.write(self.repo, "large.py", "payload = '" + "x" * 550_000 + "'\n")
+        self.commit(self.repo, "Add large source")
+        self.panel_source()
+        source = self.root / "panel-source"
+        self.write(source, "prompts/lenses/generalist-a.md", "Long lens\n" + "L" * 300_000 + "\n")
+        self.write(source, "skills/pr-ready/scripts/review-panel.lenses",
+                   SCRIPT.with_name("review-panel.lenses").read_text())
+        lenses = ("generalist-a", "correctness-security")
+        prefixes = []
+        for lens in lenses:
+            result = subprocess.run(
+                [sys.executable, "-B", str(source / "skills/pr-ready/scripts/prepare.py"),
+                 "review", str(self.repo), "--base", "origin/trunk", "--no-fetch",
+                 "--lens", lens, "--reviewers", *lenses], capture_output=True, timeout=10,
+                stdin=subprocess.DEVNULL)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            prefixes.append(result.stdout.split(b"# 7. Lens instructions\n", 1)[0])
+        self.assertIn(b"change part uses pack (hunk headers)", prefixes[0])
+        self.assertEqual(prefixes[0], prefixes[1])
+
+    def test_regular_file_replaced_by_symlink_keeps_both_native_sections(self):
+        path = self.repo / "src/core.py"
+        path.unlink()
+        path.symlink_to("destination.py")
+        self.write(self.repo, "src/later.py", "later = 2\n")
+        self.commit(self.repo, "Replace source with symlink")
+        result = self.review()
+        change = result.split("# 5. Change\n", 1)[1].split("# 6. Changed source files", 1)[0]
+        self.assertIn("deleted file mode 100644", change)
+        self.assertIn("new file mode 120000", change)
+        self.assertEqual(re.findall(r"(?m)^ *\d+[-] .*", change),
+                         ["    1- def action():", "    2-     return 1"])
+        full = result.split("# 6. Changed source files\n", 1)[1].split("# 7. Lens instructions", 1)[0]
+        self.assertEqual(re.findall(r"(?m)^ *\d+  .*", full),
+                         ["    1  destination.py", "    1  later = 2"])
+
+    def test_panel_different_length_lenses_share_context_at_fallback_threshold(self):
+        self.write(self.repo, "large.py", "payload = '" + "x" * 550_000 + "'\n")
+        self.commit(self.repo, "Add large source")
+        summary, output, env = self.panel_fixture()
+        source = self.root / "panel-source"
+        self.write(source, "prompts/lenses/generalist-a.md", "Long lens\n" + "L" * 300_000 + "\n")
+        self.commit(source, "Select a much longer lens")
+        env.update(REVIEW_BASE="origin/trunk", REVIEW_PYTHON=sys.executable,
+                   REVIEW_HOUSE_RULES_REV=self.git(source, "rev-parse", "HEAD"))
+        (self.binaries / "codex").write_text(
+            "#!" + sys.executable + "\nimport pathlib, sys\n"
+            "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n')\n")
+        lenses = ("generalist-a", "correctness-security")
+        result = subprocess.run(
+            ["bash", str(SCRIPT.with_name("review-panel.sh")), "threshold", str(self.repo),
+             str(summary), *lenses], capture_output=True, env=env, timeout=20, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        prefixes = [(output / "threshold" / (lens + ".pack/pack.txt")).read_bytes().split(
+            b"# 7. Lens instructions\n", 1)[0] for lens in lenses]
+        self.assertEqual(prefixes[0], prefixes[1])
+        self.assertIn(b"change part uses pack (hunk headers)", prefixes[0])
+
+    def test_compiled_change_numbers_ignore_callers_blank_context_format(self):
+        original = "first = 1\n\nsecond = 2\n\nresult = 1\n"
+        self.write(self.repo, "src/core.py", original)
+        self.commit(self.repo, "Establish blank context rows")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        self.write(self.repo, "src/core.py", original.replace("result = 1", "result = 2"))
+        self.commit(self.repo, "Change after blank context")
+        self.panel_source()
+        source = self.root / "panel-source"
+        for key, value in (("diff.suppressBlankEmpty", "true"), ("diff.noprefix", "true"),
+                           ("diff.mnemonicPrefix", "true"), ("color.diff", "always")):
+            self.git(self.repo, "config", key, value)
+        task = self.root / "context.txt"
+        result = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), "review", str(self.repo), "--context-only",
+             "--base", "origin/trunk", "--no-fetch"], capture_output=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        task.write_bytes(result.stdout)
+        result = subprocess.run(
+            [sys.executable, "-B", str(source / "skills/pr-ready/scripts/prompt.py"), "--repo", str(source),
+             "--rev", "HEAD", "--role", "reviewer", "--lens", "generalist-a", "--target", str(self.repo),
+             "--task", str(task)], capture_output=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        change = result.stdout.split(b"# 5. Change\n", 1)[1].split(b"# 6. Changed source files", 1)[0]
+        self.assertEqual(re.findall(rb"(?m)^ *\d+[-+].*$", change),
+                         [b"    5- result = 1", b"    5+"])
+
+    def test_compiled_structured_reviews_share_context_before_final_lenses(self):
+        self.write(self.repo, "src/core.py", "def action():\n    return 2\n")
+        self.commit(self.repo, "Update action")
+        summary, output, env = self.panel_fixture()
+        env.update(REVIEW_BASE="origin/trunk", REVIEW_PYTHON=sys.executable)
+        (self.binaries / "codex").write_text(
+            "#!" + sys.executable + "\nimport pathlib, sys\n"
+            "pathlib.Path(sys.argv[sys.argv.index('-o') + 1]).write_text('VERDICT: APPROVE\\n')\n")
+        lenses = ("correctness-security", "spec")
+        source = self.root / "panel-source"
+        revision = env["REVIEW_HOUSE_RULES_REV"]
+        compiler = source / "skills/pr-ready/scripts/prompt.py"
+        common_args = [sys.executable, "-B", str(compiler), "--repo", str(source),
+                       "--rev", revision, "--role", "reviewer", "--target", str(self.repo)]
+        common = subprocess.run(common_args, capture_output=True, check=True,
+                                stdin=subprocess.DEVNULL).stdout
+        for layout in ("structured", "pack"):
+            context = subprocess.run(
+                [sys.executable, "-B", str(SCRIPT), "review", str(self.repo), "--context-only",
+                 "--base", "origin/trunk", "--no-fetch", "--cli", "codex", "--format", layout,
+                 "--summary", str(summary)], capture_output=True, check=True, stdin=subprocess.DEVNULL).stdout
+            task = self.root / "context.txt"
+            task.write_bytes(context)
+            for assembly in (("one-call", "panel") if layout == "structured" else ("one-call",)):
+                with self.subTest(layout=layout, assembly=assembly):
+                    if assembly == "panel":
+                        result = subprocess.run(
+                            ["bash", str(SCRIPT.with_name("review-panel.sh")), "round", str(self.repo),
+                             str(summary), *lenses], capture_output=True, text=True, env=env,
+                            timeout=20, stdin=subprocess.DEVNULL)
+                        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                    packs = []
+                    for lens in lenses:
+                        destination = (output / "round" / (lens + ".pack") if assembly == "panel"
+                                       else self.root / (layout + "-" + lens))
+                        if assembly == "one-call":
+                            subprocess.run([*common_args, "--lens", lens, "--task", str(task),
+                                            "--task-source", "review-context", "--out", str(destination)],
+                                           capture_output=True, check=True, stdin=subprocess.DEVNULL)
+                        pack = (destination / "pack.txt").read_bytes()
+                        manifest = json.loads((destination / "manifest.json").read_text())
+                        lens_text = subprocess.run(
+                            [sys.executable, "-B", str(compiler), "--repo", str(source), "--rev", revision,
+                             "prompts/lenses/" + lens + ".md"], capture_output=True, check=True,
+                            stdin=subprocess.DEVNULL).stdout
+                        if layout == "structured":
+                            expected = common + b"\n" + context + b"\n" + lens_text
+                        else:
+                            legacy = subprocess.run([*common_args, "--lens", lens], capture_output=True,
+                                                    check=True, stdin=subprocess.DEVNULL).stdout
+                            expected = legacy + b"\n" + context
+                        self.assertEqual(pack, expected)
+                        self.assertEqual(manifest["house_rules_revision"], revision)
+                        self.assertEqual(manifest["pack"], {
+                            "bytes": len(pack), "sha256": hashlib.sha256(pack).hexdigest()})
+                        task_part = next(part for part in manifest["parts"] if part["kind"] == "task")
+                        self.assertEqual((task_part["bytes"], task_part["sha256"]),
+                                         (len(context), hashlib.sha256(context).hexdigest()))
+                        self.assertEqual(manifest["parts"][-1]["kind"],
+                                         "lens" if layout == "structured" else "task")
+                        packs.append(pack)
+                    if layout == "structured":
+                        prefixes = [pack.split(b"# 7. Lens instructions\n", 1) for pack in packs]
+                        self.assertEqual(prefixes[0][0], prefixes[1][0])
+                        self.assertNotEqual(prefixes[0][1], prefixes[1][1])
+
+    def test_different_lenses_share_every_byte_before_final_instructions(self):
+        self.write(self.repo, "src/core.py", "def action():\n    return 2\n")
+        self.commit(self.repo, "Update action")
+        prompts = [self.review(lens=lens) for lens in ("generalist-a", "correctness-security")]
+        sections = [prompt.split("# 7. Lens instructions\n") for prompt in prompts]
+        self.assertEqual([len(section) for section in sections], [2, 2])
+        self.assertEqual(sections[0][0], sections[1][0])
+        self.assertNotEqual(sections[0][1], sections[1][1])
+        self.assertTrue(sections[0][0].rstrip().endswith("```"))
+
+    def test_cross_file_indented_move_is_one_reference_with_one_copy_of_content(self):
+        block = "def relocated_behavior():\n    return 'moved payload with enough letters'\n"
+        self.write(self.repo, "src/old.py", block)
+        self.commit(self.repo, "Add move source")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        (self.repo / "src/old.py").unlink()
+        self.write(self.repo, "src/new.py", "class Container:\n" + "".join("    " + row for row in block.splitlines(True)))
+        self.commit(self.repo, "Move behavior")
+        change = self.review().split("# 5. Change\n", 1)[1].split("# 7. Lens instructions", 1)[0]
+        self.assertEqual(re.findall(r"Move: .*", change), ["Move: src/old.py:1-2 -> src/new.py:2-3 (indentation may change)."])
+        self.assertEqual(change.count("moved payload with enough letters"), 1)
+
+    def test_file_above_configured_cap_is_listed_with_size_without_full_content(self):
+        text = "unchanged_context_marker = 1\n" + "padding = 0\n" * 30 + "result = 1\n"
+        self.write(self.repo, "src/core.py", text)
+        self.commit(self.repo, "Establish large context")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        text = text.replace("result = 1", "result = 2")
+        self.write(self.repo, "src/core.py", text)
+        self.commit(self.repo, "Change large file")
+        code, prompt, err = self.invoke("review", str(self.repo), "--base", "origin/trunk", "--no-fetch", "--full-file-cap", "100")
+        self.assertEqual(code, 0, err)
+        full = prompt.split("# 6. Changed source files\n", 1)[1].split("# 7. Lens instructions", 1)[0].strip()
+        self.assertEqual(full, "- src/core.py: " + str(len(text.encode())) + " bytes; not included (exceeds 100-character cap).")
+        self.assertNotIn("unchanged_context_marker", prompt)
+
+    def test_submodule_is_listed_without_requiring_its_external_commit(self):
+        self.git(self.repo, "update-index", "--add", "--cacheinfo", "160000", "1" * 40, "vendor/example")
+        self.git(self.repo, "commit", "-m", "Record submodule")
+        for setting in ("short", "log", "diff"):
+            with self.subTest(setting=setting):
+                self.git(self.repo, "config", "diff.submodule", setting)
+                prompt = self.review()
+                full = prompt.split("# 6. Changed source files\n", 1)[1].split("# 7. Lens instructions", 1)[0].strip()
+                self.assertEqual(full, "- vendor/example: submodule; no full file content.")
+                self.assertIn("    1+ Subproject commit " + "1" * 40, prompt)
+
+    def test_diff_rows_use_head_numbers_and_old_numbers_for_removals(self):
+        self.write(self.repo, "tests/example.py", "start\nold\nend\n")
+        self.commit(self.repo, "Establish numbered input")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        self.write(self.repo, "tests/example.py", "start\nnew\nextra\nend\n")
+        self.commit(self.repo, "Change numbered input")
+        change = self.review().split("# 5. Change\n", 1)[1].split("# 6. Changed source files", 1)[0]
+        rows = re.findall(r"^ *[0-9]+[ +\-] .*", change, re.M)
+        self.assertEqual(rows, ["    1  start", "    2- old", "    2+ new", "    3+ extra", "    4  end"])
+
+    def test_included_full_file_has_one_copy_and_diff_references_head_lines(self):
+        text = "def action():\n    return 'unique_head_payload'\n"
+        self.write(self.repo, "src/core.py", text)
+        self.commit(self.repo, "Change payload")
+        prompt = self.review()
+        change = prompt.split("# 5. Change\n", 1)[1].split("# 7. Lens instructions", 1)[0]
+        self.assertEqual(change.count("unique_head_payload"), 1)
+        full = change.split("# 6. Changed source files\n", 1)[1]
+        self.assertEqual(full.strip(), "## src/core.py (complete at head, numbered)\n\n```\n    1  def action():\n    2      return 'unique_head_payload'\n```")
+        self.assertEqual(re.findall(r"^ *[0-9]+\+$", change, re.M), ["    2+"])
+
+
 class PrepareTests(PrepareFixture, unittest.TestCase):
     def test_context_preparation_does_not_execute_the_live_compiler(self):
         scripts = self.root / "live-scripts"
@@ -901,7 +1182,7 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
                 self.assertIn("%FF.py", output)
                 output.encode("utf-8")
                 if mode != "pack":
-                    self.assertIn("+unique_non_utf8_marker = 1", output)
+                    self.assertIn("unique_non_utf8_marker = 1", output)
 
     def test_explicit_missing_pr_or_issue_is_an_error(self):
         self.github()
@@ -946,8 +1227,8 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
                     output = prepare.change_part(self.repo, "origin/trunk...HEAD", selected, None, "HEAD", mode)
                     self.assertEqual(output.count("@@ -"), 1)
                     if mode != "pack":
-                        self.assertIn(f"+unique_marker_{n} = {n}", output)
-                        self.assertEqual(output.count("+unique_marker_"), 1)
+                        self.assertIn(f"unique_marker_{n} = {n}", output)
+                        self.assertEqual(len(re.findall(r"unique_marker_\d+ =", output)), 1)
 
     def test_oxford_comma_issue_lists(self):
         self.assertEqual(prepare.issue_refs("Resolves #2, #3, and #4"), ["#2", "#3", "#4"])
@@ -1019,7 +1300,7 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
         role, _ = expand(file="prompts/roles/reviewer.md")
         lens = (SCRIPT.parents[3] / "prompts/lenses/generalist-a.md").read_text()
         self.assertIn("# 1. Review pack\n" + role, prompt)
-        self.assertIn("# 2. Instructions\n" + lens, prompt)
+        self.assertIn("# 7. Lens instructions\n" + lens, prompt)
         self.assertNotRegex(prompt, r"(?m)^@rule ")
         for rule in (SCRIPT.parents[3] / "prompts/skills").glob("*.md"):
             self.assertEqual(prompt.count(rule.read_text()), 1)
@@ -1359,13 +1640,15 @@ class DocumentReferenceTests(PrepareFixture, unittest.TestCase):
         with mock.patch.object(prepare, "run", wraps=prepare.run) as calls:
             prompt = self.review()
         self.assertNotIn("Design/spec", prompt)
-        self.assertFalse(any(c.args[1:3] == ("git", "show") for c in calls.call_args_list))
+        self.assertFalse(any(c.args[1:3] == ("git", "show") and c.args[3].endswith(".md")
+                             for c in calls.call_args_list))
         self.git(self.repo, "commit", "--allow-empty", "-m", "Requirements\n\nDesign: docs/spec.md [§1]")
         self.github(self.pr("See README.md"))
         with mock.patch.object(prepare, "run", wraps=prepare.run) as calls:
             prompt = self.review()
         self.assertIn("Design/spec docs/spec.md", prompt)
-        reads = [c.args[3] for c in calls.call_args_list if c.args[1:3] == ("git", "show")]
+        reads = [c.args[3] for c in calls.call_args_list
+                 if c.args[1:3] == ("git", "show") and c.args[3].endswith(".md")]
         self.assertEqual(reads, [self.git(self.repo, "rev-parse", "HEAD") + ":docs/spec.md"])
 
     def test_nonexistent_named_specs_do_not_hide_real_tree_paths(self):
@@ -1426,10 +1709,11 @@ class DocumentReferenceTests(PrepareFixture, unittest.TestCase):
     def test_requirements_order_whole_spec_acceptance_ids_sort_and_lockfiles(self):
         self.add_review_change()
         prompt = self.review(spec="docs/design.md", tests="AT1")
-        positions = [prompt.index(f"# {n}. {title}") for n, title in enumerate(
-            ["Review pack", "Instructions", "Pull request and issue", "Requirements", "Change"], 1)]
+        positions = [prompt.index(f"# {n}. {title}") for n, title in (
+            (1, "Review pack"), (3, "Pull request and issue"), (4, "Requirements"), (5, "Change"),
+            (7, "Lens instructions"))]
         self.assertEqual(positions, sorted(positions))
-        spec = prompt[positions[3]:positions[4]]
+        spec = prompt[positions[2]:positions[3]]
         self.assertIn("R1. Design/spec docs/design.md — Full document — [docs/design.md:1]", spec)
         self.assertIn("### 2.1 Detail", spec)
         self.assertIn("# Not a heading", spec)
@@ -1439,7 +1723,7 @@ class DocumentReferenceTests(PrepareFixture, unittest.TestCase):
         self.assertIn("Unselected section", spec)
         files = prepare.changed_files(self.repo, "origin/trunk...HEAD")
         self.assertEqual([prepare.kind(f[2]) for f in files], ["source", "source", "source", "test", "docs"])
-        change = prompt[positions[4]:]
+        change = prompt[positions[3]:positions[4]]
         self.assertIn("Cargo.lock — source +1/-0", change)
         self.assertIn("(lockfile: listed only)", change)
         self.assertNotIn("LOCK_ONLY_MARKER", change)

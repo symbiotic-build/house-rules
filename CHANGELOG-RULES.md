@@ -2,6 +2,12 @@
 
 Source notes for House Rules invariants and procedures.
 
+## skills/pr-ready — Structured review layout
+
+Operator-approved task: 2026-10-17. Structured reviews put shared context first and lens
+instructions last. Numbered changes, native move references and one capped copy of each
+changed source file reduce repeated input. Pack and diff layouts retain their behavior.
+
 ## rules/writing.md — Sequences: number only ordered steps
 
 Operator direction: 2026-10-16, after a readability pass under the new sequences rule turned a

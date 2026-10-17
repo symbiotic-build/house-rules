@@ -121,6 +121,68 @@ class DocumentationFixture:
 
 
 class DocumentationReviewTests(DocumentationFixture, unittest.TestCase):
+    def test_specification_rules_follow_target_in_pack_and_diff_only(self):
+        self.write(self.rules, "prompts/roles/reviewer.md", "Role rules\n")
+        self.write(self.rules, "prompts/lenses/generalist-a.md", "Lens instructions\n")
+        self.write(self.rules, "rules/specifications.md", "Specification rules\n")
+        self.rule_revision = self.commit(self.rules)
+        self.write(self.repo, "AGENTS.md", "Target rules\n")
+        manifest_path = self.repo / "docs/DOCUMENTS.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["inventory"].append({"path": "AGENTS.md", "kind": "other", "reason": "Synthetic target rules."})
+        manifest_path.write_text(json.dumps(manifest))
+        self.revision = self.commit(self.repo)
+        task = self.root / "task.txt"
+        for layout in ("pack", "diff", "structured"):
+            with self.subTest(layout=layout):
+                task.write_text("Task context\n" + ("\n# 7. Lens instructions\n" if layout == "structured" else ""))
+                pack, _ = self.pack(role="reviewer", lens="generalist-a", target_base=self.revision,
+                                    tasks=[(task, "review-context")])
+                markers = [line for line in pack.splitlines() if line in
+                           (b"Role rules", b"Lens instructions", b"Target rules", b"Specification rules")]
+                self.assertEqual(markers, [b"Role rules", b"Specification rules", b"Target rules", b"Lens instructions"]
+                                 if layout == "structured" else
+                                 [b"Role rules", b"Lens instructions", b"Target rules", b"Specification rules"])
+
+    def test_registered_documentation_uses_round_plan_before_each_final_lens(self):
+        for folder in ("prompts", "rules"):
+            shutil.copytree(ROOT / folder, self.rules / folder, dirs_exist_ok=True)
+        self.write(self.rules, "skills/pr-ready/scripts/review-panel.lenses",
+                   (ROOT / "skills/pr-ready/scripts/review-panel.lenses").read_bytes())
+        self.rule_revision = self.commit(self.rules)
+        task = self.root / "context.txt"
+        lenses = ("generalist-a", "design-spec")
+        compiler = self.rules / "skills/pr-ready/scripts/prompt.py"
+        preparer = self.rules / "skills/pr-ready/scripts/prepare.py"
+        environment = dict(os.environ, REVIEW_PYTHON=sys.executable)
+        for assembly in ("one-call", "standalone"):
+            with self.subTest(assembly=assembly):
+                packs = []
+                for lens in lenses:
+                    command = [sys.executable, "-B", str(preparer), "review", str(self.repo),
+                               "--base", self.revision, "--no-fetch", "--lens", lens,
+                               "--reviewers", *lenses]
+                    if assembly == "one-call":
+                        # The service appends this context to its compiled pack.
+                        task.write_text("Shared review context.\n\n# 7. Lens instructions\n")
+                        command = [sys.executable, "-B", str(compiler), "--repo", str(self.rules),
+                                   "--rev", self.rule_revision, "--role", "reviewer", "--lens", lens,
+                                   "--target", str(self.repo), "--target-base", self.revision,
+                                   "--assignment", str(self.assignment_file), "--task", str(task),
+                                   "--reviewers", *lenses]
+                    else:
+                        command += ["--assignment", str(self.assignment_file)]
+                    result = subprocess.run(command, env=environment, capture_output=True,
+                                            timeout=10, stdin=subprocess.DEVNULL)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    packs.append(result.stdout.split(b"# 7. Lens instructions\n", 1))
+                self.assertEqual([len(parts) for parts in packs], [2, 2])
+                self.assertEqual(packs[0][0], packs[1][0])
+                self.assertNotEqual(packs[0][1], packs[1][1])
+                self.assertIn(b"# Complete registry", packs[0][0])
+                self.assertIn(b'"id": "generalist-a"', packs[0][0])
+                self.assertIn(b'"id": "design-spec"', packs[0][0])
+
     def test_relative_assignment_uses_callers_directory(self):
         # A conflicting target file must not replace the caller's assignment.
         (self.repo / 'assignment.json').write_text('{}')
@@ -492,6 +554,59 @@ class DocumentationContextTests(DocumentationFixture, unittest.TestCase):
         self.assertIn(b"explicit --assignment", failed.stderr)
         self.assertFalse((output / "missing/generalist-a.attempt-1.md").exists())
         self.assertFalse((output / "missing/generalist-a.pack").exists())
+
+    def test_panel_keeps_assignment_when_file_replaced_between_compilations(self):
+        for folder in ("prompts", "rules"):
+            shutil.copytree(ROOT / folder, self.rules / folder, dirs_exist_ok=True)
+        self.write(self.rules, "skills/pr-ready/scripts/review-panel.lenses",
+                   (ROOT / "skills/pr-ready/scripts/review-panel.lenses").read_bytes())
+        self.rule_revision = self.commit(self.rules)
+        binaries = self.root / "bin"
+        binaries.mkdir()
+        replacement = json.dumps({"version": 1, "sections": ["example-demo#settings"]})
+        real_git = shutil.which("git")
+        wrapper = binaries / "git"
+        # The first compilation closes its Git batch after building its pack.
+        # Replace the assignment at that boundary, without timing or sleeps.
+        wrapper.write_text("#!" + sys.executable + "\n" +
+                           "import os, pathlib, subprocess, sys\n" +
+                           "args = sys.argv[1:]\n" +
+                           "if args[-2:] == ['cat-file', '--batch']:\n" +
+                           f"    status = subprocess.call([{real_git!r}, *args])\n" +
+                           f"    replacement = pathlib.Path({str(self.root / 'replacement.json')!r})\n" +
+                           f"    replacement.write_text({replacement!r})\n" +
+                           f"    os.replace(replacement, {str(self.assignment_file)!r})\n" +
+                           "    sys.exit(status)\n" +
+                           f"os.execv({real_git!r}, [{real_git!r}, *args])\n")
+        wrapper.chmod(0o755)
+        reviewer = binaries / "codex"
+        reviewer.write_text("#!/bin/sh\nwhile [ \"$1\" != '-o' ]; do shift; done\n"
+                            "printf 'VERDICT: APPROVE\\n' > \"$2\"\ncat > /dev/null\n")
+        reviewer.chmod(0o755)
+        config = self.root / "panel.conf"
+        config.write_text("a = codex synthetic-model - high\n")
+        task = self.root / "task.txt"
+        task.write_text("Review the selected documentation.\n")
+        output = self.root / "panels"
+        environment = dict(os.environ, PATH=str(binaries) + os.pathsep + os.environ["PATH"],
+                           REVIEW_HOUSE_RULES_REPO=str(self.rules), REVIEW_HOUSE_RULES_REV=self.rule_revision,
+                           REVIEW_PYTHON=sys.executable, REVIEW_PANEL_CONF=str(config), REVIEW_PANEL_OUT=str(output),
+                           REVIEW_BASE=self.revision)
+        lenses = ("generalist-a", "correctness-security")
+        result = subprocess.run(
+            ["bash", str(ROOT / "skills/pr-ready/scripts/review-panel.sh"), "--assignment",
+             str(self.assignment_file), "replacement", str(self.repo), str(task), *lenses],
+            env=environment, capture_output=True, timeout=20, stdin=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.assignment_file.read_text(), replacement)
+        packs = [output / "replacement" / (lens + ".pack") for lens in lenses]
+        self.assertEqual([json.loads((pack / "manifest.json").read_bytes())["documentation"]
+                          ["manifest"]["assignment"]["sections"] for pack in packs],
+                         [ASSIGNMENT["sections"], ASSIGNMENT["sections"]])
+        prefixes = [(pack / "pack.txt").read_bytes().split(b"# 7. Lens instructions\n", 1)[0]
+                    for pack in packs]
+        self.assertIn(b"# Complete registry", prefixes[0])
+        self.assertEqual(prefixes[0], prefixes[1])
 
     def test_legacy_repository_needs_no_checker_or_assignment(self):
         shutil.rmtree(self.repo / "docs")

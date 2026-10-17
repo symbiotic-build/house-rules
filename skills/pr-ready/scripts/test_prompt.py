@@ -2124,6 +2124,22 @@ class CommitPackFixture:
 
 
 class CommitPackTest(CommitPackFixture, unittest.TestCase):
+    def test_structured_explicit_include_owns_content_before_either_lens(self):
+        self.write(self.repo, "prompts/lenses/first.md", "First lens\n")
+        self.write(self.repo, "prompts/lenses/second.md", "Second lens\n@rule house-rules:extra.md\n")
+        revision = self.commit(self.repo)
+        task = self.root / "task.txt"
+        task.write_text("Shared task\n\n# 7. Lens instructions\n")
+        packs = []
+        for lens in ("first", "second"):
+            pack, manifest = self.good("--lens", lens, "--include", "extra.md", "--task", task, rev=revision)
+            packs.append(pack.split(b"# 7. Lens instructions\n", 1))
+            self.assertEqual(pack.count(b"Extra"), 1)
+            self.assertIn(b"Extra", packs[-1][0])
+            self.assertEqual(next(entry for entry in manifest["files"] if entry["path"] == "extra.md")["commit"], revision)
+        self.assertEqual(packs[0][0], packs[1][0])
+        self.assertEqual([part[1].strip() for part in packs], [b"First lens", b"Second lens"])
+
     def test_pack_helper_finishes_with_callers_standard_input_left_open(self):
         read_fd, write_fd = os.pipe()
         original = os.dup(0)

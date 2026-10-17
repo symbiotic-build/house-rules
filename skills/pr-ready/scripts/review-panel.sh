@@ -6,7 +6,8 @@
 #   reviewer: a file stem in ../../../prompts/lenses/ (default: generalist-<family> for each configured family)
 # Config: ${REVIEW_PANEL_CONF:-<house-rules>/custom/review-panel.conf}, lines "<family> = <cli> <model> [tier] [effort]",
 #   cli one of codex | grok | kimi. Unconfigured families are omitted from the default selection.
-# Prompt order: role rules, lens, summary/task, spec, change (prepare.py review).
+# Structured prompt order: shared role/target rules, task context and change, then lens.
+# Pack and diff retain role rules, lens, target rules, then task context.
 # Range: ${REVIEW_BASE:-remote default branch}...HEAD; upstream preferred to origin.
 # Output directory: ${REVIEW_PANEL_OUT:-<checkout>/.tmp/review-panel}/<name>/ with <reviewer>.md,
 #   raw logs, and summary.txt (verdict and wall time per reviewer).
@@ -110,7 +111,100 @@ for required_lens in $required_lenses; do
   esac
 done
 
-panel_reviewers="$*"
+# Compile the complete round once, then reserve the largest pack in each family.
+panel_members=()
+for r in "$@"; do
+  settings=$(python3 -I -B "$here/prepare.py" lens "$r" --config "$out/lenses.conf") || {
+    echo "$r failed: lens configuration" >> "$out/summary.txt"; exit 1;
+  }
+  read -r fam sandbox <<<"$settings"
+  cfg=$(family_cfg "$fam")
+  [ -n "$cfg" ] || { echo "$r failed: family $fam not configured" >> "$out/summary.txt"; exit 1; }
+  read -r cli model tier effort <<<"$cfg"
+  case $cli in
+    codex|grok|kimi) ;;
+    *) echo "$r failed: unknown cli $cli" >> "$out/summary.txt"; exit 1 ;;
+  esac
+  panel_members+=("$r" "$fam" "$cli")
+done
+preparation_status=0
+"$review_python" -I -B - "$out" "$rules_repo" "$rules_rev" "$dir" "$review_rev" "$session_mode" \
+    "$assignment" "$resolved_base" "$base" "${panel_members[@]}" <<'PYTHON' || preparation_status=1
+from contextlib import redirect_stderr, redirect_stdout
+from pathlib import Path
+import sys
+import subprocess
+
+out, repo, rev, checkout, review_rev, session, assignment, resolved_base, summary, *members = sys.argv[1:]
+sys.path.insert(0, out)
+from compiler import Commit, PromptError, append_tasks, build_pack, publish, review_plan
+from preparer import main as prepare_main
+
+members = list(zip(members[::3], members[1::3], members[2::3]))
+plan = review_plan([reviewer for reviewer, _, _ in members])
+compiled, reservations = {}, {}
+errors = (PromptError, OSError, UnicodeError, ValueError, RuntimeError, subprocess.SubprocessError)
+
+def failure(reviewer, exc):
+    message = "prompt: " + " ".join(str(exc).splitlines())
+    with (Path(out) / (reviewer + ".prepare.err")).open("a", encoding="utf-8") as stream:
+        print(message, file=stream)
+    print(message, file=sys.stderr)
+    with (Path(out) / "summary.txt").open("a", encoding="utf-8") as stream:
+        print(reviewer + " failed: context preparation or prompt compilation (see " + reviewer + ".prepare.err)", file=stream)
+
+try:
+    assignment_bytes = Path(assignment).read_bytes() if assignment else None
+except errors as exc:
+    failure(members[0][0], exc)
+    sys.exit(1)
+
+# Keep compiled bytes in memory until every selected lens has contributed its size.
+for reviewer, family, cli in members:
+    try:
+        with Commit(repo, rev) as source, Commit(checkout, review_rev) as target:
+            pack, manifest = build_pack(source, role="reviewer", lens=reviewer, target=target,
+                                        omit_shared_rules=session == "1",
+                                        assignment=assignment_bytes,
+                                        target_base=resolved_base, plan=plan, structured=cli == "codex")
+        compiled[reviewer] = pack, manifest
+        reservations[family] = max(reservations.get(family, 0), len(pack.decode("utf-8")) + 1)
+    except errors as exc:
+        failure(reviewer, exc)
+        sys.exit(1)
+
+status, prepared = 0, {}
+for reviewer, family, cli in members:
+    try:
+        pack, manifest = compiled[reviewer]
+        diagnostics_path = Path(out) / (reviewer + ".prepare.err")
+        if family not in prepared:
+            # Live context is captured once for the whole family, even on failure.
+            prepared[family] = None
+            args = ["review", checkout, "--rev", review_rev, "--context-only", "--lens", reviewer,
+                    "--cli", cli, "--summary", summary, "--base", resolved_base, "--no-fetch",
+                    "--reviewers", *[member[0] for member in members]]
+            if cli == "codex":
+                args += ["--compiled-chars", str(reservations[family])]
+            task = Path(out) / (reviewer + ".task")
+            with task.open("w", encoding="utf-8") as stream, redirect_stdout(stream), \
+                    diagnostics_path.open("w", encoding="utf-8") as diagnostics, redirect_stderr(diagnostics):
+                result = prepare_main(args, documentation_prepared="documentation" in manifest)
+            if result:
+                raise PromptError("context preparation failed; see preparation diagnostics")
+            prepared[family] = task, diagnostics_path
+        if prepared[family] is None:
+            raise PromptError("family context preparation failed; see the family's first reviewer diagnostics")
+        task, family_diagnostics = prepared[family]
+        if family_diagnostics != diagnostics_path:
+            diagnostics_path.write_bytes(family_diagnostics.read_bytes())
+        pack, manifest = append_tasks(pack, manifest, [(task, "review-panel-" + reviewer)])
+        publish(Path(out) / (reviewer + ".pack"), pack, manifest)
+    except errors as exc:
+        failure(reviewer, exc)
+        status = 1
+sys.exit(status)
+PYTHON
 
 run_one() {
   local r=$1
@@ -123,45 +217,7 @@ run_one() {
   cfg=$(family_cfg "$fam")
   [ -n "$cfg" ] || { echo "$r failed: family $fam not configured" >> "$out/summary.txt"; return 1; }
   read -r cli model tier effort <<<"$cfg"; [ "$tier" = - ] && tier=
-  local prepare_args=(review "$dir" --rev "$review_rev" --context-only --lens "$r" --cli "$cli" --summary "$base" --base "$resolved_base" --no-fetch)
-  # Keep one compilation in memory for both task budgeting and final publication.
-  if ! "$review_python" -I -B - "$out" "$rules_repo" "$rules_rev" "$dir" "$review_rev" "$r" "$session_mode" "$cli" \
-      "$assignment" "$resolved_base" "$panel_reviewers" "${prepare_args[@]}" 2> "$out/$r.prepare.err" <<'PY'
-from contextlib import redirect_stdout
-from pathlib import Path
-import sys
-import subprocess
-
-out, repo, rev, checkout, review_rev, reviewer, session, cli, assignment, resolved_base, panel_reviewers, *args = sys.argv[1:]
-sys.path.insert(0, out)
-from compiler import Commit, PromptError, append_tasks, build_pack, publish, review_plan
-from preparer import main as prepare_main
-
-try:
-    with Commit(repo, rev) as source, Commit(checkout, review_rev) as target:
-        pack, manifest = build_pack(source, role="reviewer", lens=reviewer, target=target,
-                                    omit_shared_rules=session == "1",
-                                    assignment=Path(assignment).read_bytes() if assignment else None,
-                                    target_base=resolved_base, plan=review_plan(panel_reviewers.split()))
-    # Check Git readers before preparing context or publishing any artifacts.
-    if cli == "codex":
-        args += ["--compiled-chars", str(len(pack.decode("utf-8")) + 1)]
-    task = Path(out) / (reviewer + ".task")
-    with task.open("w", encoding="utf-8") as stream, redirect_stdout(stream):
-        status = prepare_main(args, documentation_prepared="documentation" in manifest)
-    if status:
-        sys.exit(2)
-    pack, manifest = append_tasks(pack, manifest, [(task, "review-panel-" + reviewer)])
-    publish(Path(out) / (reviewer + ".pack"), pack, manifest)
-except (PromptError, OSError, UnicodeError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
-    print("prompt: " + " ".join(str(exc).splitlines()), file=sys.stderr)
-    sys.exit(2)
-PY
-  then
-    cat "$out/$r.prepare.err" >&2
-    echo "$r failed: context preparation or prompt compilation (see $r.prepare.err)" >> "$out/summary.txt"
-    return 1
-  fi
+  [ -d "$out/$r.pack" ] || return 1
   if ! python3 -I -B "$here/prepare.py" check-prompt "$out/$r.pack/pack.txt" --cli "$cli" 2>> "$out/$r.prepare.err"; then
     cat "$out/$r.prepare.err" >&2
     echo "$r failed: complete prompt size (see $r.prepare.err)" >> "$out/summary.txt"
@@ -169,7 +225,7 @@ PY
   fi
   ln -s "$r.pack/pack.txt" "$prompt" || return 1
   cat "$out/$r.prepare.err" >&2
-  sed -n '/^# 3\. Pull request and issue/q; /^Size guard:/p' "$out/$r.task" |
+  sed -n '/^# 3\. Pull request and issue/q; /^Size guard:/p' "$out/$r.pack/pack.txt" |
     while IFS= read -r notice; do printf '%s: %s\n' "$r" "$notice"; done >> "$out/summary.txt"
   t0=$(date +%s)
   # Transient provider errors (capacity, overload, rate limits) are retried twice, 60 s apart;
@@ -228,7 +284,6 @@ checkout, model, prompt = sys.argv[1:]
 text = Path(prompt).read_bytes().decode("utf-8")
 sys.exit(subprocess.run(["kimi", "-m", model, "-p", text], cwd=checkout, stdin=subprocess.DEVNULL).returncode)
 ' "$dir" "$model" "$prompt" > "$logs.md" 2> "$logs.err" || cli_status=$? ;;
-      *)     echo "$r failed: unknown cli $cli" >> "$out/summary.txt"; return 1 ;;
     esac
     [ "$cli_status" -ne 0 ] && [ $attempt -lt 3 ] && cat "$logs.err" "$logs.jsonl" "$logs.json" 2>/dev/null |
       grep -q -i -E 'at capacity|overloaded|rate.?limit|too many requests|\b429\b|\b503\b' || break
@@ -253,7 +308,7 @@ for r in "$@"; do
   run_one "$r" &
   pids+=("$!")
 done
-status=0
+status=$preparation_status
 for pid in "${pids[@]}"; do wait "$pid" || status=1; done
 transient_inputs=("$out/lenses.conf" "$out/preparer.py")
 for r in "$@"; do transient_inputs+=("$out/$r.task"); done
