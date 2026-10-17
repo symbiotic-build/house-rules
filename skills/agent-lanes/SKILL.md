@@ -34,6 +34,10 @@ explicit goals.
 
 ## Resource budgets
 
+- **Worker model.** Workers run on the model and tool the operator assigned for workers,
+  recorded in the machine-local policy (`custom/`). The orchestrating session does not
+  spawn subagents of its own model for worker tasks unless the operator approves. A
+  custom agent type sets its model explicitly; it never inherits the orchestrator's.
 - Respect global provider concurrency across ALL lanes combined (e.g. "provider A under
   500 total, provider B under 2000 in total") — budgets are fleet-wide, not per-lane.
   ⚒ Make one lane the budget owner when several hit the same provider.

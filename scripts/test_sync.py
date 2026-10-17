@@ -698,6 +698,11 @@ Load only the House Rules Skills relevant to the task. Use
 `<HOUSE_RULES_ROOT>/STRUCTURE.md` when deciding artifact paths and naming. Keep
 model, permission, MCP, plugin, and hook configuration in the native tool
 settings.
+
+Then read `<HOUSE_RULES_ROOT>/custom/INDEX.md` when it exists. It is this
+computer's local index: installed tools and the operator's local policies,
+such as which model and tool run workers. Its policies apply to every session
+on this computer; repository rules still win where they conflict.
 <!-- house-rules:end -->"""
 
     def test_parent_folder_cleanup_preserves_house_rules_repository_pointer(self):

@@ -125,6 +125,11 @@ For each selected product and configuration home:
    `<HOUSE_RULES_ROOT>/STRUCTURE.md` when deciding artifact paths and naming. Keep
    model, permission, MCP, plugin, and hook configuration in the native tool
    settings.
+
+   Then read `<HOUSE_RULES_ROOT>/custom/INDEX.md` when it exists. It is this
+   computer's local index: installed tools and the operator's local policies,
+   such as which model and tool run workers. Its policies apply to every session
+   on this computer; repository rules still win where they conflict.
    <!-- house-rules:end -->
    ```
 4. Older installations use the project's earlier names: `<!-- forge:begin -->` /
@@ -184,6 +189,18 @@ Create `custom/INDEX.md` under the permanent House Rules directory when it does 
 exist. The entire `custom/` directory is gitignored because it describes one
 machine's tools, paths, accounts, and verification state. Start from
 `CUSTOM-INDEX.example.md`.
+
+Sessions find this index only through the managed block (§3 step 3), which tells
+them to read it after `INDEX.md`. Nothing in the tracked House Rules files points
+to it, so a machine without the current block never loads its local policies.
+After changing the block template, update every installed block (§5 verifies them).
+
+The index's "Local policies" section holds operator rules that apply to this
+computer only, because they name local tools, paths or accounts. Example: which
+model and wrapper run worker agents. Each entry states the rule in one or two
+sentences, the operator's direction date, and where the full record is. Longer
+policy text goes in its own file under `custom/`, linked from that section.
+Never put credentials in either.
 
 Keep one durable installation receipt per product home in `custom/installations/` (JSON
 or a small Markdown table) and list the receipts in `custom/INDEX.md`. Record the source
