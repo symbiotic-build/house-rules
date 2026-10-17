@@ -235,15 +235,54 @@ class JUnitRunnerTests(unittest.TestCase):
         self.assertEqual(ET.parse(root / 'report.xml').getroot().get('tests'), '4')
 
     def test_parallel_worker_crash_and_invalid_jobs_fail_visibly(self):
-        result, _ = self.run_fixture('import os, unittest\n'
-            'class A(unittest.TestCase):\n def test_exit(self): os._exit(3)\n'
-            'class B(unittest.TestCase):\n def test_pass(self): pass\n', jobs=2)
+        source = ('import os, pathlib, unittest\n'
+            'class A(unittest.TestCase):\n'
+            ' def test_exit(self):\n'
+            '  pathlib.Path("test-effect").touch()\n'
+            '  if not pathlib.Path("recovered").exists(): os._exit(3)\n'
+            'class B(unittest.TestCase):\n def test_pass(self): pass\n')
+        result, root = self.run_fixture('import unittest\n'
+            'class Previous(unittest.TestCase):\n def test_old_pass(self): pass\n')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        previous_report = (root / 'report.xml').read_bytes()
+        (root / 'test_sample.py').write_text(source)
+        command = [sys.executable, '-B', str(RUNNER), '--report', 'report.xml',
+                   '--jobs', '2', 'discover', '-s', '.']
+        result = subprocess.run(command, cwd=root, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=5)
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn('terminated abruptly', result.stderr)
+        self.assertEqual((root / 'report.xml').read_bytes(), previous_report)
+        self.assertEqual(ET.parse(root / 'report.xml').getroot()[0].get('name'), 'test_old_pass')
+        self.assertTrue((root / 'test-effect').exists())
+        (root / 'recovered').touch()
+        result = subprocess.run(command, cwd=root, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, timeout=5)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = ET.parse(root / 'report.xml').getroot()
+        self.assertEqual([report.get(key) for key in ('tests', 'failures', 'errors')], ['2', '0', '0'])
+        self.assertEqual([case.get('name') for case in report], ['test_exit', 'test_pass'])
+        result, root = self.run_fixture(source, jobs=2)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertFalse((root / 'report.xml').exists())
         result, root = self.run_fixture('# no tests\n', jobs=0)
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn('positive integer', result.stderr)
         self.assertFalse((root / 'report.xml').exists())
+
+    @unittest.skipUnless(hasattr(unittest.TestResult, 'addDuration'), 'native durations require Python 3.12+')
+    def test_parallel_preserves_requested_duration_summary(self):
+        source = ('import unittest\n'
+            'class A(unittest.TestCase):\n def test_pass(self): pass\n'
+            'class B(unittest.TestCase):\n def test_pass(self): pass\n')
+        for jobs in (1, 2):
+            with self.subTest(jobs=jobs):
+                result, _ = self.run_fixture(source, jobs=jobs, arguments=('--durations', '0', '-v'))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('Slowest test durations', result.stderr)
+                summary = result.stderr.split('Slowest test durations', 1)[1]
+                for name in ('A', 'B'):
+                    self.assertIn(f'test_pass (test_sample.{name}.test_pass)', summary)
 
     def test_parallel_custom_suite_hooks_and_module_fixtures_are_preserved(self):
         source = ('import unittest\n'
@@ -266,6 +305,27 @@ class JUnitRunnerTests(unittest.TestCase):
                     self.assertEqual(result.stdout.count('module setup'), 1)
                     self.assertEqual(result.stdout.count('module teardown'), 1)
                 self.assertEqual(ET.parse(root / 'report.xml').getroot().get('tests'), '2')
+
+    def test_parallel_executes_adjacent_custom_suites_including_failures(self):
+        source = ('import unittest\n'
+                  'class A(unittest.TestCase):\n'
+                  ' def test_pass(self): pass\n'
+                  ' def test_fail(self): self.fail("second custom suite")\n'
+                  'class B(unittest.TestCase):\n def test_pass(self): pass\n'
+                  'class Hook(unittest.TestSuite):\n'
+                  ' def run(self, result, debug=False):\n'
+                  '  print("hook")\n'
+                  '  return super().run(result, debug)\n'
+                  'def load_tests(loader, tests, pattern):\n'
+                  ' return unittest.TestSuite([Hook([A("test_pass")]),\n'
+                  '                            Hook([A("test_fail")]), B("test_pass")])\n')
+        for jobs in (1, 2):
+            with self.subTest(jobs=jobs):
+                result, root = self.run_fixture(source, jobs=jobs)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(result.stdout.count('hook'), 2)
+                report = ET.parse(root / 'report.xml').getroot()
+                self.assertEqual([report.get(key) for key in ('tests', 'failures', 'errors')], ['3', '1', '0'])
 
     def test_parallel_failfast_stops_in_serial_order(self):
         result, root = self.run_fixture('import pathlib, unittest\n'

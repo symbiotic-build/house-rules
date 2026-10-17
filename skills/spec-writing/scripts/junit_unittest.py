@@ -214,6 +214,7 @@ def run_class(index):
                 for name in ('failures', 'errors', 'skipped', 'expectedFailures'):
                     outcomes[name] = [(result.getDescription(test), message) for test, message in getattr(result, name)]
                 outcomes['unexpectedSuccesses'] = [result.getDescription(test) for test in result.unexpectedSuccesses]
+                outcomes['collectedDurations'] = getattr(result, 'collectedDurations', [])
         finally:
             stdout.flush()
             stderr.flush()
@@ -255,7 +256,8 @@ class ParallelSuite(unittest.TestSuite):
                 result.jobs = self.jobs
                 try:
                     for group in phase:
-                        group[0].run(result, debug)
+                        for suite in group:
+                            suite.run(result, debug)
                 finally:
                     result.jobs = previous_jobs
             else:
@@ -278,6 +280,8 @@ class ParallelSuite(unittest.TestSuite):
                 for name in ('failures', 'errors', 'skipped', 'expectedFailures'):
                     getattr(result, name).extend((ReportedTest(test), message) for test, message in outcomes[name])
                 result.unexpectedSuccesses.extend(ReportedTest(test) for test in outcomes['unexpectedSuccesses'])
+                if hasattr(result, 'collectedDurations'):
+                    result.collectedDurations.extend(outcomes['collectedDurations'])
                 sys.stdout.flush()
                 sys.stdout.buffer.write(stdout)
                 sys.stdout.flush()
