@@ -98,9 +98,9 @@ The runner writes root-relative `file`, module-qualified `classname`, method `na
 
 Workers receive complete test classes, so class fixtures run once. Tests use independent temporary directories and restore process-local environment changes. The parent merges results and captured output in discovery order into one report. Test identities, outcome counts and exit status match serial execution; durations reflect the actual run.
 
-Fail-fast execution, catch-break execution, repeated noncontiguous classes and suites with module fixtures run serially to preserve their ordering and fixture contracts.
+Workers run only plain, adjacent TestCase classes with no suite-level state crossing worker boundaries. Custom suite layouts, module fixtures, pending module cleanups and repeated noncontiguous classes use one native enclosing unittest suite traversal in the parent. Fail-fast, catch-break, debug and stop requests use that traversal too. Custom suites retain their hooks and receive `result.jobs` to explicitly delegate independent classes to workers; preceding fixtures, hook order, cleanups and stop remain native. The parent checks stop before dispatching workers.
 
-Custom suites retain their run hooks. The parent joins preceding class workers before each hook. A custom suite can delegate its classes to the same runner and combine their run evidence before its final check. Following workers start after that check. Parallel execution uses POSIX fork; hosts without fork can run with `--jobs 1`. A [worker crash](#junit-worker-crash) fails the command without producing a report for that run.
+Parallel execution uses POSIX fork; hosts without fork can run with `--jobs 1`. A [worker crash](#junit-worker-crash) fails the command without producing a report for that run.
 
 Without explicit or declared reports, the audit batches all unique cited selectors of each runner once. Python uses one serial in-process unittest suite inside one child process, loading each file once; worker options do not change this fallback contract. Loader errors or empty suites are missing selectors. Failures, errors or skips fail their selector.
 
