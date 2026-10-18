@@ -1067,15 +1067,21 @@ class AnsweredRestoreTest(unittest.TestCase):
             "Changes outside approved authority require your decision.", detail
         )
 
-    def test_reset_reloads_skills_and_references_the_writing_rule_owner(self):
-        session = self.text("rules/core.md").split("## Session start", 1)[1].split(
+    def test_reset_reloads_skills_and_every_reply_checks_the_writing_rule_owner(self):
+        core = self.text("rules/core.md")
+        session = core.split("## Session start", 1)[1].split(
             "## Protected operator assets", 1
         )[0]
         self.assertIn("including a compaction", session)
         self.assertIn("reload the skills the current task uses", session.lower())
-        self.assertIn("skills/operator-writing/SKILL.md §Communication rules", session)
-        self.assertEqual(session.count("skills/operator-writing/SKILL.md"), 1)
-        self.assertNotIn("reader test", session)
+        self.assertNotIn("writing", session)
+        prime_rules = core.split("## Prime rules", 1)[1].split("\n## ", 1)[0]
+        check = ("Check every operator-facing reply against rules/writing.md "
+                 "§Checks before sending")
+        self.assertIn("skills/operator-writing/SKILL.md §Communication rules", prime_rules)
+        self.assertIn(check, prime_rules)
+        self.assertEqual(core.count(check), 1)
+        self.assertNotIn("reader test", prime_rules)
         communication = self.text("skills/operator-writing/SKILL.md").split(
             "## Communication rules", 1
         )[1].split("## Structure", 1)[0]
@@ -1951,15 +1957,6 @@ class AlwaysLoadedWritingTest(unittest.TestCase):
 
     def test_general_writing_rules_are_always_loaded(self):
         self.assertIn("rules/writing.md governs all text", (ROOT / "rules/core.md").read_text())
-
-    def test_reply_writing_check_applies_to_every_reply_not_session_start(self):
-        core = (ROOT / "rules/core.md").read_text()
-        session_start = core.split("## Session start", 1)[1].split("\n## ", 1)[0]
-        prime_rules = core.split("## Prime rules", 1)[1].split("\n## ", 1)[0]
-        check = "Check every operator-facing reply against rules/writing.md §Checks before sending"
-        self.assertNotIn("writing", session_start)
-        self.assertIn(check, prime_rules)
-        self.assertEqual(core.count(check), 1)
 
     def test_moved_sections_have_one_rule_owner(self):
         writing = ROOT / "rules/writing.md"
