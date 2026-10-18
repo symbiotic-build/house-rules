@@ -2,6 +2,23 @@
 
 Source notes for House Rules invariants and procedures.
 
+## rules/delivery.md — Parallel work (load check only before measured runs)
+
+Operator direction: 2026-10-19. An agent held back a few light unit-test suites because the
+one-minute load average was above the core count, although the load came from desktop
+processes, not builds. The operator called the load threshold for builds and tests a bad
+rule: the build queue already runs one build or test command at a time within a core budget,
+and the benchmark rule already keeps other work off the machine during a measured run. The
+load threshold came from an agent's draft for the shared-machine rule, not from an operator
+direction. The operator also directed that a benchmark about to start on a loaded machine
+must reach the operator at once, not sit inside a long message.
+
+- Build and test commands no longer check the load; the build queue limits them.
+- Before a benchmark or measured performance run, the agent checks the load. Above the core
+  count it does not start the run. It reports the run, the load, the core count and the
+  heaviest processes first and in bold in its next message, and as a notification when the
+  tool has one. It starts when the load falls or the operator says to start.
+
 ## skills/pr-ready — Structured review layout
 
 Operator-approved task: 2026-10-17. Structured reviews put shared context first and lens
