@@ -1952,6 +1952,15 @@ class AlwaysLoadedWritingTest(unittest.TestCase):
     def test_general_writing_rules_are_always_loaded(self):
         self.assertIn("rules/writing.md governs all text", (ROOT / "rules/core.md").read_text())
 
+    def test_reply_writing_check_applies_to_every_reply_not_session_start(self):
+        core = (ROOT / "rules/core.md").read_text()
+        session_start = core.split("## Session start", 1)[1].split("\n## ", 1)[0]
+        prime_rules = core.split("## Prime rules", 1)[1].split("\n## ", 1)[0]
+        check = "Check every operator-facing reply against rules/writing.md §Checks before sending"
+        self.assertNotIn("writing", session_start)
+        self.assertIn(check, prime_rules)
+        self.assertEqual(core.count(check), 1)
+
     def test_moved_sections_have_one_rule_owner(self):
         writing = ROOT / "rules/writing.md"
         self.assertTrue(writing.is_file())

@@ -2,6 +2,16 @@
 
 Source notes for House Rules invariants and procedures.
 
+## rules/core.md — Check every reply against the writing rules
+
+Operator direction: 2026-10-19. Agents loaded the writing rules after each compaction but
+still sent replies that did not lead with the result, packed several facts into one
+sentence or used unexplained labels. The rules said only to load the writing guidance: the
+writing lines sat under the session-start heading, and the agent-home block said only to
+read the index. The writing obligation now sits in prime rule 4 and requires a check of
+every operator-facing reply before sending. The agent-home block gains one line with the
+same check. The rules are not repeated per message; they are referenced.
+
 ## skills/pr-ready — Structured review layout
 
 Operator-approved task: 2026-10-17. Structured reviews put shared context first and lens
