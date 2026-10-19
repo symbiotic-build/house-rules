@@ -670,7 +670,7 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
         result = subprocess.run(handler["command"], shell=True, cwd=self.base, stdin=subprocess.DEVNULL,
                                 capture_output=True, text=True, check=True, timeout=handler["timeout"])
         self.assertEqual(result.stderr, "")
-        self.assertRegex(result.stdout, r"^===== House Rules part 1 of 1 \(revision [0-9a-f]{12}\); "
+        self.assertRegex(result.stdout, r"^===== House Rules part 1 of 1 \(revision [0-9a-f]{12}, text [0-9a-f]{12}\); "
                                         r"starts at INDEX\.md, heading \"Index\" =====\n")
         self.assertIn("===== House Rules file rules/core.md =====\n# core rules", result.stdout)
         self.assertIn(f"HOUSE RULES HOOK ERROR: this computer's local index {self.root / 'custom/INDEX.md'} "
@@ -806,7 +806,7 @@ class SyncSourceTests(SyncFixture, unittest.TestCase):
 class SessionContextTests(unittest.TestCase):
     """The hook's text, split into parts, on synthetic House Rules files without Git."""
 
-    LABEL = re.compile(r'===== House Rules part (\d+) of (\d+) \(revision unknown\); '
+    LABEL = re.compile(r'===== House Rules part (\d+) of (\d+) \(revision unknown, text ([0-9a-f]{12})\); '
                        r'starts at (\S+), heading "([^"]*)" =====\n')
 
     def setUp(self):
@@ -829,7 +829,8 @@ class SessionContextTests(unittest.TestCase):
 
     def rendered(self):
         rev, packed, _ = context.parts(self.root)
-        return [context.render(number, rev, packed) for number in range(1, len(packed) + 1)]
+        with mock.patch.object(context, "root", return_value=self.root):
+            return [context.render(number, rev, packed) for number in range(1, len(packed) + 1)]
 
     def bodies(self, outputs):
         """Each part's text, exactly, without its label, part 1 introduction and end line."""
@@ -872,8 +873,9 @@ class SessionContextTests(unittest.TestCase):
             self.assertEqual((int(match[1]), int(match[2])), (number, len(outputs)))
             body = self.bodies(outputs)[number - 1].lstrip("\n")
             heading = re.search(r"^#{1,6} (.*)$", body, re.M)[1]
-            self.assertEqual(match[4], heading)
-            self.assertIn(match[3], ("INDEX.md", "rules/core.md", "rules/writing.md"))
+            self.assertEqual(match[5], heading)
+            self.assertIn(match[4], ("INDEX.md", "rules/core.md", "rules/writing.md"))
+            self.assertEqual(match[3], self.LABEL.match(outputs[0])[3])
         self.assertIn("The parts can arrive in any order: read them in part-number order.", outputs[0])
 
     def test_custom_index_is_injected_last_and_its_absence_is_a_visible_error(self):
@@ -906,7 +908,7 @@ class SessionContextTests(unittest.TestCase):
         slots = len(packed) - 1
         with mock.patch.object(context, "SLOTS", slots), mock.patch.object(context, "root", return_value=self.root):
             first, last = context.claude(1), context.claude(slots)
-        message = f"HOUSE RULES HOOK ERROR: the rules need {len(packed)} parts but only {slots} hooks are registered"
+        message = f"HOUSE RULES HOOK ERROR: the rules need {len(packed)} parts but the hook delivers only {slots}"
         self.assertIn(message, first)
         self.assertIn(message, last)
         for output in (first, last):
@@ -918,7 +920,16 @@ class SessionContextTests(unittest.TestCase):
         self.assertEqual(output["hookEventName"], "SessionStart")
         self.assertEqual(output["additionalContext"], "\n\n".join(self.rendered()))
         with mock.patch.object(context, "SLOTS", 1), mock.patch.object(context, "root", return_value=self.root):
-            self.assertNotIn("HOUSE RULES HOOK ERROR", context.codex())
+            capped = json.loads(context.codex())["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("HOUSE RULES HOOK ERROR: the rules need", capped)
+        self.assertNotIn("House Rules part 2 of", capped)
+
+    def test_parts_read_after_a_change_name_another_text(self):
+        before = self.rendered()
+        self.write("custom/INDEX.md", "# Machine-local capability index\n\nChanged policy line.\n")
+        after = self.rendered()
+        self.assertNotEqual(self.LABEL.match(before[0])[3], self.LABEL.match(after[-1])[3])
+        self.assertIn(f"Every part names text {self.LABEL.match(before[0])[3]}. A missing part number", before[0])
 
     def test_unreadable_rule_file_prints_a_visible_error_instead_of_nothing(self):
         (self.root / "rules/core.md").write_bytes(b"# Core rules\n\xff\xfe not UTF-8\n")

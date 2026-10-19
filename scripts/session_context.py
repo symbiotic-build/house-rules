@@ -18,6 +18,7 @@ A missing file, a section larger than one part or more parts than hooks prints a
 error line in place of the text.
 """
 
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -132,27 +133,33 @@ def parts(base=None):
     return revision(base), packed, too_long
 
 
-def label(number, total, rev, name, heading):
+def fingerprint(packed):
+    """Names the exact text all parts were cut from, so parts read at different moments differ visibly."""
+    return hashlib.sha256("".join(text for _, _, text in packed).encode("utf-8")).hexdigest()[:12]
+
+
+def label(number, total, rev, text_id, name, heading):
     heading = heading if len(heading) <= 100 else heading[:99] + "…"
-    return f"===== House Rules part {number} of {total} (revision {rev}); starts at {name}, heading \"{heading}\" ====="
+    return (f"===== House Rules part {number} of {total} (revision {rev}, text {text_id}); "
+            f"starts at {name}, heading \"{heading}\" =====")
 
 
-def render(number, rev, packed, hooks=True):
-    """The text of one part, with its label; part 1 also says how to read the parts.
-
-    hooks: the parts go to one Claude Code hook each, so parts past SLOTS are lost.
-    """
+def render(number, rev, packed):
+    """The text of one part, with its label; part 1 also says how to read the parts."""
     total = len(packed)
     if number > total:
         return ""
     name, heading, text = packed[number - 1]
-    lines = [label(number, total, rev, name, heading)]
+    text_id = fingerprint(packed)
+    lines = [label(number, total, rev, text_id, name, heading)]
     if number == 1:
         lines.append(f"House Rules INDEX.md, its always-load rules, the operator-writing skill and this computer's "
                      f"{LOCAL_INDEX} follow in full, in {total} parts. They apply to every reply in this session. "
                      "The parts can arrive in any order: read them in part-number order. Each part names the file "
-                     "and heading it starts at.")
-    if hooks and total > SLOTS and number in (1, SLOTS):
+                     f"and heading it starts at. Every part names text {text_id}. A missing part number, or a part "
+                     "with another part count or text, means the files changed while the parts were read: read "
+                     f"the files from {root()} directly.")
+    if total > SLOTS and number in (1, SLOTS):
         lines.append(overflow(total))
     # The body keeps its own trailing newlines, so blank source lines survive the split.
     output = "\n".join(lines) + "\n" + text + ("" if text.endswith("\n") else "\n") + \
@@ -163,7 +170,7 @@ def render(number, rev, packed, hooks=True):
 
 
 def overflow(total):
-    return (f"{ERROR} the rules need {total} parts but only {SLOTS} hooks are registered, so parts "
+    return (f"{ERROR} the rules need {total} parts but the hook delivers only {SLOTS}, so parts "
             f"{SLOTS + 1} to {total} are not in this context. Read those files from {root()} directly; "
             f"raise SLOTS in scripts/session_context.py.")
 
@@ -174,8 +181,9 @@ def claude(number):
 
 
 def codex():
+    """Parts 1 to SLOTS in one value: the same strict cap as Claude Code, so Codex may pass it whole."""
     rev, packed, _ = parts()
-    text = "\n\n".join(render(number, rev, packed, hooks=False) for number in range(1, len(packed) + 1))
+    text = "\n\n".join(render(number, rev, packed) for number in range(1, min(len(packed), SLOTS) + 1))
     return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}})
 
 
@@ -190,7 +198,7 @@ def hooks(product, python=None, base=None):
         handlers = [{"type": "command", "command": command(python, base, "claude", str(number)), "timeout": TIMEOUT}
                     for number in range(1, SLOTS + 1)]
     elif product == "codex":
-        # The hook caps its own output at SLOTS parts, so Codex may pass it whole (limit 0).
+        # codex() caps its own output at SLOTS parts, so Codex may pass it whole (limit 0).
         handlers = [{"type": "command", "command": command(python, base, "codex"), "timeout": TIMEOUT,
                      "statusMessage": "Loading House Rules", "additionalContextLimit": 0}]
     else:
