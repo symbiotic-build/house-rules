@@ -1063,9 +1063,26 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
             change = self.change(self.review())
         self.assertEqual(self.rows(change, "src/core.py"), ["-     1\told", "+     1\tnew", "      2\t", "      3\t"])
 
-    def test_partial_whole_file_diff_fails_visibly(self):
-        with self.assertRaisesRegex(prepare.PrepareError, "whole file"):
-            prepare.numbered("@@ -1 +1 @@\n+first", "first\nsecond\n")
+    def test_review_fails_visibly_when_git_returns_a_partial_whole_file_diff(self):
+        self.write(self.repo, "src/core.py", "def action():\n    return 2\n" + "# padding\n" * 10)
+        self.commit(self.repo, "Change result")
+        real_git = shutil.which("git")
+        # A Git that ignores the requested context, as a wrapper or local patch could.
+        (self.binaries / "git").write_text(
+            "#!" + sys.executable + "\nimport os, re, sys\n"
+            "args = ['-U0' if re.fullmatch(r'-U([4-9]|\\d{2,})', arg) else arg for arg in sys.argv[1:]]\n"
+            f"os.execv({real_git!r}, [{real_git!r}, *args])\n")
+        (self.binaries / "git").chmod(0o755)
+        code, prompt, err = self.invoke("review", str(self.repo), "--base", "origin/trunk", "--no-fetch")
+        self.assertEqual((code, prompt), (1, ""))
+        self.assertIn("whole file", err)
+
+    def test_non_utf8_file_is_shown_whole(self):
+        (self.repo / "src/core.py").write_bytes(b"def action():\n    return '\xe9'\n")
+        self.commit(self.repo, "Latin-1 source")
+        change = self.change(self.review())
+        self.assertEqual(self.rows(change, "src/core.py"),
+                         ["      1\tdef action():", "-     2\t    return 1", "+     2\t    return '\\xe9'"])
 
     def test_changed_spec_selected_with_a_leading_dot_slash_appears_once(self):
         self.add_review_change()

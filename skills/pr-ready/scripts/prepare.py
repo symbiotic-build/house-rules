@@ -735,7 +735,8 @@ def file_diff(repo, rng, path, mode, budget, context=None):
                 data = process.stdout.read(4 * max(0, budget) + 1)
                 if len(data) > 4 * max(0, budget):
                     raise DiffTooLarge()
-                result = data.decode("utf-8", errors="backslashreplace").rstrip("\n")
+                # Decode like every other Git read; display() escapes undecodable bytes when rendering.
+                result = data.decode("utf-8", errors="surrogateescape").rstrip("\n")
                 if len(display(result)) > budget:
                     raise DiffTooLarge()
             if process.wait():
