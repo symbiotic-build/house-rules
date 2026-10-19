@@ -645,6 +645,23 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual(code, 1, out + err)
         self.assertRegex(out, r"REPORT: session context needs [2-9] parts; the hook registers 1\n")
 
+    def test_section_too_long_for_one_part_is_reported(self):
+        self.install_fixture()
+        self.write(self.root / "rules/core.md", "# core rules\n\n## Long\n\n" + "word " * 3000 + "\n")
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn('REPORT: session context section too long for one part: rules/core.md, heading "Long"', out)
+
+    def test_unparsable_unrelated_hook_commands_do_not_stop_the_report(self):
+        self.install_fixture()
+        path = self.claude / "settings.json"
+        broken = [{"hooks": [{"type": "command", "command": []}, {"type": "command", "command": "echo 'open"},
+                             "not a handler", {"type": "command"}]}, "not an entry"]
+        self.register_hook(path, "claude", extra=broken)
+        code, out, err = self.invoke()
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("3 homes checked; 0 findings", out)
+
     def test_registered_command_prints_part_one_from_the_installed_root(self):
         self.install_fixture()
         handler = json.loads((self.claude / "settings.json").read_text())["hooks"]["SessionStart"][1]["hooks"][0]
@@ -788,7 +805,7 @@ class SessionContextTests(unittest.TestCase):
     """The hook's text, split into parts, on synthetic House Rules files without Git."""
 
     LABEL = re.compile(r'===== House Rules part (\d+) of (\d+) \(revision unknown\); '
-                       r'(starts at|continues) (\S+), heading "([^"]*)" =====\n')
+                       r'starts at (\S+), heading "([^"]*)" =====\n')
 
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="house-rules-context-")
@@ -809,17 +826,23 @@ class SessionContextTests(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
 
     def rendered(self):
-        rev, packed = context.parts(self.root)
+        rev, packed, _ = context.parts(self.root)
         return [context.render(number, rev, packed) for number in range(1, len(packed) + 1)]
 
     def bodies(self, outputs):
-        """Each part's text without its label, part 1 introduction and end line."""
+        """Each part's text, exactly, without its label, part 1 introduction and end line."""
         result = []
         for number, output in enumerate(outputs, 1):
-            lines = output.split("\n")
-            self.assertEqual(lines[-1], f"===== End of House Rules part {number} of {len(outputs)} =====")
-            result.append("\n".join(lines[2 if number == 1 else 1:-1]))
+            end = f"===== End of House Rules part {number} of {len(outputs)} ====="
+            self.assertTrue(output.endswith(end), output[-200:])
+            result.append(output[:-len(end)].split("\n", 2 if number == 1 else 1)[-1])
         return result
+
+    def source(self):
+        """The injected files, in order, each after its separator line."""
+        return "".join(f"\n===== House Rules file {name} =====\n" + (self.root / name).read_text()
+                       for name in ("INDEX.md", "rules/core.md", "rules/writing.md",
+                                    "skills/operator-writing/SKILL.md", "custom/INDEX.md"))
 
     def test_parts_stay_under_the_cap_and_split_only_at_file_or_heading_boundaries(self):
         outputs = self.rendered()
@@ -830,27 +853,25 @@ class SessionContextTests(unittest.TestCase):
                 first = body.lstrip("\n").split("\n", 1)[0]
                 self.assertRegex(first, r"^(===== House Rules file \S+ =====|#{1,6} \S)")
                 self.assertNotRegex(first, "Not a heading")
-        self.assertEqual(self.lines(self.bodies(outputs)), self.source_lines())
+        self.assertEqual("".join(self.bodies(outputs)), self.source())
 
-    def lines(self, texts):
-        return [line for text in texts for line in text.split("\n") if line]
-
-    def source_lines(self):
-        """Every non-blank source line in injection order, after its file's separator."""
-        return self.lines(f"===== House Rules file {name} =====\n" + (self.root / name).read_text()
-                          for name in ("INDEX.md", "rules/core.md", "rules/writing.md",
-                                       "skills/operator-writing/SKILL.md", "custom/INDEX.md"))
+    def test_blank_lines_at_a_part_boundary_are_kept(self):
+        self.write("rules/core.md", "# Core rules\n\n" + "".join(
+            f"## Section {number}\n\n" + "word " * 400 + "\n\n\n" for number in range(10)))
+        outputs = self.rendered()
+        self.assertGreater(len(outputs), 1)
+        self.assertEqual("".join(self.bodies(outputs)), self.source())
 
     def test_every_part_names_its_number_count_file_and_starting_heading(self):
         outputs = self.rendered()
         for number, output in enumerate(outputs, 1):
             match = self.LABEL.match(output)
             self.assertIsNotNone(match, output[:200])
-            self.assertEqual((int(match[1]), int(match[2]), match[3]), (number, len(outputs), "starts at"))
+            self.assertEqual((int(match[1]), int(match[2])), (number, len(outputs)))
             body = self.bodies(outputs)[number - 1].lstrip("\n")
             heading = re.search(r"^#{1,6} (.*)$", body, re.M)[1]
-            self.assertEqual(match[5], heading)
-            self.assertIn(match[4], ("INDEX.md", "rules/core.md", "rules/writing.md"))
+            self.assertEqual(match[4], heading)
+            self.assertIn(match[3], ("INDEX.md", "rules/core.md", "rules/writing.md"))
         self.assertIn("The parts can arrive in any order: read them in part-number order.", outputs[0])
 
     def test_custom_index_is_injected_last_and_its_absence_is_a_visible_error(self):
@@ -867,20 +888,19 @@ class SessionContextTests(unittest.TestCase):
         self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root / 'rules/writing.md'} is missing.", text)
         self.assertIn("# Operator writing", text)
 
-    def test_section_longer_than_a_part_splits_between_paragraphs_never_inside_a_word(self):
-        paragraphs = [f"Paragraph {number} " + "word " * 300 for number in range(20)]
-        self.write("rules/core.md", "# Core rules\n\n## Long section\n\n" + "\n\n".join(paragraphs) + "\n")
-        outputs = self.rendered()
-        continued = [output for output in outputs if self.LABEL.match(output)[3] == "continues"]
-        self.assertTrue(continued)
-        for output in continued:
-            self.assertRegex(self.LABEL.match(output)[0], 'continues rules/core.md, heading "Long section"')
-        for body in self.bodies(outputs):
-            self.assertRegex(body.lstrip("\n"), r"^(=====|#|Paragraph \d+ )")
-        self.assertEqual(self.lines(self.bodies(outputs)), self.source_lines())
+    def test_section_longer_than_a_part_is_a_visible_error_and_never_split(self):
+        self.write("rules/core.md", "# Core rules\n\n## Long section\n\n" + "word " * 3000 + "\n\n## Short\n\nKept.\n")
+        _, packed, too_long = context.parts(self.root)
+        self.assertEqual(too_long, [("rules/core.md", "Long section")])
+        text = "".join(self.rendered())
+        self.assertRegex(text, r'HOUSE RULES HOOK ERROR: rules/core\.md section "Long section" is \d+ characters, '
+                               r'more than the \d+ one part holds, so it is not in this context\.')
+        self.assertNotIn("word word", text)
+        self.assertIn("## Short\n\nKept.", text)
+        self.assertIn("===== House Rules file rules/core.md =====\n# Core rules", text)
 
     def test_more_parts_than_slots_is_reported_in_part_one_and_the_last_slot(self):
-        rev, packed = context.parts(self.root)
+        rev, packed, _ = context.parts(self.root)
         slots = len(packed) - 1
         with mock.patch.object(context, "SLOTS", slots), mock.patch.object(context, "root", return_value=self.root):
             first, last = context.claude(1), context.claude(slots)
@@ -902,7 +922,8 @@ class SessionContextTests(unittest.TestCase):
         self.assertEqual(out.getvalue(), "HOUSE RULES HOOK ERROR: fixture read denied\n")
 
     def test_house_rules_itself_fits_the_registered_slots(self):
-        rev, packed = context.parts(REPO)
+        rev, packed, too_long = context.parts(REPO)
+        self.assertEqual(too_long, [])
         self.assertLessEqual(len(packed), context.SLOTS - 2, "raise SLOTS before the rules outgrow it")
         for number in range(1, len(packed) + 1):
             self.assertLess(context.units(context.render(number, rev, packed)), context.CAP)

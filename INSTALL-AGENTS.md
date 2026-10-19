@@ -191,7 +191,9 @@ For each selected product and configuration home:
     "<PYTHON3>" "<HOUSE_RULES_ROOT>/scripts/session_context.py" hooks claude "<HOUSE_RULES_ROOT>"
     ```
 
-    The printed entry runs that interpreter by its absolute path. Claude Code gets one hook
+    The printed entry runs that interpreter by its absolute path, quoted for a POSIX shell;
+    on native Windows, run the printed command in the product's hook shell before
+    registering it, and report it as a conflict when it fails. Claude Code gets one hook
     per part, because it caps each hook's output at 10 000 characters. For Codex, print
     `hooks codex` instead; Codex gets one hook. Back up the hook file. Add the printed object
     as one entry of the file's `hooks.SessionStart` list, and preserve every other entry and

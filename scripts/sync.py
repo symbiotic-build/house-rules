@@ -253,9 +253,11 @@ def verify(root, home, findings, selected):
     for key, product_home in selected:
         if key in HOOK_FILES:
             check_hook(root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], findings)
-    count = len(session_context.parts(root)[1])
-    if count > session_context.SLOTS:
-        findings.append(f"session context needs {count} parts; the hook registers {session_context.SLOTS}")
+    _, packed, too_long = session_context.parts(root)
+    if len(packed) > session_context.SLOTS:
+        findings.append(f"session context needs {len(packed)} parts; the hook registers {session_context.SLOTS}")
+    for name, heading in too_long:
+        findings.append(f"session context section too long for one part: {name}, heading \"{heading}\"")
 
 
 def check_hook(root, roots, path, product, findings):
@@ -281,9 +283,10 @@ def handler_commands(entry):
     """Each handler's command as tokens; a handler without a parsable command gives no tokens."""
     result = []
     for handler in entry.get("hooks") if isinstance(entry.get("hooks"), list) else []:
+        command = handler.get("command") if isinstance(handler, dict) else None
         try:
-            result.append(shlex.split(handler["command"]))
-        except (TypeError, KeyError, ValueError):
+            result.append(shlex.split(command) if isinstance(command, str) else [])
+        except ValueError:
             result.append([])
     return result
 

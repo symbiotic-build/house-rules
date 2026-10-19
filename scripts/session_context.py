@@ -14,8 +14,8 @@ custom/INDEX.md, read live from the House Rules checkout that holds this script.
 Claude Code caps each hook's output at 10 000 characters and runs a product's hooks in
 parallel, so parts can arrive in any order. Parts split only at file and heading boundaries,
 and each part names its number, the part count, and the file and heading it starts at.
-A missing file, a part over the cap or more parts than hooks prints a visible error line
-instead of dropping text.
+A missing file, a section larger than one part or more parts than hooks prints a visible
+error line in place of the text.
 """
 
 import json
@@ -84,7 +84,7 @@ def sources(base):
 
 
 def sections(name, text):
-    """Split one file at headings outside code fences: (file, heading, text, continued)."""
+    """Split one file at headings outside code fences: [(file, heading, text)]."""
     blocks, lines, heading, fence = [], [], name, None
     for line in text.splitlines(keepends=True):
         opening = FENCE.match(line)
@@ -98,61 +98,43 @@ def sections(name, text):
             match = HEADING.match(line.rstrip("\n"))
             if match:
                 if lines:
-                    blocks.append((name, heading, "".join(lines), False))
+                    blocks.append((name, heading, "".join(lines)))
                 lines, heading = [], (match.group(2) or "").strip() or name
         lines.append(line)
-    blocks.append((name, heading, "".join(lines), False))
+    blocks.append((name, heading, "".join(lines)))
     return blocks
 
 
-def pieces(block, limit):
-    """Split one section larger than a part at blank lines, then lines, then spaces."""
-    name, heading, text, _ = block
-    for separator in ("\n\n", "\n", " "):
-        chunks = [chunk + separator for chunk in text.split(separator)]
-        chunks[-1] = chunks[-1][:-len(separator)]
-        if all(units(chunk) <= limit for chunk in chunks):
-            break
-    else:
-        raise ValueError(f"{name} under {heading!r} holds a word longer than {limit} characters")
-    result, current = [], ""
-    for chunk in chunks:
-        if current and units(current + chunk) > limit:
-            result.append(current)
-            current = ""
-        current += chunk
-    result.append(current)
-    return [(name, heading, part, index > 0) for index, part in enumerate(result) if part]
-
-
 def parts(base=None):
-    """Pack whole sections into parts under the cap; returns (revision, [(file, heading, continued, text)])."""
+    """Pack whole sections into parts under the cap.
+
+    Returns (revision, [(file, heading, text)] per part, [(file, heading)] of sections too long for
+    one part). A section is never split: one too long for a part becomes a visible error line.
+    """
     base = base or root()
     limit = CAP - RESERVE
-    blocks = []
+    blocks, too_long = [], []
     for name, text in sources(base):
-        file_blocks = sections(name, text)
-        name, heading, first, continued = file_blocks[0]
-        file_blocks[0] = (name, heading, f"\n===== House Rules file {name} =====\n{first}", continued)
-        for block in file_blocks:
-            blocks.extend(pieces(block, limit) if units(block[2]) > limit else [block])
-    packed, current, start = [], "", None
-    for name, heading, text, continued in blocks:
-        if current and units(current + text) > limit:
-            packed.append((*start, current))
-            current = ""
-        if not current:
-            start = (name, heading, continued)
-        current += text
-    packed.append((*start, current))
-    return revision(base), packed
+        for index, (name, heading, section) in enumerate(sections(name, text)):
+            if units(section) > limit:
+                too_long.append((name, heading))
+                section = (f"{ERROR} {name} section \"{heading}\" is {units(section)} characters, more than the "
+                           f"{limit} one part holds, so it is not in this context. Read it from {base / name}.\n")
+            if index == 0:
+                section = f"\n===== House Rules file {name} =====\n{section}"
+            blocks.append((name, heading, section))
+    packed = []
+    for name, heading, text in blocks:
+        if not packed or units(packed[-1][2] + text) > limit:
+            packed.append((name, heading, text))
+        else:
+            packed[-1] = (*packed[-1][:2], packed[-1][2] + text)
+    return revision(base), packed, too_long
 
 
-def label(number, total, rev, start):
-    name, heading, continued = start
-    where = "continues" if continued else "starts at"
+def label(number, total, rev, name, heading):
     heading = heading if len(heading) <= 100 else heading[:99] + "…"
-    return f"===== House Rules part {number} of {total} (revision {rev}); {where} {name}, heading \"{heading}\" ====="
+    return f"===== House Rules part {number} of {total} (revision {rev}); starts at {name}, heading \"{heading}\" ====="
 
 
 def render(number, rev, packed):
@@ -160,8 +142,8 @@ def render(number, rev, packed):
     total = len(packed)
     if number > total:
         return ""
-    name, heading, continued, text = packed[number - 1]
-    lines = [label(number, total, rev, (name, heading, continued))]
+    name, heading, text = packed[number - 1]
+    lines = [label(number, total, rev, name, heading)]
     if number == 1:
         lines.append(f"House Rules INDEX.md, its always-load rules, the operator-writing skill and this computer's "
                      f"{LOCAL_INDEX} follow in full, in {total} parts. They apply to every reply in this session. "
@@ -169,9 +151,9 @@ def render(number, rev, packed):
                      "and heading it starts at.")
         if total > SLOTS:
             lines.append(overflow(total))
-    lines.append(text.rstrip("\n"))
-    lines.append(f"===== End of House Rules part {number} of {total} =====")
-    output = "\n".join(lines)
+    # The body keeps its own trailing newlines, so blank source lines survive the split.
+    output = "\n".join(lines) + "\n" + text + ("" if text.endswith("\n") else "\n") + \
+        f"===== End of House Rules part {number} of {total} ====="
     if units(output) >= CAP:
         raise ValueError(f"part {number} is {units(output)} characters, over the {CAP}-character cap")
     return output
@@ -184,7 +166,7 @@ def overflow(total):
 
 
 def claude(number):
-    rev, packed = parts()
+    rev, packed, _ = parts()
     output = render(number, rev, packed)
     if number == SLOTS and len(packed) > SLOTS:
         output += "\n" + overflow(len(packed))
@@ -192,7 +174,7 @@ def claude(number):
 
 
 def codex():
-    rev, packed = parts()
+    rev, packed, _ = parts()
     text = "\n\n".join(render(number, rev, packed) for number in range(1, len(packed) + 1))
     return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}})
 

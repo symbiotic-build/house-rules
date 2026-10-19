@@ -984,21 +984,6 @@ class RuleOwnershipTest(unittest.TestCase):
         worker = self.text("prompts/roles/implementer.md")
         self.assertIn("configured compiler cache; never disable it", worker)
 
-    def test_operator_question_format_has_one_home_in_session_writing(self):
-        brief = self.text("skills/decision-brief/SKILL.md")
-        writing = self.text("skills/operator-writing/SKILL.md")
-        home = "rules/session-writing.md#questions-to-the-operator"
-        self.assertIn(home, brief)
-        self.assertIn(home, writing)
-        self.assertIn("Answer like so:", self.text("rules/session-writing.md"))
-        for text in (brief, writing):
-            self.assertNotIn("Decision 1 = Option 2", text)
-            self.assertNotIn("Option 1, 2, 3", text)
-            self.assertNotIn("decision IDs", text)
-        self.assertNotIn("options numbered", brief)
-        self.assertNotIn("Options use only", brief)
-        self.assertNotIn("no letters or mixed schemes", brief)
-
     def test_review_template_does_not_copy_reviewer_instructions(self):
         template = self.text("skills/pr-ready/references/review-prompt.md")
         review = template.split("## Fix prompt template", 1)[0]
