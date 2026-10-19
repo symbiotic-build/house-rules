@@ -101,6 +101,13 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   Notices identify every trim. If the prompt still exceeds the limit after all trim
   steps, preparation exits nonzero without emitting a prompt; the error names the limit,
   final size and completed trims. The panel reports this as a preparation failure.
+  A check round passes `--since REV`, the last reviewed commit or a commit whose tree is the
+  earlier change replayed onto the current merge-base. Part 5 then shows `REV..HEAD` in the
+  same layout, and the rule report covers the same range. Part 3 names both ranges. Part 4
+  keeps only the maintainer comments and the PR description (commit messages of the fix
+  without a PR). Linked issues, specifications and test IDs stay in the checkout and are not
+  read. Full preparation appends [the check-round rules](../../../prompts/util/check-round.md)
+  to every lens's instructions. An unknown `REV` fails preparation.
 
 ## Registered specifications
 

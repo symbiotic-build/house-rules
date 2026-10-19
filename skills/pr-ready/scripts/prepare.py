@@ -478,10 +478,10 @@ def api_comments(repo, endpoint):
     return [comment for page in pages for comment in page]
 
 
-def pr_context(repo, args, url):
+def pr_context(repo, args, url, *, linked_issues=True):
     pr, issues, comments, notices, missing = {}, [], [], [], []
     texts = []
-    refs = list(args.issue)
+    refs = list(args.issue) if linked_issues else []
     pr_link = args.pr or "(none)"
     if args.pr and args.pr.isdigit() and url:
         pr_link = f"{url}/pull/{args.pr}"
@@ -513,7 +513,8 @@ def pr_context(repo, args, url):
             texts.append(pr.get("body") or "")
         # A PR URL determines where bare issue numbers belong, including forks.
         issue_url = pr.get("url", "").split("/pull/")[0] or url
-        refs.extend(issue_refs(pr.get("body") or ""))
+        if linked_issues:
+            refs.extend(issue_refs(pr.get("body") or ""))
         seen = set()
         for ref in refs:
             location = issue_location(ref, issue_url)
@@ -625,10 +626,13 @@ def discover_spec(repo, head, explicit, texts, files, missing=None):
 
 
 def requirement_entries(repo, args, pr, issues, comments, texts, commits, files, url, head, missing, notices,
-                        documentation=False):
+                        documentation=False, check=False):
     entries = []
     def add(category, source, source_link, body, **extra):
         entries.append(dict(category=category, source=source, link=source_link, body=body, **extra))
+    if check:
+        # A check round leaves specifications and issues in the checkout; it keeps human comments and the PR description.
+        return [*comment_entries(comments, notices), *pr_entries(pr), *([] if pr else commit_entries(repo, commits, url))]
     reference_text = "\n".join([*texts, *(body for _, body in commits)])
     tests = list(dict.fromkeys([*[t.strip() for t in (args.tests or "").split(",") if t.strip()],
                               *re.findall(r"(?<![A-Za-z0-9_-])" + re.escape(args.test_prefix) + r"\d+(?![A-Za-z0-9_-])", reference_text)]))
@@ -662,20 +666,33 @@ def requirement_entries(repo, args, pr, issues, comments, texts, commits, files,
         labels = ", ".join(label["name"] for label in issue.get("labels", [])) or "(none)"
         add("issue", f"Issue #{issue['number']}: {issue['title']} (labels: {labels})",
             issue["html_url"], issue.get("body") or "")
+    entries.extend([*comment_entries(comments, notices), *pr_entries(pr)])
+    if not pr and not issues:
+        entries.extend(commit_entries(repo, commits, url))
+    return entries
+
+
+def comment_entries(comments, notices):
+    entries = []
     for comment in comments:
         body = comment["body"]
         source = f"Maintainer comment by {(comment.get('user') or {}).get('login') or 'unknown'} ({comment['author_association']})"
         if len(body) > COMMENT_LIMIT:
             notices.append(f"Comment capped at {COMMENT_LIMIT:,} characters: {comment['html_url']}")
             body = body[:COMMENT_LIMIT] + "\n[Comment cut at character cap.]"
-        add("comment", source, comment["html_url"], body)
-    if pr:
-        add("pr", "PR description (author claims): " + pr["title"], pr["url"], pr.get("body") or "")
-    if not pr and not issues:
-        for sha, body in commits:
-            source_link = f"{url}/commit/{sha}" if url else f"[local checkout]({quote(str(repo), safe='/')}) (`git show {sha}`)"
-            add("commit", "Commit message " + sha[:12], source_link, body)
+        entries.append(dict(category="comment", source=source, link=comment["html_url"], body=body))
     return entries
+
+
+def commit_entries(repo, commits, url):
+    return [dict(category="commit", source="Commit message " + sha[:12], body=body,
+                 link=f"{url}/commit/{sha}" if url else f"[local checkout]({quote(str(repo), safe='/')}) (`git show {sha}`)")
+            for sha, body in commits]
+
+
+def pr_entries(pr):
+    return [dict(category="pr", source="PR description (author claims): " + pr["title"], link=pr["url"],
+                 body=pr.get("body") or "")] if pr else []
 
 
 def requirements_part(entries, mode, shown=None):
@@ -934,15 +951,20 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
                    (getattr(args, "rev", None) or "HEAD") + "^{commit}").strip()
     base = git(repo, "merge-base", base, head).strip()
     rng = f"{base}..{head}"
+    # A check round reviews only the fix: the change since the last reviewed commit.
+    since = getattr(args, "since", None)
+    fix_base = git(repo, "rev-parse", "--verify", "--end-of-options", since + "^{commit}").strip() if since else None
+    change_base = fix_base or base
+    change_rng = f"{change_base}..{head}"
     url = web_remote(repo, remote)
-    pr, issues, comments, pr_link, texts, missing, notices = pr_context(repo, args, url)
-    log = git(repo, "log", "--reverse", "--format=%H%x00%B%x00", f"{base}..{head}").split("\0")
+    pr, issues, comments, pr_link, texts, missing, notices = pr_context(repo, args, url, linked_issues=not since)
+    log = git(repo, "log", "--reverse", "--format=%H%x00%B%x00", change_rng).split("\0")
     commits = [(log[n].strip(), log[n + 1].strip()) for n in range(0, len(log) - 1, 2)]
     summary = Path(args.summary).read_text() if args.summary else pr.get("title") or "\n".join(body.splitlines()[0] for _, body in commits if body)
     lens = args.lens or {"codex": "generalist-a", "grok": "generalist-b", "kimi": "generalist-c"}[args.cli]
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", lens):
         raise PrepareError("invalid lens name")
-    changes, policy, rule_base = rule_changes(repo, base, head)
+    changes, policy, rule_base = rule_changes(repo, change_base, head)
     declaration_text = (pr.get("body") or "") if args.pr else summary if args.summary else ""
     declaration_source = "PR description" if args.pr else "--summary text"
     report = rule_report(changes, policy, rule_base, head, declaration_text, declaration_source)
@@ -964,7 +986,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         # Compilation stays with its owner. The standalone reporting path never
         # imports a sibling, and context-only legacy preparation needs none.
         # Without an explicit assignment, review derives one from changes since the merge base.
-        request = dict(repo=str(repo), head=head, base=base, lens=lens, full=not context_only,
+        request = dict(repo=str(repo), head=head, base=change_base, lens=lens, full=not context_only, check=bool(since),
                        reviewers=getattr(args, "reviewers", None),
                        reservation_reviewers=reservation_reviewers,
                        documentation=bool(needs_documentation), derive=not assignment_path,
@@ -988,7 +1010,10 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
              "\n".join(["# 3. Pull request and issue", f"Pull request: {pr_link}",
                         f"Title: {pr.get('title') or git(repo, 'log', '-1', '--format=%s', head).strip()}",
                         "Issues: " + (", ".join(i["html_url"] for i in issues) or "(none)"),
-                        f"Range: `{rng}`; head: `{head}`", "", summary])]
+                        f"Range: `{rng}`; head: `{head}`",
+                        *([f"Check round: part 5 shows only the fix since the last reviewed head, `{change_rng}`. "
+                           f"The whole change `{rng}`, the requirements and all other code stay in the checkout."]
+                          if since else []), "", summary])]
     if context_only:
         parts = [f"The checkout under review is {repo}; read its files by absolute path.", *parts[2:]]
     lens_parts = []
@@ -1004,9 +1029,9 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         parts.append(f"Registered documentation context was not prepared: {unavailable}. "
                      "Review changed documentation from the diff.")
     parts.append(report)
-    files = changed_files(repo, rng)
+    files = changed_files(repo, change_rng)
     entries = requirement_entries(repo, args, pr, issues, comments, texts, commits, files, url, head, missing, notices,
-                                  documentation=documentation_prepared or bool(needs_documentation))
+                                  documentation=documentation_prepared or bool(needs_documentation), check=bool(since))
     if missing:
         notices.insert(0, "not found: " + ", ".join(dict.fromkeys(missing)))
     # Budget a changed spec that the structured change will show whole as its pointer; its body is the head text.
@@ -1035,12 +1060,12 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     budget = max(0, limit - overhead) if args.cli == "codex" else CODEX_LIMIT
     packed = mode == "pack"
     try:
-        change = change_part(repo, rng, files, url, head, mode, budget if mode != "pack" else None,
+        change = change_part(repo, change_rng, files, url, head, mode, budget if mode != "pack" else None,
                              full_file_cap=full_file_cap)
     except DiffTooLarge:
         packed = True
         notices.append(PACK_NOTICE)
-        change = change_part(repo, rng, files, url, head, "pack")
+        change = change_part(repo, change_rng, files, url, head, "pack")
     trimmed = []
     def trim_notes():
         return [f"Size guard: trimmed R{n + 1} ({entries[n]['category']}): {entries[n]['source']}" for n in trimmed]
@@ -1052,7 +1077,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     if args.cli == "codex" and len(result) > limit:
         if not packed:
             notices.append(PACK_NOTICE)
-            change = change_part(repo, rng, files, url, head, "pack")
+            change = change_part(repo, change_rng, files, url, head, "pack")
             packed = True
             result = render()
         for category in ("comment", "issue", "spec"):
@@ -1136,6 +1161,7 @@ def main(argv=None, *, documentation_prepared=False):
             p.add_argument("--reviewers", nargs="+", help="complete round reviewer list for shared documentation context")
             for option in ("pr", "spec", "tests", "lens", "summary"):
                 p.add_argument("--" + option)
+            p.add_argument("--since", help="last reviewed commit; a check round shows only the change since it")
             p.add_argument("--issue", action="append", default=[])
             p.add_argument("--test-prefix", default="PT")
             p.add_argument("--format", choices=("structured", "diff", "pack"))

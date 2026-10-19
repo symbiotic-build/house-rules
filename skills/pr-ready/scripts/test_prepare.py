@@ -1309,6 +1309,67 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
                          ["      1\tdef action():", "-     2\t    return 1", "+     2\t    return 'unique_head_payload'"])
 
 
+class CheckRoundTests(StructuredLayoutTests):
+    """A later review round checks only the fix since the last reviewed head."""
+
+    def reviewed_then_fixed(self):
+        self.add_review_change()
+        reviewed = self.git(self.repo, "rev-parse", "HEAD")
+        self.write(self.repo, "src/core.py", "def action():\n    return 3\n")
+        self.commit(self.repo, "Fix the finding")
+        return reviewed, self.git(self.repo, "rev-parse", "HEAD")
+
+    def test_check_round_shows_only_the_fix_with_the_description_and_human_comments(self):
+        reviewed, head = self.reviewed_then_fixed()
+        self.github(self.pr("PR body\nCloses #2\nDesign: docs/design.md\n"), [self.issue(2)],
+                    pr_comments=[self.comment(6, "OWNER")])
+        prompt = self.review(pr="1", since=reviewed)
+        change = self.change(prompt)
+        self.assertIn(f"Range: `{reviewed}..{head}`", change)
+        self.assertEqual(self.lists(change), (["- F1 src/core.py"], []))
+        self.assertEqual(self.rows(change, "src/core.py"),
+                         ["      1\tdef action():", "-     2\t    return 2", "+     2\t    return 3"])
+        self.assertNotIn("Required behavior", prompt)  # the design document stays in the checkout
+        requirements = prompt.split("# 4. Requirements\n", 1)[1].split("# 5. Change\n", 1)[0]
+        self.assertIn("PR description (author claims): Change title", requirements)
+        self.assertIn("Comment body 6", requirements)
+        self.assertNotIn("Issue #2", requirements)
+        self.assertNotIn("Design/spec", requirements)
+        self.assertNotIn("repos/example/project/issues/2\"", self.gh_log.read_text())
+        context = prompt.split("# 3. Pull request and issue\n", 1)[1].split("# 4. Requirements\n", 1)[0]
+        base = self.git(self.repo, "merge-base", "origin/trunk", "HEAD")
+        self.assertIn(f"Check round: part 5 shows only the fix since the last reviewed head, `{reviewed}..{head}`.",
+                      context)
+        self.assertIn(f"The whole change `{base}..{head}`", context)
+        check_round = (SCRIPT.parents[3] / "prompts/util/check-round.md").read_text()
+        instructions = prompt.split("# 7. Lens instructions\n", 1)[1]
+        self.assertEqual(instructions.count(check_round), 1)
+        self.assertTrue(instructions.rstrip("\n").endswith(check_round.rstrip("\n")))
+
+    def test_first_round_has_no_check_round_text(self):
+        self.reviewed_then_fixed()
+        self.github(self.pr("PR body\n"))
+        prompt = self.review(pr="1")
+        self.assertNotIn("Check round:", prompt)
+        self.assertNotIn("## Check round", prompt)
+        self.assertIn("Required behavior", prompt)
+
+    def test_check_round_without_a_pull_request_keeps_the_fix_commit_messages(self):
+        reviewed, _ = self.reviewed_then_fixed()
+        with mock.patch.object(prepare.shutil, "which", return_value=None):
+            prompt = self.review(since=reviewed)
+        requirements = prompt.split("# 4. Requirements\n", 1)[1].split("# 5. Change\n", 1)[0]
+        self.assertIn("Fix the finding", requirements)
+        self.assertNotIn("Implement behavior", requirements)
+
+    def test_unknown_last_reviewed_commit_fails_without_a_prompt(self):
+        self.reviewed_then_fixed()
+        code, out, err = self.invoke("review", str(self.repo), "--base", "origin/trunk", "--no-fetch",
+                                     "--since", "f" * 40)
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("error:", err)
+
+
 class PrepareTests(PrepareFixture, unittest.TestCase):
     def test_context_preparation_does_not_execute_the_live_compiler(self):
         scripts = self.root / "live-scripts"

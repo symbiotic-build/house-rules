@@ -207,6 +207,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/util/check-round.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/util/cost-and-design.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."

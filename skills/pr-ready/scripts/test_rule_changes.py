@@ -306,6 +306,15 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertIn("No protected rule text changed.", out)
         self.assertIn("7: Approved: retain records.", out)
 
+    def test_check_round_reports_only_the_rule_changes_of_the_fix(self):
+        base = self.snapshot({"rules/source.md": "# Scope\n"})
+        reviewed = self.snapshot({"rules/source.md": "# Scope\nReviewed rule.\n"})
+        self.snapshot({"rules/source.md": "# Scope\nReviewed rule.\nFix rule.\n"})
+        report = self.report(base, since=reviewed)
+        self.assertIn(f"Base: `{reviewed}`", report)
+        self.assertIn("Fix rule.", report)
+        self.assertNotIn("Reviewed rule.", report)
+
     def test_declarations_ignore_html_comments(self):
         base = self.snapshot({"rules/source.md": "# Scope\n"})
         head = self.snapshot({"rules/source.md": "# Scope\nRetain records.\n"})

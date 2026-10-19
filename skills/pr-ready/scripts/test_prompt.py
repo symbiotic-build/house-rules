@@ -91,7 +91,7 @@ class PromptTest(unittest.TestCase):
         classes = (ROOT / "prompts/util/triage-classes.md").read_text()
         self.assertEqual(result.stdout.count(classes), 1)
         self.assertIn("FIX-NOW even if the fix adds an index", result.stdout)
-        self.assertIn("Apply the same classes as round 1.", role.read_text())
+        self.assertIn("Apply the same classes as round 1.", result.stdout)
         for duplicate in ("only FIX-NOW items block", "new mechanism", "nitpicks are dropped"):
             self.assertNotIn(duplicate, role.read_text())
 
@@ -553,14 +553,27 @@ class CollectionAcceptanceTest(unittest.TestCase):
         )
         self.assertNotIn("when every accepted finding is fixed", result.stdout)
         self.assertIn("A Low finding never blocks", result.stdout)
-        self.assertIn(
-            "For each accepted finding, verify against the code at HEAD that it "
-            "is fixed; quote the evidence.", result.stdout,
-        )
+        check_round = (ROOT / "prompts/util/check-round.md").read_text()
+        self.assertEqual(result.stdout.count(check_round), 1)
+        self.assertIn("The accepted findings file holds the earlier findings", result.stdout)
         self.assertIn(
             "one line per accepted finding: fixed / not fixed + evidence",
             result.stdout,
         )
+
+    def test_check_round_rules_have_one_home(self):
+        check_round = (ROOT / "prompts/util/check-round.md").read_text()
+        self.assertIn("Review only the fix.", check_round)
+        self.assertIn("Keep rejected findings rejected.", check_round)
+        for path in (ROOT / "prompts").rglob("*.md"):
+            if path.name != "check-round.md":
+                with self.subTest(path=str(path.relative_to(ROOT))):
+                    self.assertNotIn("Outside the fix, report only correctness", path.read_text())
+        triager = " ".join((ROOT / "prompts/roles/triager.md").read_text().split())
+        self.assertIn("In a check round (the review context says so), also collect every finding the earlier "
+                      "findings list as open.", triager)
+        self.assertIn("A finding the earlier triage rejected stays rejected unless the fix changed the code it cites",
+                      triager)
 
     def test_triager_requests_changes_only_for_high_or_medium(self):
         text = (ROOT / "prompts/roles/triager.md").read_text()
