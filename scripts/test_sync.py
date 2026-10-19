@@ -1082,6 +1082,19 @@ class SessionContextTests(unittest.TestCase):
                       "is missing", self.kimi("prompt", prompt))
         self.assertEqual(self.kimi("prompt", prompt), "")
 
+    def test_kimi_rules_quoting_the_error_prefix_still_print_once(self):
+        prompt = {"session_id": "session_a"}
+        self.write("custom/INDEX.md", "# Machine-local capability index\n\n```text\n"
+                                      "HOUSE RULES HOOK ERROR: example of a hook error line\n```\n")
+        self.assertIn("HOUSE RULES HOOK ERROR: example of a hook error line", self.kimi("prompt", prompt))
+        self.assertEqual(self.kimi("prompt", prompt), "")
+
+    def test_kimi_section_too_long_for_a_part_is_retried(self):
+        prompt = {"session_id": "session_a"}
+        self.write("rules/core.md", "# Core rules\n\n## Long section\n\n" + "word " * 3000 + "\n")
+        for _ in range(2):
+            self.assertIn('rules/core.md section "Long section" is', self.kimi("prompt", prompt))
+
     def test_kimi_hook_stopped_before_printing_leaves_the_next_prompt_to_print(self):
         class Closed(io.StringIO):
             def write(self, text):

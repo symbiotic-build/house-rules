@@ -43,9 +43,6 @@ ERROR = "HOUSE RULES HOOK ERROR:"
 EXTRA_FILES = ["skills/operator-writing/SKILL.md"]
 LOCAL_INDEX = "custom/INDEX.md"
 KIMI_STATE = "house-rules-sessions"   # Folder in the Kimi home holding one empty file per session id given the rules.
-# An error line that a later prompt may cure: a House Rules file missing or too long. A missing local
-# index is the operator's state; the session is recorded and sees that error once.
-RETRY_ERROR = re.compile(rf"^{re.escape(ERROR)} (?!this computer's local index )", re.M)
 SESSION_ID = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}")
 HEADING = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$")
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
@@ -77,19 +74,29 @@ def revision(base):
         return "unknown"
 
 
-def sources(base):
-    """(name, text) for every injected file; a missing file becomes an error line."""
+def sources(base, failures=None):
+    """(name, text) for every injected file; a missing file becomes an error line.
+
+    failures, when given, collects each House Rules file that could not be supplied. A missing local
+    index is the operator's state, not a House Rules failure, so it is not collected.
+    """
+    failures = [] if failures is None else failures
     index = base / "INDEX.md"
     names = ["INDEX.md"]
     if index.is_file():
         listed = always_load(index.read_text(encoding="utf-8"))
         if not listed:
+            failures.append("INDEX.md")
             yield "INDEX.md", f"{ERROR} {index} lists no always-load rule files.\n"
         names += listed
     names += EXTRA_FILES
     for name in names:
         path = base / name
-        yield name, path.read_text(encoding="utf-8") if path.is_file() else f"{ERROR} {path} is missing.\n"
+        if path.is_file():
+            yield name, path.read_text(encoding="utf-8")
+        else:
+            failures.append(name)
+            yield name, f"{ERROR} {path} is missing.\n"
     path = base / LOCAL_INDEX
     yield LOCAL_INDEX, path.read_text(encoding="utf-8") if path.is_file() else (
         f"{ERROR} this computer's local index {path} is missing, so its local policies are not loaded. "
@@ -118,16 +125,17 @@ def sections(name, text):
     return blocks
 
 
-def parts(base=None):
+def parts(base=None, failures=None):
     """Pack whole sections into parts under the cap.
 
     Returns (revision, [(file, heading, text)] per part, [(file, heading)] of sections too long for
     one part). A section is never split: one too long for a part becomes a visible error line.
+    failures, when given, collects the House Rules files sources() could not supply.
     """
     base = base or root()
     limit = CAP - RESERVE
     blocks, too_long = [], []
-    for name, text in sources(base):
+    for name, text in sources(base, failures):
         for index, (name, heading, section) in enumerate(sections(name, text)):
             if units(section) > limit:
                 too_long.append((name, heading))
@@ -192,9 +200,17 @@ def claude(number):
     return render(number, rev, packed)
 
 
-def every_part():
-    """Parts 1 to SLOTS in one text: the same strict cap as Claude Code, so one value may carry it whole."""
-    rev, packed, _ = parts()
+def every_part(failures=None):
+    """Parts 1 to SLOTS in one text: the same strict cap as Claude Code, so one value may carry it whole.
+
+    failures, when given, collects what kept the text from being complete: missing House Rules files,
+    sections too long for a part, and parts beyond SLOTS.
+    """
+    failures = [] if failures is None else failures
+    rev, packed, too_long = parts(failures=failures)
+    failures.extend(f"{name}, heading \"{heading}\"" for name, heading in too_long)
+    if len(packed) > SLOTS:
+        failures.append(f"parts {SLOTS + 1} to {len(packed)}")
     return "\n\n".join(render(number, rev, packed) for number in range(1, min(len(packed), SLOTS) + 1))
 
 
@@ -232,10 +248,11 @@ def kimi_prompt(stdin, stdout):
     record = kimi_records() / session
     if record.exists():
         return
-    output = every_part()
+    failures = []
+    output = every_part(failures)
     stdout.write(output + "\n")
     stdout.flush()
-    if RETRY_ERROR.search(output):
+    if failures:
         return
     record.parent.mkdir(parents=True, exist_ok=True)
     record.touch()
