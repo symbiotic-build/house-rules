@@ -1065,16 +1065,43 @@ class SessionContextTests(unittest.TestCase):
         (self.root / "rules/core.md").write_bytes(original)
         self.assertIn("===== House Rules file rules/core.md =====", self.kimi("prompt", prompt))
 
-    def test_kimi_session_records_older_than_thirty_days_are_removed(self):
-        state = self.root / "kimi-home"
-        self.kimi("prompt", {"session_id": "session_old"})
-        self.kimi("prompt", {"session_id": "session_recent"})
-        records = state / context.KIMI_STATE
-        old = records / "session_old"
-        stamp = old.stat().st_mtime - 31 * 24 * 3600
-        os.utime(old, (stamp, stamp))
+    def test_kimi_missing_rule_file_is_retried_until_the_complete_rules_print(self):
+        prompt = {"session_id": "session_a"}
+        original = (self.root / "rules/core.md").read_text()
+        (self.root / "rules/core.md").unlink()
+        for _ in range(2):
+            self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root / 'rules/core.md'} is missing.", self.kimi("prompt", prompt))
+        self.write("rules/core.md", original)
+        self.assertIn("===== House Rules file rules/core.md =====\n# Core rules", self.kimi("prompt", prompt))
+        self.assertEqual(self.kimi("prompt", prompt), "")
+
+    def test_kimi_missing_local_index_is_reported_once_per_session(self):
+        prompt = {"session_id": "session_a"}
+        (self.root / "custom/INDEX.md").unlink()
+        self.assertIn(f"HOUSE RULES HOOK ERROR: this computer's local index {self.root / 'custom/INDEX.md'} "
+                      "is missing", self.kimi("prompt", prompt))
+        self.assertEqual(self.kimi("prompt", prompt), "")
+
+    def test_kimi_hook_stopped_before_printing_leaves_the_next_prompt_to_print(self):
+        class Closed(io.StringIO):
+            def write(self, text):
+                raise BrokenPipeError("reader gone")
+
+        with mock.patch.object(context, "root", return_value=self.root), \
+                mock.patch.dict(os.environ, {"KIMI_CODE_HOME": str(self.root / "kimi-home")}):
+            with self.assertRaises(BrokenPipeError):
+                context.kimi_prompt(io.StringIO(json.dumps({"session_id": "session_a"})), Closed())
+        self.assertIn("===== House Rules file rules/core.md =====", self.kimi("prompt", {"session_id": "session_a"}))
+
+    def test_kimi_session_records_are_kept_however_old(self):
+        prompt = {"session_id": "session_old"}
+        self.kimi("prompt", prompt)
+        record = self.root / "kimi-home" / context.KIMI_STATE / "session_old"
+        stamp = record.stat().st_mtime - 400 * 24 * 3600
+        os.utime(record, (stamp, stamp))
         self.kimi("prompt", {"session_id": "session_new"})
-        self.assertEqual(sorted(path.name for path in records.iterdir()), ["session_new", "session_recent"])
+        self.assertTrue(record.exists())
+        self.assertEqual(self.kimi("prompt", prompt), "")
 
     @NEEDS_TOML
     def test_printed_kimi_hooks_parse_as_toml_and_keep_unusual_paths_exact(self):

@@ -14,8 +14,8 @@ custom/INDEX.md, read live from the House Rules checkout that holds this script.
 
 Kimi Code passes no session-start hook output to the model, so for Kimi a UserPromptSubmit
 hook prints the rules once per session id. Kimi 2.2.0 and later keep that output through
-compaction. The session ids already given the rules are empty files under
-$KIMI_CODE_HOME/house-rules-sessions.
+compaction. The session ids already given the complete rules are empty files under
+$KIMI_CODE_HOME/house-rules-sessions, written only after the rules were printed.
 
 Claude Code caps each hook's output at 10 000 characters and runs a product's hooks in
 parallel, so parts can arrive in any order. Parts split only at file and heading boundaries,
@@ -32,7 +32,6 @@ import re
 import shlex
 import subprocess
 import sys
-import time
 
 
 CAP = 10_000      # Claude Code's limit for one hook's output, in UTF-16 code units.
@@ -44,7 +43,9 @@ ERROR = "HOUSE RULES HOOK ERROR:"
 EXTRA_FILES = ["skills/operator-writing/SKILL.md"]
 LOCAL_INDEX = "custom/INDEX.md"
 KIMI_STATE = "house-rules-sessions"   # Folder in the Kimi home holding one empty file per session id given the rules.
-KIMI_KEEP = 30 * 24 * 3600            # Seconds a session id's file is kept; older ones are removed.
+# An error line that a later prompt may cure: a House Rules file missing or too long. A missing local
+# index is the operator's state; the session is recorded and sees that error once.
+RETRY_ERROR = re.compile(rf"^{re.escape(ERROR)} (?!this computer's local index )", re.M)
 SESSION_ID = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}")
 HEADING = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$")
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
@@ -216,34 +217,28 @@ def kimi_session(stdin):
     return session if isinstance(session, str) and SESSION_ID.fullmatch(session) else None
 
 
-def kimi_prompt(stdin):
-    """Every part on the first prompt of a session id; nothing on its later prompts."""
+def kimi_prompt(stdin, stdout):
+    """Print every part on the first prompt of a session id, then record the id; later prompts print nothing.
+
+    The record is written only after the rules were printed and flushed. A failed read, an error line in
+    place of a House Rules file, or a hook stopped before printing leaves the next prompt to try again.
+    """
     session = kimi_session(stdin)
     if session is None:
         # Without a session id the hook cannot tell prompts apart, so every prompt gets the rules.
-        return (f"{ERROR} Kimi gave no usable session id, so the rules repeat on every prompt. "
-                "Check the UserPromptSubmit hook input.\n" + every_part())
-    records = kimi_records()
-    records.mkdir(parents=True, exist_ok=True)
-    record = records / session
-    try:
-        os.close(os.open(record, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
-    except FileExistsError:
-        return ""
-    try:
-        output = every_part()
-    except BaseException:
-        record.unlink()   # The next prompt retries instead of leaving the session without the rules.
-        raise
-    cutoff = time.time() - KIMI_KEEP
-    try:
-        for path in records.iterdir():
-            if path.stat().st_mtime < cutoff:
-                path.unlink()
-    except OSError as error:
-        # This session already counts as given the rules, so they must still print.
-        output += f"\n{ERROR} old Kimi session records in {records} were not removed: {error}"
-    return output
+        stdout.write(f"{ERROR} Kimi gave no usable session id, so the rules repeat on every prompt. "
+                     "Check the UserPromptSubmit hook input.\n" + every_part() + "\n")
+        return
+    record = kimi_records() / session
+    if record.exists():
+        return
+    output = every_part()
+    stdout.write(output + "\n")
+    stdout.flush()
+    if RETRY_ERROR.search(output):
+        return
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.touch()
 
 
 def command(python, base, *args):
@@ -284,7 +279,8 @@ def main(argv):
         elif argv == ["codex"]:
             output = codex()
         elif argv == ["kimi", "prompt"]:
-            output = kimi_prompt(sys.stdin)
+            kimi_prompt(sys.stdin, sys.stdout)
+            output = ""
         elif len(argv) in (2, 3) and argv[0] == "hooks" and argv[1] == "kimi":
             output = kimi_toml(base=Path(argv[2]) if len(argv) == 3 else None).rstrip("\n")
         elif len(argv) in (2, 3) and argv[0] == "hooks":

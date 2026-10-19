@@ -70,7 +70,9 @@ session can skip that instruction.
 Kimi Code runs `SessionStart` hooks but discards their output, so Kimi gets the rules with
 the first prompt of each session. Kimi 2.2.0 and later keep that prompt's hook output
 through compaction; older versions drop it, so House Rules needs Kimi 2.2.0 or later.
-`kimi -p` prints the injected text before its answer.
+`kimi -p` prints the injected text before its answer. Kimi can also clear a session's context
+while keeping its session id, and no hook runs then; whether the terminal UI's `/clear` does
+this is unverified. After such a clear, start a new session to get the rules again.
 
 A product may run with several configuration homes, for example Codex accounts launched
 with different `CODEX_HOME` folders. Find each one: ask the operator and check launchers,
@@ -213,10 +215,12 @@ For each selected product and configuration home:
     `scripts/sync.py` reads it back with Python's TOML reader. Back up `config.toml`, append
     the table at its end, and preserve every other table and setting. Remove earlier tables
     whose command runs `scripts/session_context.py` under the current or a previous root.
-    The hook prints the rules on a session's first prompt and keeps an empty file named
-    after the session id in `$KIMI_CODE_HOME/house-rules-sessions/`, so later prompts print
-    nothing. It removes files older than 30 days. Kimi reads hooks when it starts, or on
-    `/reload`.
+    The hook prints the rules on a session's first prompt. After printing them, it keeps an
+    empty file named after the session id in `$KIMI_CODE_HOME/house-rules-sessions/`, so
+    later prompts in that session, including resumed ones, print nothing. While a House Rules
+    file is missing or a section is too long, it writes no file, so every prompt prints the
+    rules with the error line until the file is fixed. A missing `custom/INDEX.md` is reported
+    once per session. Kimi reads hooks when it starts, or on `/reload`.
 
     The hook and `scripts/sync.py` report two capacity errors. A section too long for one
     part is split under more headings by the owner of its file: the operator for
