@@ -20,7 +20,7 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   configured output root, including through symlinks. Reviewer names must match
   `[a-z0-9-]+` and an existing file stem in `prompts/lenses/`, with no duplicates.
   Structured prompt order: shared review rules, PR/issue context and requirements, then
-  the change, complete changed source files and lens instructions last. Different lenses
+  the change and lens instructions last. Different lenses
   share the prefix before those final instructions when one task is prepared once and compiled per lens, as the panel does.
   Separate standalone calls share the layout, but live inputs such as new comments can differ between calls.
   Pack and diff retain their existing order, including specification rules after target rules unless an earlier include owns them.
@@ -67,18 +67,17 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   that requires this redaction is refused before publication or dispatch, using the same
   policy from the pinned preparer. Its source bytes and provenance are never rewritten. A later GitHub read failure names the failed source and preserves already
   fetched context. Comments are capped at 4,000 characters with a cut notice.
-  Codex defaults to `structured` (v3 numbered changes), others to `pack` (file index and hunk
-  headers); `--format diff` omits legacy spec content. `--format` overrides defaults;
-  structured changes use head line numbers, or old line numbers for removals. Git
-  moved-line detection uses `--color-moved=zebra --color-moved-ws=allow-indentation-change`;
-  paired moved blocks become one source-to-destination reference. Complete changed non-test
-  source files appear once, numbered at head. Their diff additions refer to head lines,
-  and their unchanged diff context is omitted. File classification uses the existing
-  source/test/docs index; documentation, tests and lockfiles receive no full-file copy.
-  `--full-file-cap N` sets the per-file character cap (default `60000`; nonnegative).
-  Oversized files are listed with their byte size and an omission notice. Deleted and
-  binary source files and submodules are explicitly listed without full head content. One note tells the
-  reviewer to read files only for context outside the supplied change and full files.
+  Codex defaults to `structured`, others to `pack` (file index and hunk headers);
+  `--format diff` omits legacy spec content. `--format` overrides defaults.
+  The structured change opens with two lists: the changed files shown whole, and the files
+  shown as a diff only with the reason (size, deleted, binary or submodule).
+  Each changed text file up to the cap, whether source, test or documentation, is shown
+  whole as uncolored `git diff` output with the whole file as context. Each line carries its
+  number: the head number for context and added lines, the old number for removed lines.
+  Larger, deleted and binary files and submodules are shown as plain `git diff -U3` output.
+  Lockfiles are listed only. `--full-file-cap N` sets the per-file character cap
+  (default `85000`; nonnegative). A selected spec document that the change shows whole
+  appears in the requirements as a pointer to that changed file, so its text appears once.
   Diff reads are bounded before prompt construction, using numstat first and streaming
   hunk headers for pack mode. Changed paths use NUL-delimited metadata and byte-preserving
   decoding, then literal Git pathspecs. Non-UTF-8 bytes are displayed as escapes and

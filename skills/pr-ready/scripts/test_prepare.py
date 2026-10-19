@@ -838,15 +838,86 @@ else:
 
 
 class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
-    def test_file_replaced_by_directory_lists_deleted_source_and_only_numbers_child_blob(self):
+    def change(self, prompt):
+        """Part 5 of a structured prompt, without the lens instructions."""
+        return prompt.split("# 5. Change\n", 1)[1].split("# 7. Lens instructions", 1)[0]
+
+    def lists(self, change):
+        """The files shown whole and the files shown as a diff only, as the change lists them."""
+        whole, diff_only = change.split("\n## F", 1)[0].split("Files shown as a diff only", 1)
+        return re.findall(r"(?m)^- F\d+ .*", whole), re.findall(r"(?m)^- F\d+ .*", diff_only)
+
+    def rows(self, change, path):
+        """The numbered rows of one file shown whole."""
+        section = change.split(f". {path} (shown whole)\n", 1)[1].split("\n## F", 1)[0]
+        return re.findall(r"(?m)^[ +-] *\d+\t.*", section)
+
+    def test_review_pack_for_a_pull_request_has_numbered_whole_files_and_every_role(self):
+        self.add_review_change()
+        self.write(self.repo, "src/large.py", "".join(f"value_{n} = {n}\n" for n in range(100)))
+        self.commit(self.repo, "Add a file above the whole-file cap")
+        self.panel_source()
+        source = self.root / "panel-source"
+        context = subprocess.run(
+            [sys.executable, "-B", str(SCRIPT), "review", str(self.repo), "--context-only", "--base", "origin/trunk",
+             "--no-fetch", "--spec", "docs/design.md", "--full-file-cap", "1000"],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(context.returncode, 0, context.stderr)
+        change = self.change(context.stdout)
+        files = [path for _, _, path in prepare.changed_files(self.repo, "origin/trunk...HEAD")]
+        whole, diff_only = self.lists(change)
+        large = len((self.repo / "src/large.py").read_text())
+        self.assertEqual(diff_only, [f"- F{files.index('src/large.py') + 1} src/large.py "
+                                     f"({prepare.grouped(large)} characters)"])
+        self.assertEqual(whole, [f"- F{n} {path}" for n, path in enumerate(files, 1)
+                                 if path not in ("src/large.py", "Cargo.lock")])
+        base = self.git(self.repo, "merge-base", "origin/trunk", "HEAD")
+        for path in (row.split(" ", 2)[2] for row in whole):
+            with self.subTest(path=path):
+                rows = self.rows(change, path)
+                new = [row.split("\t", 1)[1] for row in rows if row[0] in " +"]
+                old = [row.split("\t", 1)[1] for row in rows if row[0] in " -"]
+                self.assertEqual(new, (self.repo / path).read_text().splitlines())
+                before = subprocess.run(["git", "show", f"{base}:{path}"], cwd=self.repo, capture_output=True,
+                                        text=True, stdin=subprocess.DEVNULL)
+                self.assertEqual(old, before.stdout.splitlines() if before.returncode == 0 else [])
+                self.assertEqual([int(row[1:].split("\t", 1)[0]) for row in rows if row[0] in " +"],
+                                 list(range(1, len(new) + 1)))
+        # The changed spec is shown whole once, in part 5; part 4 keeps only its index entry.
+        self.assertEqual(context.stdout.count("Nested detail"), 1)
+        self.assertIn("Nested detail", change)
+
+        def compile_pack(*args):
+            result = subprocess.run(
+                [sys.executable, "-B", str(source / "skills/pr-ready/scripts/prompt.py"), "--repo", str(source),
+                 "--rev", "HEAD", "--target", str(self.repo), *args], capture_output=True, text=True,
+                stdin=subprocess.DEVNULL)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            return result.stdout
+
+        task = self.root / "context.txt"
+        task.write_text(context.stdout)
+        procedure = (source / "prompts/util/review-procedure.md").read_text()
+        for lens in ("correctness-security", "concurrency-restarts", "spec", "waste", "design-spec", "generic"):
+            with self.subTest(lens=lens):
+                pack = compile_pack("--role", "reviewer", "--lens", lens, "--task", str(task))
+                shared, instructions = pack.split("# 7. Lens instructions\n", 1)
+                self.assertIn(change, shared)
+                self.assertEqual(instructions.count(procedure), 0 if lens == "generic" else 1)
+                if lens == "generic":
+                    self.assertIn((source / "prompts/lenses/generic.md").read_text(), instructions)
+        triager = compile_pack("--role", "triager")
+        for rule in ("prompts/util/triage-classes.md", "prompts/skills/test-discipline.md"):
+            with self.subTest(rule=rule):
+                self.assertEqual(triager.count((source / rule).read_text()), 1)
+
+    def test_file_replaced_by_directory_lists_deleted_file_and_shows_child_whole(self):
         (self.repo / "src/core.py").unlink()
         self.write(self.repo, "src/core.py/implementation.py", "result = 2\n")
         self.commit(self.repo, "Replace source with directory")
-        full = self.review().split("# 6. Changed source files\n", 1)[1].split(
-            "# 7. Lens instructions", 1)[0].strip()
-        self.assertEqual(full, "- src/core.py: deleted; no head content.\n\n"
-                         "## src/core.py/implementation.py (complete at head, numbered)\n\n"
-                         "```\n    1  result = 2\n```")
+        change = self.change(self.review())
+        self.assertEqual(self.lists(change), (["- F2 src/core.py/implementation.py"], ["- F1 src/core.py (deleted)"]))
+        self.assertEqual(self.rows(change, "src/core.py/implementation.py"), ["+     1\tresult = 2"])
 
     def test_second_family_reviewer_reports_size_guard_without_missing_task_error(self):
         self.write(self.repo, "large.py", "# " + "x" * 800_001 + "\n")
@@ -916,21 +987,17 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         self.assertIn(b"change part uses pack (hunk headers)", prefixes[0])
         self.assertEqual(prefixes[0], prefixes[1])
 
-    def test_regular_file_replaced_by_symlink_keeps_both_native_sections(self):
+    def test_regular_file_replaced_by_symlink_shows_old_text_and_link_target(self):
         path = self.repo / "src/core.py"
         path.unlink()
         path.symlink_to("destination.py")
         self.write(self.repo, "src/later.py", "later = 2\n")
         self.commit(self.repo, "Replace source with symlink")
-        result = self.review()
-        change = result.split("# 5. Change\n", 1)[1].split("# 6. Changed source files", 1)[0]
-        self.assertIn("deleted file mode 100644", change)
-        self.assertIn("new file mode 120000", change)
-        self.assertEqual(re.findall(r"(?m)^ *\d+[-] .*", change),
-                         ["    1- def action():", "    2-     return 1"])
-        full = result.split("# 6. Changed source files\n", 1)[1].split("# 7. Lens instructions", 1)[0]
-        self.assertEqual(re.findall(r"(?m)^ *\d+  .*", full),
-                         ["    1  destination.py", "    1  later = 2"])
+        change = self.change(self.review())
+        self.assertEqual(self.lists(change), (["- F1 src/core.py", "- F2 src/later.py"], []))
+        self.assertEqual(self.rows(change, "src/core.py"),
+                         ["-     1\tdef action():", "-     2\t    return 1", "+     1\tdestination.py"])
+        self.assertEqual(self.rows(change, "src/later.py"), ["+     1\tlater = 2"])
 
     def test_panel_different_length_lenses_share_context_at_fallback_threshold(self):
         self.write(self.repo, "large.py", "payload = '" + "x" * 550_000 + "'\n")
@@ -977,9 +1044,10 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
              "--rev", "HEAD", "--role", "reviewer", "--lens", "generalist-a", "--target", str(self.repo),
              "--task", str(task)], capture_output=True, stdin=subprocess.DEVNULL)
         self.assertEqual(result.returncode, 0, result.stderr)
-        change = result.stdout.split(b"# 5. Change\n", 1)[1].split(b"# 6. Changed source files", 1)[0]
-        self.assertEqual(re.findall(rb"(?m)^ *\d+[-+].*$", change),
-                         [b"    5- result = 1", b"    5+"])
+        change = self.change(result.stdout.decode())
+        self.assertEqual(self.rows(change, "src/core.py"),
+                         ["      1\tfirst = 1", "      2\t", "      3\tsecond = 2", "      4\t",
+                          "-     5\tresult = 1", "+     5\tresult = 2"])
 
     def test_compiled_structured_reviews_share_context_before_final_lenses(self):
         self.write(self.repo, "src/core.py", "def action():\n    return 2\n")
@@ -1057,19 +1125,7 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         self.assertNotEqual(sections[0][1], sections[1][1])
         self.assertTrue(sections[0][0].rstrip().endswith("```"))
 
-    def test_cross_file_indented_move_is_one_reference_with_one_copy_of_content(self):
-        block = "def relocated_behavior():\n    return 'moved payload with enough letters'\n"
-        self.write(self.repo, "src/old.py", block)
-        self.commit(self.repo, "Add move source")
-        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
-        (self.repo / "src/old.py").unlink()
-        self.write(self.repo, "src/new.py", "class Container:\n" + "".join("    " + row for row in block.splitlines(True)))
-        self.commit(self.repo, "Move behavior")
-        change = self.review().split("# 5. Change\n", 1)[1].split("# 7. Lens instructions", 1)[0]
-        self.assertEqual(re.findall(r"Move: .*", change), ["Move: src/old.py:1-2 -> src/new.py:2-3 (indentation may change)."])
-        self.assertEqual(change.count("moved payload with enough letters"), 1)
-
-    def test_file_above_configured_cap_is_listed_with_size_without_full_content(self):
+    def test_file_above_configured_cap_is_shown_as_a_diff_only_with_its_size(self):
         text = "unchanged_context_marker = 1\n" + "padding = 0\n" * 30 + "result = 1\n"
         self.write(self.repo, "src/core.py", text)
         self.commit(self.repo, "Establish large context")
@@ -1079,8 +1135,9 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         self.commit(self.repo, "Change large file")
         code, prompt, err = self.invoke("review", str(self.repo), "--base", "origin/trunk", "--no-fetch", "--full-file-cap", "100")
         self.assertEqual(code, 0, err)
-        full = prompt.split("# 6. Changed source files\n", 1)[1].split("# 7. Lens instructions", 1)[0].strip()
-        self.assertEqual(full, "- src/core.py: " + str(len(text.encode())) + " bytes; not included (exceeds 100-character cap).")
+        change = self.change(prompt)
+        self.assertEqual(self.lists(change), ([], [f"- F1 src/core.py ({prepare.grouped(len(text))} characters)"]))
+        self.assertIn(" padding = 0\n-result = 1\n+result = 2\n", change)
         self.assertNotIn("unchanged_context_marker", prompt)
 
     def test_submodule_is_listed_without_requiring_its_external_commit(self):
@@ -1089,10 +1146,9 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         for setting in ("short", "log", "diff"):
             with self.subTest(setting=setting):
                 self.git(self.repo, "config", "diff.submodule", setting)
-                prompt = self.review()
-                full = prompt.split("# 6. Changed source files\n", 1)[1].split("# 7. Lens instructions", 1)[0].strip()
-                self.assertEqual(full, "- vendor/example: submodule; no full file content.")
-                self.assertIn("    1+ Subproject commit " + "1" * 40, prompt)
+                change = self.change(self.review())
+                self.assertEqual(self.lists(change), ([], ["- F1 vendor/example (submodule)"]))
+                self.assertIn("+Subproject commit " + "1" * 40, change)
 
     def test_diff_rows_use_head_numbers_and_old_numbers_for_removals(self):
         self.write(self.repo, "tests/example.py", "start\nold\nend\n")
@@ -1100,20 +1156,16 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
         self.write(self.repo, "tests/example.py", "start\nnew\nextra\nend\n")
         self.commit(self.repo, "Change numbered input")
-        change = self.review().split("# 5. Change\n", 1)[1].split("# 6. Changed source files", 1)[0]
-        rows = re.findall(r"^ *[0-9]+[ +\-] .*", change, re.M)
-        self.assertEqual(rows, ["    1  start", "    2- old", "    2+ new", "    3+ extra", "    4  end"])
+        self.assertEqual(self.rows(self.change(self.review()), "tests/example.py"),
+                         ["      1\tstart", "-     2\told", "+     2\tnew", "+     3\textra", "      4\tend"])
 
-    def test_included_full_file_has_one_copy_and_diff_references_head_lines(self):
-        text = "def action():\n    return 'unique_head_payload'\n"
-        self.write(self.repo, "src/core.py", text)
+    def test_file_shown_whole_has_one_copy_of_each_line(self):
+        self.write(self.repo, "src/core.py", "def action():\n    return 'unique_head_payload'\n")
         self.commit(self.repo, "Change payload")
-        prompt = self.review()
-        change = prompt.split("# 5. Change\n", 1)[1].split("# 7. Lens instructions", 1)[0]
+        change = self.change(self.review())
         self.assertEqual(change.count("unique_head_payload"), 1)
-        full = change.split("# 6. Changed source files\n", 1)[1]
-        self.assertEqual(full.strip(), "## src/core.py (complete at head, numbered)\n\n```\n    1  def action():\n    2      return 'unique_head_payload'\n```")
-        self.assertEqual(re.findall(r"^ *[0-9]+\+$", change, re.M), ["    2+"])
+        self.assertEqual(self.rows(change, "src/core.py"),
+                         ["      1\tdef action():", "-     2\t    return 1", "+     2\t    return 'unique_head_payload'"])
 
 
 class PrepareTests(PrepareFixture, unittest.TestCase):
@@ -1178,7 +1230,7 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
             with self.subTest(mode=mode):
                 output = prepare.change_part(self.repo, "origin/trunk...HEAD", files,
                                              "https://github.com/example/project", "HEAD", mode)
-                self.assertIn("@@ -", output)
+                self.assertIn(" (shown whole)\n" if mode == "structured" else "@@ -", output)
                 self.assertIn("%FF.py", output)
                 output.encode("utf-8")
                 if mode != "pack":
@@ -1225,7 +1277,10 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
                 with self.subTest(mode=mode, path=path):
                     selected = [row for row in files if row[2] == path]
                     output = prepare.change_part(self.repo, "origin/trunk...HEAD", selected, None, "HEAD", mode)
-                    self.assertEqual(output.count("@@ -"), 1)
+                    if mode == "structured":
+                        self.assertEqual(output.count(" (shown whole)\n"), 1)
+                    else:
+                        self.assertEqual(output.count("@@ -"), 1)
                     if mode != "pack":
                         self.assertIn(f"unique_marker_{n} = {n}", output)
                         self.assertEqual(len(re.findall(r"unique_marker_\d+ =", output)), 1)
@@ -1327,7 +1382,7 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
         pr = {"url": "https://github.com/example/project/pull/1", "title": "Change title",
               "body": "PR body\nDesign: docs/design.md [§2, §20]\n"}
         self.github(pr)
-        prompt = self.review(pr="1", summary=str(summary), tests="AT1")
+        prompt = self.review(pr="1", summary=str(summary), tests="AT1", format="pack")
         self.assertIn("Round task override", prompt)
         self.assertIn("R1. Design/spec docs/design.md — Full document", prompt)
         self.assertIn("## 20 Other\nUnselected section", prompt)
@@ -1367,7 +1422,7 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
         self.commit(self.repo, "Implement AT2 PT3")
         self.github(issues=[self.issue(2, "Design: docs/design.md [§1]\nAT2")])
         code, prompt, err = self.invoke("review", str(self.repo), "--base", "origin/trunk", "--no-fetch",
-                                        "--issue", "2", "--test-prefix", "AT")
+                                        "--issue", "2", "--test-prefix", "AT", "--format", "pack")
         self.assertEqual(code, 0, err)
         requirements = prompt.split("# 4. Requirements")[1].split("# 5. Change")[0]
         self.assertIn("| AT2 | Custom test |", requirements)
@@ -1617,7 +1672,7 @@ class DocumentReferenceTests(PrepareFixture, unittest.TestCase):
     def test_hyphens_are_part_of_acceptance_ids(self):
         self.write(self.repo, "docs/spec.md", "## Tests\n| AT1-case | Extended ID |\n| AT1 | Exact ID |\n| AT10 | Other ID |\n")
         self.commit(self.repo, "Implement AT1-case")
-        prompt = self.review(tests="AT1", test_prefix="AT")
+        prompt = self.review(tests="AT1", test_prefix="AT", format="pack")
         requirements = prompt.split("# 4. Requirements")[1].split("# 5. Change")[0]
         self.assertIn("| AT1 | Exact ID |", requirements)
         self.assertIn("| AT1-case |", requirements)
@@ -1689,7 +1744,7 @@ class DocumentReferenceTests(PrepareFixture, unittest.TestCase):
                 self.assertEqual(missing, [])
                 self.assertEqual(notices, [])
                 self.github(self.pr(reference))
-                self.assertIn(doc.decode(), self.review(spec=spec, tests=tests))
+                self.assertIn(doc.decode(), self.review(spec=spec, tests=tests, format="pack"))
 
     def test_explicit_spec_section_selectors_fail_without_prompt(self):
         self.add_review_change()
@@ -1713,8 +1768,10 @@ class DocumentReferenceTests(PrepareFixture, unittest.TestCase):
             (1, "Review pack"), (3, "Pull request and issue"), (4, "Requirements"), (5, "Change"),
             (7, "Lens instructions"))]
         self.assertEqual(positions, sorted(positions))
-        spec = prompt[positions[2]:positions[3]]
-        self.assertIn("R1. Design/spec docs/design.md — Full document — [docs/design.md:1]", spec)
+        self.assertIn("R1. Design/spec docs/design.md — Full document — [docs/design.md:1]",
+                      prompt[positions[2]:positions[3]])
+        # The changed spec is shown whole in part 5, and part 4 points to it.
+        spec = prompt[positions[2]:positions[4]]
         self.assertIn("### 2.1 Detail", spec)
         self.assertIn("# Not a heading", spec)
         self.assertIn("| AT1-case | Included row |", spec)
@@ -1758,7 +1815,7 @@ class DocumentReferenceTests(PrepareFixture, unittest.TestCase):
             with self.subTest(dash=dash):
                 self.github(self.pr(f"Refs #2\nDesign: docs/spec.md [§3A.2.5{dash}§3A.2.6]\nPT1"),
                             [self.issue(2, "Also §3A.5 and PT2")])
-                prompt = self.review()
+                prompt = self.review(format="pack")
                 requirements = prompt.split("# 4. Requirements")[1].split("# 5. Change")[0]
                 self.assertIn("R1. Design/spec docs/spec.md — Full document", requirements)
                 self.assertEqual(requirements.count((self.repo / "docs/spec.md").read_text()), 1)
