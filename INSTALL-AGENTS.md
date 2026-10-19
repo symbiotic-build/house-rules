@@ -185,6 +185,9 @@ For each selected product and configuration home:
 10. Register the session-context hook in every Claude Code and Codex home (§1 hook table).
     At every new, resumed, cleared and compacted session it prints `INDEX.md`, the rule files
     the index lists under "Always load", the operator-writing Skill and `custom/INDEX.md`.
+    The hook command is quoted for a POSIX shell. On native Windows, first print the entry
+    with `scripts/session_context.py hooks <product> "<HOUSE_RULES_ROOT>"`, run its command
+    in the product's hook shell, and report a failure as a conflict instead of installing.
     Run the installer with a Python 3.9 or later interpreter that agent sessions can run:
 
     ```sh
@@ -194,9 +197,11 @@ For each selected product and configuration home:
     For each hook file it removes every earlier House Rules entry, adds the current one and
     keeps every other entry and setting. An earlier entry runs `scripts/session_context.py`
     under the current or a previous root, or runs a script a receipt lists under
-    `replaced_hooks`, such as an older hand-made context hook. The installer backs up a
+    `replaced_hooks`, such as an older hand-made context hook. It runs the script with a Python
+    interpreter and only simple flags such as `-I`, or runs the script directly; a command that
+    only mentions such a path is not House Rules-owned. The installer backs up a
     changed file beside it under a new name, readable only by its owner, replaces it
-    atomically, and prints each file it writes. It leaves a file that already holds the current
+    atomically, and prints each backup and each file it writes as soon as it exists. It leaves a file that already holds the current
     entry unchanged. Run it while no agent session is changing its settings: it reads each
     file again just before replacing it and stops on a change, but a change in the instant
     between that check and the replacement would be lost, and the backup holds the file as
@@ -204,9 +209,7 @@ For each selected product and configuration home:
     interpreter by its absolute path and names the root as passed to `--root`, so a stable
     link to a moving checkout stays valid. Claude Code gets one hook per part, because it
     caps each hook's output at 10 000 characters; Codex gets one hook; Kimi Code gets none.
-    `scripts/session_context.py hooks <product> <root>` prints the entry without writing it.
-    The command is quoted for a POSIX shell: on native Windows, run it in the product's hook
-    shell first, and report it as a conflict when it fails. Codex skips a new hook until the
+    Codex skips a new hook until the
     operator trusts it in `/hooks`; record that as a pending operator action in
     `custom/INDEX.md`. Record each hook file and its backup in the receipt.
 

@@ -788,9 +788,12 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
                     {"type": "command", "command": f"/usr/bin/test -f {shlex.quote(self.legacy)}"},
                     {"type": "command", "command": f"/usr/bin/python3 -c 'print(1)' {shlex.quote(script)}"},
                     {"type": "command", "command": f"/usr/bin/python3 -c'print(1)' {shlex.quote(script)}"},
-                    {"type": "command", "command": f"/usr/bin/python3 -mjson.tool {shlex.quote(script)}"}]
+                    {"type": "command", "command": f"/usr/bin/python3 -mjson.tool {shlex.quote(script)}"},
+                    {"type": "command", "command": f"/bin/echo -I {shlex.quote(script)} claude 1"},
+                    {"type": "command", "command": f"/usr/bin/python3 -Icprint(1) {shlex.quote(script)}"},
+                    {"type": "command", "command": f"/usr/bin/python3 -X utf8 {shlex.quote(self.legacy)}"}]
         old = [{"type": "command", "command": f"/usr/bin/python3 {shlex.quote(self.legacy)} session 1"},
-               {"type": "command", "command": f"/usr/bin/env python3 -X utf8 {shlex.quote(self.legacy)}"},
+               {"type": "command", "command": f"/usr/bin/env python3 -B {shlex.quote(self.legacy)}"},
                {"type": "command", "command": shlex.quote(self.legacy)},
                {"type": "command", "command": f"/opt/bin/pypy3 {shlex.quote(self.legacy)}"}]
         self.write(self.settings, json.dumps({"hooks": {"SessionStart": [{"hooks": mentions + old}]}}))
@@ -812,6 +815,9 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
             code, out, err = self.invoke("--install-hooks")
         self.assertEqual(code, 2, out + err)
         self.assertIn(f"hook file changed during installation; not written: {self.settings}", err)
+        backups = self.backups(self.settings)
+        self.assertEqual(len(backups), 1)
+        self.assertIn(f"BACKUP: {backups[0]} (copy of {self.settings})", out)
         self.assertEqual(self.read(self.settings), {"model": "other writer"})
         self.assertEqual(sorted(p.name for p in self.claude.iterdir() if p.name.startswith(".settings.json.")), [])
 

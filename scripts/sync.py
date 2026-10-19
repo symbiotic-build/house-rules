@@ -324,32 +324,36 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset()):
         findings.append(f"stale session context hook: {path}")
 
 
-def script_of(tokens, python=None):
-    """The script a command runs: <python> [options] <script> ..., env <python> ..., or <script> ...
+# Standalone interpreter flags that take no value and run no code; anything else ends recognition.
+SIMPLE_FLAGS = {"-I", "-B", "-E", "-s", "-S", "-u", "-O", "-OO", "-b", "-q"}
 
+
+def script_of(tokens, python=None):
+    """The script file a command runs, or None when that is not certain.
+
+    Recognised: <python> [simple flags] <script> ..., the same after `env`, and <script> ...
     A Python interpreter is the installer's own executable or a program whose name starts with
-    "py" (python3, python3.14t, py, pypy3). A command that only mentions a path, such as
-    `test -f <path>` or `echo <path>`, runs its own program, never that path. Code given with
-    -c or a module given with -m, attached or separate, runs no script file.
+    "py". Grouped or value-taking options (-c, -m, -Icode, -X utf8) make the command unknown, and
+    any other program runs itself: `echo <script>` or `test -f <script>` never runs the script.
     """
-    if len(tokens) in (4, 5) and tokens[1] == "-I" and Path(tokens[2]).name == "session_context.py" and (
-            tokens[3:] == ["codex"] or (tokens[3] == "claude" and tokens[4:5] != [] and tokens[4].isdigit())):
-        return tokens[2]  # the exact form session_context.hooks() prints, whatever the interpreter is called
+    python = python or sys.executable
     if tokens and Path(tokens[0]).name == "env":
         tokens = tokens[1:]
     if not tokens:
         return None
-    if tokens[0] != python and not Path(tokens[0]).name.startswith("py"):
+    if not (tokens[0] == python or Path(tokens[0]).name.startswith("py") or same_file(tokens[0], python)):
         return tokens[0]
-    arguments = iter(tokens[1:])
-    for token in arguments:
-        if token.startswith(("-c", "-m")):
-            return None
-        if token in ("-W", "-X"):
-            next(arguments, None)
-        elif not token.startswith("-"):
-            return token
-    return None
+    index = 1
+    while index < len(tokens) and tokens[index] in SIMPLE_FLAGS:
+        index += 1
+    return tokens[index] if index < len(tokens) and not tokens[index].startswith("-") else None
+
+
+def same_file(first, second):
+    try:
+        return os.path.samefile(first, second)
+    except OSError:
+        return False
 
 
 def handler_commands(entry):
@@ -365,15 +369,17 @@ def handler_commands(entry):
 
 
 def install_hooks(root, hook_root, home, python, report):
-    """Write the current hook entry into each Claude Code and Codex hook file; report(path, backup) per file.
+    """Write the current hook entry into each Claude Code and Codex hook file.
+
+    report(event, path, backup) runs at once after each backup ("backup") and each replacement
+    ("registered"), so a later failure cannot hide a backup or a file already changed.
 
     Removes House Rules handlers of any recorded root and receipt-listed replaced hooks, keeps every
     other entry and setting, backs up an existing file beside it and replaces the file atomically.
     A file whose only House Rules entry is already the current one is not written. The file is
     read again just before replacement, and a change since the first read is an error; a change
     in the instant between that check and the replacement is not detected, so installation runs
-    while no agent session changes its settings (INSTALL-AGENTS.md §3 step 10). Each write is
-    reported as it happens, so a later failure cannot hide files already changed.
+    while no agent session changes its settings (INSTALL-AGENTS.md §3 step 10).
     """
     roots = ownership_roots(root) | {str(hook_root)}
     ours = {str(Path(other) / "scripts/session_context.py") for other in roots} | replaced_hooks(root)
@@ -403,6 +409,8 @@ def install_hooks(root, hook_root, home, python, report):
         settings.setdefault("hooks", {})["SessionStart"] = kept + [expected]
         mode = stat.S_IMODE(os.stat(path).st_mode) if data is not None else 0o600
         backup = backup_copy(path, data, mode) if data is not None else None
+        if backup is not None:
+            report("backup", path, backup)
         handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
         try:
             with os.fdopen(handle, "w", encoding="utf-8") as stream:
@@ -414,7 +422,7 @@ def install_hooks(root, hook_root, home, python, report):
         except BaseException:
             os.unlink(temporary)
             raise
-        report(path, backup)
+        report("registered", path, backup)
 
 
 def backup_copy(path, data, mode):
@@ -459,8 +467,9 @@ def main(argv=None):
     verification_complete = False
     # A failed checkout update must not prevent checking the installed homes.
     def install():
-        install_hooks(root, hook_root, Path.home(), sys.executable, lambda path, backup: print(
-            f"REGISTERED: session context hook in {path}" + (f" (backup: {backup})" if backup else "")))
+        install_hooks(root, hook_root, Path.home(), sys.executable, lambda event, path, backup: print(
+            f"BACKUP: {backup} (copy of {path})" if event == "backup" else
+            f"REGISTERED: session context hook in {path}"))
 
     for name, operation in (
             ("update", lambda: findings.extend(update(root))),
