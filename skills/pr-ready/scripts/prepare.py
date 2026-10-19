@@ -562,7 +562,7 @@ def discover_spec(repo, head, explicit, texts, files, missing=None):
     if explicit:
         if "#" in explicit:
             raise PrepareError("spec section selectors are not supported; select a whole document with --spec PATH")
-        path = explicit
+        path = re.sub(r"^(?:\./)+", "", explicit)  # The changed-file inventory never spells a leading "./".
         return path if run(repo, "git", "cat-file", "-e", f"{head}:{path}").returncode == 0 else None
     paths = git(repo, "ls-tree", "-r", "--name-only", "-z", head).split("\0")
     refs = None
@@ -707,12 +707,14 @@ def file_diff(repo, rng, path, mode, budget, context=None):
     """Bound every read, including a single enormous source line."""
     unified = ("-U0" if mode == "pack" else f"-U{context}" if context is not None
                else "-U3" if kind(path) == "test" else "-U10")
-    # Short submodule lines need no commits from the submodule itself.
-    command = ["git", "-c", "diff.submodule=short", "diff", "--no-ext-diff", "--no-textconv", "--no-renames",
-               "--no-color", unified, rng, "--", ":(literal)" + path]
+    # Short submodule lines need no commits from the submodule itself; blank context keeps its space.
+    command = ["git", "-c", "diff.submodule=short", "-c", "diff.suppressBlankEmpty=false", "diff", "--no-ext-diff",
+               "--no-textconv", "--no-renames", "--no-color", unified, rng, "--", ":(literal)" + path]
+    env = noninteractive_env()
+    env.pop("GIT_DIFF_OPTS", None)  # The explicit context argument decides the context.
     with tempfile.TemporaryFile() as errors, subprocess.Popen(
         command, cwd=repo, stdout=subprocess.PIPE, stderr=errors,
-        env=noninteractive_env(), stdin=subprocess.DEVNULL
+        env=env, stdin=subprocess.DEVNULL
     ) as process:
         try:
             if mode == "pack":
@@ -807,6 +809,11 @@ def numbered(diff, text):
             old += 1
             new += 1
     if hunks:
+        lines = text.split("\n")
+        if lines[-1] == "":
+            lines.pop()
+        if [row.split("\t", 1)[1] for row in rows if row[:1] in (" ", "+")] != lines:
+            raise PrepareError("git diff did not return the whole file; a file shown whole must rebuild its head text")
         return "\n".join(rows)
     if re.search(r"(?m)^Binary files ", diff):
         return None

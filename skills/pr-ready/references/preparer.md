@@ -75,7 +75,9 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   whole as uncolored `git diff` output with the whole file as context. Each line carries its
   number: the head number for context and added lines, the old number for removed lines.
   Git's mode, file-type and missing-newline lines stay as unnumbered rows. A file is read
-  whole only when its size fits the remaining prompt budget.
+  whole only when its size fits the remaining prompt budget. The caller's `GIT_DIFF_OPTS`
+  and blank-line setting cannot shorten the context; a file whose numbered rows do not
+  rebuild its head text fails preparation instead of being labeled whole.
   Larger, deleted and binary files and submodules are shown as plain `git diff -U3` output.
   Lockfiles are listed only. `--full-file-cap N` sets the per-file character cap
   (default `85000`; nonnegative). A selected spec document that the change shows whole

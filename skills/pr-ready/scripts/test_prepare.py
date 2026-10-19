@@ -1052,6 +1052,27 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(code, 0, err)
         self.assertEqual(prompt, unconstrained)
 
+    def test_whole_file_ignores_callers_diff_environment_and_blank_line_setting(self):
+        self.write(self.repo, "src/core.py", "old\n\n\n")
+        self.commit(self.repo, "Establish trailing blank lines")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        self.write(self.repo, "src/core.py", "new\n\n\n")
+        self.commit(self.repo, "Change the first line")
+        self.git(self.repo, "config", "diff.suppressBlankEmpty", "true")
+        with mock.patch.dict(os.environ, {"GIT_DIFF_OPTS": "--unified=0"}):
+            change = self.change(self.review())
+        self.assertEqual(self.rows(change, "src/core.py"), ["-     1\told", "+     1\tnew", "      2\t", "      3\t"])
+
+    def test_partial_whole_file_diff_fails_visibly(self):
+        with self.assertRaisesRegex(prepare.PrepareError, "whole file"):
+            prepare.numbered("@@ -1 +1 @@\n+first", "first\nsecond\n")
+
+    def test_changed_spec_selected_with_a_leading_dot_slash_appears_once(self):
+        self.add_review_change()
+        prompt = self.review(spec="./docs/design.md")
+        self.assertIn("R1. Design/spec docs/design.md — Full document", prompt)
+        self.assertEqual(prompt.count("Nested detail"), 1)
+
     def test_changed_spec_shown_whole_is_budgeted_as_its_pointer(self):
         self.write(self.repo, "docs/spec.md", "## 1 Behavior\n" + "Requirement line\n" * 3_000)
         self.commit(self.repo, "Add a large changed spec")
