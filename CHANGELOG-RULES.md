@@ -8,8 +8,8 @@ Operator decision: 2026-10-20. Every reviewer had to give each rule-change item 
 so a review panel wrote the same table once per reviewer in every round. Only the
 rule-preservation reviewer now writes the dispositions; other reviewers report a rule
 regression they find during their own review. The rule-preservation reviewer now joins
-whenever the rule report lists any rule item, including additions and rewrapped text,
-so no item loses its audit.
+whenever the rule report is non-empty, including additions, rewrapped text and provenance
+entries, so no item loses its audit.
 
 ## skills/pr-ready — Structured review layout
 

@@ -421,7 +421,8 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertIn("Provenance entries: 2", report)
         self.assertNotIn("Retain evidence.", report)
         self.assertNotIn("Ignored provenance.", report)
-        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2], (0, ""))
+        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2],
+                         (0, "rule-preservation\n"))
         # Exact provenance copies at different locations are separate entries, not moves.
         self.snapshot({"history/approval.md": "# Approval\n- Retain evidence.\n",
                        "history/archive.md": "# Archive\n- Never skip validation.\n"})

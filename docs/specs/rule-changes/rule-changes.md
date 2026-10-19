@@ -390,7 +390,7 @@ Only regular UTF-8 protected files are accepted. Invalid encoding or nonregular 
 
 The [preparer](../../../skills/pr-ready/scripts/prepare.py) exposes `review --context-only` for the report and
 `rule-lenses CHECKOUT --base BASE --rev HEAD --no-fetch` for dispatch.
-The selector prints `rule-preservation` when the report has any rule item; a provenance-only report selects no lens.
+The selector prints `rule-preservation` whenever the report is non-empty, provenance entries included.
 The lane [panel](../../../skills/pr-ready/scripts/review-panel.sh) adds that lens without replacing the requested reviewers.
 The service must run the same selector from its pinned preparer, add the lens from its compiled pack, and honor nonzero preparation status.
 There is no automatic service adoption in this repository.
@@ -507,12 +507,12 @@ Dispatch checks the caller-visible result.
 
 **Requirements:** [Required behavior](#req-rule-review).
 
-**Inputs:** Removed, changed, moved, added, rewrapped-only and unchanged reviews.
+**Inputs:** Removed, changed, moved, added, rewrapped-only, provenance-only and unchanged reviews.
 
-**Expected:** The selector returns `rule-preservation` for removals, changes and moves; additions, rewrapped-only ranges and unchanged input return no lens.
+**Expected:** The selector returns `rule-preservation` for every non-empty report: removals, changes, moves, additions, rewrapped-only ranges and provenance-only changes. Unchanged input returns no lens.
 The lane panel adds the required lens alongside normal reviewers.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_rewrapped_only_range_needs_no_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_selector](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_adds_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_keeps_base_selected_before_lens_selection](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_base_command_resolves_reference_once_and_returns_commit](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_rewrapped_only_range_selects_the_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_selector](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_configured_provenance](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_adds_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_keeps_base_selected_before_lens_selection](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_base_command_resolves_reference_once_and_returns_commit](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-portability"></a>
 ### Portability
