@@ -39,8 +39,9 @@ Rules:
 - Never mention a decision, sub-decision, option or label before the text has explained
   it. A summary line at the top may state a result; it never introduces an unexplained
   label.
-- Number options with one scheme only (Option 1, 2, 3), with no gaps, and define every
-  option where options are listed.
+- Number options 1, 2, 3, with no gaps, in the form of
+  [session writing rules §Questions to the operator](../../rules/session-writing.md#questions-to-the-operator).
+  Define every option where options are listed.
 - One diagram at most per topic. Never place two diagrams without text between them.
   Diagram format follows [rules/writing.md §Format](../../rules/writing.md#format).
 - Short chat replies use the same order in compressed form: result → why → what is next.

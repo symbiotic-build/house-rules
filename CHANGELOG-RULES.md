@@ -2,6 +2,25 @@
 
 Source notes for House Rules invariants and procedures.
 
+## skills/decision-brief, skills/operator-writing — One home for the operator-question format
+
+Proposed: 2026-10-19; awaiting operator confirmation. A session asked the operator to
+decide in the decision-brief skill's `Decision 1 = Option 2` answer form, with decision IDs
+and options named "Option 1". The session writing rules prescribe a different format for
+the same questions: numbered `### 1\.` question headings, a one-line `FACT` / `ASSESSMENT`
+context, one bold "(recommended)" option, no word "Option" and an "Answer like so:"
+example. Both texts claimed the same subject, so following the skill broke the rule.
+
+[rules/session-writing.md §Questions to the operator](rules/session-writing.md#questions-to-the-operator)
+stays the one home for how operator questions, options and answers are written. The
+decision-brief skill keeps what a brief explains before its questions and references that
+section; it drops the `Decision N = Option M` answer line and the decision IDs. The
+operator-writing skill drops the "Option 1, 2, 3" naming and references the same section.
+
+Scope: questions the operator must answer, in chat or in a brief. Excluded: specifications
+and design documents, whose open questions stay unnumbered, and the content a brief
+explains before its questions.
+
 ## Install — Session-context hook
 
 Operator direction: 2026-10-19, after a session skipped rules it had been told to read:

@@ -6,8 +6,10 @@ license: MIT
 
 # Decision Brief
 
-Write every brief with skill `operator-writing`; option formatting follows
-[operator-writing §Structure](../operator-writing/SKILL.md#structure).
+Write every brief with skill `operator-writing`. The questions themselves — numbered
+headings, context line, options, recommendation and answer example — follow
+[rules/session-writing.md §Questions to the operator](../../rules/session-writing.md#questions-to-the-operator).
+This skill sets what a brief explains before those questions.
 
 The reader is deciding, not reviewing your work. They must understand each choice, what
 it changes and what it costs, without opening another document. Missing context is the
@@ -17,9 +19,9 @@ most common failure: a term, a mechanism or a side effect the reader cannot see.
 
 | Size | Shape |
 |---|---|
-| One or two decisions in chat | The per-decision block below, plus a short glossary of only the terms it uses and a one-line answer format. |
+| One or two decisions in chat | The per-decision block below, plus a short glossary of only the terms it uses, then the questions. |
 | Three or more decisions, or any decision that changes a design | A Markdown document with the full structure below ([rules/session-writing.md §Format](../../rules/session-writing.md#format)), sent to the operator as a file they can open, never only a local path. |
-| A follow-up asking for depth on one decision | That decision's block again, expanded, with a diagram of the data or flow it concerns. Keep its ID. |
+| A follow-up asking for depth on one decision | That decision's block again, expanded, with a diagram of the data or flow it concerns. Keep its question number. |
 
 ## Explaining on request
 
@@ -36,14 +38,13 @@ not understand a decision, answer in this shape rather than restating the summar
    number labelled with its basis.
 5. **What is recorded and how it is regenerated** when inputs, versions or settings change.
 6. **Gaps the explanation exposed,** labelled as gaps, with a recommendation.
-7. **Decisions,** with stable IDs, options and a recommendation, answerable in one line.
+7. **Decisions,** as questions to the operator.
 
 Ground every claim in the current spec or code; say where the spec is silent.
 
 ## Document structure
 
-1. **What you are deciding.** One line per decision with its ID, then how to answer
-   (`Decision 1 = Option 2, Decision 2 = Option 1`).
+1. **What you are deciding.** One plain line per decision, without options or labels.
 2. **Glossary.** Each term once, in plain language, with a small example. A small brief
    lists only the terms its decisions use; never skip a term the reader may not know.
 3. **Walkthrough.** One concrete example followed through the system as numbered steps
@@ -63,7 +64,8 @@ Ground every claim in the current spec or code; say where the spec is silent.
 5. **Reopened settled decisions,** each with the new evidence that reopened it, kept
    separate and not adopted by default.
 6. **Impact** by component or work package.
-7. **Evidence appendix** (skill `audit-report-authoring` §Evidence).
+7. **Questions,** one per decision, ending with the answer example.
+8. **Evidence appendix** (skill `audit-report-authoring` §Evidence).
 
 ## Before sending
 
@@ -84,8 +86,7 @@ it.
 
 - Follow [rules/writing.md §Claim labels](../../rules/writing.md#claim-labels).
 - One recommendation per decision. Options must be genuinely viable.
-- Stable decision IDs (`Decision 1`, `Decision 2`) across the brief and every follow-up.
-  Option formatting: [operator-writing §Structure](../operator-writing/SKILL.md#structure).
+- Keep each question's number across the brief and every follow-up.
 - Concrete over abstract: real names, sizes and numbers with their basis, and a
   before/after example for every change.
 - Comparisons and diagrams follow [rules/writing.md §Format](../../rules/writing.md#format).
