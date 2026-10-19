@@ -285,10 +285,15 @@ def verify(root, home, findings, selected, hook_root=None):
         findings.append(f"session context section too long for one part: {name}, heading \"{heading}\"")
 
 
-def read_hooks(path):
-    """The hook file's object and its SessionStart list; a file that is not a JSON object is an error."""
+def read_hooks(path, data=None):
+    """The hook file's object and its SessionStart list; a file that is not a JSON object is an error.
+
+    data: the file's bytes when the caller already read them, so it can detect later changes.
+    """
+    if data is None and present(path):
+        data = path.read_bytes()
     try:
-        settings = json.loads(path.read_text(encoding="utf-8")) if present(path) else {}
+        settings = json.loads(data.decode("utf-8")) if data is not None else {}
     except ValueError as error:
         raise ValueError(f"hook file is not valid JSON: {path}: {error}") from error
     if not isinstance(settings, dict):
@@ -319,12 +324,28 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset()):
         findings.append(f"stale session context hook: {path}")
 
 
-def script_of(tokens):
-    """The script in the call form session_context.hooks() prints: <python> -I <script> ...
+PYTHON = re.compile(r"python[0-9.]*(\.exe)?")
 
-    A command that only mentions a path, such as a file-existence check, runs no script here.
+
+def script_of(tokens):
+    """The script a command runs: <python> [options] <script> ..., [env] python ..., or <script> ...
+
+    A command that only mentions a path, such as `test -f <path>` or `echo <path>`, runs its own
+    program, never that path. `python -c` and `python -m` run no script file.
     """
-    return tokens[2] if len(tokens) >= 3 and tokens[1] == "-I" else None
+    if tokens and Path(tokens[0]).name == "env":
+        tokens = tokens[1:]
+    if not tokens or not PYTHON.fullmatch(Path(tokens[0]).name):
+        return tokens[0] if tokens else None
+    arguments = iter(tokens[1:])
+    for token in arguments:
+        if token in ("-c", "-m"):
+            return None
+        if token in ("-W", "-X"):
+            next(arguments, None)
+        elif not token.startswith("-"):
+            return token
+    return None
 
 
 def handler_commands(entry):
@@ -344,7 +365,8 @@ def install_hooks(root, hook_root, home, python, report):
 
     Removes House Rules handlers of any recorded root and receipt-listed replaced hooks, keeps every
     other entry and setting, backs up an existing file beside it and replaces the file atomically.
-    A file already holding exactly the current entry is not written. Each write is reported as it
+    A file whose only House Rules entry is already the current one is not written. A file changed
+    by another writer during installation is not overwritten. Each write is reported as it
     happens, so a later failure cannot hide files already changed.
     """
     roots = ownership_roots(root) | {str(hook_root)}
@@ -354,33 +376,54 @@ def install_hooks(root, hook_root, home, python, report):
             continue
         name, product = HOOK_FILES[key]
         path = product_home / name
-        settings, entries = read_hooks(path)
-        kept = []
+        data = path.read_bytes() if present(path) else None
+        settings, entries = read_hooks(path, data)
+        expected = session_context.hooks(product, python, hook_root)
+        kept, owned = [], []
         for entry in entries:
             handlers = entry.get("hooks") if isinstance(entry, dict) else None
             if isinstance(handlers, list):
                 remaining = [handler for handler, tokens in zip(handlers, handler_commands(entry))
                              if script_of(tokens) not in ours]
+                if len(remaining) != len(handlers):
+                    owned.append(entry)
                 if not remaining:
                     continue
                 if len(remaining) != len(handlers):
                     entry = {**entry, "hooks": remaining}
             kept.append(entry)
-        kept.append(session_context.hooks(product, python, hook_root))
-        if kept == entries:
+        if owned == [expected]:
             continue
-        settings.setdefault("hooks", {})["SessionStart"] = kept
-        backup = None
-        if present(path):
-            backup = path.with_name(f"{path.name}.house-rules-backup-{time.strftime('%Y%m%dT%H%M%S')}")
-            backup.write_bytes(path.read_bytes())
+        settings.setdefault("hooks", {})["SessionStart"] = kept + [expected]
+        mode = stat.S_IMODE(os.stat(path).st_mode) if data is not None else 0o600
+        backup = backup_copy(path, data, mode) if data is not None else None
         handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-        with os.fdopen(handle, "w", encoding="utf-8") as stream:
-            stream.write(json.dumps(settings, indent=2) + "\n")
-        if backup is not None:
-            os.chmod(temporary, stat.S_IMODE(os.stat(path).st_mode))
-        os.replace(temporary, path)
+        try:
+            with os.fdopen(handle, "w", encoding="utf-8") as stream:
+                stream.write(json.dumps(settings, indent=2) + "\n")
+            os.chmod(temporary, mode)
+            if (path.read_bytes() if present(path) else None) != data:
+                raise ValueError(f"hook file changed during installation; not written: {path}")
+            os.replace(temporary, path)
+        except BaseException:
+            os.unlink(temporary)
+            raise
         report(path, backup)
+
+
+def backup_copy(path, data, mode):
+    """A new backup beside the file, never replacing an earlier one, readable no wider than its owner."""
+    stamp = time.strftime("%Y%m%dT%H%M%S")
+    for number in range(1000):
+        backup = path.with_name(f"{path.name}.house-rules-backup-{stamp}" + (f"-{number}" if number else ""))
+        try:
+            handle = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode & 0o600)
+        except FileExistsError:
+            continue
+        with os.fdopen(handle, "wb") as stream:
+            stream.write(data)
+        return backup
+    raise ValueError(f"no free backup name beside {path}")
 
 
 def always_load(root, findings):

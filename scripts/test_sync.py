@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -608,7 +609,7 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
         cases = {
             "fewer parts than slots": (self.claude / "settings.json", "claude", {"entry": fewer}),
             "matcher added": (self.claude / "settings.json", "claude", {"entry": moved}),
-            "interpreter missing": (self.codex / "hooks.json", "codex", {"python": str(self.base / "no-python")}),
+            "interpreter missing": (self.codex / "hooks.json", "codex", {"python": str(self.base / "missing/python3")}),
             "relative interpreter": (self.codex / "hooks.json", "codex", {"python": "python3"}),
             "registered twice": (self.codex / "hooks.json", "codex", {
                 "extra": [context.hooks("codex", sys.executable, self.root)]}),
@@ -764,6 +765,62 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertIn(f"REGISTERED: session context hook in {self.settings}", out)
         self.assertIn(f"hook file is not a JSON object: {self.codex_hooks}", err)
         self.assertEqual(self.codex_hooks.read_text(), "[]")
+
+    def test_backups_are_owner_only_and_never_replace_an_earlier_backup(self):
+        self.settings.chmod(0o644)
+        with mock.patch.object(sync.time, "strftime", return_value="20260101T000000"):
+            for model in ("first", "second"):
+                settings = self.read(self.settings)
+                settings["hooks"]["SessionStart"].pop()
+                settings["model"] = model
+                self.write(self.settings, json.dumps(settings))
+                code, out, err = self.invoke("--install-hooks")
+                self.assertEqual(code, 0, out + err)
+        backups = self.backups(self.settings)
+        self.assertEqual([self.read(path)["model"] for path in backups], ["first", "second"])
+        self.assertEqual({stat.S_IMODE(path.stat().st_mode) for path in backups}, {0o600})
+        self.assertEqual(stat.S_IMODE(self.settings.stat().st_mode), 0o644)
+
+    def test_ownership_follows_the_script_a_command_runs_not_paths_it_mentions(self):
+        script = str(self.root / "scripts/session_context.py")
+        self.receipt({"source_root": str(self.root), "replaced_hooks": [self.legacy]})
+        mentions = [{"type": "command", "command": f"/bin/echo -I {shlex.quote(script)}"},
+                    {"type": "command", "command": f"/usr/bin/test -f {shlex.quote(self.legacy)}"},
+                    {"type": "command", "command": f"/usr/bin/python3 -c 'print(1)' {shlex.quote(script)}"}]
+        old = [{"type": "command", "command": f"/usr/bin/python3 {shlex.quote(self.legacy)} session 1"},
+               {"type": "command", "command": f"/usr/bin/env python3 -X utf8 {shlex.quote(self.legacy)}"},
+               {"type": "command", "command": shlex.quote(self.legacy)}]
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": [{"hooks": mentions + old}]}}))
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"],
+                         [{"hooks": mentions}, context.hooks("claude", sys.executable, self.root)])
+
+    def test_a_file_changed_by_another_writer_during_installation_is_not_overwritten(self):
+        self.settings.unlink()
+        self.write(self.settings, json.dumps({"model": "before"}))
+        real = tempfile.mkstemp
+
+        def concurrent(*args, **kwargs):
+            self.write(self.settings, json.dumps({"model": "other writer"}))
+            return real(*args, **kwargs)
+
+        with mock.patch.object(sync.tempfile, "mkstemp", side_effect=concurrent):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn(f"hook file changed during installation; not written: {self.settings}", err)
+        self.assertEqual(self.read(self.settings), {"model": "other writer"})
+        self.assertEqual(sorted(p.name for p in self.claude.iterdir() if p.name.startswith(".settings.json.")), [])
+
+    def test_a_current_entry_followed_by_other_entries_is_not_rewritten(self):
+        settings = self.read(self.settings)
+        settings["hooks"]["SessionStart"].append({"hooks": [self.unrelated]})
+        self.write(self.settings, json.dumps(settings))
+        before = self.settings.read_text()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.settings.read_text(), before)
+        self.assertEqual(self.backups(self.settings), [])
 
     def test_default_run_still_writes_no_hook_file(self):
         self.settings.unlink()

@@ -188,15 +188,16 @@ For each selected product and configuration home:
     Run the installer with a Python 3.9 or later interpreter that agent sessions can run:
 
     ```sh
-    "<PYTHON3>" "<HOUSE_RULES_ROOT>/scripts/sync.py" --install-hooks
+    "<PYTHON3>" "<HOUSE_RULES_ROOT>/scripts/sync.py" --root "<HOUSE_RULES_ROOT>" --install-hooks
     ```
 
     For each hook file it removes every earlier House Rules entry, adds the current one and
     keeps every other entry and setting. An earlier entry runs `scripts/session_context.py`
     under the current or a previous root, or runs a script a receipt lists under
     `replaced_hooks`, such as an older hand-made context hook. The installer backs up a
-    changed file beside it, replaces it atomically, prints each file it writes, and leaves a
-    file that already holds the current entry unchanged. The entry runs the installer's
+    changed file beside it under a new name, readable only by its owner, replaces it
+    atomically, and prints each file it writes. It leaves a file that already holds the current
+    entry unchanged, and refuses to overwrite a file another program changed meanwhile. The entry runs the installer's
     interpreter by its absolute path and names the root as passed to `--root`, so a stable
     link to a moving checkout stays valid. Claude Code gets one hook per part, because it
     caps each hook's output at 10 000 characters; Codex gets one hook; Kimi Code gets none.
