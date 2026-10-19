@@ -105,8 +105,9 @@ Specialist dispatch follows
 - Give the reviewer the spec sections, previous review and round task as needed
   ([review template](references/review-prompt.md)). `scripts/review-panel.sh` builds each
   reviewer's prompt with `scripts/prepare.py review`. The structured format places shared
-  review rules, PR and issue context and requirements before the numbered change and
-  complete changed source files. Lens instructions come last to preserve a shared prefix.
+  review rules, PR and issue context and requirements before the change, which shows each
+  changed text file whole with numbered lines up to a size cap. Lens instructions come last
+  to preserve a shared prefix.
   Pack and diff retain their existing layouts. A reviewer without a verdict, a preparation
   failure or a CLI failure fails the panel. The panel requires `--rev <commit>`
   or `REVIEW_HOUSE_RULES_REV`; `--repo <clone>` or `REVIEW_HOUSE_RULES_REPO`
