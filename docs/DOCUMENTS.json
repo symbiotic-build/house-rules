@@ -122,6 +122,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/lenses/generic.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/lenses/naming-readability.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
@@ -233,6 +238,11 @@
     },
     {
       "path": "prompts/util/review-bar.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/review-procedure.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
