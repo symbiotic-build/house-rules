@@ -1601,7 +1601,7 @@ class AuditRestorationTest(unittest.TestCase):
     def test_L6_source_incident_home(self):
         text = (ROOT / 'rules/core.md').read_text()
         for clause in (
-            'Record the source incident in CHANGELOG-RULES.md.',
+            "Record the source incident in the pull request's Rule changes section; its merge commit carries it into the rules changelog (`pr-ready` §4).",
         ):
             with self.subTest(clause=clause):
                 self.assertIn(clause, text)

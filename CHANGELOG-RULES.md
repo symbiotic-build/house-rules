@@ -2,6 +2,10 @@
 
 Source notes for House Rules invariants and procedures.
 
+This file is a frozen archive. New provenance lives in each rule pull request's Rule changes
+section, which its merge commit carries; `skills/pr-ready/scripts/rules_changelog.py` prints the
+changelog built from those merge commits.
+
 ## skills/decision-brief, skills/operator-writing — One home for the operator-question format
 
 Operator confirmation: 2026-10-19, answer "1. 1" to the question "Approve the single home

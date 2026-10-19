@@ -194,6 +194,11 @@ Specialist dispatch follows
   proceed; the missed review runs after that family returns. Pin the head
   (`gh pr merge <n> --match-head-commit <sha>`) in the repository's merge style. No
   auto-merge unless the operator asked.
+- **Rule changes travel in the merge commit.** A pull request that changes rule text merges
+  with its Rule changes section as the merge commit body:
+  `gh pr merge <n> --merge --match-head-commit <sha> --body "$(gh pr view <n> --json body --jq .body | python3 <house-rules>/skills/pr-ready/scripts/rules_changelog.py --section)"`.
+  [rules_changelog.py](scripts/rules_changelog.py) prints the rules changelog from those merge
+  commits; `--check` lists rule-changing merges that lack the section.
 - Then update the tracking item, delete the branch, and remove the lane (skill
   `agent-lanes` §Lane cleanup).
 
