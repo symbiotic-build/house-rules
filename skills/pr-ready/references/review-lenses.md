@@ -16,7 +16,7 @@ same defects, so a full panel does not run plain generalists. The code targets a
 A full panel adds one [`generic`](../../../prompts/lenses/generic.md) reviewer. It reads
 the structured change once, runs no commands and reports any blocking defect, so it adds
 breadth beside the targets at little cost. It needs the structured change format, which
-the preparer gives Codex by default.
+the preparer gives Codex by default; without it, that reviewer fails visibly.
 
 Changes to documents, specifications, rules, prompts or skills add
 [`design-spec`](../../../prompts/lenses/design-spec.md), which checks each changed

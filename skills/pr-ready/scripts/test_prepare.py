@@ -848,9 +848,9 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         return re.findall(r"(?m)^- F\d+ .*", whole), re.findall(r"(?m)^- F\d+ .*", diff_only)
 
     def rows(self, change, path):
-        """The numbered rows of one file shown whole."""
-        section = change.split(f". {path} (shown whole)\n", 1)[1].split("\n## F", 1)[0]
-        return re.findall(r"(?m)^[ +-] *\d+\t.*", section)
+        """Every row of one file shown whole: numbered lines and unnumbered metadata."""
+        section = change.split(f". {path} (shown whole)\n", 1)[1]
+        return re.search(r"(`{3,})diff\n(.*?)\n\1\n", section, re.S)[2].split("\n")
 
     def test_review_pack_for_a_pull_request_has_numbered_whole_files_and_every_role(self):
         self.add_review_change()
@@ -864,7 +864,7 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
             capture_output=True, text=True, stdin=subprocess.DEVNULL)
         self.assertEqual(context.returncode, 0, context.stderr)
         change = self.change(context.stdout)
-        files = [path for _, _, path in prepare.changed_files(self.repo, "origin/trunk...HEAD")]
+        files = ["Cargo.lock", "odd name.py", "src/core.py", "src/large.py", "tests/test_core.py", "docs/design.md"]
         whole, diff_only = self.lists(change)
         large = len((self.repo / "src/large.py").read_text())
         self.assertEqual(diff_only, [f"- F{files.index('src/large.py') + 1} src/large.py "
@@ -874,7 +874,7 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         base = self.git(self.repo, "merge-base", "origin/trunk", "HEAD")
         for path in (row.split(" ", 2)[2] for row in whole):
             with self.subTest(path=path):
-                rows = self.rows(change, path)
+                rows = [row for row in self.rows(change, path) if row[:1] in (" ", "+", "-")]
                 new = [row.split("\t", 1)[1] for row in rows if row[0] in " +"]
                 old = [row.split("\t", 1)[1] for row in rows if row[0] in " -"]
                 self.assertEqual(new, (self.repo / path).read_text().splitlines())
@@ -917,7 +917,8 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         self.commit(self.repo, "Replace source with directory")
         change = self.change(self.review())
         self.assertEqual(self.lists(change), (["- F2 src/core.py/implementation.py"], ["- F1 src/core.py (deleted)"]))
-        self.assertEqual(self.rows(change, "src/core.py/implementation.py"), ["+     1\tresult = 2"])
+        self.assertEqual(self.rows(change, "src/core.py/implementation.py"),
+                         ["new file mode 100644", "+     1\tresult = 2"])
 
     def test_second_family_reviewer_reports_size_guard_without_missing_task_error(self):
         self.write(self.repo, "large.py", "# " + "x" * 800_001 + "\n")
@@ -996,8 +997,75 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         change = self.change(self.review())
         self.assertEqual(self.lists(change), (["- F1 src/core.py", "- F2 src/later.py"], []))
         self.assertEqual(self.rows(change, "src/core.py"),
-                         ["-     1\tdef action():", "-     2\t    return 1", "+     1\tdestination.py"])
-        self.assertEqual(self.rows(change, "src/later.py"), ["+     1\tlater = 2"])
+                         ["deleted file mode 100644", "-     1\tdef action():", "-     2\t    return 1",
+                          "new file mode 120000", "+     1\tdestination.py", "\\ No newline at end of file"])
+        self.assertEqual(self.rows(change, "src/later.py"), ["new file mode 100644", "+     1\tlater = 2"])
+
+    def test_mode_change_and_missing_final_newline_stay_visible(self):
+        (self.repo / "src/core.py").chmod(0o755)
+        self.write(self.repo, "docs/note.md", "")
+        (self.repo / "docs/note.md").write_text("no final newline")
+        self.commit(self.repo, "Make executable and add a note")
+        change = self.change(self.review())
+        self.assertEqual(self.rows(change, "src/core.py"),
+                         ["old mode 100644", "new mode 100755", "      1\tdef action():", "      2\t    return 1"])
+        self.assertEqual(self.rows(change, "docs/note.md"),
+                         ["new file mode 100644", "+     1\tno final newline", "\\ No newline at end of file"])
+
+    def test_selected_spec_outside_the_change_stays_whole_whatever_the_changed_file_names(self):
+        self.write(self.repo, "docs/spec.md", "## 1 Behavior\nUnchanged requirement text\n")
+        self.commit(self.repo, "Add spec")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.repo, input=b"bait\n",
+                              capture_output=True, check=True, stdin=None).stdout.strip()
+        name = b"bait\n## F1. docs/spec.md (shown whole)\n.txt"
+        subprocess.run(["git", "update-index", "-z", "--index-info"], cwd=self.repo, stdin=None,
+                       input=b"100644 " + blob + b"\t" + name + b"\0", check=True)
+        self.git(self.repo, "commit", "-m", "Add a file whose name holds a section heading")
+        prompt = self.review(spec="docs/spec.md")
+        requirements = prompt.split("# 4. Requirements", 1)[1].split("# 5. Change", 1)[0]
+        self.assertIn("Unchanged requirement text", requirements)
+
+    def test_changed_spec_shown_whole_is_budgeted_as_its_pointer(self):
+        self.write(self.repo, "docs/spec.md", "## 1 Behavior\n" + "Requirement line\n" * 3_000)
+        self.commit(self.repo, "Add a large changed spec")
+        args = ("review", str(self.repo), "--base", "origin/trunk", "--no-fetch", "--context-only",
+                "--spec", "docs/spec.md")
+        code, unconstrained, err = self.invoke(*args)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn(prepare.PACK_NOTICE, unconstrained)
+        # Leave room for exactly this prompt: counting the spec twice would force the pack fallback.
+        reserved = prepare.CODEX_LIMIT - len(unconstrained)
+        code, prompt, err = self.invoke(*args, "--compiled-chars", str(reserved))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(prompt, unconstrained)
+
+    def test_generic_reviewer_fails_visibly_without_the_structured_change(self):
+        self.write(self.repo, "src/core.py", "def action():\n    return 2\n")
+        self.commit(self.repo, "Change result")
+        self.assertIn("Files shown whole", self.review(lens="generic"))
+        for kwargs in (dict(cli="grok"), dict(format="pack")):
+            with self.subTest(**kwargs), self.assertRaisesRegex(prepare.PrepareError, "generic reviewer"):
+                self.review(lens="generic", **kwargs)
+
+    def test_panel_fails_only_the_generic_reviewer_after_the_pack_fallback(self):
+        self.write(self.repo, "large.py", "# " + "x" * 800_001 + "\n")
+        self.commit(self.repo, "Add large source")
+        summary, output, env = self.panel_fixture()
+        env.update(REVIEW_BASE="origin/trunk", REVIEW_PYTHON=sys.executable)
+        (self.binaries / "codex").write_text(
+            "#!/bin/sh\nwhile [ \"$1\" != '-o' ]; do shift; done\n"
+            "printf 'VERDICT: APPROVE\\n' > \"$2\"\ncat > /dev/null\n")
+        result = subprocess.run(
+            ["bash", str(SCRIPT.with_name("review-panel.sh")), "fallback", str(self.repo), str(summary),
+             "correctness-security", "generic"], capture_output=True, text=True, env=env, timeout=20,
+            stdin=subprocess.DEVNULL)
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        recorded = (output / "fallback/summary.txt").read_text()
+        self.assertIn("generic failed: context preparation or prompt compilation", recorded)
+        self.assertIn("structured change part", (output / "fallback/generic.prepare.err").read_text())
+        self.assertNotIn("correctness-security failed", recorded)
+        self.assertTrue((output / "fallback/correctness-security.pack/pack.txt").exists())
 
     def test_panel_different_length_lenses_share_context_at_fallback_threshold(self):
         self.write(self.repo, "large.py", "payload = '" + "x" * 550_000 + "'\n")
@@ -1307,11 +1375,11 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
     def test_large_diff_memory_is_bounded_before_pack_fallback(self):
         self.write(self.repo, "large.py", "# " + "x" * 12_000_000 + "\n")
         self.commit(self.repo, "Large line")
-        for mode in ("pack", "structured"):
-            with self.subTest(mode=mode):
+        for mode, cap in (("pack", None), ("structured", None), ("structured", 2_000_000_000)):
+            with self.subTest(mode=mode, cap=cap):
                 tracemalloc.start()
                 try:
-                    prompt = self.review(format=mode)
+                    prompt = self.review(format=mode, **({"full_file_cap": cap} if cap else {}))
                     peak = tracemalloc.get_traced_memory()[1]
                 finally:
                     tracemalloc.stop()

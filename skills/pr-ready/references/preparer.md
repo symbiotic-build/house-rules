@@ -74,10 +74,15 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   Each changed text file up to the cap, whether source, test or documentation, is shown
   whole as uncolored `git diff` output with the whole file as context. Each line carries its
   number: the head number for context and added lines, the old number for removed lines.
+  Git's mode, file-type and missing-newline lines stay as unnumbered rows. A file is read
+  whole only when its size fits the remaining prompt budget.
   Larger, deleted and binary files and submodules are shown as plain `git diff -U3` output.
   Lockfiles are listed only. `--full-file-cap N` sets the per-file character cap
   (default `85000`; nonnegative). A selected spec document that the change shows whole
-  appears in the requirements as a pointer to that changed file, so its text appears once.
+  appears in the requirements as a pointer to that changed file, so its text appears once,
+  and the size guard budgets the pointer. A `generic` reviewer needs the structured change:
+  its preparation fails visibly when the change part holds hunk headers only, and in the
+  panel only that reviewer fails.
   Diff reads are bounded before prompt construction, using numstat first and streaming
   hunk headers for pack mode. Changed paths use NUL-delimited metadata and byte-preserving
   decoding, then literal Git pathspecs. Non-UTF-8 bytes are displayed as escapes and

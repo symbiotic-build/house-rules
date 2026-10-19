@@ -31,6 +31,9 @@ SPEC_LIMIT = 2_000_000
 COMMENT_LIMIT = 4_000
 FULL_FILE_CAP = 85_000
 LOCK = re.compile(r"(^|/)([^/]*\.lock|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|go\.sum)$")
+# Lenses that run no commands and review only the structured change part.
+STRUCTURED_ONLY = ("generic",)
+PACK_NOTICE = f"Size guard: prompt exceeds {CODEX_LIMIT:,} characters; change part uses pack (hunk headers)."
 TEST = re.compile(r"(^|/)(tests?(/|\.)|test_[^/]*|[^/]*[_\-.](tests?|spec)\.[^/]+$)", re.I)
 
 
@@ -675,8 +678,10 @@ def requirement_entries(repo, args, pr, issues, comments, texts, commits, files,
     return entries
 
 
-def requirements_part(entries, mode, change=None):
-    """A specification that the change part shows whole is a pointer, so its text appears once."""
+def requirements_part(entries, mode, shown=None):
+    """A specification that the change part shows whole is a pointer, so its text appears once.
+
+    shown maps a displayed path to the number of the changed file shown whole."""
     out = ["# 4. Requirements", "", "## Index"]
     for n, entry in enumerate(entries, 1):
         out.append(f"- R{n}. {entry['source']} — {entry['link']}")
@@ -686,10 +691,9 @@ def requirements_part(entries, mode, change=None):
         if mode == "diff" and entry["category"] == "spec":
             continue
         body = entry["body"]
-        shown = change and entry["category"] == "spec" and re.search(
-            r"(?m)^## (F\d+)\. " + re.escape(entry["path"]) + r" \(shown whole\)$", change)
-        if shown:
-            body = (f"Its full text at the reviewed head is changed file {shown[1]} in part 5, "
+        number = (shown or {}).get(entry["path"]) if entry["category"] == "spec" else None
+        if number:
+            body = (f"Its full text at the reviewed head is changed file {number} in part 5, "
                     "shown whole with its changes marked.")
         out.extend(["", f"## R{n}. {entry['source']}", body])
     return "\n".join(out)
@@ -751,7 +755,7 @@ def grouped(number):
     return f"{number:,}".replace(",", " ")
 
 
-def head_text(repo, head, path, full_file_cap):
+def head_text(repo, head, path, full_file_cap, budget):
     """Return a changed file's head text when it can be shown whole, else why it cannot."""
     entry = git(repo, "ls-tree", "-z", head, "--", ":(literal)" + path)
     object_type = entry.split(" ", 2)[1] if entry else None
@@ -762,6 +766,8 @@ def head_text(repo, head, path, full_file_cap):
     size = int(git(repo, "cat-file", "-s", f"{head}:{path}"))
     if size > full_file_cap * 4:
         return None, f"{grouped(size)} bytes"
+    if size > max(0, budget) * 4:
+        raise DiffTooLarge()  # Checked before the read: the text cannot fit what remains.
     text = git(repo, "show", f"{head}:{path}")
     if "\0" in text:
         return None, "binary"
@@ -771,16 +777,22 @@ def head_text(repo, head, path, full_file_cap):
 
 
 def numbered(diff, text):
-    """Number Git's whole-file diff: head numbers for context and "+", old numbers for "-"."""
-    rows, old, new, started = [], 0, 0, False
+    """Number Git's whole-file diff: head numbers for context and "+", old numbers for "-".
+
+    Mode, file-type and missing-newline lines stay as unnumbered rows."""
+    rows, old, new, started, hunks = [], 0, 0, False, 0
     for line in diff.split("\n"):
         hunk = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)", line)
         if hunk:
             old, new, started = int(hunk[1]), int(hunk[2]), True
+            hunks += 1
         elif line.startswith("diff --git "):
             started = False  # A type change has a second section with its own headers.
-        elif not started or line.startswith("\\"):
-            continue  # File headers and "no newline" markers carry no line.
+        elif not started:
+            if line and not line.startswith(("index ", "--- ", "+++ ")):
+                rows.append(line)
+        elif line.startswith("\\"):
+            rows.append(line)
         elif line[:1] == "-":
             rows.append(f"-{old:>6}\t{line[1:]}")
             old += 1
@@ -791,7 +803,7 @@ def numbered(diff, text):
             rows.append(f" {new:>6}\t{line[1:]}")
             old += 1
             new += 1
-    if rows or started:
+    if hunks:
         return "\n".join(rows)
     if re.search(r"(?m)^Binary files ", diff):
         return None
@@ -799,23 +811,33 @@ def numbered(diff, text):
     lines = text.split("\n")
     if lines[-1] == "":
         lines.pop()
-    return "\n".join(f" {n:>6}\t{row}" for n, row in enumerate(lines, 1))
+    return "\n".join([*rows, *(f" {n:>6}\t{row}" for n, row in enumerate(lines, 1))])
+
+
+class ChangePart(str):
+    """Rendered change text with the file numbers of the files it shows whole, keyed by displayed path."""
+
+    def __new__(cls, text, shown):
+        part = super().__new__(cls, text)
+        part.shown = shown
+        return part
 
 
 def structured_change(repo, rng, files, head, budget, full_file_cap):
     """Show each changed text file up to the cap whole, as numbered Git diff output; others as a 3-line diff."""
     base = rng.split("..", 1)[0]
-    whole, diff_only, sections, size = [], [], [], 0
+    whole, diff_only, sections, size, shown = [], [], [], 0, {}
     for n, (_, _, path) in enumerate(files, 1):
         if LOCK.search(path):
             continue
-        text, reason = head_text(repo, head, path, full_file_cap)
+        text, reason = head_text(repo, head, path, full_file_cap, budget - size)
         if text is not None:
             lines = text.count("\n") + 1
             rows = numbered(file_diff(repo, rng, path, "diff", max(0, budget - size), context=lines), text)
             if rows is None:
                 reason = "binary"
         if reason is None:
+            shown[display(path)] = f"F{n}"
             whole.append(f"- F{n} {display(path)}")
             section = "\n\n".join([f"## F{n}. {display(path)} (shown whole)",
                                     f"$ git diff -U<all> {base[:12]} {head[:12]} -- {display(path)}   "
@@ -838,7 +860,7 @@ def structured_change(repo, rng, files, head, budget, full_file_cap):
     result = "\n\n".join([lists, *sections])
     if len(display(result)) > budget:
         raise DiffTooLarge()
-    return result
+    return ChangePart(result, shown)
 
 
 def change_part(repo, rng, files, url, head, mode, budget=None, full_file_cap=FULL_FILE_CAP):
@@ -852,8 +874,9 @@ def change_part(repo, rng, files, url, head, mode, budget=None, full_file_cap=FU
         out.append(f"- F{n}. {display(path)} — {kind(path)} +{added}/-{removed} — {link(url, head, path)}{note}")
     size = sum(len(line) + 1 for line in out)
     if mode == "structured":
-        out.extend(["", structured_change(repo, rng, files, head, max(0, budget - size), full_file_cap)])
-        return "\n".join(out)
+        part = structured_change(repo, rng, files, head, max(0, budget - size), full_file_cap)
+        out.extend(["", part])
+        return ChangePart("\n".join(out), part.shown)
     for n, (_, _, path) in enumerate(files, 1):
         if LOCK.search(path):
             continue
@@ -975,6 +998,17 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
                                   documentation=documentation_prepared or bool(needs_documentation))
     if missing:
         notices.insert(0, "not found: " + ", ".join(dict.fromkeys(missing)))
+    # Budget a changed spec that the structured change will show whole as its pointer.
+    predicted = {}
+    if mode == "structured":
+        numbers = {path: f"F{n}" for n, (_, _, path) in enumerate(files, 1) if not LOCK.search(path)}
+        for entry in entries:
+            if entry["category"] == "spec" and entry["path"] in numbers:
+                try:
+                    if head_text(repo, head, entry["path"], full_file_cap, CODEX_LIMIT)[0] is not None:
+                        predicted[display(entry["path"])] = numbers[entry["path"]]
+                except DiffTooLarge:
+                    pass
     # Numstat is already collected; the remaining budget bounds structured reads
     # before constructing a prompt. Pack streams bodies without retaining them.
     # Normalize before trimming: escaping invalid bytes can quadruple their size.
@@ -989,7 +1023,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         if mandatory_size > limit:
             raise PrepareError(f"Size guard: limit {CODEX_LIMIT:,} characters; mandatory documentation requires {mandatory_size:,} characters.\n"
                                "Documentation sections: " + ", ".join(sections or []))
-    overhead = len(display("\n\n".join([*notices, *parts, requirements_part(entries, mode), *lens_parts]))) + 3
+    overhead = len(display("\n\n".join([*notices, *parts, requirements_part(entries, mode, predicted), *lens_parts]))) + 3
     budget = max(0, limit - overhead) if args.cli == "codex" else CODEX_LIMIT
     packed = mode == "pack"
     try:
@@ -997,20 +1031,21 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
                              full_file_cap=full_file_cap)
     except DiffTooLarge:
         packed = True
-        notices.append(f"Size guard: prompt exceeds {CODEX_LIMIT:,} characters; change part uses pack (hunk headers).")
+        notices.append(PACK_NOTICE)
         change = change_part(repo, rng, files, url, head, "pack")
     trimmed = []
     def trim_notes():
         return [f"Size guard: trimmed R{n + 1} ({entries[n]['category']}): {entries[n]['source']}" for n in trimmed]
     def render():
         # Include the terminating newline; main writes this exact representation.
-        return display("\n\n".join([*notices, *trim_notes(), *parts, requirements_part(entries, mode, change), change,
+        return display("\n\n".join([*notices, *trim_notes(), *parts, requirements_part(entries, mode, getattr(change, "shown", None)), change,
                                      *lens_parts])) + "\n"
     result = render()
     if args.cli == "codex" and len(result) > limit:
         if not packed:
-            notices.append(f"Size guard: prompt exceeds {CODEX_LIMIT:,} characters; change part uses pack (hunk headers).")
+            notices.append(PACK_NOTICE)
             change = change_part(repo, rng, files, url, head, "pack")
+            packed = True
             result = render()
         for category in ("comment", "issue", "spec"):
             candidates = sorted((n for n, e in enumerate(entries) if e["category"] == category
@@ -1033,7 +1068,15 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
                 f"Size guard: limit {CODEX_LIMIT:,} characters; final size {len(result) + compiled_chars:,} characters after trimming. "
                 "Retained indexes, rules, task and author claims require a smaller input.\n"
                 "Already trimmed: change part uses pack (hunk headers).\n" + history)
+    if lens in STRUCTURED_ONLY and not context_only and not isinstance(change, ChangePart):
+        raise PrepareError(f"the {lens} reviewer runs no commands and needs the structured change part; "
+                           "this change is shown as hunk headers only")
     return result
+
+
+def shows_structured_change(context, cli):
+    """Whether a context the panel prepared for this CLI shows the structured change part."""
+    return cli == "codex" and PACK_NOTICE not in context.split("\n# 3. Pull request and issue\n", 1)[0]
 
 
 def ownership(repo, remote):
