@@ -197,10 +197,11 @@ Specialist dispatch follows
 - **Rule changes travel in the merge commit (House Rules repository).** A House Rules pull
   request that changes rule text merges with its Rule changes section as the merge commit
   body. Run the steps in order and stop at the first failure:
-  1. **Fetch the body:** `gh pr view <n> --json body --jq .body > body.md`.
-  2. **Extract the section:** `python3 skills/pr-ready/scripts/rules_changelog.py --section < body.md > section.md`.
+  1. **Make a folder for this landing:** `d=$(mktemp -d)`.
+  2. **Fetch the body:** `gh pr view <n> --json body --jq .body > "$d/body.md"`.
+  3. **Extract the section:** `python3 skills/pr-ready/scripts/rules_changelog.py --section < "$d/body.md" > "$d/section.md"`.
      It exits 1 when the body has no Rule changes section.
-  3. **Merge:** `gh pr merge <n> --merge --match-head-commit <sha> --body-file section.md`.
+  4. **Merge:** `gh pr merge <n> --merge --match-head-commit <sha> --body-file "$d/section.md"`.
 
   [rules_changelog.py](scripts/rules_changelog.py) prints the rules changelog from those merge
   commits; `--check` lists rule-changing merges that lack the section. Other repositories keep
