@@ -11,6 +11,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -21,6 +22,7 @@ SCRIPT = REPO / "scripts/sync.py"
 SPEC = importlib.util.spec_from_file_location("sync", SCRIPT)
 sync = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(sync)
+context = sync.session_context
 
 
 
@@ -56,11 +58,15 @@ class SyncFixture:
         self.write(self.origin / ".gitignore", "custom/\n")
         shutil.copyfile(REPO / "INSTALL-AGENTS.md", self.origin / "INSTALL-AGENTS.md")
         self.write(self.origin / "skills/sample/SKILL.md", "# Sample\n")
+        self.write(self.origin / "skills/operator-writing/SKILL.md", "# Operator writing\n")
+        (self.origin / "scripts").mkdir()
+        shutil.copyfile(REPO / "scripts/session_context.py", self.origin / "scripts/session_context.py")
         self.write(self.origin / "INDEX.md", "# Index\n\n## Always load\n\n" + "".join(
             f"- [{name}](rules/{name}.md)\n" for name in RULES) + "\n## Load when needed\n")
         for name in RULES:
             self.write(self.origin / f"rules/{name}.md", f"# {name} rules\n")
         self.commit(self.origin, [".gitignore", "INSTALL-AGENTS.md", "INDEX.md", "skills/sample/SKILL.md",
+                                  "skills/operator-writing/SKILL.md", "scripts/session_context.py",
                                   *(f"rules/{name}.md" for name in RULES)])
         self.root = self.base / "House Rules checkout"
         self.git(self.base, "clone", str(self.origin), str(self.root))
@@ -156,9 +162,19 @@ class SyncFixture:
             instruction = sync.instruction_file(key, home)
             self.write(instruction, sync.template(self.root) + "\n")
         for folder in (self.claude / "skills", self.home / ".agents/skills"):
-            path = folder / "sample"
-            if not path.is_symlink():
-                self.link(path, self.root / "skills/sample")
+            for name in ("sample", "operator-writing"):
+                path = folder / name
+                if not path.is_symlink():
+                    self.link(path, self.root / "skills" / name)
+        for path, product in ((self.claude / "settings.json", "claude"), (self.codex / "hooks.json", "codex")):
+            self.register_hook(path, product)
+
+    def register_hook(self, path, product, python=sys.executable, root=None, extra=()):
+        """Write the hook file INSTALL-AGENTS.md §3 describes, beside unrelated hooks."""
+        entry = context.hooks(product, python, root or self.root)
+        other = {"matcher": "*", "hooks": [{"type": "command", "command": "/bin/echo unrelated"}]}
+        self.write(path, json.dumps({"model": "fixture", "hooks": {
+            "SessionStart": [other, entry, *extra], "Stop": [other]}}, indent=2))
 
 
 class SyncTests(SyncFixture, unittest.TestCase):
@@ -242,7 +258,7 @@ class SyncTests(SyncFixture, unittest.TestCase):
                 self.assertIn("verification incomplete", out)
                 self.assertIn("3 homes selected", out)
                 self.assertNotIn("homes checked", out)
-                self.assertIn(f"{1 if operation == 'read' else 4} findings", out)
+                self.assertIn(f"{1 if operation == 'read' else 5} findings", out)
                 failure = "instruction read" if operation == "read" else "skill scan"
                 self.assertIn(f"fixture {failure} denied", err)
 
@@ -404,8 +420,10 @@ class SyncHomeTests(SyncFixture, unittest.TestCase):
         self.assertEqual(code, 1, err)
         self.assertIn(str(extra / "AGENTS.md"), out)
         self.assertIn("4 homes checked", out)
+        self.assertIn(f"missing session context hook: {extra / 'hooks.json'}", out)
         self.assertFalse((extra / "AGENTS.md").exists())
         self.write(extra / "AGENTS.md", sync.template(self.root))
+        self.register_hook(extra / "hooks.json", "codex")
         self.assertEqual(self.invoke()[0], 0)
 
     def test_extra_claude_and_kimi_homes_and_environment_defaults(self):
@@ -558,6 +576,107 @@ class SyncHomeTests(SyncFixture, unittest.TestCase):
         self.assertTrue(path.is_symlink())
 
 
+class SyncHookTests(SyncFixture, unittest.TestCase):
+    def test_missing_session_hooks_are_reported_for_claude_and_codex_only(self):
+        self.install_fixture()
+        before = {path: path.read_text() for path in (self.claude / "settings.json", self.codex / "hooks.json")}
+        for path in before:
+            path.unlink()
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        for path in before:
+            self.assertIn(f"REPORT: missing session context hook: {path}", out)
+            self.assertFalse(path.exists())
+        self.assertNotIn(str(self.kimi), out)
+
+    def test_other_hooks_without_ours_are_a_missing_hook_and_stay_unchanged(self):
+        self.install_fixture()
+        path = self.claude / "settings.json"
+        original = json.dumps({"hooks": {"SessionStart": [{"hooks": [
+            {"type": "command", "command": "python3 /elsewhere/house-rules-context.py session 1"}]}]}})
+        self.write(path, original)
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"missing session context hook: {path}", out)
+        self.assertEqual(path.read_text(), original)
+
+    def test_stale_session_hooks_are_reported_without_writes(self):
+        script = str(self.root / "scripts/session_context.py")
+        fewer = context.hooks("claude", sys.executable, self.root)
+        fewer["hooks"].pop()
+        moved = {"matcher": "startup", **context.hooks("claude", sys.executable, self.root)}
+        cases = {
+            "fewer parts than slots": (self.claude / "settings.json", "claude", {"entry": fewer}),
+            "matcher added": (self.claude / "settings.json", "claude", {"entry": moved}),
+            "interpreter missing": (self.codex / "hooks.json", "codex", {"python": str(self.base / "no-python")}),
+            "relative interpreter": (self.codex / "hooks.json", "codex", {"python": "python3"}),
+            "registered twice": (self.codex / "hooks.json", "codex", {
+                "extra": [context.hooks("codex", sys.executable, self.root)]}),
+        }
+        for name, (path, product, change) in cases.items():
+            with self.subTest(name=name):
+                self.install_fixture()
+                if "entry" in change:
+                    self.write(path, json.dumps({"hooks": {"SessionStart": [change["entry"]]}}))
+                else:
+                    self.register_hook(path, product, change.get("python", sys.executable),
+                                       extra=change.get("extra", ()))
+                original = path.read_text()
+                code, out, err = self.invoke()
+                self.assertEqual(code, 1, out + err)
+                self.assertIn(f"REPORT: stale session context hook: {path}", out)
+                self.assertEqual(path.read_text(), original)
+                self.assertIn(script, original)
+
+    def test_hook_for_a_previous_root_is_stale(self):
+        previous = self.base / "old root"
+        self.receipt({"source_root": str(self.root), "previous_roots": [str(previous)]})
+        self.install_fixture()
+        path = self.claude / "settings.json"
+        self.register_hook(path, "claude", root=previous)
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"stale session context hook: {path}", out)
+
+    def test_rules_longer_than_the_registered_slots_are_reported(self):
+        self.install_fixture()
+        with mock.patch.object(context, "SLOTS", 1), mock.patch.object(context, "CAP", 1_500):
+            code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertRegex(out, r"REPORT: session context needs [2-9] parts; the hook registers 1\n")
+
+    def test_section_too_long_for_one_part_is_reported(self):
+        self.install_fixture()
+        self.write(self.root / "rules/core.md", "# core rules\n\n## Long\n\n" + "word " * 3000 + "\n")
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn('REPORT: session context section too long for one part: rules/core.md, heading "Long"', out)
+
+    def test_unparsable_unrelated_hook_commands_do_not_stop_the_report(self):
+        self.install_fixture()
+        path = self.claude / "settings.json"
+        mention = f"/usr/bin/test -f {shlex.quote(str(self.root / 'scripts/session_context.py'))}"
+        broken = [{"hooks": [{"type": "command", "command": []}, {"type": "command", "command": "echo 'open"},
+                             "not a handler", {"type": "command"}, {"type": "command", "command": mention}]},
+                  "not an entry"]
+        self.register_hook(path, "claude", extra=broken)
+        code, out, err = self.invoke()
+        self.assertEqual(code, 0, out + err)
+        self.assertIn("3 homes checked; 0 findings", out)
+
+    def test_registered_command_prints_part_one_from_the_installed_root(self):
+        self.install_fixture()
+        handler = json.loads((self.claude / "settings.json").read_text())["hooks"]["SessionStart"][1]["hooks"][0]
+        result = subprocess.run(handler["command"], shell=True, cwd=self.base, stdin=subprocess.DEVNULL,
+                                capture_output=True, text=True, check=True, timeout=handler["timeout"])
+        self.assertEqual(result.stderr, "")
+        self.assertRegex(result.stdout, r"^===== House Rules part 1 of 1 \(revision [0-9a-f]{12}, text [0-9a-f]{12}\); "
+                                        r"starts at INDEX\.md, heading \"Index\" =====\n")
+        self.assertIn("===== House Rules file rules/core.md =====\n# core rules", result.stdout)
+        self.assertIn(f"HOUSE RULES HOOK ERROR: this computer's local index {self.root / 'custom/INDEX.md'} "
+                      "is missing", result.stdout)
+
+
 class SyncSourceTests(SyncFixture, unittest.TestCase):
     def test_update_preserves_ignored_files_colliding_with_incoming_paths(self):
         path = "custom/INDEX.md"
@@ -682,6 +801,149 @@ class SyncSourceTests(SyncFixture, unittest.TestCase):
         self.assertFalse(any(call.args[1] in ("pull", "merge") for call in calls.call_args_list))
 
 
+
+
+class SessionContextTests(unittest.TestCase):
+    """The hook's text, split into parts, on synthetic House Rules files without Git."""
+
+    LABEL = re.compile(r'===== House Rules part (\d+) of (\d+) \(revision unknown, text ([0-9a-f]{12})\); '
+                       r'starts at (\S+), heading "([^"]*)" =====\n')
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory(prefix="house-rules-context-")
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.write("INDEX.md", "# Index\n\n## Always load\n\n- [core](rules/core.md)\n- [writing](rules/writing.md)\n"
+                               "\n## Load when needed\n")
+        sections = "".join(f"## Section {number}\n\n" + f"Rule {number} sentence with several words. " * 40 + "\n\n"
+                           for number in range(30))
+        self.write("rules/core.md", "# Core rules\n\n" + sections)
+        self.write("rules/writing.md", "# Writing rules\n\n```markdown\n## Not a heading\n```\n\n" + sections)
+        self.write("skills/operator-writing/SKILL.md", "# Operator writing\n\nWrite plainly.\n")
+        self.write("custom/INDEX.md", "# Machine-local capability index\n\nLocal policy line.\n")
+
+    def write(self, name, text):
+        path = self.root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+
+    def rendered(self):
+        rev, packed, _ = context.parts(self.root)
+        with mock.patch.object(context, "root", return_value=self.root):
+            return [context.render(number, rev, packed) for number in range(1, len(packed) + 1)]
+
+    def bodies(self, outputs):
+        """Each part's text, exactly, without its label, part 1 introduction and end line."""
+        result = []
+        for number, output in enumerate(outputs, 1):
+            end = f"===== End of House Rules part {number} of {len(outputs)} ====="
+            self.assertTrue(output.endswith(end), output[-200:])
+            result.append(output[:-len(end)].split("\n", 2 if number == 1 else 1)[-1])
+        return result
+
+    def source(self):
+        """The injected files, in order, each after its separator line."""
+        return "".join(f"\n===== House Rules file {name} =====\n" + (self.root / name).read_text()
+                       for name in ("INDEX.md", "rules/core.md", "rules/writing.md",
+                                    "skills/operator-writing/SKILL.md", "custom/INDEX.md"))
+
+    def test_parts_stay_under_the_cap_and_split_only_at_file_or_heading_boundaries(self):
+        outputs = self.rendered()
+        self.assertGreater(len(outputs), 2)
+        for number, (output, body) in enumerate(zip(outputs, self.bodies(outputs)), 1):
+            with self.subTest(part=number):
+                self.assertLess(context.units(output), context.CAP)
+                first = body.lstrip("\n").split("\n", 1)[0]
+                self.assertRegex(first, r"^(===== House Rules file \S+ =====|#{1,6} \S)")
+                self.assertNotRegex(first, "Not a heading")
+        self.assertEqual("".join(self.bodies(outputs)), self.source())
+
+    def test_blank_lines_at_a_part_boundary_are_kept(self):
+        self.write("rules/core.md", "# Core rules\n\n" + "".join(
+            f"## Section {number}\n\n" + "word " * 400 + "\n\n\n" for number in range(10)))
+        outputs = self.rendered()
+        self.assertGreater(len(outputs), 1)
+        self.assertEqual("".join(self.bodies(outputs)), self.source())
+
+    def test_every_part_names_its_number_count_file_and_starting_heading(self):
+        outputs = self.rendered()
+        for number, output in enumerate(outputs, 1):
+            match = self.LABEL.match(output)
+            self.assertIsNotNone(match, output[:200])
+            self.assertEqual((int(match[1]), int(match[2])), (number, len(outputs)))
+            body = self.bodies(outputs)[number - 1].lstrip("\n")
+            heading = re.search(r"^#{1,6} (.*)$", body, re.M)[1]
+            self.assertEqual(match[5], heading)
+            self.assertIn(match[4], ("INDEX.md", "rules/core.md", "rules/writing.md"))
+            self.assertEqual(match[3], self.LABEL.match(outputs[0])[3])
+        self.assertIn("The parts can arrive in any order: read them in part-number order.", outputs[0])
+
+    def test_custom_index_is_injected_last_and_its_absence_is_a_visible_error(self):
+        outputs = self.rendered()
+        self.assertIn("===== House Rules file custom/INDEX.md =====\n# Machine-local capability index\n\n"
+                      "Local policy line.", outputs[-1])
+        (self.root / "custom/INDEX.md").unlink()
+        self.assertIn(f"HOUSE RULES HOOK ERROR: this computer's local index {self.root / 'custom/INDEX.md'} "
+                      "is missing, so its local policies are not loaded.", self.rendered()[-1])
+
+    def test_missing_rule_file_is_a_visible_error_line(self):
+        (self.root / "rules/writing.md").unlink()
+        text = "".join(self.rendered())
+        self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root / 'rules/writing.md'} is missing.", text)
+        self.assertIn("# Operator writing", text)
+
+    def test_section_longer_than_a_part_is_a_visible_error_and_never_split(self):
+        self.write("rules/core.md", "# Core rules\n\n## Long section\n\n" + "word " * 3000 + "\n\n## Short\n\nKept.\n")
+        _, packed, too_long = context.parts(self.root)
+        self.assertEqual(too_long, [("rules/core.md", "Long section")])
+        text = "".join(self.rendered())
+        self.assertRegex(text, r'HOUSE RULES HOOK ERROR: rules/core\.md section "Long section" is \d+ characters, '
+                               r'more than the \d+ one part holds, so it is not in this context\.')
+        self.assertNotIn("word word", text)
+        self.assertIn("## Short\n\nKept.", text)
+        self.assertIn("===== House Rules file rules/core.md =====\n# Core rules", text)
+
+    def test_more_parts_than_slots_is_reported_in_part_one_and_the_last_slot(self):
+        rev, packed, _ = context.parts(self.root)
+        slots = len(packed) - 1
+        with mock.patch.object(context, "SLOTS", slots), mock.patch.object(context, "root", return_value=self.root):
+            first, last = context.claude(1), context.claude(slots)
+        message = f"HOUSE RULES HOOK ERROR: the rules need {len(packed)} parts but the hook delivers only {slots}"
+        self.assertIn(message, first)
+        self.assertIn(message, last)
+        for output in (first, last):
+            self.assertLess(context.units(output), context.CAP)
+
+    def test_codex_receives_every_part_in_order_as_one_context_value(self):
+        with mock.patch.object(context, "root", return_value=self.root):
+            output = json.loads(context.codex())["hookSpecificOutput"]
+        self.assertEqual(output["hookEventName"], "SessionStart")
+        self.assertEqual(output["additionalContext"], "\n\n".join(self.rendered()))
+        with mock.patch.object(context, "SLOTS", 1), mock.patch.object(context, "root", return_value=self.root):
+            capped = json.loads(context.codex())["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("HOUSE RULES HOOK ERROR: the rules need", capped)
+        self.assertNotIn("House Rules part 2 of", capped)
+
+    def test_parts_read_after_a_change_name_another_text(self):
+        before = self.rendered()
+        self.write("custom/INDEX.md", "# Machine-local capability index\n\nChanged policy line.\n")
+        after = self.rendered()
+        self.assertNotEqual(self.LABEL.match(before[0])[3], self.LABEL.match(after[-1])[3])
+        self.assertIn(f"Every part names text {self.LABEL.match(before[0])[3]}. A missing part number", before[0])
+
+    def test_unreadable_rule_file_prints_a_visible_error_instead_of_nothing(self):
+        (self.root / "rules/core.md").write_bytes(b"# Core rules\n\xff\xfe not UTF-8\n")
+        out = io.StringIO()
+        with mock.patch.object(context, "root", return_value=self.root), contextlib.redirect_stdout(out):
+            context.main(["claude", "1"])
+        self.assertRegex(out.getvalue(), r"^HOUSE RULES HOOK ERROR: 'utf-8' codec can't decode byte 0xff")
+
+    def test_house_rules_itself_fits_the_registered_slots(self):
+        rev, packed, too_long = context.parts(REPO)
+        self.assertEqual(too_long, [])
+        self.assertLessEqual(len(packed), context.SLOTS, "raise SLOTS: the rules outgrow the registered hooks")
+        for number in range(1, len(packed) + 1):
+            self.assertLess(context.units(context.render(number, rev, packed)), context.CAP)
 
 
 class PointerTemplateTests(unittest.TestCase):
