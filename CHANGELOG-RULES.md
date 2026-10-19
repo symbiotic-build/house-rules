@@ -10,6 +10,26 @@ efficient check rather than a precise comparison. The operator asked for a rule:
 model behavior use the baseline's existing runs, add a replicate only when the decision turns on a difference within
 the spread already seen, and compare which items each arm gets right. Measured performance runs are excluded.
 
+## prompts and skills/pr-ready — Tuned first-round review prompts
+
+Operator-approved prompts: 2026-10-19 ("leave it at the best one, slight tune, go with it
+to unblock"). A tuning experiment replayed earlier first review rounds with six candidate
+prompt sets and scored each blind against defects that later rounds found; the operator
+chose the sixth candidate. Targeted lenses follow one required review procedure with a
+coverage ledger and per-lens inventories, and no longer refrain from defects outside their
+lens. A generic one-pass reviewer adds breadth without commands. The triager collects
+defects written only in coverage notes, classifies severity itself, judges over-claiming
+documents and test-discipline breaks by their consequence, and judges rare triggers by
+reachability instead of rejecting them. It also merges one defect reported from different
+angles into one item, a fix found in the chosen candidate's run. The structured change
+shows each changed text file up to 85 000 characters whole as a numbered full-context diff;
+moved-block references are dropped because each moved block now shows in place. The waste
+lens judges a large changed file by its separable responsibilities; size thresholds stay
+open.
+A replay of the new triager rules on stored reviewer reports kept more known defects and
+dropped none that the earlier rules kept. Review prompts no longer claim per-lens model
+families or Decisions and Pre-flight sections they do not supply.
+
 ## skills/pr-ready — Structured review layout
 
 Operator-approved task: 2026-10-17. Structured reviews put shared context first and lens
