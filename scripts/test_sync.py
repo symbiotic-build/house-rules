@@ -752,7 +752,7 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
 
         def run(session):
             data = {"hook_event_name": "UserPromptSubmit", "session_id": session, "cwd": str(self.base)}
-            return subprocess.run(prompt["command"], shell=True, cwd=self.base, input=json.dumps(data),
+            return subprocess.run(prompt["command"], shell=True, cwd=self.base, stdin=None, input=json.dumps(data),
                                   env={**os.environ, "KIMI_CODE_HOME": str(self.kimi)},
                                   capture_output=True, text=True, check=True, timeout=prompt["timeout"])
 
