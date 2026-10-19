@@ -11,6 +11,50 @@ regression they find during their own review. The rule-preservation reviewer now
 whenever the rule report is non-empty, including additions, rewrapped text and provenance
 entries, so no item loses its audit.
 
+## skills/decision-brief, skills/operator-writing — One home for the operator-question format
+
+Operator confirmation: 2026-10-19, answer "1. 1" to the question "Approve the single home
+for the operator-question format?" (approve it, and it merges with the session-context hook).
+A session asked the operator to decide in the decision-brief skill's `Decision 1 = Option 2` answer form, with decision IDs
+and options named "Option 1". The session writing rules prescribe a different format for
+the same questions: numbered `### 1\.` question headings, a one-line `FACT` / `ASSESSMENT`
+context, one bold "(recommended)" option, no word "Option" and an "Answer like so:"
+example. Both texts claimed the same subject, so following the skill broke the rule.
+
+[rules/session-writing.md §Questions to the operator](rules/session-writing.md#questions-to-the-operator)
+stays the one home for how operator questions, options and answers are written. The
+decision-brief skill keeps what a brief explains before its questions and references that
+section; it drops the `Decision N = Option M` answer line and the decision IDs. The
+operator-writing skill drops the "Option 1, 2, 3" naming and references the same section.
+
+Scope: questions the operator must answer, in chat or in a brief. Excluded: specifications
+and design documents, whose open questions stay unnumbered, and the content a brief
+explains before its questions.
+
+## rules/writing.md — Claim labels: a summarising fetch is not the source
+
+Operator confirmation: 2026-10-19, answer "2. 1" to the question "Approve the claim-label
+line on summarising fetch tools?". A session labelled four claims
+`FACT` after reading a web page only through a tool that summarises pages with a model.
+Such a tool's quotes can be paraphrased, so the session had not read the primary source.
+The rule already says a claim read in a summary is never a `FACT`; the new line says that
+a summarising fetch is such a summary, and that quotes are verified against the raw page or
+file.
+
+Scope: claims labelled `FACT`. Excluded: reading summaries for orientation, and claims
+labelled `ASSUMPTION` with their source named.
+
+## Install — Session-context hook
+
+Operator direction: 2026-10-19, after a session skipped rules it had been told to read:
+the fix should hold for every installation by default. The managed block only tells a
+session to read the rules; it does not put them into the session, and the machine-local
+index was read only when the session followed that instruction. INSTALL-AGENTS.md §3 now
+registers a tracked session-start hook that prints the always-load rules, the
+operator-writing skill and `custom/INDEX.md`, split at file and heading boundaries into
+labelled parts under the product's output cap. `scripts/sync.py` reports a missing or
+stale hook as drift.
+
 ## prompts and skills/pr-ready — Tuned first-round review prompts
 
 Operator-approved prompts: 2026-10-19 ("leave it at the best one, slight tune, go with it

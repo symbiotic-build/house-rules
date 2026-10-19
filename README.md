@@ -29,8 +29,10 @@ git clone https://github.com/jak-pan/house-rules.git ~/house-rules
 
 Then give your agent the prompt in [INSTALL-AGENTS.md](INSTALL-AGENTS.md). It preserves existing native
 instructions, adds a pointer to House Rules, and installs the skills in each product's
-supported location. Models, permissions, plugins, and MCP connections stay in native
-settings; external integrations remain owned by their products.
+supported location. Where the product supports it, a session-start hook also puts the
+always-load rules and the machine-local index into every session. Models, permissions,
+plugins, and MCP connections stay in native settings; external integrations remain owned
+by their products.
 
 Do not copy the shared base into every project. In managed repositories, `AGENTS.md`
 is the [loader](STRUCTURE.md#managed-repository-loader); `.agents/rules.md` and `CONTEXT.md`

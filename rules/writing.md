@@ -196,6 +196,10 @@ After:
 - A claim you remember, infer or read in a summary is never a `FACT`.
   A claim you receive from another agent or an earlier session is never a `FACT`.
   Verify it first, or label it `ASSUMPTION` and name its source.
+- A web page or file read through a tool that summarises it with a model is a summary, even
+  when the tool's output shows quotes; the quotes may be paraphrased.
+  Verify a quote or claim from it against the raw page or file, for example the page
+  fetched with `curl`, before you label it `FACT`.
 
 ## Checks before sending
 
