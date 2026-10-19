@@ -21,6 +21,18 @@ Scope: questions the operator must answer, in chat or in a brief. Excluded: spec
 and design documents, whose open questions stay unnumbered, and the content a brief
 explains before its questions.
 
+## rules/writing.md — Claim labels: a summarising fetch is not the source
+
+Proposed: 2026-10-19; awaiting operator confirmation. A session labelled four claims
+`FACT` after reading a web page only through a tool that summarises pages with a model.
+Such a tool's quotes can be paraphrased, so the session had not read the primary source.
+The rule already says a claim read in a summary is never a `FACT`; the new line says that
+a summarising fetch is such a summary, and that quotes are verified against the raw page or
+file.
+
+Scope: claims labelled `FACT`. Excluded: reading summaries for orientation, and claims
+labelled `ASSUMPTION` with their source named.
+
 ## Install — Session-context hook
 
 Operator direction: 2026-10-19, after a session skipped rules it had been told to read:
