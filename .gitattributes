@@ -1,0 +1,2 @@
+# Rule PRs each add a provenance entry at the top of the changelog; keep both sides instead of conflicting.
+CHANGELOG-RULES.md merge=union
