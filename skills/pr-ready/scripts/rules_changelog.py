@@ -14,7 +14,9 @@ frozen archive of entries recorded before this; it stays approval evidence.
                                                         rule text without a Rule changes
                                                         section; exit 1 when any exist
 
---check starts at the commit that added this script: earlier merges predate the convention.
+--check starts at the commit on REV's first-parent line that brought this script in (for a
+merged pull request, its merge commit): merges before it predate the convention, including
+merges that landed while the script's branch was still open.
 
 Rule text is what the preparer's rule-change report covers at each merge's first parent:
 its default rule paths plus that commit's .rule-changes.json extensions.
@@ -71,9 +73,11 @@ def changelog(repo, rev):
 
 
 def missing(repo, rev):
-    added = git(repo, "log", "--diff-filter=A", "--format=%H", rev, "--",
+    # First-parent history compares each commit with its first parent, so this finds the merge
+    # (or direct commit) on rev's main line that brought the script in.
+    added = git(repo, "log", "--first-parent", "--diff-filter=A", "--format=%H", rev, "--",
                 "skills/pr-ready/scripts/rules_changelog.py").split()
-    span = f"{added[-1]}..{rev}" if added else rev
+    span = f"{added[-1]}^1..{rev}" if added else rev
     return [(sha, subject, paths) for sha, _, subject, body in merges(repo, span)
             if section(body) is None and (paths := changed_rules(repo, sha))]
 

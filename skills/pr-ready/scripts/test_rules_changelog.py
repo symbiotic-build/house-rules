@@ -66,6 +66,19 @@ class RulesChangelogTests(unittest.TestCase):
         self.assertEqual(out.stdout, "## Rule changes\n\n- RC1 Remove a rule. Approved 2026-10-20.\n")
         self.assertEqual(self.run_script("--section", stdin="No section.").returncode, 1)
 
+    def test_check_starts_where_main_brought_the_script_in(self):
+        self.git("checkout", "-q", "-b", "intro")
+        self.write("skills/pr-ready/scripts/rules_changelog.py", "# the script arrives here\n")
+        self.commit("add the changelog script")
+        self.git("checkout", "-q", "main")
+        self.merge("legacy", "rules/core.md", "- Keep all records.\n", "Merged before the convention.")
+        self.git("merge", "-q", "--no-ff", "intro", "-m", "Merge intro", "-m", "## Rule changes\n- RC1 Add the script.")
+        self.merge("after", "rules/core.md", "- Keep records.\n", "No section after the convention.")
+        check = self.run_script("--check", "--repo", str(self.repo))
+        self.assertEqual(check.returncode, 1)
+        self.assertIn("Merge after: changed rules/core.md", check.stdout)
+        self.assertNotIn("legacy", check.stdout)
+
     def test_a_fenced_example_heading_is_not_the_section(self):
         body = ("How to declare:\n\n```markdown\n## Rule changes\n- RC1 Example only.\n```\n\n"
                 "## Rule changes\n- RC1 The real declaration.\n")
