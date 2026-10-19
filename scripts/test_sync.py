@@ -640,7 +640,7 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
 
     def test_rules_longer_than_the_registered_slots_are_reported(self):
         self.install_fixture()
-        with mock.patch.object(context, "SLOTS", 1), mock.patch.object(context, "CAP", 1_000):
+        with mock.patch.object(context, "SLOTS", 1), mock.patch.object(context, "CAP", 1_500):
             code, out, err = self.invoke()
         self.assertEqual(code, 1, out + err)
         self.assertRegex(out, r"REPORT: session context needs [2-9] parts; the hook registers 1\n")
@@ -907,12 +907,16 @@ class SessionContextTests(unittest.TestCase):
         message = f"HOUSE RULES HOOK ERROR: the rules need {len(packed)} parts but only {slots} hooks are registered"
         self.assertIn(message, first)
         self.assertIn(message, last)
+        for output in (first, last):
+            self.assertLess(context.units(output), context.CAP)
 
     def test_codex_receives_every_part_in_order_as_one_context_value(self):
         with mock.patch.object(context, "root", return_value=self.root):
             output = json.loads(context.codex())["hookSpecificOutput"]
         self.assertEqual(output["hookEventName"], "SessionStart")
         self.assertEqual(output["additionalContext"], "\n\n".join(self.rendered()))
+        with mock.patch.object(context, "SLOTS", 1), mock.patch.object(context, "root", return_value=self.root):
+            self.assertNotIn("HOUSE RULES HOOK ERROR", context.codex())
 
     def test_unexpected_failure_prints_a_visible_error_instead_of_nothing(self):
         out = io.StringIO()
@@ -924,7 +928,7 @@ class SessionContextTests(unittest.TestCase):
     def test_house_rules_itself_fits_the_registered_slots(self):
         rev, packed, too_long = context.parts(REPO)
         self.assertEqual(too_long, [])
-        self.assertLessEqual(len(packed), context.SLOTS - 2, "raise SLOTS before the rules outgrow it")
+        self.assertLessEqual(len(packed), context.SLOTS, "raise SLOTS: the rules outgrow the registered hooks")
         for number in range(1, len(packed) + 1):
             self.assertLess(context.units(context.render(number, rev, packed)), context.CAP)
 

@@ -27,7 +27,7 @@ import sys
 
 
 CAP = 10_000      # Claude Code's limit for one hook's output, in UTF-16 code units.
-RESERVE = 800     # Room in each part for its label, the part 1 introduction and the end line.
+RESERVE = 1_200   # Room in a part for its label, the part 1 introduction, an overflow error and the end line.
 SLOTS = 12        # Claude Code hooks registered; the last one reports text that needs more.
 TIMEOUT = 10      # Seconds each product waits for one hook.
 ERROR = "HOUSE RULES HOOK ERROR:"
@@ -137,8 +137,11 @@ def label(number, total, rev, name, heading):
     return f"===== House Rules part {number} of {total} (revision {rev}); starts at {name}, heading \"{heading}\" ====="
 
 
-def render(number, rev, packed):
-    """The text of one part, with its label; part 1 also says how to read the parts."""
+def render(number, rev, packed, hooks=True):
+    """The text of one part, with its label; part 1 also says how to read the parts.
+
+    hooks: the parts go to one Claude Code hook each, so parts past SLOTS are lost.
+    """
     total = len(packed)
     if number > total:
         return ""
@@ -149,8 +152,8 @@ def render(number, rev, packed):
                      f"{LOCAL_INDEX} follow in full, in {total} parts. They apply to every reply in this session. "
                      "The parts can arrive in any order: read them in part-number order. Each part names the file "
                      "and heading it starts at.")
-        if total > SLOTS:
-            lines.append(overflow(total))
+    if hooks and total > SLOTS and number in (1, SLOTS):
+        lines.append(overflow(total))
     # The body keeps its own trailing newlines, so blank source lines survive the split.
     output = "\n".join(lines) + "\n" + text + ("" if text.endswith("\n") else "\n") + \
         f"===== End of House Rules part {number} of {total} ====="
@@ -167,15 +170,12 @@ def overflow(total):
 
 def claude(number):
     rev, packed, _ = parts()
-    output = render(number, rev, packed)
-    if number == SLOTS and len(packed) > SLOTS:
-        output += "\n" + overflow(len(packed))
-    return output
+    return render(number, rev, packed)
 
 
 def codex():
     rev, packed, _ = parts()
-    text = "\n\n".join(render(number, rev, packed) for number in range(1, len(packed) + 1))
+    text = "\n\n".join(render(number, rev, packed, hooks=False) for number in range(1, len(packed) + 1))
     return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}})
 
 
