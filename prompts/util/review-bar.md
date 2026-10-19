@@ -63,8 +63,8 @@ rule-preservation reviewer gives every listed item a disposition: `same meaning`
 `approved change` or `regression`, with one line of evidence each. An `approved change`
 cites the approving line in the report's selected declaration source (PR body or
 `--summary`) or a recorded decision.
-A removal or weakening needs operator approval on record: a `CHANGELOG-RULES.md` entry
-or the operator's dated words quoted in the selected declaration source.
+A removal or weakening needs operator approval on record: the operator's dated words quoted
+in the selected declaration source, or an entry in the frozen `CHANGELOG-RULES.md` archive.
 The author's own declaration approves only same-meaning, stronger, intact
 moved and new rules.
 A `regression`, a missing disposition, a removal or weakening without cited approval,

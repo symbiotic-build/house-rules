@@ -2,6 +2,10 @@
 
 Source notes for House Rules invariants and procedures.
 
+This file is a frozen archive. New provenance lives in each rule pull request's Rule changes
+section, which its merge commit carries; `skills/pr-ready/scripts/rules_changelog.py` prints the
+changelog built from those merge commits.
+
 ## skills/bench-discipline — Reuse baseline runs instead of rerunning them
 
 Operator direction: 2026-10-19, after an agent tuning review prompts proposed rerunning the baseline in each test round

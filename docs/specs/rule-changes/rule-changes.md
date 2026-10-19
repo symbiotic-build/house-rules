@@ -214,7 +214,7 @@ The [rule-preservation lens](../../../prompts/lenses/rule-preservation.md) owns 
 Each item receives `same meaning`, `approved change` or `regression`, plus one evidence line.
 An approved change cites an approving line in the report's selected declaration source (PR body or `--summary`) or a recorded decision.
 
-A removal or weakening needs operator approval on record: a `CHANGELOG-RULES.md` entry or the operator's dated words quoted in the selected declaration source. The author's own declaration approves only same-meaning, stronger, intact moved and new rules.
+A removal or weakening needs operator approval on record. That record is the operator's dated words quoted in the selected declaration source, or an entry in the frozen `CHANGELOG-RULES.md` archive. The author's own declaration approves only same-meaning, stronger, intact moved and new rules.
 
 The lens compares actor, condition, action, strength, numbers, exceptions, scope and cross-references.
 It checks destination scope for moves and existing homes for new rules, including conflicts and duplicates.
@@ -385,6 +385,9 @@ Unknown fields, unsupported versions, malformed patterns and invalid limits fail
 Default protected paths are `INDEX.md`, `STRUCTURE.md`, `PREFERENCES.md`, `INSTALL-AGENTS.md`, `AGENTS.md`, `CHANGELOG-RULES.md`,
 `rules/**/*.md`, `prompts/**/*.md`, `skills/**/*.md`, `.agents/rules.md` and `CONTEXT.md`.
 `CHANGELOG-RULES.md` is the default provenance path.
+
+That file is a frozen archive. New provenance lives in each pull request's Rule changes section. The merge commit carries that section ([pr-ready](../../../skills/pr-ready/SKILL.md) §4). [rules_changelog.py](../../../skills/pr-ready/scripts/rules_changelog.py) prints the changelog from those merge commits.
+
 Glob `**/` matches zero or more directories; `*` matches within one path segment. Recursive wildcards include newline characters.
 Only regular UTF-8 protected files are accepted. Invalid encoding or nonregular protected inputs fail visibly.
 
