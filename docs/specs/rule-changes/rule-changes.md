@@ -209,7 +209,7 @@ The author corrects the source, and every reported item still needs a dispositio
 ### Review disposition
 
 A review disposition is a reviewer's judgment and evidence for one reported item.
-The shared [review bar](../../../prompts/util/review-bar.md) owns the mandatory obligation for every compiled review input.
+The shared [review bar](../../../prompts/util/review-bar.md) owns the mandatory obligation; the rule-preservation reviewer meets it.
 The [rule-preservation lens](../../../prompts/lenses/rule-preservation.md) owns the element-by-element audit procedure.
 Each item receives `same meaning`, `approved change` or `regression`, plus one evidence line.
 An approved change cites an approving line in the report's selected declaration source (PR body or `--summary`) or a recorded decision.
@@ -218,7 +218,7 @@ A removal or weakening needs operator approval on record: a `CHANGELOG-RULES.md`
 
 The lens compares actor, condition, action, strength, numbers, exceptions, scope and cross-references.
 It checks destination scope for moves and existing homes for new rules, including conflicts and duplicates.
-For `rewrapped`, each reviewer opens the diff at the reported locations and confirms preserved heading, code, list, quote, table and hard-break structure.
+For `rewrapped`, the reviewer opens the diff at the reported locations and confirms preserved heading, code, list, quote, table and hard-break structure.
 Same words do not establish preserved structure; the item still needs evidence and a disposition.
 It reconciles declared and detected changes and checks that removed text has a surviving home or approval.
 A regression, missing disposition, unapproved removal or weakening, undeclared change or failed-closed report is Blocking.
@@ -278,9 +278,8 @@ Require a meaning audit rather than sample sentence locks.
 
 **Condition:** A report is non-empty.
 
-**Result:** Every reviewer supplies a [review disposition](#review-disposition) per item, including `rewrapped` items.
-Removed, changed or moved rule items require the rule-preservation lens alongside the normal panel.
-Rewrapped-only changes do not require that lens.
+**Result:** The rule-preservation lens runs alongside the normal panel and supplies a [review disposition](#review-disposition) per item, including `rewrapped` and added items.
+Reviewers using other lenses supply no dispositions; they report a rule regression found during their own review as Blocking.
 
 **Verification:** Dispatch fixture and prompt inspection.
 
@@ -391,8 +390,7 @@ Only regular UTF-8 protected files are accepted. Invalid encoding or nonregular 
 
 The [preparer](../../../skills/pr-ready/scripts/prepare.py) exposes `review --context-only` for the report and
 `rule-lenses CHECKOUT --base BASE --rev HEAD --no-fetch` for dispatch.
-The selector prints `rule-preservation` only when a removed, changed or moved rule item exists.
-Rewrapped-only ranges select no lens; normal reviewers still dispose of every rewrapped item.
+The selector prints `rule-preservation` when the report has any rule item; a provenance-only report selects no lens.
 The lane [panel](../../../skills/pr-ready/scripts/review-panel.sh) adds that lens without replacing the requested reviewers.
 The service must run the same selector from its pinned preparer, add the lens from its compiled pack, and honor nonzero preparation status.
 There is no automatic service adoption in this repository.

@@ -2,6 +2,15 @@
 
 Source notes for House Rules invariants and procedures.
 
+## prompts/util/review-bar.md — Rule-change dispositions belong to one reviewer
+
+Operator decision: 2026-10-20. Every reviewer had to give each rule-change item a disposition,
+so a review panel wrote the same table once per reviewer in every round. Only the
+rule-preservation reviewer now writes the dispositions; other reviewers report a rule
+regression they find during their own review. The rule-preservation reviewer now joins
+whenever the rule report lists any rule item, including additions and rewrapped text,
+so no item loses its audit.
+
 ## skills/pr-ready — Structured review layout
 
 Operator-approved task: 2026-10-17. Structured reviews put shared context first and lens
