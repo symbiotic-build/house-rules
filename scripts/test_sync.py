@@ -655,8 +655,10 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
     def test_unparsable_unrelated_hook_commands_do_not_stop_the_report(self):
         self.install_fixture()
         path = self.claude / "settings.json"
+        mention = f"/usr/bin/test -f {shlex.quote(str(self.root / 'scripts/session_context.py'))}"
         broken = [{"hooks": [{"type": "command", "command": []}, {"type": "command", "command": "echo 'open"},
-                             "not a handler", {"type": "command"}]}, "not an entry"]
+                             "not a handler", {"type": "command"}, {"type": "command", "command": mention}]},
+                  "not an entry"]
         self.register_hook(path, "claude", extra=broken)
         code, out, err = self.invoke()
         self.assertEqual(code, 0, out + err)

@@ -267,7 +267,7 @@ def check_hook(root, roots, path, product, findings):
     entries = hooks.get("SessionStart") if isinstance(hooks, dict) else None
     scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
     owned = [(entry, commands) for entry in entries if isinstance(entry, dict)
-             for commands in [handler_commands(entry)] if any(scripts & set(tokens) for tokens in commands)
+             for commands in [handler_commands(entry)] if any(runs_script(tokens, scripts) for tokens in commands)
              ] if isinstance(entries, list) else []
     if not owned:
         findings.append(f"missing session context hook: {path}")
@@ -277,6 +277,11 @@ def check_hook(root, roots, path, product, findings):
     if len(owned) != 1 or not Path(python).is_absolute() or not is_file(Path(python)) or \
             entry != session_context.hooks(product, python, root):
         findings.append(f"stale session context hook: {path}")
+
+
+def runs_script(tokens, scripts):
+    """The call form session_context.hooks() prints: <python> -I <script> ...; a mere mention is not ours."""
+    return len(tokens) >= 3 and tokens[1] == "-I" and tokens[2] in scripts
 
 
 def handler_commands(entry):
