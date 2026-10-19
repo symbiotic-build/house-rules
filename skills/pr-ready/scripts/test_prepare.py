@@ -1026,6 +1026,32 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         requirements = prompt.split("# 4. Requirements", 1)[1].split("# 5. Change", 1)[0]
         self.assertIn("Unchanged requirement text", requirements)
 
+    def test_selected_spec_stays_whole_when_a_changed_file_displays_like_it(self):
+        self.write(self.repo, "docs/spec-\\xff.md", "## 1 Behavior\nUnchanged requirement text\n")
+        self.commit(self.repo, "Add spec whose name holds a backslash")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        # The raw byte FF displays as the same four characters as the spec's name.
+        blob = subprocess.run(["git", "hash-object", "-w", "--stdin"], cwd=self.repo, input=b"other\n",
+                              capture_output=True, check=True, stdin=None).stdout.strip()
+        subprocess.run(["git", "update-index", "-z", "--index-info"], cwd=self.repo, stdin=None,
+                       input=b"100644 " + blob + b"\tdocs/spec-\xff.md\0", check=True)
+        self.git(self.repo, "commit", "-m", "Add a file that displays like the spec")
+        prompt = self.review(spec="docs/spec-\\xff.md")
+        requirements = prompt.split("# 4. Requirements", 1)[1].split("# 5. Change", 1)[0]
+        self.assertIn("Unchanged requirement text", requirements)
+
+    def test_multibyte_text_is_budgeted_by_characters(self):
+        self.write(self.repo, "docs/notes.md", "\U0001d11e" * 10_000 + "\n")
+        self.commit(self.repo, "Add four-byte characters")
+        args = ("review", str(self.repo), "--base", "origin/trunk", "--no-fetch", "--context-only")
+        code, unconstrained, err = self.invoke(*args)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn(prepare.PACK_NOTICE, unconstrained)
+        # Leave room for exactly this prompt in characters; the file's bytes are four times as many.
+        code, prompt, err = self.invoke(*args, "--compiled-chars", str(prepare.CODEX_LIMIT - len(unconstrained)))
+        self.assertEqual(code, 0, err)
+        self.assertEqual(prompt, unconstrained)
+
     def test_changed_spec_shown_whole_is_budgeted_as_its_pointer(self):
         self.write(self.repo, "docs/spec.md", "## 1 Behavior\n" + "Requirement line\n" * 3_000)
         self.commit(self.repo, "Add a large changed spec")

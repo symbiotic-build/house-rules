@@ -681,7 +681,7 @@ def requirement_entries(repo, args, pr, issues, comments, texts, commits, files,
 def requirements_part(entries, mode, shown=None):
     """A specification that the change part shows whole is a pointer, so its text appears once.
 
-    shown maps a displayed path to the number of the changed file shown whole."""
+    shown maps a raw Git path to the number of the changed file shown whole."""
     out = ["# 4. Requirements", "", "## Index"]
     for n, entry in enumerate(entries, 1):
         out.append(f"- R{n}. {entry['source']} — {entry['link']}")
@@ -729,10 +729,13 @@ def file_diff(repo, rng, path, mode, budget, context=None):
                     continuation = not chunk.endswith(b"\n")
                 result = "\n".join(hunks)
             else:
-                data = process.stdout.read(max(0, budget) + 1)
-                if len(data) > budget:
+                # The budget counts displayed characters; one character is at most four UTF-8 bytes.
+                data = process.stdout.read(4 * max(0, budget) + 1)
+                if len(data) > 4 * max(0, budget):
                     raise DiffTooLarge()
                 result = data.decode("utf-8", errors="backslashreplace").rstrip("\n")
+                if len(display(result)) > budget:
+                    raise DiffTooLarge()
             if process.wait():
                 errors.seek(0)
                 raise PrepareError(errors.read().decode("utf-8", errors="replace").strip() or f"git diff failed for {path}")
@@ -815,7 +818,7 @@ def numbered(diff, text):
 
 
 class ChangePart(str):
-    """Rendered change text with the file numbers of the files it shows whole, keyed by displayed path."""
+    """Rendered change text with the file numbers of the files it shows whole, keyed by raw Git path."""
 
     def __new__(cls, text, shown):
         part = super().__new__(cls, text)
@@ -837,7 +840,7 @@ def structured_change(repo, rng, files, head, budget, full_file_cap):
             if rows is None:
                 reason = "binary"
         if reason is None:
-            shown[display(path)] = f"F{n}"
+            shown[path] = f"F{n}"
             whole.append(f"- F{n} {display(path)}")
             section = "\n\n".join([f"## F{n}. {display(path)} (shown whole)",
                                     f"$ git diff -U<all> {base[:12]} {head[:12]} -- {display(path)}   "
@@ -998,22 +1001,19 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
                                   documentation=documentation_prepared or bool(needs_documentation))
     if missing:
         notices.insert(0, "not found: " + ", ".join(dict.fromkeys(missing)))
-    # Budget a changed spec that the structured change will show whole as its pointer.
+    # Budget a changed spec that the structured change will show whole as its pointer; its body is the head text.
     predicted = {}
     if mode == "structured":
         numbers = {path: f"F{n}" for n, (_, _, path) in enumerate(files, 1) if not LOCK.search(path)}
-        for entry in entries:
-            if entry["category"] == "spec" and entry["path"] in numbers:
-                try:
-                    if head_text(repo, head, entry["path"], full_file_cap, CODEX_LIMIT)[0] is not None:
-                        predicted[display(entry["path"])] = numbers[entry["path"]]
-                except DiffTooLarge:
-                    pass
+        predicted = {entry["path"]: numbers[entry["path"]] for entry in entries
+                     if entry["category"] == "spec" and entry["path"] in numbers
+                     and "\0" not in entry["body"] and len(entry["body"]) <= full_file_cap}
     # Numstat is already collected; the remaining budget bounds structured reads
     # before constructing a prompt. Pack streams bodies without retaining them.
     # Normalize before trimming: escaping invalid bytes can quadruple their size.
+    # A spec keeps its raw path: distinct Git paths can display alike.
     for entry in entries:
-        entry.update((key, display(value)) for key, value in entry.items())
+        entry.update((key, display(value)) for key, value in entry.items() if key != "path")
     compiled_chars = getattr(args, "compiled_chars", 0)
     if compiled_chars < 0 or (compiled_chars and not context_only):
         raise PrepareError("--compiled-chars requires context-only mode and a nonnegative count")
