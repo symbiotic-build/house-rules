@@ -421,7 +421,8 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertIn("Provenance entries: 2", report)
         self.assertNotIn("Retain evidence.", report)
         self.assertNotIn("Ignored provenance.", report)
-        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2], (0, ""))
+        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2],
+                         (0, "rule-preservation\n"))
         # Exact provenance copies at different locations are separate entries, not moves.
         self.snapshot({"history/approval.md": "# Approval\n- Retain evidence.\n",
                        "history/archive.md": "# Archive\n- Never skip validation.\n"})
@@ -522,7 +523,8 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(out, "rule-preservation\n")
         base = self.git(self.repo, "rev-parse", "HEAD")
         self.snapshot({"rules/source.md": "# Scope\nAvoid skipping validation.\nNew rule.\n"})
-        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2], (0, ""))
+        self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2],
+                         (0, "rule-preservation\n"))
         base = self.git(self.repo, 'rev-parse', 'HEAD')
         self.assertEqual(self.invoke('rule-lenses', str(self.repo), '--base', base, '--no-fetch')[:2], (0, ''))
         self.snapshot({'rules/source.md': '# Scope\n'})
@@ -533,11 +535,11 @@ class RuleChangesTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(self.invoke('rule-lenses', str(self.repo), '--base', base, '--no-fetch')[:2],
                          (0, 'rule-preservation\n'))
 
-    def test_rewrapped_only_range_needs_no_lens(self):
+    def test_rewrapped_only_range_selects_the_lens(self):
         base = self.snapshot({"rules/source.md": "Retain every source and\nreport every failure.\n"})
         self.snapshot({"rules/source.md": "Retain every source\nand report every failure.\n"})
         self.assertEqual(self.invoke("rule-lenses", str(self.repo), "--base", base, "--no-fetch")[:2],
-                         (0, ""))
+                         (0, "rule-preservation\n"))
         report = self.report(base)
         self.assertIn("moved: 0; rewrapped: 1", report)
         self.assertIn("same words, line breaks moved", report)
