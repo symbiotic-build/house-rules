@@ -43,3 +43,49 @@ Out of scope (owning lens): code defects, `correctness-security`; concurrency an
 @rule house-rules:prompts/lenses/naming-readability.md
 @rule house-rules:prompts/util/premise-check.md
 @rule house-rules:prompts/util/targeted-lens.md
+@rule house-rules:prompts/util/review-procedure.md
+
+### Checklist and inventories for design documents
+
+Your obligations are these five checklist items and the five inventories below, numbered in step 1:
+
+- Premise: one case per mechanism the document adds, with the four parts the premise check above defines: its
+  measured consumer, its fit to that consumer, the requirement that needs it, and the simplest design that meets it.
+- Contradictions between sections and with recorded decisions. Whether the code matches the document belongs to the
+  specification reviewer.
+- Undefined cases, infeasible or unmeasurable requirements, and requirements or decisions without their required
+  identities, reciprocal links and acceptance tests.
+- Stale or superseded text, including unchanged text next to an edit and consumers that still state a withdrawn rule.
+- Refusal and recovery: for every stopping or refusing mechanism, the trigger, visible outcome, retained state,
+  recovery actor and verification; a described limitation does not satisfy a requirement to provide recovery.
+
+The specification and writing guidance earlier in this message is the standard the section, reading-order, obligation
+and procedure inventories apply: reading order, placement of qualifications, procedure action boundaries, identities
+and homes. Report a breach of it as a finding; do not list guidance items that do not apply.
+
+1. **Section table.** One row per section that contains an edit in every changed document, and per unchanged section
+   that governs an edited one.
+   Columns: the section's rule or promise, its actor and prerequisites, and a fresh-reader rating (yes, with effort,
+   no) for a reader who has only that section, as the guidance above defines it. On an edited section, "with effort"
+   and "no" are findings. A link passes only when the linked text supplies the missing content and the reader is told
+   to read it first.
+2. **Reading-order table.** For each changed document, the order a reader meets: title, opening, generated navigation,
+   definitions, provisional or conditional values, and their qualifications. A value or navigation block that comes
+   before what it depends on is a finding.
+3. **Obligation diff.** Split every deleted, replaced or withdrawn normative sentence into its separate conditions,
+   orderings, exceptions and guarantees, one row each. Columns: old part, new part or "absent", class (same meaning,
+   stronger, weakened, removed), and the resolving decision's operative sentence. A weakened or removed part without a
+   decision that explicitly authorizes it is Blocking. Then search every consumer, including qualification procedures
+   and acceptance counts, for retained statements of each withdrawn part.
+4. **Promise-to-selection table.** One row per input class a document promises to include, exclude or route: derive
+   the classes from the promise first, then check the selection the document or its proposed configuration states for
+   a representative input of each, including an ordinary input outside every specifically named location. A selection
+   you cannot see is unchecked, not no defect. Tracing the implementation belongs to the specification reviewer.
+5. **Procedure trace.** For every procedure and example (setup, upgrade, reset, recovery, verification): one row per
+   authored action, traced on the page as the stated actor with only the stated prerequisites, for every deployment
+   mode. A displayed block with several calls is several actions, and the published procedure itself must give each
+   its own numbered step and result; splitting them only in your ledger does not satisfy that. Compose the full
+   invocation a procedure can require, including optional features named in later steps, and check mutually exclusive
+   modes. For each command placeholder, state whether it is literal text, encoded content or a file path. Before any action that releases capacity, clears a
+   guard or restores service, list every prerequisite and retained resource named by governing requirements, one row
+   each. A destructive step retires owners first and never destroys state the change promises to keep.

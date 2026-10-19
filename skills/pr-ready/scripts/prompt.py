@@ -263,7 +263,7 @@ def review_plan(lenses):
     all_roles = ["technical", "readability", "design/cost", "failure/recovery", "whole-scenario"]
     specialists = {"naming-readability": ["readability"],
                    "design-spec": all_roles}
-    return [{"id": lens, "responsibilities": all_roles if lens.startswith("generalist-")
+    return [{"id": lens, "responsibilities": all_roles if lens.startswith("generalist-") or lens == "generic"
              else specialists.get(lens, ["technical"])} for lens in lenses]
 
 
