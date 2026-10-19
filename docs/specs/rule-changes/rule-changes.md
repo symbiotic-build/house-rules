@@ -144,7 +144,7 @@ The preparer compares captured Git text before rendering the change or dispatchi
 4. **Classify every block.** Keep same-word rewraps visible as `rewrapped` items; never drop a changed block.
 5. **Pair exact moves.** Pair exact removed and added copies as moves.
 6. **Check the allowance.** Refuse oversized complete reports before joining the rendered output.
-7. **Select the lens.** Dispatch from the resulting rule items; provenance entries do not select a lens.
+7. **Select the lens.** Dispatch the rule-preservation lens for every non-empty report, provenance entries included.
 
 <a id="rule-change-report"></a>
 ### Rule-change report
@@ -182,7 +182,7 @@ It does not compare every removed block with every added block.
 
 Provenance files record why rules changed. Their text never pairs with rule blocks or other provenance entries.
 A provenance block contributes its removed side and added side separately to `Provenance entries`.
-Those entries retain identities, locations and exact text, but do not enter rule totals or trigger the rule-preservation lens.
+Those entries retain identities, locations and exact text, but do not enter rule totals. Like rule items, they select the rule-preservation lens.
 
 Every item receives a stable report-local identity and class, plus old/new locations.
 A `rewrapped` item renders once, on one line: identity, kind, old location → new location and `same words, line breaks moved`.

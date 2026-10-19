@@ -311,6 +311,8 @@ class PanelExecutionTests(PrepareFixture, unittest.TestCase):
 
     def test_panel_keeps_first_commit_when_head_moves_before_context(self):
         summary, output, env = self.panel_fixture()
+        # The added rule file selects rule-preservation; both families use the local stub below.
+        Path(env["REVIEW_PANEL_CONF"]).write_text("a = codex test-model - high\nb = codex test-model - high\n")
         env["REVIEW_BASE"] = "origin/trunk"
         self.write(self.repo, "AGENTS.md", "FIRST RULES\n")
         self.write(self.repo, "docs/spec.md", "FIRST SPEC\n")
@@ -318,13 +320,17 @@ class PanelExecutionTests(PrepareFixture, unittest.TestCase):
         self.commit(self.repo, "First title\n\nDesign: docs/spec.md")
         first = self.git(self.repo, "rev-parse", "HEAD")
         real_git = shutil.which("git")
-        # Metadata selection starts after target-rule compilation. Move HEAD at
-        # that boundary without sleeps or concurrent timing.
+        # Metadata selection starts after target-rule compilation. Move HEAD once at
+        # that boundary without sleeps or concurrent timing; the rule-preservation
+        # reviewer, selected for the added rule file, reaches the boundary too.
         wrapper = self.binaries / "git"
+        moved = self.binaries / "head-moved"
         wrapper.write_text("#!" + sys.executable + "\n" +
                           "import os, pathlib, subprocess, sys\n" +
                           "args = sys.argv[1:]\n" +
-                          "if args[-1:] == [':(literal)docs/ENTITIES.json']:\n" +
+                          f"moved = pathlib.Path({str(moved)!r})\n" +
+                          "if args[-1:] == [':(literal)docs/ENTITIES.json'] and not moved.exists():\n" +
+                          "    moved.touch()\n" +
                           f"    repo = pathlib.Path({str(self.repo)!r})\n" +
                           "    for path, body in [('AGENTS.md', 'SECOND RULES\\n'), " +
                           "('docs/spec.md', 'SECOND SPEC\\n'), ('src/core.py', 'second_change = 3\\n')]:\n" +
