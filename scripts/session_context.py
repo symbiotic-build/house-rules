@@ -7,9 +7,16 @@ custom/INDEX.md, read live from the House Rules checkout that holds this script.
 
   session_context.py claude <n>      part <n> for Claude Code; one hook per part
   session_context.py codex           every part, as one Codex additionalContext value
+  session_context.py kimi prompt     every part, on the first prompt of each Kimi session id
+  session_context.py kimi compact    forget that session id, so its next prompt prints them again
   session_context.py hooks <product> [<root>]
                                      the hook entry INSTALL-AGENTS.md §3 registers, running this
                                      interpreter and the script under <root> (default: this checkout)
+
+Kimi Code passes no session-start hook output to the model, and compaction removes what its
+UserPromptSubmit hooks added. So for Kimi a UserPromptSubmit hook prints the rules once per
+session id, and a PreCompact hook makes the next prompt print them again. The session ids
+already given the rules are empty files under $KIMI_CODE_HOME/house-rules-sessions.
 
 Claude Code caps each hook's output at 10 000 characters and runs a product's hooks in
 parallel, so parts can arrive in any order. Parts split only at file and heading boundaries,
@@ -20,11 +27,13 @@ error line in place of the text.
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shlex
 import subprocess
 import sys
+import time
 
 
 CAP = 10_000      # Claude Code's limit for one hook's output, in UTF-16 code units.
@@ -35,6 +44,9 @@ ERROR = "HOUSE RULES HOOK ERROR:"
 # Every reply is operator-facing text, which INDEX.md sends to this skill.
 EXTRA_FILES = ["skills/operator-writing/SKILL.md"]
 LOCAL_INDEX = "custom/INDEX.md"
+KIMI_STATE = "house-rules-sessions"   # Folder in the Kimi home holding one empty file per session id given the rules.
+KIMI_KEEP = 30 * 24 * 3600            # Seconds a session id's file is kept; older ones are removed.
+SESSION_ID = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}")
 HEADING = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$")
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
 
@@ -180,11 +192,70 @@ def claude(number):
     return render(number, rev, packed)
 
 
-def codex():
-    """Parts 1 to SLOTS in one value: the same strict cap as Claude Code, so Codex may pass it whole."""
+def every_part():
+    """Parts 1 to SLOTS in one text: the same strict cap as Claude Code, so one value may carry it whole."""
     rev, packed, _ = parts()
-    text = "\n\n".join(render(number, rev, packed) for number in range(1, min(len(packed), SLOTS) + 1))
-    return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}})
+    return "\n\n".join(render(number, rev, packed) for number in range(1, min(len(packed), SLOTS) + 1))
+
+
+def codex():
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": every_part()}})
+
+
+def kimi_records():
+    home = os.environ.get("KIMI_CODE_HOME") or str(Path.home() / ".kimi-code")
+    return Path(home) / KIMI_STATE
+
+
+def kimi_session(stdin):
+    """The session id from Kimi's hook input, or None when it is missing or unsafe as a file name."""
+    try:
+        data = json.loads(stdin.read())
+    except ValueError:
+        return None
+    session = data.get("session_id") if isinstance(data, dict) else None
+    return session if isinstance(session, str) and SESSION_ID.fullmatch(session) else None
+
+
+def kimi_prompt(stdin):
+    """Every part on the first prompt of a session id; nothing on its later prompts."""
+    session = kimi_session(stdin)
+    if session is None:
+        # Without a session id the hook cannot tell prompts apart, so every prompt gets the rules.
+        return (f"{ERROR} Kimi gave no usable session id, so the rules repeat on every prompt. "
+                "Check the UserPromptSubmit hook input.\n" + every_part())
+    records = kimi_records()
+    records.mkdir(parents=True, exist_ok=True)
+    record = records / session
+    try:
+        os.close(os.open(record, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600))
+    except FileExistsError:
+        return ""
+    try:
+        output = every_part()
+    except BaseException:
+        record.unlink()   # The next prompt retries instead of leaving the session without the rules.
+        raise
+    cutoff = time.time() - KIMI_KEEP
+    try:
+        for path in records.iterdir():
+            if path.stat().st_mtime < cutoff:
+                path.unlink()
+    except OSError as error:
+        # This session already counts as given the rules, so they must still print.
+        output += f"\n{ERROR} old Kimi session records in {records} were not removed: {error}"
+    return output
+
+
+def kimi_compact(stdin):
+    """Compaction removes the injected rules from Kimi's context, so the next prompt prints them again."""
+    session = kimi_session(stdin)
+    if session is not None:
+        try:
+            (kimi_records() / session).unlink()
+        except FileNotFoundError:
+            pass
+    return ""
 
 
 def command(python, base, *args):
@@ -201,9 +272,21 @@ def hooks(product, python=None, base=None):
         # codex() caps its own output at SLOTS parts, so Codex may pass it whole (limit 0).
         handlers = [{"type": "command", "command": command(python, base, "codex"), "timeout": TIMEOUT,
                      "statusMessage": "Loading House Rules", "additionalContextLimit": 0}]
+    elif product == "kimi":
+        # The [[hooks]] tables of Kimi's config.toml; kimi_toml() prints them.
+        handlers = [{"event": event, "command": command(python, base, "kimi", mode), "timeout": TIMEOUT}
+                    for event, mode in (("UserPromptSubmit", "prompt"), ("PreCompact", "compact"))]
     else:
-        raise ValueError(f"no session-start hook for {product}")
+        raise ValueError(f"no session-context hook for {product}")
     return {"hooks": handlers}
+
+
+def kimi_toml(python=None, base=None):
+    """The [[hooks]] tables INSTALL-AGENTS.md §3 appends to Kimi's config.toml."""
+    # A JSON string with non-ASCII kept as is is also a valid TOML basic string.
+    return "\n".join("[[hooks]]\n" + "".join(f"{key} = {json.dumps(value, ensure_ascii=False)}\n"
+                                              for key, value in table.items())
+                     for table in hooks("kimi", python, base)["hooks"])
 
 
 def main(argv):
@@ -212,10 +295,17 @@ def main(argv):
             output = claude(int(argv[1]))
         elif argv == ["codex"]:
             output = codex()
+        elif argv == ["kimi", "prompt"]:
+            output = kimi_prompt(sys.stdin)
+        elif argv == ["kimi", "compact"]:
+            output = kimi_compact(sys.stdin)
+        elif len(argv) in (2, 3) and argv[0] == "hooks" and argv[1] == "kimi":
+            output = kimi_toml(base=Path(argv[2]) if len(argv) == 3 else None).rstrip("\n")
         elif len(argv) in (2, 3) and argv[0] == "hooks":
             output = json.dumps(hooks(argv[1], base=Path(argv[2]) if len(argv) == 3 else None), indent=2)
         else:
-            sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | hooks <claude|codex> [<root>]")
+            sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | kimi prompt | kimi compact | "
+                     "hooks <claude|codex|kimi> [<root>]")
     except (OSError, ValueError, UnicodeDecodeError) as error:
         # The hook's output is the only channel the model sees; print the failure there.
         output = f"{ERROR} {error}"

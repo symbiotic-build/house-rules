@@ -13,14 +13,19 @@ import subprocess
 import sys
 import time
 
+try:
+    import tomllib
+except ImportError:   # Python 3.9 and 3.10 have no TOML reader; the Kimi hook check reports it.
+    tomllib = None
+
 
 MARKERS = re.compile(r"<!-- (house-rules|forge|groundwork):(begin|end) -->")
 _SPEC = importlib.util.spec_from_file_location("session_context", Path(__file__).with_name("session_context.py"))
 session_context = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(session_context)
-# Native hook file and session_context.py product name for each product with a session-start hook.
-# Kimi Code runs SessionStart hooks but does not pass their output to the model (INSTALL-AGENTS.md §1).
-HOOK_FILES = {"CLAUDE_CONFIG_DIR": ("settings.json", "claude"), "CODEX_HOME": ("hooks.json", "codex")}
+# Native hook file and session_context.py product name for each product with a session-context hook.
+HOOK_FILES = {"CLAUDE_CONFIG_DIR": ("settings.json", "claude"), "CODEX_HOME": ("hooks.json", "codex"),
+              "KIMI_CODE_HOME": ("config.toml", "kimi")}
 
 
 def status(path, *, follow_symlinks=True):
@@ -261,14 +266,19 @@ def verify(root, home, findings, selected):
 
 
 def check_hook(root, roots, path, product, findings):
-    """Exactly the INSTALL-AGENTS.md §3 SessionStart entry, run by an existing absolute interpreter."""
-    settings = json.loads(path.read_text(encoding="utf-8")) if present(path) else {}
-    hooks = settings.get("hooks") if isinstance(settings, dict) else None
-    entries = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    """Exactly the INSTALL-AGENTS.md §3 hook entry, run by an existing absolute interpreter."""
     scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
-    owned = [(entry, commands) for entry in entries if isinstance(entry, dict)
-             for commands in [handler_commands(entry)] if any(runs_script(tokens, scripts) for tokens in commands)
-             ] if isinstance(entries, list) else []
+    if product == "kimi":
+        owned = kimi_hooks(path, scripts, findings)
+        if owned is None:
+            return
+    else:
+        settings = json.loads(path.read_text(encoding="utf-8")) if present(path) else {}
+        hooks = settings.get("hooks") if isinstance(settings, dict) else None
+        entries = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+        owned = [(entry, commands) for entry in entries if isinstance(entry, dict)
+                 for commands in [handler_commands(entry)] if any(runs_script(tokens, scripts) for tokens in commands)
+                 ] if isinstance(entries, list) else []
     if not owned:
         findings.append(f"missing session context hook: {path}")
         return
@@ -277,6 +287,23 @@ def check_hook(root, roots, path, product, findings):
     if len(owned) != 1 or not Path(python).is_absolute() or not is_file(Path(python)) or \
             entry != session_context.hooks(product, python, root):
         findings.append(f"stale session context hook: {path}")
+
+
+def kimi_hooks(path, scripts, findings):
+    """Our [[hooks]] tables in Kimi's config.toml as one entry, like a JSON hook file's; None when unreadable."""
+    if tomllib is None:
+        findings.append(f"Kimi session context hook not checked: Python {sys.version_info[0]}.{sys.version_info[1]} "
+                        f"has no TOML reader; run sync with Python 3.11 or later: {path}")
+        return None
+    try:
+        config = tomllib.loads(path.read_text(encoding="utf-8")) if present(path) else {}
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
+        findings.append(f"unreadable Kimi config, session context hook not checked: {path}: {error}")
+        return None
+    tables = config.get("hooks") if isinstance(config.get("hooks"), list) else []
+    ours = [table for table in tables if isinstance(table, dict)
+            and any(runs_script(tokens, scripts) for tokens in handler_commands({"hooks": [table]}))]
+    return [({"hooks": ours}, handler_commands({"hooks": ours}))] if ours else []
 
 
 def runs_script(tokens, scripts):

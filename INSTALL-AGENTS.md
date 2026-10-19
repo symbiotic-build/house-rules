@@ -61,11 +61,16 @@ The session-context hook (§3 step 10) goes in each product's native hook file:
 |---|---|---|
 | Claude Code | `$CLAUDE_CONFIG_DIR/settings.json` | Yes, up to 10 000 characters per hook |
 | Codex | `$CODEX_HOME/hooks.json` | Yes, after the operator trusts the hook in `/hooks` |
-| Kimi Code | None | No: it runs `SessionStart` hooks but discards their output |
+| Kimi Code | `$KIMI_CODE_HOME/config.toml` | Only from `UserPromptSubmit` hooks |
 
 Verified 2026-10-19 with Claude Code 2.1.291, Codex CLI 0.159 and Kimi Code 2.1.1. Without
 the hook, a session holds only the managed block's instruction to read the rules, and a
 session can skip that instruction.
+
+Kimi Code runs `SessionStart` hooks but discards their output, and compaction removes the
+output of its `UserPromptSubmit` hooks. Kimi therefore gets the rules with the first prompt
+of each session, and again with the first prompt after a compaction. The turn that triggers
+a compaction runs without them. `kimi -p` prints the injected text before its answer.
 
 A product may run with several configuration homes, for example Codex accounts launched
 with different `CODEX_HOME` folders. Find each one: ask the operator and check launchers,
@@ -182,9 +187,10 @@ For each selected product and configuration home:
 9. Install the same House Rules Skills into Claude Code's native user Skill
    directory. A symlink may point directly to the House Rules source; otherwise copy
    the complete Skill directory.
-10. Register the session-context hook in every Claude Code and Codex home (§1 hook table).
-    At every new, resumed, cleared and compacted session it prints `INDEX.md`, the rule files
-    the index lists under "Always load", the operator-writing Skill and `custom/INDEX.md`.
+10. Register the session-context hook in every Claude Code, Codex and Kimi Code home (§1 hook
+    table). It prints `INDEX.md`, the rule files the index lists under "Always load", the
+    operator-writing Skill and `custom/INDEX.md`: in Claude Code and Codex at every new,
+    resumed, cleared and compacted session, in Kimi Code as §1 describes.
     Print the entry with a Python 3.9 or later interpreter that agent sessions can run:
 
     ```sh
@@ -199,8 +205,18 @@ For each selected product and configuration home:
     as one entry of the file's `hooks.SessionStart` list, and preserve every other entry and
     setting. Replace an earlier entry whose command runs `scripts/session_context.py` under
     the current or a previous root. Codex skips a new hook until the operator trusts it in
-    `/hooks`; record that as a pending operator action in `custom/INDEX.md`. Kimi Code gets
-    no hook. Record each hook file and its backup in the receipt.
+    `/hooks`; record that as a pending operator action in `custom/INDEX.md`. Record each hook
+    file and its backup in the receipt.
+
+    For Kimi Code, print `hooks kimi` instead. It prints two `[[hooks]]` tables in TOML,
+    one for `UserPromptSubmit` and one for `PreCompact`; use Python 3.11 or later, because
+    `scripts/sync.py` reads them back with Python's TOML reader. Back up `config.toml`, append
+    both tables at its end, and preserve every other table and setting. Remove earlier
+    tables whose command runs `scripts/session_context.py` under the current or a previous
+    root. The `UserPromptSubmit` hook prints the rules on a session's first prompt and keeps
+    an empty file named after the session id in `$KIMI_CODE_HOME/house-rules-sessions/`.
+    The `PreCompact` hook removes that file, so the next prompt prints the rules again. The
+    hook removes files older than 30 days. Kimi reads hooks when it starts, or on `/reload`.
 
     The hook and `scripts/sync.py` report two capacity errors. A section too long for one
     part is split under more headings by the owner of its file: the operator for
@@ -286,8 +302,8 @@ Filesystem verification:
   checked source bytes;
 - every instruction file contains exactly one House Rules block (counting old `forge:`
   and `groundwork:` markers too) and retains its surrounding operator content;
-- every Claude Code and Codex hook file holds exactly the §3 step 10 entry and retains
-  its other entries;
+- every Claude Code, Codex and Kimi Code hook file holds exactly the §3 step 10 entry and
+  retains its other entries;
 - no other scanned Skill folder or parent-folder instruction file holds a stale House
   Rules, Forge or Groundwork entry, or an entry for a removed House Rules Skill;
 - no owned link or alias to a removed helper remains;
@@ -329,7 +345,9 @@ instruction files such as `AGENTS.md` or `CLAUDE.md`.
    session-context hook, run Claude Code with `-p --output-format stream-json --verbose`:
    each `hook_response` event holds one part's output. Check that parts 1 to N each
    arrive once, that each starts with its `House Rules part N of M` label, and that the
-   `custom/INDEX.md` section is present.
+   `custom/INDEX.md` section is present. For Kimi Code, run `kimi -p` twice in one session
+   (`kimi -r <session id> -p` for the second run): the first output shows the
+   `House Rules part 1 of M` label, and the second holds no House Rules text.
 3. If the report linter is in use, run it on a disposable fixture; never create
    verification issues in a real project.
 4. Verify each external capability through its owner's supported status or
@@ -357,8 +375,10 @@ Dirty, detached, non-default, ahead and diverged checkouts are reported and neve
 It then checks that every rule file the index lists under "Always load" exists,
 then every configured home's managed block, missing or stale Skill links, owned links to
 removed Skills, and same-name entries in the other scanned Skill folders. It checks that
-every Claude Code and Codex home holds exactly the §3 step 10 hook entry, run by an existing
-interpreter, and that the injected rules fit the hook's parts. Git and
+every Claude Code, Codex and Kimi Code home holds exactly the §3 step 10 hook entry, run by an
+existing interpreter, and that the injected rules fit the hook's parts. Reading Kimi's
+`config.toml` needs Python 3.11 or later; an older interpreter reports the Kimi hook as not
+checked. Git and
 filesystem errors reach the caller. Findings collected before a verification error are
 retained, and the summary identifies incomplete coverage. Exit codes are 0 for no
 findings, 1 for reported drift or conflicts, and 2 for an error.

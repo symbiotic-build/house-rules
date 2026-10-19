@@ -46,6 +46,18 @@ operator-writing skill and `custom/INDEX.md`, split at file and heading boundari
 labelled parts under the product's output cap. `scripts/sync.py` reports a missing or
 stale hook as drift.
 
+## Install — Kimi Code session context
+
+Operator decision: 2026-10-19, two answers to a decision brief. The first chose a hook that
+prints the rules once per Kimi Code session over writing the full rules into Kimi's
+instruction file, which would go stale between sync runs. Repeating the rules with every
+message had been ruled out before. The second accepted that `kimi -p` prints the
+injected text. Kimi Code 2.1.1 runs session-start hooks but passes their output to no
+model, and compaction removes what its prompt hooks add. INSTALL-AGENTS.md §3 now registers
+a `UserPromptSubmit` hook that prints the rules on the first prompt of each session id, and
+a `PreCompact` hook that makes the next prompt print them again. `scripts/sync.py` reports
+a missing or stale Kimi hook as drift.
+
 ## skills/pr-ready — Structured review layout
 
 Operator-approved task: 2026-10-17. Structured reviews put shared context first and lens
