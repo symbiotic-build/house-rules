@@ -324,22 +324,26 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset()):
         findings.append(f"stale session context hook: {path}")
 
 
-PYTHON = re.compile(r"python[0-9.]*(\.exe)?")
+def script_of(tokens, python=None):
+    """The script a command runs: <python> [options] <script> ..., env <python> ..., or <script> ...
 
-
-def script_of(tokens):
-    """The script a command runs: <python> [options] <script> ..., [env] python ..., or <script> ...
-
-    A command that only mentions a path, such as `test -f <path>` or `echo <path>`, runs its own
-    program, never that path. `python -c` and `python -m` run no script file.
+    A Python interpreter is the installer's own executable or a program whose name starts with
+    "py" (python3, python3.14t, py, pypy3). A command that only mentions a path, such as
+    `test -f <path>` or `echo <path>`, runs its own program, never that path. Code given with
+    -c or a module given with -m, attached or separate, runs no script file.
     """
+    if len(tokens) in (4, 5) and tokens[1] == "-I" and Path(tokens[2]).name == "session_context.py" and (
+            tokens[3:] == ["codex"] or (tokens[3] == "claude" and tokens[4:5] != [] and tokens[4].isdigit())):
+        return tokens[2]  # the exact form session_context.hooks() prints, whatever the interpreter is called
     if tokens and Path(tokens[0]).name == "env":
         tokens = tokens[1:]
-    if not tokens or not PYTHON.fullmatch(Path(tokens[0]).name):
-        return tokens[0] if tokens else None
+    if not tokens:
+        return None
+    if tokens[0] != python and not Path(tokens[0]).name.startswith("py"):
+        return tokens[0]
     arguments = iter(tokens[1:])
     for token in arguments:
-        if token in ("-c", "-m"):
+        if token.startswith(("-c", "-m")):
             return None
         if token in ("-W", "-X"):
             next(arguments, None)
@@ -365,9 +369,11 @@ def install_hooks(root, hook_root, home, python, report):
 
     Removes House Rules handlers of any recorded root and receipt-listed replaced hooks, keeps every
     other entry and setting, backs up an existing file beside it and replaces the file atomically.
-    A file whose only House Rules entry is already the current one is not written. A file changed
-    by another writer during installation is not overwritten. Each write is reported as it
-    happens, so a later failure cannot hide files already changed.
+    A file whose only House Rules entry is already the current one is not written. The file is
+    read again just before replacement, and a change since the first read is an error; a change
+    in the instant between that check and the replacement is not detected, so installation runs
+    while no agent session changes its settings (INSTALL-AGENTS.md §3 step 10). Each write is
+    reported as it happens, so a later failure cannot hide files already changed.
     """
     roots = ownership_roots(root) | {str(hook_root)}
     ours = {str(Path(other) / "scripts/session_context.py") for other in roots} | replaced_hooks(root)
@@ -384,7 +390,7 @@ def install_hooks(root, hook_root, home, python, report):
             handlers = entry.get("hooks") if isinstance(entry, dict) else None
             if isinstance(handlers, list):
                 remaining = [handler for handler, tokens in zip(handlers, handler_commands(entry))
-                             if script_of(tokens) not in ours]
+                             if script_of(tokens, python) not in ours]
                 if len(remaining) != len(handlers):
                     owned.append(entry)
                 if not remaining:

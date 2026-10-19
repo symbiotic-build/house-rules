@@ -786,10 +786,13 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.receipt({"source_root": str(self.root), "replaced_hooks": [self.legacy]})
         mentions = [{"type": "command", "command": f"/bin/echo -I {shlex.quote(script)}"},
                     {"type": "command", "command": f"/usr/bin/test -f {shlex.quote(self.legacy)}"},
-                    {"type": "command", "command": f"/usr/bin/python3 -c 'print(1)' {shlex.quote(script)}"}]
+                    {"type": "command", "command": f"/usr/bin/python3 -c 'print(1)' {shlex.quote(script)}"},
+                    {"type": "command", "command": f"/usr/bin/python3 -c'print(1)' {shlex.quote(script)}"},
+                    {"type": "command", "command": f"/usr/bin/python3 -mjson.tool {shlex.quote(script)}"}]
         old = [{"type": "command", "command": f"/usr/bin/python3 {shlex.quote(self.legacy)} session 1"},
                {"type": "command", "command": f"/usr/bin/env python3 -X utf8 {shlex.quote(self.legacy)}"},
-               {"type": "command", "command": shlex.quote(self.legacy)}]
+               {"type": "command", "command": shlex.quote(self.legacy)},
+               {"type": "command", "command": f"/opt/bin/pypy3 {shlex.quote(self.legacy)}"}]
         self.write(self.settings, json.dumps({"hooks": {"SessionStart": [{"hooks": mentions + old}]}}))
         code, out, err = self.invoke("--install-hooks")
         self.assertEqual(code, 0, out + err)
@@ -811,6 +814,17 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertIn(f"hook file changed during installation; not written: {self.settings}", err)
         self.assertEqual(self.read(self.settings), {"model": "other writer"})
         self.assertEqual(sorted(p.name for p in self.claude.iterdir() if p.name.startswith(".settings.json.")), [])
+
+    def test_an_installer_interpreter_with_any_name_recognizes_its_own_entry(self):
+        python = self.base / "bin/interpreter"
+        python.parent.mkdir()
+        python.symlink_to(sys.executable)
+        with mock.patch.object(sync.sys, "executable", str(python)):
+            for _ in range(2):
+                code, out, err = self.invoke("--install-hooks")
+                self.assertEqual(code, 0, out + err)
+        entries = self.read(self.settings)["hooks"]["SessionStart"]
+        self.assertEqual(entries[1:], [context.hooks("claude", str(python), self.root)])
 
     def test_a_current_entry_followed_by_other_entries_is_not_rewritten(self):
         settings = self.read(self.settings)

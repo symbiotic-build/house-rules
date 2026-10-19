@@ -197,7 +197,10 @@ For each selected product and configuration home:
     `replaced_hooks`, such as an older hand-made context hook. The installer backs up a
     changed file beside it under a new name, readable only by its owner, replaces it
     atomically, and prints each file it writes. It leaves a file that already holds the current
-    entry unchanged, and refuses to overwrite a file another program changed meanwhile. The entry runs the installer's
+    entry unchanged. Run it while no agent session is changing its settings: it reads each
+    file again just before replacing it and stops on a change, but a change in the instant
+    between that check and the replacement would be lost, and the backup holds the file as
+    first read. The entry runs the installer's
     interpreter by its absolute path and names the root as passed to `--root`, so a stable
     link to a moving checkout stays valid. Claude Code gets one hook per part, because it
     caps each hook's output at 10 000 characters; Codex gets one hook; Kimi Code gets none.
