@@ -2,6 +2,14 @@
 
 Source notes for House Rules invariants and procedures.
 
+## skills/bench-discipline — Reuse baseline runs instead of rerunning them
+
+Operator direction: 2026-10-19, after an agent tuning review prompts proposed rerunning the baseline in each test round
+to measure run-to-run spread, although the baseline's earlier runs were available and the operator had asked for an
+efficient check rather than a precise comparison. The operator asked for a rule: evaluations and tuning of agent or
+model behavior use the baseline's existing runs, add a replicate only when the decision turns on a difference within
+the spread already seen, and compare which items each arm gets right. Measured performance runs are excluded.
+
 ## prompts/util/review-bar.md — Rule-change dispositions belong to one reviewer
 
 Operator decision: 2026-10-20. Every reviewer had to give each rule-change item a disposition,
