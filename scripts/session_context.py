@@ -8,15 +8,14 @@ custom/INDEX.md, read live from the House Rules checkout that holds this script.
   session_context.py claude <n>      part <n> for Claude Code; one hook per part
   session_context.py codex           every part, as one Codex additionalContext value
   session_context.py kimi prompt     every part, on the first prompt of each Kimi session id
-  session_context.py kimi compact    forget that session id, so its next prompt prints them again
   session_context.py hooks <product> [<root>]
                                      the hook entry INSTALL-AGENTS.md §3 registers, running this
                                      interpreter and the script under <root> (default: this checkout)
 
-Kimi Code passes no session-start hook output to the model, and compaction removes what its
-UserPromptSubmit hooks added. So for Kimi a UserPromptSubmit hook prints the rules once per
-session id, and a PreCompact hook makes the next prompt print them again. The session ids
-already given the rules are empty files under $KIMI_CODE_HOME/house-rules-sessions.
+Kimi Code passes no session-start hook output to the model, so for Kimi a UserPromptSubmit
+hook prints the rules once per session id. Kimi 2.2.0 and later keep that output through
+compaction. The session ids already given the rules are empty files under
+$KIMI_CODE_HOME/house-rules-sessions.
 
 Claude Code caps each hook's output at 10 000 characters and runs a product's hooks in
 parallel, so parts can arrive in any order. Parts split only at file and heading boundaries,
@@ -247,17 +246,6 @@ def kimi_prompt(stdin):
     return output
 
 
-def kimi_compact(stdin):
-    """Compaction removes the injected rules from Kimi's context, so the next prompt prints them again."""
-    session = kimi_session(stdin)
-    if session is not None:
-        try:
-            (kimi_records() / session).unlink()
-        except FileNotFoundError:
-            pass
-    return ""
-
-
 def command(python, base, *args):
     return shlex.join([python, "-I", str(base / "scripts/session_context.py"), *args])
 
@@ -273,16 +261,16 @@ def hooks(product, python=None, base=None):
         handlers = [{"type": "command", "command": command(python, base, "codex"), "timeout": TIMEOUT,
                      "statusMessage": "Loading House Rules", "additionalContextLimit": 0}]
     elif product == "kimi":
-        # The [[hooks]] tables of Kimi's config.toml; kimi_toml() prints them.
-        handlers = [{"event": event, "command": command(python, base, "kimi", mode), "timeout": TIMEOUT}
-                    for event, mode in (("UserPromptSubmit", "prompt"), ("PreCompact", "compact"))]
+        # The [[hooks]] table of Kimi's config.toml; kimi_toml() prints it.
+        handlers = [{"event": "UserPromptSubmit", "command": command(python, base, "kimi", "prompt"),
+                     "timeout": TIMEOUT}]
     else:
         raise ValueError(f"no session-context hook for {product}")
     return {"hooks": handlers}
 
 
 def kimi_toml(python=None, base=None):
-    """The [[hooks]] tables INSTALL-AGENTS.md §3 appends to Kimi's config.toml."""
+    """The [[hooks]] table INSTALL-AGENTS.md §3 appends to Kimi's config.toml."""
     # A JSON string with non-ASCII kept as is is also a valid TOML basic string.
     return "\n".join("[[hooks]]\n" + "".join(f"{key} = {json.dumps(value, ensure_ascii=False)}\n"
                                               for key, value in table.items())
@@ -297,14 +285,12 @@ def main(argv):
             output = codex()
         elif argv == ["kimi", "prompt"]:
             output = kimi_prompt(sys.stdin)
-        elif argv == ["kimi", "compact"]:
-            output = kimi_compact(sys.stdin)
         elif len(argv) in (2, 3) and argv[0] == "hooks" and argv[1] == "kimi":
             output = kimi_toml(base=Path(argv[2]) if len(argv) == 3 else None).rstrip("\n")
         elif len(argv) in (2, 3) and argv[0] == "hooks":
             output = json.dumps(hooks(argv[1], base=Path(argv[2]) if len(argv) == 3 else None), indent=2)
         else:
-            sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | kimi prompt | kimi compact | "
+            sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | kimi prompt | "
                      "hooks <claude|codex|kimi> [<root>]")
     except (OSError, ValueError, UnicodeDecodeError) as error:
         # The hook's output is the only channel the model sees; print the failure there.

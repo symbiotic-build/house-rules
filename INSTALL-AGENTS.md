@@ -67,10 +67,10 @@ Verified 2026-10-19 with Claude Code 2.1.291, Codex CLI 0.159 and Kimi Code 2.1.
 the hook, a session holds only the managed block's instruction to read the rules, and a
 session can skip that instruction.
 
-Kimi Code runs `SessionStart` hooks but discards their output, and compaction removes the
-output of its `UserPromptSubmit` hooks. Kimi therefore gets the rules with the first prompt
-of each session, and again with the first prompt after a compaction. The turn that triggers
-a compaction runs without them. `kimi -p` prints the injected text before its answer.
+Kimi Code runs `SessionStart` hooks but discards their output, so Kimi gets the rules with
+the first prompt of each session. Kimi 2.2.0 and later keep that prompt's hook output
+through compaction; older versions drop it, so House Rules needs Kimi 2.2.0 or later.
+`kimi -p` prints the injected text before its answer.
 
 A product may run with several configuration homes, for example Codex accounts launched
 with different `CODEX_HOME` folders. Find each one: ask the operator and check launchers,
@@ -208,15 +208,15 @@ For each selected product and configuration home:
     `/hooks`; record that as a pending operator action in `custom/INDEX.md`. Record each hook
     file and its backup in the receipt.
 
-    For Kimi Code, print `hooks kimi` instead. It prints two `[[hooks]]` tables in TOML,
-    one for `UserPromptSubmit` and one for `PreCompact`; use Python 3.11 or later, because
-    `scripts/sync.py` reads them back with Python's TOML reader. Back up `config.toml`, append
-    both tables at its end, and preserve every other table and setting. Remove earlier
-    tables whose command runs `scripts/session_context.py` under the current or a previous
-    root. The `UserPromptSubmit` hook prints the rules on a session's first prompt and keeps
-    an empty file named after the session id in `$KIMI_CODE_HOME/house-rules-sessions/`.
-    The `PreCompact` hook removes that file, so the next prompt prints the rules again. The
-    hook removes files older than 30 days. Kimi reads hooks when it starts, or on `/reload`.
+    For Kimi Code 2.2.0 or later, print `hooks kimi` instead. It prints one `[[hooks]]`
+    table in TOML for the `UserPromptSubmit` event; use Python 3.11 or later, because
+    `scripts/sync.py` reads it back with Python's TOML reader. Back up `config.toml`, append
+    the table at its end, and preserve every other table and setting. Remove earlier tables
+    whose command runs `scripts/session_context.py` under the current or a previous root.
+    The hook prints the rules on a session's first prompt and keeps an empty file named
+    after the session id in `$KIMI_CODE_HOME/house-rules-sessions/`, so later prompts print
+    nothing. It removes files older than 30 days. Kimi reads hooks when it starts, or on
+    `/reload`.
 
     The hook and `scripts/sync.py` report two capacity errors. A section too long for one
     part is split under more headings by the owner of its file: the operator for

@@ -48,15 +48,17 @@ stale hook as drift.
 
 ## Install — Kimi Code session context
 
-Operator decision: 2026-10-19, two answers to a decision brief. The first chose a hook that
+Operator decisions: 2026-10-19, three answers to decision briefs. The first chose a hook that
 prints the rules once per Kimi Code session over writing the full rules into Kimi's
 instruction file, which would go stale between sync runs. Repeating the rules with every
 message had been ruled out before. The second accepted that `kimi -p` prints the
-injected text. Kimi Code 2.1.1 runs session-start hooks but passes their output to no
-model, and compaction removes what its prompt hooks add. INSTALL-AGENTS.md §3 now registers
-a `UserPromptSubmit` hook that prints the rules on the first prompt of each session id, and
-a `PreCompact` hook that makes the next prompt print them again. `scripts/sync.py` reports
-a missing or stale Kimi hook as drift.
+injected text. Kimi Code runs session-start hooks but passes their output to no model.
+Kimi 2.1.1 also dropped prompt-hook output at compaction; Kimi 2.2.0 keeps the first
+prompt's hook output through compaction, so a second hook that re-sent the rules after
+compaction only added a duplicate copy. The third answer dropped that hook and set Kimi
+2.2.0 as the minimum. INSTALL-AGENTS.md §3 now registers one `UserPromptSubmit` hook that
+prints the rules on the first prompt of each session id. `scripts/sync.py` reports a missing
+or stale Kimi hook as drift.
 
 ## skills/pr-ready — Structured review layout
 

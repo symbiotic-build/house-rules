@@ -617,14 +617,15 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
     @NEEDS_TOML
     def test_stale_kimi_hooks_are_reported_without_writes(self):
         path = self.kimi / "config.toml"
-        prompt, compact = context.kimi_toml(sys.executable, self.root).split("\n\n")
+        prompt = context.kimi_toml(sys.executable, self.root)
         cases = {
-            "compaction hook missing": prompt + "\n",
-            "prompt hook missing": compact,
-            "matcher added": prompt.replace("timeout", 'matcher = "x"\ntimeout') + "\n\n" + compact,
+            "matcher added": prompt.replace("timeout", 'matcher = "x"\ntimeout'),
+            "other event": prompt.replace("UserPromptSubmit", "SessionStart"),
             "interpreter missing": context.kimi_toml(str(self.base / "no-python"), self.root),
             "relative interpreter": context.kimi_toml("python3", self.root),
-            "registered twice": context.kimi_toml(sys.executable, self.root) + "\n" + compact,
+            "registered twice": prompt + "\n" + prompt,
+            "second table with another mode": prompt + "\n" + prompt.replace("UserPromptSubmit", "PreCompact")
+                                                                   .replace("kimi prompt", "kimi compact"),
         }
         for name, hooks in cases.items():
             with self.subTest(name=name):
@@ -744,25 +745,23 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
                       "is missing", result.stdout)
 
     @NEEDS_TOML
-    def test_registered_kimi_commands_print_the_rules_once_per_session_and_after_compaction(self):
+    def test_registered_kimi_command_prints_the_rules_once_per_session(self):
         self.install_fixture()
         hooks = sync.tomllib.loads((self.kimi / "config.toml").read_text())["hooks"]
-        prompt, compact = (next(hook for hook in hooks if hook["event"] == event)
-                           for event in ("UserPromptSubmit", "PreCompact"))
+        prompt = next(hook for hook in hooks if hook["event"] == "UserPromptSubmit")
 
-        def run(hook, event):
-            data = {"hook_event_name": event, "session_id": "session_fixture", "cwd": str(self.base)}
-            return subprocess.run(hook["command"], shell=True, cwd=self.base, input=json.dumps(data),
+        def run(session):
+            data = {"hook_event_name": "UserPromptSubmit", "session_id": session, "cwd": str(self.base)}
+            return subprocess.run(prompt["command"], shell=True, cwd=self.base, input=json.dumps(data),
                                   env={**os.environ, "KIMI_CODE_HOME": str(self.kimi)},
-                                  capture_output=True, text=True, check=True, timeout=hook["timeout"])
+                                  capture_output=True, text=True, check=True, timeout=prompt["timeout"])
 
-        first = run(prompt, "UserPromptSubmit")
+        first = run("session_fixture")
         self.assertEqual(first.stderr, "")
         self.assertRegex(first.stdout, r"^===== House Rules part 1 of 1 \(revision [0-9a-f]{12}, text [0-9a-f]{12}\); ")
         self.assertIn("===== House Rules file rules/core.md =====\n# core rules", first.stdout)
-        self.assertEqual(run(prompt, "UserPromptSubmit").stdout, "")
-        self.assertEqual(run(compact, "PreCompact").stdout, "")
-        self.assertEqual(run(prompt, "UserPromptSubmit").stdout, first.stdout)
+        self.assertEqual(run("session_fixture").stdout, "")
+        self.assertEqual(run("session_other").stdout, first.stdout)
 
 
 class SyncSourceTests(SyncFixture, unittest.TestCase):
@@ -1038,16 +1037,14 @@ class SessionContextTests(unittest.TestCase):
             context.main(["kimi", mode])
         return out.getvalue()
 
-    def test_kimi_prints_the_rules_on_the_first_prompt_of_each_session_and_after_compaction(self):
+    def test_kimi_prints_the_rules_on_the_first_prompt_of_each_session_only(self):
         with mock.patch.object(context, "root", return_value=self.root):
             rules = json.loads(context.codex())["hookSpecificOutput"]["additionalContext"] + "\n"
         prompt = {"hook_event_name": "UserPromptSubmit", "session_id": "session_a", "prompt": []}
         self.assertEqual(self.kimi("prompt", prompt), rules)
         self.assertEqual(self.kimi("prompt", prompt), "")
         self.assertEqual(self.kimi("prompt", {**prompt, "session_id": "session_b"}), rules)
-        self.assertEqual(self.kimi("compact", {"hook_event_name": "PreCompact", "session_id": "session_a"}), "")
-        self.assertEqual(self.kimi("prompt", prompt), rules)
-        self.assertEqual(self.kimi("prompt", prompt), "")
+        self.assertEqual(self.kimi("prompt", {**prompt, "is_steer": True}), "")
         self.assertEqual(self.kimi("prompt", {**prompt, "session_id": "session_b"}), "")
 
     def test_kimi_input_without_a_usable_session_id_prints_the_rules_with_an_error(self):
@@ -1086,12 +1083,12 @@ class SessionContextTests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             context.main(["hooks", "kimi", str(base)])
         hooks = sync.tomllib.loads(out.getvalue())["hooks"]
-        self.assertEqual([hook["event"] for hook in hooks], ["UserPromptSubmit", "PreCompact"])
         self.assertEqual(hooks, context.hooks("kimi", sys.executable, base)["hooks"])
-        for hook, mode in zip(hooks, ("prompt", "compact")):
-            self.assertEqual(shlex.split(hook["command"]),
-                             [sys.executable, "-I", str(base / "scripts/session_context.py"), "kimi", mode])
-            self.assertEqual(hook["timeout"], context.TIMEOUT)
+        self.assertEqual(len(hooks), 1)
+        self.assertEqual(hooks[0]["event"], "UserPromptSubmit")
+        self.assertEqual(shlex.split(hooks[0]["command"]),
+                         [sys.executable, "-I", str(base / "scripts/session_context.py"), "kimi", "prompt"])
+        self.assertEqual(hooks[0]["timeout"], context.TIMEOUT)
 
     def test_house_rules_itself_fits_the_registered_slots(self):
         rev, packed, too_long = context.parts(REPO)
