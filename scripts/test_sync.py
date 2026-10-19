@@ -715,12 +715,12 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertFalse((self.kimi / "settings.json").exists() or (self.kimi / "hooks.json").exists())
 
     def test_replaces_older_versions_and_hooks_a_receipt_lists_as_replaced(self):
-        self.receipt({"source_root": str(self.root), "previous_roots": [str(self.base / "old root")],
-                      "replaced_hooks": [self.legacy]})
-        fewer = context.hooks("claude", sys.executable, self.root)
-        fewer["hooks"].pop()
         legacy = [{"type": "command", "command": f"{sys.executable} -I {shlex.quote(self.legacy)} session {n}"}
                   for n in (1, 2)]
+        self.receipt({"source_root": str(self.root), "previous_roots": [str(self.base / "old root")],
+                      "replaced_hooks": [handler["command"] for handler in legacy]})
+        fewer = context.hooks("claude", sys.executable, self.root)
+        fewer["hooks"].pop()
         self.write(self.settings, json.dumps({"hooks": {"SessionStart": [
             fewer, context.hooks("claude", "/usr/bin/python3", self.base / "old root"),
             {"matcher": "*", "hooks": [*legacy, self.unrelated]}, {"hooks": legacy}]}}))
@@ -781,45 +781,55 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual({stat.S_IMODE(path.stat().st_mode) for path in backups}, {0o600})
         self.assertEqual(stat.S_IMODE(self.settings.stat().st_mode), 0o644)
 
-    def test_ownership_follows_the_script_a_command_runs_not_paths_it_mentions(self):
-        script = str(self.root / "scripts/session_context.py")
-        self.receipt({"source_root": str(self.root), "replaced_hooks": [self.legacy]})
-        mentions = [{"type": "command", "command": f"/bin/echo -I {shlex.quote(script)}"},
-                    {"type": "command", "command": f"/usr/bin/test -f {shlex.quote(self.legacy)}"},
-                    {"type": "command", "command": f"/usr/bin/python3 -c 'print(1)' {shlex.quote(script)}"},
-                    {"type": "command", "command": f"/usr/bin/python3 -c'print(1)' {shlex.quote(script)}"},
-                    {"type": "command", "command": f"/usr/bin/python3 -mjson.tool {shlex.quote(script)}"},
-                    {"type": "command", "command": f"/bin/echo -I {shlex.quote(script)} claude 1"},
-                    {"type": "command", "command": f"/usr/bin/python3 -Icprint(1) {shlex.quote(script)}"},
-                    {"type": "command", "command": f"/usr/bin/python3 -X utf8 {shlex.quote(self.legacy)}"}]
-        old = [{"type": "command", "command": f"/usr/bin/python3 {shlex.quote(self.legacy)} session 1"},
-               {"type": "command", "command": f"/usr/bin/env python3 -B {shlex.quote(self.legacy)}"},
-               {"type": "command", "command": shlex.quote(self.legacy)},
-               {"type": "command", "command": f"/opt/bin/pypy3 {shlex.quote(self.legacy)}"}]
-        self.write(self.settings, json.dumps({"hooks": {"SessionStart": [{"hooks": mentions + old}]}}))
+    def test_only_the_printed_form_and_listed_commands_are_house_rules_owned(self):
+        script = shlex.quote(str(self.root / "scripts/session_context.py"))
+        listed = [f"/usr/bin/python3 -X utf8 {shlex.quote(self.legacy)} session 1", shlex.quote(self.legacy)]
+        self.receipt({"source_root": str(self.root), "replaced_hooks": listed})
+        kept = [f"/bin/echo -I {script} claude 1", f"/opt/bin/pygmentize -I {script} claude 1",
+                f"/usr/bin/test -f {script}", f"/usr/bin/python3 -Icprint(1) {script}",
+                f"/usr/bin/python3 -I {script} claude 1 --extra", f"/usr/bin/python3 -I {script}",
+                f"/usr/bin/python3 -X utf8 {shlex.quote(self.legacy)} session 2"]
+        removed = [*listed, f"/usr/bin/python3.14t -I {script} claude 3", f"/usr/bin/python -I {script} codex"]
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": [{"hooks": [
+            {"type": "command", "command": command} for command in kept + removed]}]}}))
         code, out, err = self.invoke("--install-hooks")
         self.assertEqual(code, 0, out + err)
-        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"],
-                         [{"hooks": mentions}, context.hooks("claude", sys.executable, self.root)])
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"], [
+            {"hooks": [{"type": "command", "command": command} for command in kept]},
+            context.hooks("claude", sys.executable, self.root)])
 
-    def test_a_file_changed_by_another_writer_during_installation_is_not_overwritten(self):
+    def test_no_hook_file_is_written_when_one_destination_is_protected(self):
+        protected = self.codex / "skills/.system/claude"
+        protected.mkdir(parents=True)
+        self.write(protected / "settings.json", "{}")
         self.settings.unlink()
-        self.write(self.settings, json.dumps({"model": "before"}))
-        real = tempfile.mkstemp
-
-        def concurrent(*args, **kwargs):
-            self.write(self.settings, json.dumps({"model": "other writer"}))
-            return real(*args, **kwargs)
-
-        with mock.patch.object(sync.tempfile, "mkstemp", side_effect=concurrent):
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(protected)}):
             code, out, err = self.invoke("--install-hooks")
         self.assertEqual(code, 2, out + err)
-        self.assertIn(f"hook file changed during installation; not written: {self.settings}", err)
-        backups = self.backups(self.settings)
-        self.assertEqual(len(backups), 1)
-        self.assertIn(f"BACKUP: {backups[0]} (copy of {self.settings})", out)
-        self.assertEqual(self.read(self.settings), {"model": "other writer"})
-        self.assertEqual(sorted(p.name for p in self.claude.iterdir() if p.name.startswith(".settings.json.")), [])
+        self.assertIn("protected Codex .system content", err)
+        self.assertEqual((protected / "settings.json").read_text(), "{}")
+        self.assertNotIn("REGISTERED", out)
+
+    def test_a_backup_that_cannot_be_written_is_removed_and_the_file_kept(self):
+        before = self.settings.read_text()
+        settings = self.read(self.settings)
+        settings["hooks"]["SessionStart"].pop()
+        self.write(self.settings, json.dumps(settings))
+        before = self.settings.read_text()
+        real = os.fdopen
+
+        def failing(handle, mode="r", *args, **kwargs):
+            stream = real(handle, mode, *args, **kwargs)
+            if mode == "wb":
+                stream.write = mock.Mock(side_effect=OSError("fixture disk full"))
+            return stream
+
+        with mock.patch.object(sync.os, "fdopen", side_effect=failing):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("fixture disk full", err)
+        self.assertEqual(self.backups(self.settings), [])
+        self.assertEqual(self.settings.read_text(), before)
 
     def test_an_installer_interpreter_with_any_name_recognizes_its_own_entry(self):
         python = self.base / "bin/interpreter"

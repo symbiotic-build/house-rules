@@ -162,15 +162,14 @@ def receipts(root):
 
 
 def replaced_hooks(root):
-    """Scripts of earlier hand-made House Rules hooks, which receipts list under replaced_hooks."""
-    scripts = set()
+    """Exact commands of earlier hand-made House Rules hooks, which receipts list under replaced_hooks."""
+    commands = set()
     for path, receipt in receipts(root):
         listed = receipt.get("replaced_hooks", [])
-        if not isinstance(listed, list) or any(
-                not isinstance(value, str) or not Path(value).is_absolute() for value in listed):
+        if not isinstance(listed, list) or any(not isinstance(value, str) or not value for value in listed):
             raise ValueError(f"invalid receipt replaced_hooks: {path}")
-        scripts.update(listed)
-    return scripts
+        commands.update(listed)
+    return commands
 
 
 def ownership_roots(root):
@@ -309,11 +308,12 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset()):
     """Exactly the INSTALL-AGENTS.md §3 SessionStart entry, run by an existing absolute interpreter."""
     _, entries = read_hooks(path)
     scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
-    if any(script_of(tokens) in replaced for entry in entries if isinstance(entry, dict)
-           for tokens in handler_commands(entry)):
+    handlers = [handler for entry in entries if isinstance(entry, dict) and isinstance(entry.get("hooks"), list)
+                for handler in entry["hooks"]]
+    if any(owner(handler, scripts, replaced) == "replaced" for handler in handlers):
         findings.append(f"replaced House Rules hook still registered: {path}")
-    owned = [(entry, commands) for entry in entries if isinstance(entry, dict)
-             for commands in [handler_commands(entry)] if any(script_of(tokens) in scripts for tokens in commands)]
+    owned = [(entry, handler_commands(entry)) for entry in entries if isinstance(entry, dict) and any(
+        owner(handler, scripts) == "ours" for handler in entry.get("hooks") or [] if isinstance(handler, dict))]
     if not owned:
         findings.append(f"missing session context hook: {path}")
         return
@@ -324,29 +324,33 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset()):
         findings.append(f"stale session context hook: {path}")
 
 
-# Standalone interpreter flags that take no value and run no code; anything else ends recognition.
-SIMPLE_FLAGS = {"-I", "-B", "-E", "-s", "-S", "-u", "-O", "-OO", "-b", "-q"}
+PYTHON = re.compile(r"python([0-9]+(\.[0-9]+)*t?)?(\.exe)?")
 
 
-def script_of(tokens, python=None):
-    """The script file a command runs, or None when that is not certain.
+def owner(handler, scripts, replaced=frozenset(), python=None):
+    """ "ours", "replaced" or None for one hook handler; nothing is inferred from a command's shape.
 
-    Recognised: <python> [simple flags] <script> ..., the same after `env`, and <script> ...
-    A Python interpreter is the installer's own executable or a program whose name starts with
-    "py". Grouped or value-taking options (-c, -m, -Icode, -X utf8) make the command unknown, and
-    any other program runs itself: `echo <script>` or `test -f <script>` never runs the script.
+    Ours: exactly the form session_context.hooks() prints, <python> -I <script> claude <n> or
+    <python> -I <script> codex, with one of our scripts and a Python interpreter (the installer's
+    own file, or a program named python, python3, python3.14t ...). Replaced: a command a receipt
+    lists verbatim under replaced_hooks.
     """
-    python = python or sys.executable
-    if tokens and Path(tokens[0]).name == "env":
-        tokens = tokens[1:]
-    if not tokens:
+    command = handler.get("command") if isinstance(handler, dict) else None
+    if not isinstance(command, str):
         return None
-    if not (tokens[0] == python or Path(tokens[0]).name.startswith("py") or same_file(tokens[0], python)):
-        return tokens[0]
-    index = 1
-    while index < len(tokens) and tokens[index] in SIMPLE_FLAGS:
-        index += 1
-    return tokens[index] if index < len(tokens) and not tokens[index].startswith("-") else None
+    if command in replaced:
+        return "replaced"
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return None
+    if len(tokens) not in (4, 5) or tokens[1] != "-I" or tokens[2] not in scripts or not (
+            tokens[3:] == ["codex"] or (tokens[3] == "claude" and len(tokens) == 5 and tokens[4].isdigit())):
+        return None
+    interpreter = tokens[0]
+    if PYTHON.fullmatch(Path(interpreter).name) or same_file(interpreter, python or sys.executable):
+        return "ours"
+    return None
 
 
 def same_file(first, second):
@@ -382,12 +386,14 @@ def install_hooks(root, hook_root, home, python, report):
     while no agent session changes its settings (INSTALL-AGENTS.md §3 step 10).
     """
     roots = ownership_roots(root) | {str(hook_root)}
-    ours = {str(Path(other) / "scripts/session_context.py") for other in roots} | replaced_hooks(root)
-    for key, product_home in homes(root, home):
-        if key not in HOOK_FILES:
-            continue
-        name, product = HOOK_FILES[key]
-        path = product_home / name
+    scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
+    replaced = replaced_hooks(root)
+    selected = homes(root, home)
+    targets = [(product_home / HOOK_FILES[key][0], HOOK_FILES[key][1])
+               for key, product_home in selected if key in HOOK_FILES]
+    for path, _ in targets:
+        check_protected(path, selected)  # every destination, before the first write
+    for path, product in targets:
         data = path.read_bytes() if present(path) else None
         settings, entries = read_hooks(path, data)
         expected = session_context.hooks(product, python, hook_root)
@@ -395,8 +401,7 @@ def install_hooks(root, hook_root, home, python, report):
         for entry in entries:
             handlers = entry.get("hooks") if isinstance(entry, dict) else None
             if isinstance(handlers, list):
-                remaining = [handler for handler, tokens in zip(handlers, handler_commands(entry))
-                             if script_of(tokens, python) not in ours]
+                remaining = [handler for handler in handlers if owner(handler, scripts, replaced, python) is None]
                 if len(remaining) != len(handlers):
                     owned.append(entry)
                 if not remaining:
@@ -434,8 +439,12 @@ def backup_copy(path, data, mode):
             handle = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode & 0o600)
         except FileExistsError:
             continue
-        with os.fdopen(handle, "wb") as stream:
-            stream.write(data)
+        try:
+            with os.fdopen(handle, "wb") as stream:
+                stream.write(data)
+        except BaseException:
+            os.unlink(backup)  # an incomplete backup must not look like a good one
+            raise
         return backup
     raise ValueError(f"no free backup name beside {path}")
 

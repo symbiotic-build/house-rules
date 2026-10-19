@@ -195,11 +195,11 @@ For each selected product and configuration home:
     ```
 
     For each hook file it removes every earlier House Rules entry, adds the current one and
-    keeps every other entry and setting. An earlier entry runs `scripts/session_context.py`
-    under the current or a previous root, or runs a script a receipt lists under
-    `replaced_hooks`, such as an older hand-made context hook. It runs the script with a Python
-    interpreter and only simple flags such as `-I`, or runs the script directly; a command that
-    only mentions such a path is not House Rules-owned. The installer backs up a
+    keeps every other entry and setting. An earlier entry is a handler in exactly the form the
+    installer prints, `<python> -I <root>/scripts/session_context.py claude <n>` or `codex`,
+    for the current or a previous root, or a command a receipt lists verbatim under
+    `replaced_hooks`, such as an older hand-made context hook. Nothing else is inferred from a
+    command, so list every command of an older hook in the receipt before installing. The installer backs up a
     changed file beside it under a new name, readable only by its owner, replaces it
     atomically, and prints each backup and each file it writes as soon as it exists. It leaves a file that already holds the current
     entry unchanged. Run it while no agent session is changing its settings: it reads each
@@ -415,7 +415,7 @@ folders. `$CODEX_HOME/skills/.system/` is excluded.
 Link ownership follows §2. The script reads `source_root` and `previous_roots` (absolute
 path strings) from machine-readable JSON installation receipts in
 `custom/installations/` to recognize links and hooks of earlier source roots, and
-`replaced_hooks` (absolute script paths) to recognize older hand-made context hooks, which it
+`replaced_hooks` (exact hook commands) to recognize older hand-made context hooks, which it
 reports as drift and `--install-hooks` removes. It does not read
 run history. Other receipt formats and checked copies require manual inspection by
 an agent following §3. A copied Skill is reported as a same-name conflict because the
