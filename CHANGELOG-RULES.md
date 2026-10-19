@@ -4,8 +4,9 @@ Source notes for House Rules invariants and procedures.
 
 ## skills/decision-brief, skills/operator-writing — One home for the operator-question format
 
-Proposed: 2026-10-19; awaiting operator confirmation. A session asked the operator to
-decide in the decision-brief skill's `Decision 1 = Option 2` answer form, with decision IDs
+Operator confirmation: 2026-10-19, answer "1. 1" to the question "Approve the single home
+for the operator-question format?" (approve it, and it merges with the session-context hook).
+A session asked the operator to decide in the decision-brief skill's `Decision 1 = Option 2` answer form, with decision IDs
 and options named "Option 1". The session writing rules prescribe a different format for
 the same questions: numbered `### 1\.` question headings, a one-line `FACT` / `ASSESSMENT`
 context, one bold "(recommended)" option, no word "Option" and an "Answer like so:"
@@ -23,7 +24,8 @@ explains before its questions.
 
 ## rules/writing.md — Claim labels: a summarising fetch is not the source
 
-Proposed: 2026-10-19; awaiting operator confirmation. A session labelled four claims
+Operator confirmation: 2026-10-19, answer "2. 1" to the question "Approve the claim-label
+line on summarising fetch tools?". A session labelled four claims
 `FACT` after reading a web page only through a tool that summarises pages with a model.
 Such a tool's quotes can be paraphrased, so the session had not read the primary source.
 The rule already says a claim read in a summary is never a `FACT`; the new line says that
