@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Update the checkout and report House Rules installation drift; see INSTALL-AGENTS.md §6."""
+"""Update the checkout and report House Rules installation drift; see INSTALL-AGENTS.md §6.
+
+With --install-hooks it also writes the session-context hook into each Claude Code and Codex
+hook file (INSTALL-AGENTS.md §3 step 10). It writes no other file.
+"""
 
 import argparse
 import importlib.util
@@ -11,6 +15,7 @@ import shlex
 import stat
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -142,17 +147,36 @@ def children(path):
         return sorted(Path(entry.path) for entry in entries)
 
 
-def ownership_roots(root):
-    """Read manual installation receipts solely to recognize prior-root links."""
-    roots = {str(root)}
+def receipts(root):
+    """(path, receipt object) for each machine-readable installation receipt."""
     directory = root / "custom/installations"
-    paths = children(directory) if present(directory) else []
-    for path in paths:
+    result = []
+    for path in children(directory) if present(directory) else []:
         if path.suffix != ".json" or path.name.startswith("sync-"):
             continue
         receipt = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(receipt, dict):
             raise ValueError(f"receipt must be an object: {path}")
+        result.append((path, receipt))
+    return result
+
+
+def replaced_hooks(root):
+    """Scripts of earlier hand-made House Rules hooks, which receipts list under replaced_hooks."""
+    scripts = set()
+    for path, receipt in receipts(root):
+        listed = receipt.get("replaced_hooks", [])
+        if not isinstance(listed, list) or any(
+                not isinstance(value, str) or not Path(value).is_absolute() for value in listed):
+            raise ValueError(f"invalid receipt replaced_hooks: {path}")
+        scripts.update(listed)
+    return scripts
+
+
+def ownership_roots(root):
+    """Read manual installation receipts solely to recognize prior-root links."""
+    roots = {str(root)}
+    for path, receipt in receipts(root):
         previous = receipt.get("previous_roots", [])
         if not isinstance(previous, list):
             raise ValueError(f"invalid receipt roots: {path}")
@@ -199,11 +223,11 @@ def skill_folders(selected, home):
     return sorted(folders)
 
 
-def verify(root, home, findings, selected):
+def verify(root, home, findings, selected, hook_root=None):
     """Collect results in caller-owned lists so a later error cannot discard them."""
     block = template(root)
     selected.extend(homes(root, home))
-    roots = ownership_roots(root)
+    roots = ownership_roots(root) | {str(hook_root or root)}
     skills = {path.name: path for path in children(root / "skills")
               if is_dir(path) and is_file(path / "SKILL.md")}
     if ".system" in skills:
@@ -252,7 +276,8 @@ def verify(root, home, findings, selected):
             findings.append(f"missing rule file: {path}")
     for key, product_home in selected:
         if key in HOOK_FILES:
-            check_hook(root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], findings)
+            check_hook(hook_root or root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], findings,
+                       replaced_hooks(root))
     _, packed, too_long = session_context.parts(root)
     if len(packed) > session_context.SLOTS:
         findings.append(f"session context needs {len(packed)} parts; the hook registers {session_context.SLOTS}")
@@ -260,15 +285,30 @@ def verify(root, home, findings, selected):
         findings.append(f"session context section too long for one part: {name}, heading \"{heading}\"")
 
 
-def check_hook(root, roots, path, product, findings):
+def read_hooks(path):
+    """The hook file's object and its SessionStart list; a file that is not a JSON object is an error."""
+    try:
+        settings = json.loads(path.read_text(encoding="utf-8")) if present(path) else {}
+    except ValueError as error:
+        raise ValueError(f"hook file is not valid JSON: {path}: {error}") from error
+    if not isinstance(settings, dict):
+        raise ValueError(f"hook file is not a JSON object: {path}")
+    hooks = settings.get("hooks", {})
+    entries = hooks.get("SessionStart", []) if isinstance(hooks, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError(f"hook file has no SessionStart list: {path}")
+    return settings, entries
+
+
+def check_hook(root, roots, path, product, findings, replaced=frozenset()):
     """Exactly the INSTALL-AGENTS.md §3 SessionStart entry, run by an existing absolute interpreter."""
-    settings = json.loads(path.read_text(encoding="utf-8")) if present(path) else {}
-    hooks = settings.get("hooks") if isinstance(settings, dict) else None
-    entries = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    _, entries = read_hooks(path)
     scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
+    if any(script_of(tokens) in replaced for entry in entries if isinstance(entry, dict)
+           for tokens in handler_commands(entry)):
+        findings.append(f"replaced House Rules hook still registered: {path}")
     owned = [(entry, commands) for entry in entries if isinstance(entry, dict)
-             for commands in [handler_commands(entry)] if any(runs_script(tokens, scripts) for tokens in commands)
-             ] if isinstance(entries, list) else []
+             for commands in [handler_commands(entry)] if any(script_of(tokens) in scripts for tokens in commands)]
     if not owned:
         findings.append(f"missing session context hook: {path}")
         return
@@ -279,9 +319,12 @@ def check_hook(root, roots, path, product, findings):
         findings.append(f"stale session context hook: {path}")
 
 
-def runs_script(tokens, scripts):
-    """The call form session_context.hooks() prints: <python> -I <script> ...; a mere mention is not ours."""
-    return len(tokens) >= 3 and tokens[1] == "-I" and tokens[2] in scripts
+def script_of(tokens):
+    """The script in the call form session_context.hooks() prints: <python> -I <script> ...
+
+    A command that only mentions a path, such as a file-existence check, runs no script here.
+    """
+    return tokens[2] if len(tokens) >= 3 and tokens[1] == "-I" else None
 
 
 def handler_commands(entry):
@@ -294,6 +337,50 @@ def handler_commands(entry):
         except ValueError:
             result.append([])
     return result
+
+
+def install_hooks(root, hook_root, home, python, report):
+    """Write the current hook entry into each Claude Code and Codex hook file; report(path, backup) per file.
+
+    Removes House Rules handlers of any recorded root and receipt-listed replaced hooks, keeps every
+    other entry and setting, backs up an existing file beside it and replaces the file atomically.
+    A file already holding exactly the current entry is not written. Each write is reported as it
+    happens, so a later failure cannot hide files already changed.
+    """
+    roots = ownership_roots(root) | {str(hook_root)}
+    ours = {str(Path(other) / "scripts/session_context.py") for other in roots} | replaced_hooks(root)
+    for key, product_home in homes(root, home):
+        if key not in HOOK_FILES:
+            continue
+        name, product = HOOK_FILES[key]
+        path = product_home / name
+        settings, entries = read_hooks(path)
+        kept = []
+        for entry in entries:
+            handlers = entry.get("hooks") if isinstance(entry, dict) else None
+            if isinstance(handlers, list):
+                remaining = [handler for handler, tokens in zip(handlers, handler_commands(entry))
+                             if script_of(tokens) not in ours]
+                if not remaining:
+                    continue
+                if len(remaining) != len(handlers):
+                    entry = {**entry, "hooks": remaining}
+            kept.append(entry)
+        kept.append(session_context.hooks(product, python, hook_root))
+        if kept == entries:
+            continue
+        settings.setdefault("hooks", {})["SessionStart"] = kept
+        backup = None
+        if present(path):
+            backup = path.with_name(f"{path.name}.house-rules-backup-{time.strftime('%Y%m%dT%H%M%S')}")
+            backup.write_bytes(path.read_bytes())
+        handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(settings, indent=2) + "\n")
+        if backup is not None:
+            os.chmod(temporary, stat.S_IMODE(os.stat(path).st_mode))
+        os.replace(temporary, path)
+        report(path, backup)
 
 
 def always_load(root, findings):
@@ -311,16 +398,25 @@ def always_load(root, findings):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    parser.add_argument("--install-hooks", action="store_true",
+                        help="write the session-context hook into each Claude Code and Codex hook file")
     args = parser.parse_args(argv)
     root, started = args.root.resolve(), time.monotonic()
+    # Hook entries name the root as given, so a stable link to a moving checkout stays valid.
+    hook_root = Path(os.path.abspath(args.root))
     failed = False
     findings = []
     selected = []
     verification_complete = False
     # A failed checkout update must not prevent checking the installed homes.
+    def install():
+        install_hooks(root, hook_root, Path.home(), sys.executable, lambda path, backup: print(
+            f"REGISTERED: session context hook in {path}" + (f" (backup: {backup})" if backup else "")))
+
     for name, operation in (
             ("update", lambda: findings.extend(update(root))),
-            ("verification", lambda: verify(root, Path.home(), findings, selected))):
+            *((("install", install),) if args.install_hooks else ()),
+            ("verification", lambda: verify(root, Path.home(), findings, selected, hook_root))):
         try:
             operation()
         except (OSError, ValueError, RecursionError, subprocess.CalledProcessError) as error:

@@ -115,10 +115,10 @@ class SyncFixture:
         self.git(root, "add", "--", *paths)
         self.git(root, "commit", "-m", "Fixture change")
 
-    def invoke(self):
+    def invoke(self, *extra, root=None):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = sync.main(["--root", str(self.root)])
+            code = sync.main(["--root", str(root or self.root), *extra])
         return code, out.getvalue(), err.getvalue()
 
     def receipt(self, data):
@@ -675,6 +675,101 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
         self.assertIn("===== House Rules file rules/core.md =====\n# core rules", result.stdout)
         self.assertIn(f"HOUSE RULES HOOK ERROR: this computer's local index {self.root / 'custom/INDEX.md'} "
                       "is missing", result.stdout)
+
+
+class InstallHookTests(SyncFixture, unittest.TestCase):
+    """sync.py --install-hooks writes only hook files: back up, drop old House Rules entries, add the current one."""
+
+    def setUp(self):
+        super().setUp()
+        self.install_fixture()
+        self.settings, self.codex_hooks = self.claude / "settings.json", self.codex / "hooks.json"
+        self.legacy = str(self.root / "custom/hooks/old-context.py")
+        self.unrelated = {"type": "command", "command": "/bin/echo unrelated"}
+
+    def read(self, path):
+        return json.loads(path.read_text())
+
+    def backups(self, path):
+        return sorted(path.parent.glob(path.name + ".house-rules-backup-*"))
+
+    def test_registers_the_hook_beside_other_settings_and_backs_up_the_file(self):
+        original = json.dumps({"model": "fixture", "hooks": {"SessionStart": [{"hooks": [self.unrelated]}],
+                                                              "Stop": [{"hooks": [self.unrelated]}]}})
+        self.write(self.settings, original)
+        self.codex_hooks.unlink()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn(f"REGISTERED: session context hook in {self.settings}", out)
+        self.assertIn("3 homes checked; 0 findings", out)
+        settings = self.read(self.settings)
+        self.assertEqual(settings["model"], "fixture")
+        self.assertEqual(settings["hooks"]["Stop"], [{"hooks": [self.unrelated]}])
+        self.assertEqual(settings["hooks"]["SessionStart"],
+                         [{"hooks": [self.unrelated]}, context.hooks("claude", sys.executable, self.root)])
+        self.assertEqual([path.read_text() for path in self.backups(self.settings)], [original])
+        self.assertEqual(self.read(self.codex_hooks)["hooks"]["SessionStart"],
+                         [context.hooks("codex", sys.executable, self.root)])
+        self.assertEqual(self.backups(self.codex_hooks), [])
+        self.assertFalse((self.kimi / "settings.json").exists() or (self.kimi / "hooks.json").exists())
+
+    def test_replaces_older_versions_and_hooks_a_receipt_lists_as_replaced(self):
+        self.receipt({"source_root": str(self.root), "previous_roots": [str(self.base / "old root")],
+                      "replaced_hooks": [self.legacy]})
+        fewer = context.hooks("claude", sys.executable, self.root)
+        fewer["hooks"].pop()
+        legacy = [{"type": "command", "command": f"{sys.executable} -I {shlex.quote(self.legacy)} session {n}"}
+                  for n in (1, 2)]
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": [
+            fewer, context.hooks("claude", "/usr/bin/python3", self.base / "old root"),
+            {"matcher": "*", "hooks": [*legacy, self.unrelated]}, {"hooks": legacy}]}}))
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: replaced House Rules hook still registered: {self.settings}", out)
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"], [
+            {"matcher": "*", "hooks": [self.unrelated]}, context.hooks("claude", sys.executable, self.root)])
+
+    def test_a_correct_installation_is_not_rewritten(self):
+        before = self.settings.read_text()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertNotIn("REGISTERED", out)
+        self.assertEqual(self.settings.read_text(), before)
+        self.assertEqual(self.backups(self.settings), [])
+
+    def test_a_symlinked_root_is_written_as_given_so_moves_of_its_target_keep_working(self):
+        alias = self.base / "stable root"
+        alias.symlink_to(self.root, target_is_directory=True)
+        code, out, err = self.invoke("--install-hooks", root=alias)
+        self.assertIn(f"REGISTERED: session context hook in {self.settings}", out)
+        commands = [handler["command"] for handler in self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"]]
+        self.assertIn(shlex.quote(str(alias / "scripts/session_context.py")), commands[0])
+        self.assertEqual(len(self.read(self.settings)["hooks"]["SessionStart"]), 2)
+
+    def test_unreadable_hook_file_is_an_error_and_stays_unchanged(self):
+        self.write(self.settings, "{not json")
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertEqual(self.settings.read_text(), "{not json")
+        self.assertEqual(self.backups(self.settings), [])
+        self.assertIn(str(self.settings), err)
+
+    def test_files_written_before_a_later_failure_are_reported(self):
+        self.settings.unlink()
+        self.write(self.codex_hooks, "[]")
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn(f"REGISTERED: session context hook in {self.settings}", out)
+        self.assertIn(f"hook file is not a JSON object: {self.codex_hooks}", err)
+        self.assertEqual(self.codex_hooks.read_text(), "[]")
+
+    def test_default_run_still_writes_no_hook_file(self):
+        self.settings.unlink()
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertFalse(self.settings.exists())
 
 
 class SyncSourceTests(SyncFixture, unittest.TestCase):

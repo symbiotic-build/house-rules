@@ -46,6 +46,11 @@ operator-writing skill and `custom/INDEX.md`, split at file and heading boundari
 labelled parts under the product's output cap. `scripts/sync.py` reports a missing or
 stale hook as drift.
 
+Operator direction: 2026-10-19, after the hook PR: the installer should register the hook
+itself and clear older registrations. `scripts/sync.py` had been check-only since its
+first version. It now writes hook files, and only them, when run with `--install-hooks`;
+the default run still writes nothing.
+
 ## skills/pr-ready — Structured review layout
 
 Operator-approved task: 2026-10-17. Structured reviews put shared context first and lens

@@ -185,28 +185,32 @@ For each selected product and configuration home:
 10. Register the session-context hook in every Claude Code and Codex home (§1 hook table).
     At every new, resumed, cleared and compacted session it prints `INDEX.md`, the rule files
     the index lists under "Always load", the operator-writing Skill and `custom/INDEX.md`.
-    Print the entry with a Python 3.9 or later interpreter that agent sessions can run:
+    Run the installer with a Python 3.9 or later interpreter that agent sessions can run:
 
     ```sh
-    "<PYTHON3>" "<HOUSE_RULES_ROOT>/scripts/session_context.py" hooks claude "<HOUSE_RULES_ROOT>"
+    "<PYTHON3>" "<HOUSE_RULES_ROOT>/scripts/sync.py" --install-hooks
     ```
 
-    The printed entry runs that interpreter by its absolute path, quoted for a POSIX shell;
-    on native Windows, run the printed command in the product's hook shell before
-    registering it, and report it as a conflict when it fails. Claude Code gets one hook
-    per part, because it caps each hook's output at 10 000 characters. For Codex, print
-    `hooks codex` instead; Codex gets one hook. Back up the hook file. Add the printed object
-    as one entry of the file's `hooks.SessionStart` list, and preserve every other entry and
-    setting. Replace an earlier entry whose command runs `scripts/session_context.py` under
-    the current or a previous root. Codex skips a new hook until the operator trusts it in
-    `/hooks`; record that as a pending operator action in `custom/INDEX.md`. Kimi Code gets
-    no hook. Record each hook file and its backup in the receipt.
+    For each hook file it removes every earlier House Rules entry, adds the current one and
+    keeps every other entry and setting. An earlier entry runs `scripts/session_context.py`
+    under the current or a previous root, or runs a script a receipt lists under
+    `replaced_hooks`, such as an older hand-made context hook. The installer backs up a
+    changed file beside it, replaces it atomically, prints each file it writes, and leaves a
+    file that already holds the current entry unchanged. The entry runs the installer's
+    interpreter by its absolute path and names the root as passed to `--root`, so a stable
+    link to a moving checkout stays valid. Claude Code gets one hook per part, because it
+    caps each hook's output at 10 000 characters; Codex gets one hook; Kimi Code gets none.
+    `scripts/session_context.py hooks <product> <root>` prints the entry without writing it.
+    The command is quoted for a POSIX shell: on native Windows, run it in the product's hook
+    shell first, and report it as a conflict when it fails. Codex skips a new hook until the
+    operator trusts it in `/hooks`; record that as a pending operator action in
+    `custom/INDEX.md`. Record each hook file and its backup in the receipt.
 
     The hook and `scripts/sync.py` report two capacity errors. A section too long for one
     part is split under more headings by the owner of its file: the operator for
     `custom/INDEX.md`, a House Rules change for tracked files. More parts than hooks needs
     a House Rules change that raises `SLOTS` in `scripts/session_context.py`; after it,
-    print and register the entry again in every home.
+    run the installer again.
 11. Do not install anything from `custom/` as though House Rules owned it. Follow the
     ownership recorded in `custom/INDEX.md`.
 
@@ -364,9 +368,10 @@ retained, and the summary identifies incomplete coverage. Exit codes are 0 for n
 findings, 1 for reported drift or conflicts, and 2 for an error.
 
 The scheduled run reports drift; an agent repairs it by following §3, including the
-no-write plan in §2 and the verification in §5. The script does not modify instruction
-files, hook files, Skill entries, backups, receipts or the custom index, and does not start
-agent sessions. Runtime discovery remains the separate check in §5.
+no-write plan in §2 and the verification in §5. A missing or stale hook is repaired with
+`--install-hooks` (§3 step 10), which writes hook files and their backups and nothing else.
+Without that option the script does not modify instruction files, hook files, Skill entries,
+backups, receipts or the custom index. It never starts agent sessions. Runtime discovery remains the separate check in §5.
 
 Only present product homes are selected from the baseline locations in §1, respecting
 `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `KIMI_CODE_HOME` when set; explicit environment
@@ -402,7 +407,9 @@ folders. `$CODEX_HOME/skills/.system/` is excluded.
 
 Link ownership follows §2. The script reads `source_root` and `previous_roots` (absolute
 path strings) from machine-readable JSON installation receipts in
-`custom/installations/` to recognize links to earlier source roots. It does not read
+`custom/installations/` to recognize links and hooks of earlier source roots, and
+`replaced_hooks` (absolute script paths) to recognize older hand-made context hooks, which it
+reports as drift and `--install-hooks` removes. It does not read
 run history. Other receipt formats and checked copies require manual inspection by
 an agent following §3. A copied Skill is reported as a same-name conflict because the
 script checks for links; it does not replace it. Symlinked Skills pick up source changes
