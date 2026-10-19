@@ -21,14 +21,19 @@ its default rule paths plus that commit's .rule-changes.json extensions.
 """
 import argparse
 import pathlib
-import re
 import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import prepare  # noqa: E402
 
-SECTION = re.compile(r"^## Rule changes[ \t]*\n(.*?)(?=^## |\Z)", re.M | re.S)
+
+def section(body):
+    """The Rule changes section's text without its heading, found by the preparer's own parser
+    (outside fences and comments), or None."""
+    lines = prepare.declared_rule_changes(body.replace("\r\n", "\n"))
+    return "\n".join(line for _, line in lines[1:]).strip() if lines else None
+
 # The first merge that carries its Rule changes section; older merges are in the archive.
 ARCHIVE_NOTE = "Entries recorded before this changelog are in [CHANGELOG-RULES.md](CHANGELOG-RULES.md)."
 
@@ -58,9 +63,9 @@ def changelog(repo, rev):
     parts = ["# Rules changelog\n", "Generated from the merge commits on "
              f"`{rev}` by skills/pr-ready/scripts/rules_changelog.py. Do not edit.\n"]
     for sha, date, subject, body in merges(repo, rev):
-        section = SECTION.search(body)
-        if section:
-            parts.append(f"\n## {date} — {subject} ({sha[:12]})\n\n{section[1].strip()}\n")
+        text = section(body)
+        if text is not None:
+            parts.append(f"\n## {date} — {subject} ({sha[:12]})\n\n{text}\n")
     parts.append(f"\n{ARCHIVE_NOTE}\n")
     return "".join(parts)
 
@@ -70,7 +75,7 @@ def missing(repo, rev):
                 "skills/pr-ready/scripts/rules_changelog.py").split()
     span = f"{added[-1]}..{rev}" if added else rev
     return [(sha, subject, paths) for sha, _, subject, body in merges(repo, span)
-            if not SECTION.search(body) and (paths := changed_rules(repo, sha))]
+            if section(body) is None and (paths := changed_rules(repo, sha))]
 
 
 def main(argv=None):
@@ -81,11 +86,11 @@ def main(argv=None):
     parser.add_argument("--section", action="store_true")
     args = parser.parse_args(argv)
     if args.section:
-        section = SECTION.search(sys.stdin.read().replace("\r\n", "\n"))
-        if not section:
+        text = section(sys.stdin.read())
+        if not text:
             print("the pull request body has no Rule changes section", file=sys.stderr)
             return 1
-        print("## Rule changes\n\n" + section[1].strip())
+        print("## Rule changes\n\n" + text)
         return 0
     if not args.check:
         sys.stdout.write(changelog(args.repo, args.rev))

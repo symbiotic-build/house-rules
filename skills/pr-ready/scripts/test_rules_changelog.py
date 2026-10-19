@@ -66,6 +66,16 @@ class RulesChangelogTests(unittest.TestCase):
         self.assertEqual(out.stdout, "## Rule changes\n\n- RC1 Remove a rule. Approved 2026-10-20.\n")
         self.assertEqual(self.run_script("--section", stdin="No section.").returncode, 1)
 
+    def test_a_fenced_example_heading_is_not_the_section(self):
+        body = ("How to declare:\n\n```markdown\n## Rule changes\n- RC1 Example only.\n```\n\n"
+                "## Rule changes\n- RC1 The real declaration.\n")
+        out = self.run_script("--section", stdin=body)
+        self.assertEqual(out.stdout, "## Rule changes\n\n- RC1 The real declaration.\n")
+        self.merge("fenced", "rules/core.md", "- Keep all records.\n", body)
+        log = self.run_script("--repo", str(self.repo)).stdout
+        self.assertIn("RC1 The real declaration.", log)
+        self.assertNotIn("Example only", log)
+
 
 if __name__ == "__main__":
     unittest.main()
