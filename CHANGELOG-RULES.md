@@ -2,6 +2,17 @@
 
 Source notes for House Rules invariants and procedures.
 
+## Install — Session-context hook
+
+Operator direction: 2026-10-19, after a session skipped rules it had been told to read:
+the fix should hold for every installation by default. The managed block only tells a
+session to read the rules; it does not put them into the session, and the machine-local
+index was read only when the session followed that instruction. INSTALL-AGENTS.md §3 now
+registers a tracked session-start hook that prints the always-load rules, the
+operator-writing skill and `custom/INDEX.md`, split at file and heading boundaries into
+labelled parts under the product's output cap. `scripts/sync.py` reports a missing or
+stale hook as drift.
+
 ## skills/pr-ready — Structured review layout
 
 Operator-approved task: 2026-10-17. Structured reviews put shared context first and lens

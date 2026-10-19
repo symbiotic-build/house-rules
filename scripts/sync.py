@@ -2,6 +2,7 @@
 """Update the checkout and report House Rules installation drift; see INSTALL-AGENTS.md §6."""
 
 import argparse
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -14,6 +15,12 @@ import time
 
 
 MARKERS = re.compile(r"<!-- (house-rules|forge|groundwork):(begin|end) -->")
+_SPEC = importlib.util.spec_from_file_location("session_context", Path(__file__).with_name("session_context.py"))
+session_context = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(session_context)
+# Native hook file and session_context.py product name for each product with a session-start hook.
+# Kimi Code runs SessionStart hooks but does not pass their output to the model (INSTALL-AGENTS.md §1).
+HOOK_FILES = {"CLAUDE_CONFIG_DIR": ("settings.json", "claude"), "CODEX_HOME": ("hooks.json", "codex")}
 
 
 def status(path, *, follow_symlinks=True):
@@ -243,6 +250,42 @@ def verify(root, home, findings, selected):
     for path in always_load(root, findings):
         if not is_file(path):
             findings.append(f"missing rule file: {path}")
+    for key, product_home in selected:
+        if key in HOOK_FILES:
+            check_hook(root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], findings)
+    count = len(session_context.parts(root)[1])
+    if count > session_context.SLOTS:
+        findings.append(f"session context needs {count} parts; the hook registers {session_context.SLOTS}")
+
+
+def check_hook(root, roots, path, product, findings):
+    """Exactly the INSTALL-AGENTS.md §3 SessionStart entry, run by an existing absolute interpreter."""
+    settings = json.loads(path.read_text(encoding="utf-8")) if present(path) else {}
+    hooks = settings.get("hooks") if isinstance(settings, dict) else None
+    entries = hooks.get("SessionStart") if isinstance(hooks, dict) else None
+    scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
+    owned = [(entry, commands) for entry in entries if isinstance(entry, dict)
+             for commands in [handler_commands(entry)] if any(scripts & set(tokens) for tokens in commands)
+             ] if isinstance(entries, list) else []
+    if not owned:
+        findings.append(f"missing session context hook: {path}")
+        return
+    entry, commands = owned[0]
+    python = commands[0][0] if commands[0] else ""
+    if len(owned) != 1 or not Path(python).is_absolute() or not is_file(Path(python)) or \
+            entry != session_context.hooks(product, python, root):
+        findings.append(f"stale session context hook: {path}")
+
+
+def handler_commands(entry):
+    """Each handler's command as tokens; a handler without a parsable command gives no tokens."""
+    result = []
+    for handler in entry.get("hooks") if isinstance(entry.get("hooks"), list) else []:
+        try:
+            result.append(shlex.split(handler["command"]))
+        except (TypeError, KeyError, ValueError):
+            result.append([])
+    return result
 
 
 def always_load(root, findings):
@@ -251,8 +294,7 @@ def always_load(root, findings):
     if not is_file(index):
         findings.append(f"missing index: {index}")
         return []
-    section = index.read_text(encoding="utf-8").split("## Always load", 1)
-    links = re.findall(r"\]\((rules/[^)]+\.md)\)", section[1].split("\n## ", 1)[0]) if len(section) == 2 else []
+    links = session_context.always_load(index.read_text(encoding="utf-8"))
     if not links:
         findings.append(f"index lists no always-load rule files: {index}")
     return [root / link for link in links]
