@@ -657,7 +657,8 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
         self.install_fixture()
         path = self.claude / "settings.json"
         mention = f"/usr/bin/test -f {shlex.quote(str(self.root / 'scripts/session_context.py'))}"
-        broken = [{"hooks": [{"type": "command", "command": []}, {"type": "command", "command": "echo 'open"},
+        broken = [{"hooks": 1}, {"hooks": None}, {"type": "command"},
+                  {"hooks": [{"type": "command", "command": []}, {"type": "command", "command": "echo 'open"},
                              "not a handler", {"type": "command"}, {"type": "command", "command": mention}]},
                   "not an entry"]
         self.register_hook(path, "claude", extra=broken)
@@ -809,6 +810,19 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertIn("protected Codex .system content", err)
         self.assertEqual((protected / "settings.json").read_text(), "{}")
         self.assertNotIn("REGISTERED", out)
+
+    def test_a_symlinked_hook_file_in_a_protected_folder_is_not_replaced(self):
+        protected = self.codex / "skills/.system/claude"
+        protected.mkdir(parents=True)
+        outside = self.base / "outside-settings.json"
+        self.write(outside, "{}")
+        (protected / "settings.json").symlink_to(outside)
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(protected)}):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("protected Codex .system content", err)
+        self.assertTrue((protected / "settings.json").is_symlink())
+        self.assertEqual(sorted(path.name for path in protected.iterdir()), ["settings.json"])
 
     def test_a_backup_that_cannot_be_written_is_removed_and_the_file_kept(self):
         before = self.settings.read_text()

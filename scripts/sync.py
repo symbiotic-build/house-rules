@@ -312,8 +312,8 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset()):
                 for handler in entry["hooks"]]
     if any(owner(handler, scripts, replaced) == "replaced" for handler in handlers):
         findings.append(f"replaced House Rules hook still registered: {path}")
-    owned = [(entry, handler_commands(entry)) for entry in entries if isinstance(entry, dict) and any(
-        owner(handler, scripts) == "ours" for handler in entry.get("hooks") or [] if isinstance(handler, dict))]
+    owned = [(entry, handler_commands(entry)) for entry in entries if isinstance(entry, dict) and isinstance(
+        entry.get("hooks"), list) and any(owner(handler, scripts) == "ours" for handler in entry["hooks"])]
     if not owned:
         findings.append(f"missing session context hook: {path}")
         return
@@ -392,7 +392,10 @@ def install_hooks(root, hook_root, home, python, report):
     targets = [(product_home / HOOK_FILES[key][0], HOOK_FILES[key][1])
                for key, product_home in selected if key in HOOK_FILES]
     for path, _ in targets:
-        check_protected(path, selected)  # every destination, before the first write
+        # Every destination, before the first write: its target, and the folder its backup and
+        # replacement are written in, which a symlinked file does not resolve to.
+        check_protected(path, selected)
+        check_protected(path.parent, selected)
     for path, product in targets:
         data = path.read_bytes() if present(path) else None
         settings, entries = read_hooks(path, data)
