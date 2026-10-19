@@ -1199,7 +1199,7 @@ def main(argv=None, *, documentation_prepared=False):
             base = git(repo, "merge-base", base, head).strip()
             changes, policy, rule_base = rule_changes(repo, base, head)
             rule_report(changes, policy, rule_base, head, "", "--summary text")
-            if any(not item.get("provenance") and item["kind"] in ("removed", "changed", "moved") for item in changes):
+            if changes:  # the rule-preservation reviewer alone audits every report item, provenance entries included
                 print("rule-preservation")
         elif args.command == "base":
             print(base)

@@ -2,6 +2,15 @@
 
 Source notes for House Rules invariants and procedures.
 
+## prompts/util/review-bar.md — Rule-change dispositions belong to one reviewer
+
+Operator decision: 2026-10-20. Every reviewer had to give each rule-change item a disposition,
+so a review panel wrote the same table once per reviewer in every round. Only the
+rule-preservation reviewer now writes the dispositions; other reviewers report a rule
+regression they find during their own review. The rule-preservation reviewer now joins
+whenever the rule report is non-empty, including additions, rewrapped text and provenance
+entries, so no item loses its audit.
+
 ## skills/decision-brief, skills/operator-writing — One home for the operator-question format
 
 Operator confirmation: 2026-10-19, answer "1. 1" to the question "Approve the single home
