@@ -2,6 +2,14 @@
 
 Source notes for House Rules invariants and procedures.
 
+## skills/bench-discipline — Reuse baseline runs instead of rerunning them
+
+Operator direction: 2026-10-19, after an agent tuning review prompts proposed rerunning the baseline in each test round
+to measure run-to-run spread, although the baseline's earlier runs were available and the operator had asked for an
+efficient check rather than a precise comparison. The operator asked for a rule: evaluations and tuning of agent or
+model behavior use the baseline's existing runs, add a replicate only when the decision turns on a difference within
+the spread already seen, and compare which items each arm gets right. Measured performance runs are excluded.
+
 ## skills/pr-ready — Structured review layout
 
 Operator-approved task: 2026-10-17. Structured reviews put shared context first and lens
