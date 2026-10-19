@@ -13,6 +13,11 @@ same defects, so a full panel does not run plain generalists. The code targets a
 4. [`waste`](../../../prompts/lenses/waste.md): simplicity, dead code, duplication,
    speculative mechanisms, scope.
 
+A full panel adds one [`generic`](../../../prompts/lenses/generic.md) reviewer. It reads
+the structured change once, runs no commands and reports any blocking defect, so it adds
+breadth beside the targets at little cost. It needs the structured change format, which
+the preparer gives Codex by default; without it, that reviewer fails visibly.
+
 Changes to documents, specifications, rules, prompts or skills add
 [`design-spec`](../../../prompts/lenses/design-spec.md), which checks each changed
 rule's premise and the reader requirements. A panel limited to three targets uses
@@ -29,8 +34,12 @@ configuration, failure behavior and the service integration boundary.
 
 Each lens file is a checklist plus an out-of-scope list that names the owning lens, and
 includes the [targeted lens](../../../prompts/util/targeted-lens.md) rules: a reviewer
-searches only its lens and reports a blocking defect outside it once, marked "Outside
-lens:". The triager merges near-duplicates and keeps the owning lens's version.
+covers its lens in depth and reports any blocking defect outside it, marked "Outside
+lens:". The code targets and `design-spec` also include the
+[required review procedure](../../../prompts/util/review-procedure.md) and their own
+inventories: the reviewer splits every checklist item and inventory into cases and
+reports each case's result in a coverage ledger. The triager merges near-duplicates and
+keeps the owning lens's version.
 
 **Families.** Targets take the configured families in a fixed rotation, so each family
 covers different targets: with families A and B, targets 1 and 3 run on one family and
@@ -96,5 +105,5 @@ drop pairings that mostly produce noise.
 
 Launch: `scripts/review-panel.sh <name> <checkout> <base-prompt> [reviewer ...]`.
 For a full panel, name the targets: `correctness-security concurrency-restarts spec
-waste`, plus `design-spec` for document, rule and prompt changes. Without reviewer
+waste generic`, plus `design-spec` for document, rule and prompt changes. Without reviewer
 names, the script runs the generalists of the configured families.
