@@ -201,6 +201,12 @@ For each selected product and configuration home:
     the current or a previous root. Codex skips a new hook until the operator trusts it in
     `/hooks`; record that as a pending operator action in `custom/INDEX.md`. Kimi Code gets
     no hook. Record each hook file and its backup in the receipt.
+
+    The hook and `scripts/sync.py` report two capacity errors. A section too long for one
+    part is split under more headings by the owner of its file: the operator for
+    `custom/INDEX.md`, a House Rules change for tracked files. More parts than hooks needs
+    a House Rules change that raises `SLOTS` in `scripts/session_context.py`; after it,
+    print and register the entry again in every home.
 11. Do not install anything from `custom/` as though House Rules owned it. Follow the
     ownership recorded in `custom/INDEX.md`.
 

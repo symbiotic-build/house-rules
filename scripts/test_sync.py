@@ -918,12 +918,12 @@ class SessionContextTests(unittest.TestCase):
         with mock.patch.object(context, "SLOTS", 1), mock.patch.object(context, "root", return_value=self.root):
             self.assertNotIn("HOUSE RULES HOOK ERROR", context.codex())
 
-    def test_unexpected_failure_prints_a_visible_error_instead_of_nothing(self):
+    def test_unreadable_rule_file_prints_a_visible_error_instead_of_nothing(self):
+        (self.root / "rules/core.md").write_bytes(b"# Core rules\n\xff\xfe not UTF-8\n")
         out = io.StringIO()
-        with mock.patch.object(context, "parts", side_effect=OSError("fixture read denied")), \
-                contextlib.redirect_stdout(out):
+        with mock.patch.object(context, "root", return_value=self.root), contextlib.redirect_stdout(out):
             context.main(["claude", "1"])
-        self.assertEqual(out.getvalue(), "HOUSE RULES HOOK ERROR: fixture read denied\n")
+        self.assertRegex(out.getvalue(), r"^HOUSE RULES HOOK ERROR: 'utf-8' codec can't decode byte 0xff")
 
     def test_house_rules_itself_fits_the_registered_slots(self):
         rev, packed, too_long = context.parts(REPO)
