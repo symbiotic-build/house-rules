@@ -1,6 +1,6 @@
 # House Rules index rename and pointer files
 
-Status: pointer-only design; operator direction recorded on 2026-10-07; implementation verification pending
+Status: pointer-only design; operator direction recorded on 2026-10-07; implemented in [#93](https://github.com/symbiotic-sh/house-rules/pull/93).
 
 Issue: [#73](https://github.com/symbiotic-sh/house-rules/issues/73)
 

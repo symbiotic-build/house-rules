@@ -296,7 +296,8 @@ Filesystem verification:
 
 Tools:
 
-- The rules and Skills need no runtime. Only the optional report linter
+- The rules and Skills are plain files. The session-start hook (`scripts/session_context.py`)
+  and `scripts/sync.py` need Python 3.9 or later. Only the optional report linter
   (`skills/audit-report-authoring/scripts/lint-report-set.mjs`) needs Node.js 22 or later;
   check for it only when that Skill is used, and do not install it silently.
 - Work tracking uses the Git host's CLI (skill `work-tracking`); on GitHub, `gh` with the

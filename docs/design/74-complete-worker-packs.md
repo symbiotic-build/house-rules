@@ -1,4 +1,4 @@
-Status: design revised to the operator's decisions of 2026-10-07; implementation pending.
+Status: design revised to the operator's decisions of 2026-10-07; implemented in [#91](https://github.com/symbiotic-sh/house-rules/pull/91); the five role files are in [prompts/roles/](../../prompts/roles/).
 
 # Complete worker role packs
 

@@ -58,7 +58,7 @@ Each technical term below links to its defining Markdown section.
 <a id="tour"></a>
 ## Tour
 
-Follow one edit through detection and review. These synthetic files and the summary are the complete input.
+Follow one edit through detection and review. These synthetic files and the PR body are the complete input.
 All rule files are protected by the [rule-change configuration](#configuration).
 The destination file already exists in the base, containing only `# Reporting` and its final newline.
 
@@ -96,19 +96,12 @@ Wrap this rule across lines without changing its words.
 - Report every failure.
 ```
 
-**Head: CHANGELOG-RULES.md** (absent in the base)
-
-```markdown
-# Approval
-Approved removal: “Keep the audit record. Retain the approval.”
-```
-
-**Selected --summary text**
+**Selected PR body** (given with `--pr`)
 
 ```markdown
 Audit example
 ## Rule changes
-Remove the audit-record rule; operator approval is in CHANGELOG-RULES.md.
+Remove the audit-record rule. Operator approval, 2026-10-20: “Remove the audit-record rule.”
 Change validation wording; operator approval is still required for weakening.
 Move failure reporting to rules/destination.md without changing its meaning.
 Rewrap the remaining paragraph.
@@ -121,13 +114,13 @@ Rewrap the remaining paragraph.
    - The changed block is source line 4 → line 3: `- Never skip validation.` → `- Avoid skipping validation.`
    - The moved block is source line 7 → destination line 2: `- Report every failure.`
    - The rewrapped block is source lines 9–10 → line 7, shown as one compact item.
-   - The changelog block stays whole in Provenance entries; the rule remains removed.
-2. **Read the declared changes.** The summary's section appears verbatim with original lines 2–6.
+2. **Read the declared changes.** The PR body's section appears verbatim with original lines 2–6.
    - Lines 3–5 declare the removal, wording change and move; line 6 declares the rewrap.
-   - When an explicit PR is given, its body replaces this summary as the selected source.
+   - Without `--pr`, the supplied `--summary` text is the selected source instead.
    - Without that section, the report prominently flags an undeclared change.
 3. **Audit every item.** The normal panel gains the rule-preservation lens.
-   - Without cited operator approval, the removal and weakening are Blocking findings.
+   - The removal can receive `approved change` because line 3 quotes the operator's dated approval.
+   - The weakening has no operator approval, so it is a Blocking finding.
    - The move can receive `same meaning` only after the reviewer checks its destination scope.
    - The rewrap needs a disposition after the reviewer opens its diff and confirms preserved structure.
 
@@ -152,7 +145,14 @@ The preparer compares captured Git text before rendering the change or dispatchi
 A rule-change report is the complete comparison of protected Markdown changed blocks between review revisions.
 It prevents changed obligations from disappearing inside a large diff.
 The dispatch process pins the base commit before lens selection and preparation.
-Preparation captures its merge base with head once and reuses that comparison base for the report, documentation context and diff.
+Preparation captures the merge base of that base commit and head once.
+A full review reuses that comparison base for the report, documentation context and diff.
+
+A check round (`prepare.py review --since <commit>`) reviews only a fix.
+Its configuration, report and diff compare against that last reviewed commit.
+The declarations still come from the whole PR body or `--summary` text.
+The report covers only the fix range.
+
 The report names both immutable revisions. Working-tree edits do not affect it.
 
 Each zero-context Git hunk is one changed block, with its complete old and new text and source line ranges.
@@ -541,7 +541,7 @@ Inspect reviewer obligations in every compiled pack.
 
 **Requirements:** [Dispatch and accounting](#req-rule-review).
 
-**Inputs:** Detected items and the selected summary from the tour, declaration lines 2–6 and specific changes on lines 3–5.
+**Inputs:** Detected items and the selected PR body from the tour, declaration lines 2–6 and specific changes on lines 3–5.
 
 **Expected:** Every item receives evidence and a disposition; missing approval or accounting blocks review.
 
