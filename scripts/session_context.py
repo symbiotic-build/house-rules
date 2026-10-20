@@ -227,8 +227,8 @@ def approved(base=None):
     rows = sorted(rows)
     if not incomplete and len("\n".join([*kept, *rows])) <= APPROVED_CAP:
         return "\n".join([*kept, *rows])
-    notice = (f"{ERROR} more open approved items exist than this list shows. Close or unlabel the finished "
-              "ones: the label marks only work that still waits.")
+    notice = (f"{ERROR} this list may not show every open approved item. Close the issues of finished "
+              "approved work, so the label marks only work that still waits.")
     for row in rows:
         if len("\n".join([*kept, row, notice])) > APPROVED_CAP:
             break

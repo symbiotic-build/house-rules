@@ -58,8 +58,7 @@ updates itself; agents load it as its own Skill and MCP server, not as part of H
   listed. Where the session-start hook runs (Claude Code, Codex), it prints the open `approved` items at every
   start and after every compaction. Elsewhere, run `python3 scripts/session_context.py approved` from the
   House Rules checkout at session start and after each compaction. The list is a reminder of at most 3 000
-  characters; when items are left out, it ends with one notice, and finished approved issues are closed or
-  unlabelled.
+  characters; when items may be left out, it ends with one notice.
 
 ## The Git record
 

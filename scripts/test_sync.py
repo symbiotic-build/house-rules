@@ -1104,8 +1104,8 @@ class ApprovedWorkListingTests(unittest.TestCase):
                                   "before searching other-org.")
         self.assertEqual(len((self.bin / "calls").read_text().splitlines()), 1)
 
-    NOTICE = ("HOUSE RULES HOOK ERROR: more open approved items exist than this list shows. Close or unlabel the "
-              "finished ones: the label marks only work that still waits.")
+    NOTICE = ("HOUSE RULES HOOK ERROR: this list may not show every open approved item. Close the issues of "
+              "finished approved work, so the label marks only work that still waits.")
 
     def row(self, number, title):
         return f"- example-org/tool#{number} {title} — Owner: no Owner: line"
