@@ -1372,10 +1372,12 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
 
     def test_unknown_last_reviewed_commit_fails_without_a_prompt(self):
         self.reviewed_then_fixed()
-        code, out, err = self.invoke("review", str(self.repo), "--base", "origin/trunk", "--no-fetch",
-                                     "--since", "f" * 40)
-        self.assertEqual((code, out), (1, ""))
-        self.assertIn("error:", err)
+        for since in ("f" * 40, "", " "):
+            with self.subTest(since=since):
+                code, out, err = self.invoke("review", str(self.repo), "--base", "origin/trunk", "--no-fetch",
+                                             "--since", since)
+                self.assertEqual((code, out), (1, ""))
+                self.assertIn("error:", err)
 
 
 class PrepareTests(PrepareFixture, unittest.TestCase):

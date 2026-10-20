@@ -953,6 +953,8 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     rng = f"{base}..{head}"
     # A check round reviews only the fix: the change since the last reviewed commit.
     since = getattr(args, "since", None)
+    if since is not None and not since.strip():
+        raise PrepareError("--since needs the last reviewed commit; an empty value would review the whole change")
     fix_base = git(repo, "rev-parse", "--verify", "--end-of-options", since + "^{commit}").strip() if since else None
     change_base = fix_base or base
     change_rng = f"{change_base}..{head}"

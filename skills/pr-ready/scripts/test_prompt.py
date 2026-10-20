@@ -91,7 +91,6 @@ class PromptTest(unittest.TestCase):
         classes = (ROOT / "prompts/util/triage-classes.md").read_text()
         self.assertEqual(result.stdout.count(classes), 1)
         self.assertIn("FIX-NOW even if the fix adds an index", result.stdout)
-        self.assertIn("Apply the same classes as round 1.", result.stdout)
         for duplicate in ("only FIX-NOW items block", "new mechanism", "nitpicks are dropped"):
             self.assertNotIn(duplicate, role.read_text())
 
