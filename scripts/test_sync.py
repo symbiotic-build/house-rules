@@ -1021,6 +1021,124 @@ on this computer; repository rules still win where they conflict.
 
 
 
+class ApprovedWorkListingTests(unittest.TestCase):
+    """The session-start hook lists open `approved` issues so approved work survives compaction."""
+
+    HEAD = "Open approved work. Continue the items you own; the others belong to the owners named:"
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base, self.bin = Path(self.tmp.name) / "root", Path(self.tmp.name) / "bin"
+        (self.base / "custom").mkdir(parents=True)
+        self.bin.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fake_gh(self, stdout, code=0):
+        """A gh that records its arguments and prints a fixed response."""
+        gh = self.bin / "gh"
+        gh.write_text("#!/bin/sh\necho \"$@\" >> " + shlex.quote(str(self.bin / "calls")) +
+                      "\nprintf '%s' " + shlex.quote(stdout) + f"\nexit {code}\n")
+        gh.chmod(0o755)
+        return mock.patch.dict(os.environ, {"PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}"})
+
+    def configure(self, text="# owners\nexample-org\n"):
+        (self.base / "custom/approved-work.conf").write_text(text)
+
+    def issue(self, number, title, body=""):
+        return {"repository": {"nameWithOwner": "example-org/tool"}, "number": number, "title": title, "body": body}
+
+    def test_lists_open_items_sorted_with_their_owner_line(self):
+        self.configure()
+        issues = [self.issue(9, "No owner yet"), self.issue(7, "Ship the cache", "Plan.\nOwner: lane-3, after the parser PR\n")]
+        with self.fake_gh(json.dumps(issues)):
+            self.assertEqual(context.approved(self.base), "\n".join([
+                self.HEAD,
+                "- example-org/tool#7 Ship the cache — Owner: lane-3, after the parser PR",
+                "- example-org/tool#9 No owner yet — Owner: no Owner: line"]))
+
+    def test_comments_are_not_scopes(self):
+        self.configure("example-org  # approved backlog\n   # indented comment\n")
+        with self.fake_gh("[]"):
+            self.assertEqual(context.approved(self.base), "")
+        self.assertEqual((self.bin / "calls").read_text().split()[:5], ["search", "issues", "--owner", "example-org", "--label"])
+
+    def test_prints_nothing_without_configuration_or_items(self):
+        self.assertEqual(context.approved(self.base), "")
+        self.configure()
+        with self.fake_gh("[]"):
+            self.assertEqual(context.approved(self.base), "")
+
+    def test_failures_and_malformed_responses_become_one_visible_line(self):
+        self.configure()
+        bad_issues = [{**self.issue(3, "t"), "number": None}, {**self.issue(3, "t"), "title": {"a": 1}},
+                      {**self.issue(3, "t"), "body": 42}, {**self.issue(3, "t"), "repository": "example-org/tool"},
+                      {**self.issue(3, "t"), "number": True}]
+        cases = [("", 1), ("", 0), ("not json", 0), ("{}", 0), ("[null]", 0), (json.dumps({"a": [1, 2]}, indent=2), 0),
+                 *((json.dumps([bad]), 0) for bad in bad_issues)]
+        for stdout, code in cases:
+            with self.subTest(stdout=stdout, code=code), self.fake_gh(stdout, code):
+                listing = context.approved(self.base)
+                self.assertTrue(listing.startswith(context.ERROR), listing)
+                self.assertNotIn("\n", listing)
+        (self.base / "custom/approved-work.conf").unlink()
+        (self.base / "custom/approved-work.conf").mkdir()
+        self.assertTrue(context.approved(self.base).startswith(context.ERROR))
+
+    def test_a_multiline_gh_error_stays_one_line(self):
+        self.configure()
+        gh = self.bin / "gh"
+        gh.write_text("#!/bin/sh\nprintf 'HTTP 502\\nbad gateway\\n' >&2\nexit 1\n")
+        gh.chmod(0o755)
+        with mock.patch.dict(os.environ, {"PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}"}):
+            self.assertEqual(context.approved(self.base),
+                             f"{context.ERROR} approved-work listing for example-org failed: HTTP 502 bad gateway")
+
+    def test_no_search_starts_after_the_shared_deadline(self):
+        self.configure("example-org\nother-org\n")
+        clock = iter([0.0, 1.0, context.GH_TIMEOUT + 1.0])
+        with self.fake_gh("[]"), mock.patch.object(context.time, "monotonic", lambda: next(clock)):
+            listing = context.approved(self.base)
+        self.assertEqual(listing, f"{context.ERROR} approved-work listing used its {context.GH_TIMEOUT} s "
+                                  "before searching other-org.")
+        self.assertEqual(len((self.bin / "calls").read_text().splitlines()), 1)
+
+    NOTICE = ("HOUSE RULES HOOK ERROR: this list may not show every open approved item. Close the issues of "
+              "finished approved work, so the label marks only work that still waits.")
+
+    def row(self, number, title):
+        return f"- example-org/tool#{number} {title} — Owner: no Owner: line"
+
+    def test_a_full_search_ends_the_list_with_the_notice(self):
+        self.configure("example-org/tool\n")
+        numbers = range(100, 100 + context.GH_LIMIT)
+        with self.fake_gh(json.dumps([self.issue(n, "t") for n in numbers])), \
+                mock.patch.object(context, "APPROVED_CAP", 100_000):
+            self.assertEqual(context.approved(self.base),
+                             "\n".join([self.HEAD, *(self.row(n, "t") for n in numbers), self.NOTICE]))
+
+    def test_a_long_list_keeps_whole_rows_and_the_notice_inside_the_cap(self):
+        self.configure()
+        with self.fake_gh(json.dumps([self.issue(n, "x" * 40) for n in range(10, 50)])), \
+                mock.patch.object(context, "APPROVED_CAP", 500):
+            listing = context.approved(self.base)
+        self.assertEqual(listing, "\n".join([self.HEAD, self.row(10, "x" * 40), self.row(11, "x" * 40), self.NOTICE]))
+        self.assertLessEqual(len(listing), 500)
+
+    def test_a_decoder_recursion_error_is_one_visible_line(self):
+        self.configure()
+        with self.fake_gh("[]"), mock.patch.object(context.json, "loads", side_effect=RecursionError("too deep")):
+            self.assertEqual(context.approved(self.base), f"{context.ERROR} approved-work listing failed: too deep")
+
+    def test_both_products_run_the_listing_as_its_own_hook(self):
+        for product in ("claude", "codex"):
+            with self.subTest(product=product):
+                commands = [h["command"] for h in context.hooks(product, "/usr/bin/python3", self.base)["hooks"]]
+                expected = "scripts/session_context.py approved" + (" codex" if product == "codex" else "")
+                self.assertEqual(sum(c.endswith(expected) for c in commands), 1)
+
+
 def load_tests(loader, tests, pattern):
     SyncTests.setUpClass()
     return tests
