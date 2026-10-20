@@ -7,6 +7,8 @@ custom/INDEX.md, read live from the House Rules checkout that holds this script.
 
   session_context.py claude <n>      part <n> for Claude Code; one hook per part
   session_context.py codex           every part, as one Codex additionalContext value
+  session_context.py approved        open approved work items, when custom/approved-work.conf names
+                                     GitHub owners or owner/repo pairs (one per line); nothing otherwise
   session_context.py hooks <product> [<root>]
                                      the hook entry INSTALL-AGENTS.md §3 registers, running this
                                      interpreter and the script under <root> (default: this checkout)
@@ -35,6 +37,9 @@ ERROR = "HOUSE RULES HOOK ERROR:"
 # Every reply is operator-facing text, which INDEX.md sends to this skill.
 EXTRA_FILES = ["skills/operator-writing/SKILL.md"]
 LOCAL_INDEX = "custom/INDEX.md"
+APPROVED_CONF = "custom/approved-work.conf"
+APPROVED_CAP = 3_000  # characters of the approved-work list; the rest is named, not dropped silently
+GH_TIMEOUT = 8        # seconds for the listing's GitHub query, under the hook's TIMEOUT
 HEADING = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$")
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
 
@@ -175,6 +180,44 @@ def overflow(total):
             f"raise SLOTS in scripts/session_context.py.")
 
 
+def approved(base=None):
+    """Open issues labelled `approved` for the configured owners, with each issue's Owner: line.
+
+    Approved work that waits on another step or session is tracked as such an issue (work-tracking
+    §Work item and owner); listing it at session start and after compaction keeps it from being dropped."""
+    conf = (base or root()) / APPROVED_CONF
+    if not conf.is_file():
+        return ""
+    scopes = [line.strip() for line in conf.read_text().splitlines() if line.strip() and not line.startswith("#")]
+    rows = []
+    for scope in scopes:
+        flag = "--repo" if "/" in scope else "--owner"
+        try:
+            out = subprocess.run(["gh", "search", "issues", flag, scope, "--label", "approved", "--state", "open",
+                                  "--limit", "100", "--json", "repository,number,title,body"],
+                                 capture_output=True, text=True, timeout=GH_TIMEOUT, stdin=subprocess.DEVNULL)
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return f"{ERROR} approved-work listing for {scope} failed: {error}"
+        if out.returncode:
+            return f"{ERROR} approved-work listing for {scope} failed: {out.stderr.strip()[:300]}"
+        for item in json.loads(out.stdout or "[]"):
+            owner = next((line.split(":", 1)[1].strip() for line in (item.get("body") or "").splitlines()
+                          if line.lower().startswith("owner:")), "no Owner: line")
+            rows.append(f"- {item['repository']['nameWithOwner']}#{item['number']} {item['title']} — Owner: {owner}")
+    if not rows:
+        return ""
+    text = "Open approved work (start or continue each item; its issue names the owner and next action):\n"
+    shown = []
+    for row in sorted(rows):
+        if len(text) + sum(len(r) + 1 for r in shown) + len(row) > APPROVED_CAP:
+            break
+        shown.append(row)
+    text += "\n".join(shown)
+    if len(shown) < len(rows):
+        text += f"\n{ERROR} {len(rows) - len(shown)} more approved items are not shown; list them with gh."
+    return text
+
+
 def claude(number):
     rev, packed, _ = parts()
     return render(number, rev, packed)
@@ -184,6 +227,9 @@ def codex():
     """Parts 1 to SLOTS in one value: the same strict cap as Claude Code, so Codex may pass it whole."""
     rev, packed, _ = parts()
     text = "\n\n".join(render(number, rev, packed) for number in range(1, min(len(packed), SLOTS) + 1))
+    listing = approved()
+    if listing:
+        text += "\n\n" + listing
     return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}})
 
 
@@ -197,6 +243,7 @@ def hooks(product, python=None, base=None):
     if product == "claude":
         handlers = [{"type": "command", "command": command(python, base, "claude", str(number)), "timeout": TIMEOUT}
                     for number in range(1, SLOTS + 1)]
+        handlers.append({"type": "command", "command": command(python, base, "approved"), "timeout": TIMEOUT})
     elif product == "codex":
         # codex() caps its own output at SLOTS parts, so Codex may pass it whole (limit 0).
         handlers = [{"type": "command", "command": command(python, base, "codex"), "timeout": TIMEOUT,
@@ -212,10 +259,12 @@ def main(argv):
             output = claude(int(argv[1]))
         elif argv == ["codex"]:
             output = codex()
+        elif argv == ["approved"]:
+            output = approved()
         elif len(argv) in (2, 3) and argv[0] == "hooks":
             output = json.dumps(hooks(argv[1], base=Path(argv[2]) if len(argv) == 3 else None), indent=2)
         else:
-            sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | hooks <claude|codex> [<root>]")
+            sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | approved | hooks <claude|codex> [<root>]")
     except (OSError, ValueError, UnicodeDecodeError) as error:
         # The hook's output is the only channel the model sees; print the failure there.
         output = f"{ERROR} {error}"

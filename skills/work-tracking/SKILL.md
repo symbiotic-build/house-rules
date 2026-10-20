@@ -49,6 +49,12 @@ updates itself; agents load it as its own Skill and MCP server, not as part of H
   assigned to your login whose latest claim names another agent is taken.
 - Priority ([priority labels](../../rules/priority-labels.md)) is a `P0`–`P3` label; dependencies are the host's
   blocked-by links.
+- **Approved for later:** work the operator approved that waits on another step or another session
+  carries the label `approved` and an `Owner:` line in its body naming the owning session or agent and its
+  next action or awaited event. It is one issue per approved deliverable or plan step, not per answer;
+  answers are decisions and go where they apply. The issue closes when the work is done. The session-start
+  hook lists open `approved` items for the GitHub owners named in the machine-local
+  `custom/approved-work.conf`, at every start and after every compaction.
 
 ## The Git record
 

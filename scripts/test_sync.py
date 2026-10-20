@@ -1021,6 +1021,50 @@ on this computer; repository rules still win where they conflict.
 
 
 
+class ApprovedWorkListingTests(unittest.TestCase):
+    """The session-start hook lists open `approved` issues so approved work survives compaction."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.base, self.bin = Path(self.tmp.name) / "root", Path(self.tmp.name) / "bin"
+        (self.base / "custom").mkdir(parents=True)
+        self.bin.mkdir()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def fake_gh(self, stdout, code=0):
+        gh = self.bin / "gh"
+        gh.write_text("#!/bin/sh\nprintf '%s' " + shlex.quote(stdout) + f"\nexit {code}\n")
+        gh.chmod(0o755)
+        return mock.patch.dict(os.environ, {"PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}"})
+
+    def test_lists_open_items_with_their_owner_line(self):
+        (self.base / "custom/approved-work.conf").write_text("# owners\nexample-org\n")
+        issues = [{"repository": {"nameWithOwner": "example-org/tool"}, "number": 7, "title": "Ship the cache",
+                   "body": "Plan step 2.\nOwner: lane-3, after the parser PR merges\n"},
+                  {"repository": {"nameWithOwner": "example-org/tool"}, "number": 9, "title": "No owner yet", "body": ""}]
+        with self.fake_gh(json.dumps(issues)):
+            text = context.approved(self.base)
+        self.assertIn("example-org/tool#7 Ship the cache — Owner: lane-3, after the parser PR merges", text)
+        self.assertIn("example-org/tool#9 No owner yet — Owner: no Owner: line", text)
+
+    def test_prints_nothing_without_configuration_or_items(self):
+        self.assertEqual(context.approved(self.base), "")
+        (self.base / "custom/approved-work.conf").write_text("example-org\n")
+        with self.fake_gh("[]"):
+            self.assertEqual(context.approved(self.base), "")
+
+    def test_a_failed_query_is_visible(self):
+        (self.base / "custom/approved-work.conf").write_text("example-org\n")
+        with self.fake_gh("", code=1):
+            self.assertTrue(context.approved(self.base).startswith(context.ERROR))
+
+    def test_claude_registers_the_listing_hook(self):
+        commands = [h["command"] for h in context.hooks("claude", "/usr/bin/python3", self.base)["hooks"]]
+        self.assertTrue(commands[-1].endswith("scripts/session_context.py approved"))
+
+
 def load_tests(loader, tests, pattern):
     SyncTests.setUpClass()
     return tests
