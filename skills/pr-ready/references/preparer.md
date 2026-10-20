@@ -124,7 +124,7 @@ Without an assignment, `prepare.py review` uses the shared checker's source comp
 to assign every head-registered section changed since the range's merge base.
 Existing selection adds tests linked to changed requirements and applicable decisions.
 If no registered section changed, it omits the documentation pack and states one line:
-`No registered documentation changed in this range.` Explicit assignments keep their behavior.
+`No registered documentation changed in this range.` Explicit assignments keep their behavior outside check rounds.
 Invalid sources, unknown selectors and excessive mandatory context
 fail before a pack is published. Derived context uses the existing size guards;
 an oversized review names its selected sections and fails without truncating documentation.
@@ -156,7 +156,8 @@ an unsupported environment fails visibly without installing dependencies. When t
 checker cannot run (Python below 3.11 without `REVIEW_PYTHON`, `skills/spec-writing` not
 staged beside the preparer, or its pinned dependencies missing) and no `--assignment` is
 given, the review proceeds without the documentation pack and states why in the prompt;
-with `--assignment`, it fails visibly.
+with `--assignment`, a full review fails visibly. A [check round](../../../docs/specs/spec-system/decisions-and-open-questions.md#check-round-decision) (`--since`)
+prepares no documentation context, ignores `--assignment` and needs no checker.
 The panel accepts `REVIEW_PYTHON` for that interpreter and
 `REVIEW_SPEC_ASSIGNMENT` as an alternative to `--assignment`. These options select
 existing tooling and input; they install no dependencies or model configuration.
