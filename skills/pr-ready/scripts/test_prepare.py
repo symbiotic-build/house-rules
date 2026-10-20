@@ -1350,9 +1350,37 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         # A full round prepares the registered documentation and fails on this incomplete registry.
         with self.assertRaisesRegex(prepare.PrepareError, "mandatory documentation context"):
             self.review()
-        prompt = self.review(since=reviewed)
+        loop = self.root / "assignment.json"
+        loop.symlink_to(loop)  # a check round never reads its assignment, even one that cannot resolve
+        prompt = self.review(since=reviewed, assignment=str(loop))
         self.assertIn("docs/ENTITIES.json", self.change(prompt))
         self.assertNotIn("documentation context", prompt)
+
+    def test_check_round_ignores_an_assignment_when_the_checker_is_missing(self):
+        reviewed, _ = self.reviewed_then_fixed()
+        self.write(self.repo, "docs/ENTITIES.json", "{}\n")
+        self.commit(self.repo, "Register documentation")
+        head = self.git(self.repo, "rev-parse", "HEAD")
+        # A preparer staged without skills/spec-writing has no shared checker beside it.
+        staged = self.root / "staged/skills/pr-ready"
+        shutil.copytree(SCRIPT.parents[1], staged, ignore=shutil.ignore_patterns("__pycache__"))
+        loop = self.root / "assignment.json"
+        loop.symlink_to(loop)  # an assignment path nothing can resolve or read
+        args = [sys.executable, "-B", str(staged / "scripts/prepare.py"), "review", str(self.repo), "--context-only",
+                "--base", "origin/trunk", "--no-fetch", "--assignment", str(loop)]
+        env = {key: value for key, value in os.environ.items() if key != "REVIEW_PYTHON"}
+        full = subprocess.run(args, capture_output=True, text=True, stdin=subprocess.DEVNULL, env=env)
+        self.assertEqual(full.returncode, 1)
+        self.assertIn("registered documentation requires the shared checker: "
+                      "the shared checker skills/spec-writing is not staged beside this preparer", full.stderr)
+        check = subprocess.run([*args, "--since", reviewed], capture_output=True, text=True,
+                               stdin=subprocess.DEVNULL, env=env)
+        self.assertEqual(check.returncode, 0, check.stderr)
+        change = self.change(check.stdout)
+        self.assertIn(f"Range: `{reviewed}..{head}`", change)
+        self.assertEqual(self.rows(change, "src/core.py"),
+                         ["      1\tdef action():", "-     2\t    return 2", "+     2\t    return 3"])
+        self.assertNotIn("documentation context", check.stdout)
 
     def test_first_round_has_no_check_round_text(self):
         self.reviewed_then_fixed()

@@ -49,9 +49,11 @@ Semantic review is the examination of technical meaning and reader understanding
 
 For the bounded batch, review checks that refusal retains the existing items and that starting a new batch is an authorized recovery. It also checks that the acceptance inspection would reveal an accidental mutation. A resolving evidence link alone proves none of those properties.
 
-The review plan covers technical correctness, readability, design and cost, failure and recovery, and complete [scenarios](requirements-tests-and-failures.md#scenario). The [assignment reference](source-formats.md#callable-core-and-context-assignment) gives their exact responsibility labels. One reviewer can cover several responsibilities. Preparation validates the actual plan; it does not launch additional reviewers. Changed requirements bring linked tests into the input even when the test text did not change.
+The review plan covers technical correctness, readability, design and cost, failure and recovery, and complete [scenarios](requirements-tests-and-failures.md#scenario). The [assignment reference](source-formats.md#callable-core-and-context-assignment) gives their exact responsibility labels. One reviewer can cover several responsibilities. Preparation validates the actual plan; it does not launch additional reviewers. Changed requirements bring linked tests into the input even when the test text did not change. A [check round](decisions-and-open-questions.md#check-round-decision) skips this plan and linked-test selection; its reviewers inspect affected requirements and tests in the checkout.
 
-Without `--assignment`, `prepare.py review` assigns every head-registered section whose source subtree changed in the reviewed range. The shared checker compares source subtrees, then existing selection adds linked tests and applicable decisions. If none changed, preparation omits the documentation pack and states: “No registered documentation changed in this range.” Explicit assignments retain their selection behavior. Writer and reader packs still require explicit assignments. Derived review context uses the existing size guards and fails visibly when oversized.
+Without `--assignment`, `prepare.py review` assigns every head-registered section whose source subtree changed in the reviewed range. The shared checker compares source subtrees, then existing selection adds linked tests and applicable decisions. If none changed, preparation omits the documentation pack and states: “No registered documentation changed in this range.” Explicit assignments keep their selection outside check rounds. Writer and reader packs still require explicit assignments. Derived review context uses the existing size guards and fails visibly when oversized.
+
+A [check round](decisions-and-open-questions.md#check-round-decision) (`prepare.py review --since <commit>`) reviews only a fix. It prepares no documentation context, even with an explicit assignment. Its rule report and diff compare against the last reviewed commit. Reviewers read registered documents in the checkout.
 
 Reviewers cite the incorrect claim or missing explanation and show its consequence. They inspect unlinked value restatements and technical meanings that the registry does not recognize. They also trace concurrency, entry, retained state, restart and public errors where those behaviors exist. Reviewers remain read-only and run no builds, tests or external writes; the lead supplies execution evidence in the assignment.
 
@@ -60,7 +62,7 @@ Reviewers cite the incorrect claim or missing explanation and show its consequen
 
 This refusal exposes missing review coverage before a reviewer receives an incomplete task.
 
-**Trigger:** A supplied plan omits a required responsibility or a changed requirement lacks linked-test review input.
+**Trigger:** A supplied plan omits a required responsibility or a changed requirement lacks linked-test review input. A [check round](decisions-and-open-questions.md#check-round-decision) prepares no documentation input and never reaches this refusal.
 
 **Outcome:** Preparation fails and names the missing coverage or test selector.
 

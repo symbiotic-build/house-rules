@@ -98,7 +98,7 @@ When registry or home bytes change, rebuild affected packs and recheck their sur
 
 This refusal prevents dispatch with unresolved, stale or oversized mandatory input.
 
-**Trigger:** Invalid selectors or source declarations, a stale baseline, missing mandatory input, incomplete review coverage or a byte budget smaller than the complete pack.
+**Trigger:** Invalid selectors or source declarations, a stale baseline, missing mandatory input, incomplete review coverage or a byte budget smaller than the complete pack. A [check round](decisions-and-open-questions.md#check-round-decision) prepares no documentation input and never reaches this refusal.
 
 **Outcome:** Preparation returns the diagnostic and stops before dispatch. A budget error reports required and available bytes.
 
