@@ -1354,6 +1354,22 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         self.assertIn("docs/ENTITIES.json", self.change(prompt))
         self.assertNotIn("documentation context", prompt)
 
+    def test_check_round_ignores_an_assignment_when_the_checker_is_missing(self):
+        reviewed, _ = self.reviewed_then_fixed()
+        self.write(self.repo, "docs/ENTITIES.json", "{}\n")
+        self.commit(self.repo, "Register documentation")
+        assignment = self.repo.parent / "assignment.json"
+        assignment.write_text('{"version": 1, "sections": ["unknown.md#nowhere"]}\n')
+        args = ("review", str(self.repo), "--base", "origin/trunk", "--no-fetch", "--assignment", str(assignment))
+        with mock.patch.object(prepare, "checker_unavailable", return_value="no checker here"):
+            code, _, err = self.invoke(*args)
+            self.assertEqual(code, 1)
+            self.assertIn("registered documentation requires the shared checker: no checker here", err)
+            code, prompt, err = self.invoke(*args, "--since", reviewed)
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("shared checker", err)
+        self.assertNotIn("documentation context", prompt)
+
     def test_first_round_has_no_check_round_text(self):
         self.reviewed_then_fixed()
         self.github(self.pr("PR body\n"))

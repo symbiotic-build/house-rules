@@ -186,7 +186,7 @@ Give an agent enough source to understand its explicit assignment.
 
 **Actor:** Documentation selector, prompt compiler and [dispatcher](../../design/75-subagent-profiles.md).
 
-**Condition:** A writer or reviewer assignment is prepared.
+**Condition:** A writer or reviewer assignment is prepared. A [check round](decisions-and-open-questions.md#check-round-decision) prepares no documentation input, so this requirement does not apply to it.
 
 **Result:** Include compulsory registry, metadata, profile and complete selected explanations from one snapshot. Expand declared dependencies and deduplicate ranges. Refuse unknown selectors (`D06`) and invalid scope (`D07`) before dispatch. Refuse stale baselines (`D24`), missing input (`D27`) and excessive size (`D25`).
 
@@ -196,7 +196,7 @@ Give an agent enough source to understand its explicit assignment.
 
 **Status:** specified.
 
-**Basis:** [Context decision](decisions-and-open-questions.md#context-decision).
+**Basis:** [Context decision](decisions-and-open-questions.md#context-decision); [check-round decision](decisions-and-open-questions.md#check-round-decision).
 
 <a id="req-profile"></a>
 ### Requirement: structural procedures and advisory prose checks

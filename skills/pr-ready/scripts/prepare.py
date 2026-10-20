@@ -1207,7 +1207,8 @@ def main(argv=None, *, documentation_prepared=False):
                     for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json")):
                 delegate = sys.version_info < (3, 11) and bool(interpreter)
                 missing_checker = None if delegate else checker_unavailable()
-                if missing_checker and getattr(args, "assignment", None):
+                # A check round prepares no documentation context, so its assignment needs no checker.
+                if missing_checker and getattr(args, "assignment", None) and not getattr(args, "since", None):
                     raise PrepareError(f"registered documentation requires the shared checker: {missing_checker}; "
                                        "set REVIEW_PYTHON to the pinned tool environment's Python executable")
                 # A service without the checker still reviews the code; the pack says what it lacks.

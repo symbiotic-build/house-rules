@@ -150,6 +150,7 @@ A full review reuses that comparison base for the report, documentation context 
 
 A check round (`prepare.py review --since <commit>`) reviews only a fix.
 Its configuration, report and diff compare against that last reviewed commit.
+It prepares no documentation context ([check-round decision](../spec-system/decisions-and-open-questions.md#check-round-decision)).
 The declarations still come from the whole PR body or `--summary` text.
 The report covers only the fix range.
 
