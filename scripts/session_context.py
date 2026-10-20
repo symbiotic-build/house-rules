@@ -27,6 +27,7 @@ import re
 import shlex
 import subprocess
 import sys
+import time
 
 
 CAP = 10_000      # Claude Code's limit for one hook's output, in UTF-16 code units.
@@ -39,7 +40,8 @@ EXTRA_FILES = ["skills/operator-writing/SKILL.md"]
 LOCAL_INDEX = "custom/INDEX.md"
 APPROVED_CONF = "custom/approved-work.conf"
 APPROVED_CAP = 3_000  # characters of the approved-work list; the rest is named, not dropped silently
-GH_TIMEOUT = 8        # seconds for the listing's GitHub query, under the hook's TIMEOUT
+GH_TIMEOUT = 7        # seconds for all of the listing's GitHub searches, under the hook's TIMEOUT
+GH_LIMIT = 200        # issues per search; reaching it prints an incomplete-search warning
 HEADING = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$")
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
 
@@ -184,38 +186,48 @@ def approved(base=None):
     """Open issues labelled `approved` for the configured owners, with each issue's Owner: line.
 
     Approved work that waits on another step or session is tracked as such an issue (work-tracking
-    §Work item and owner); listing it at session start and after compaction keeps it from being dropped."""
-    conf = (base or root()) / APPROVED_CONF
-    if not conf.is_file():
-        return ""
-    scopes = [line.strip() for line in conf.read_text().splitlines() if line.strip() and not line.startswith("#")]
-    rows = []
-    for scope in scopes:
-        flag = "--repo" if "/" in scope else "--owner"
+    §Work item and owner); listing it at session start and after compaction keeps it from being dropped.
+    Every failure becomes a visible error line, never an exception that would replace the rules."""
+    try:
         try:
+            config = ((base or root()) / APPROVED_CONF).read_text()
+        except FileNotFoundError:
+            return ""
+        scopes = [line.strip() for line in config.splitlines() if line.strip() and not line.startswith("#")]
+        deadline = time.monotonic() + GH_TIMEOUT  # one budget for every search, under the hook's TIMEOUT
+        rows, saturated = [], []
+        for scope in scopes:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return f"{ERROR} approved-work listing ran out of time before {scope}; list it with gh."
+            flag = "--repo" if "/" in scope else "--owner"
             out = subprocess.run(["gh", "search", "issues", flag, scope, "--label", "approved", "--state", "open",
-                                  "--limit", "100", "--json", "repository,number,title,body"],
-                                 capture_output=True, text=True, timeout=GH_TIMEOUT, stdin=subprocess.DEVNULL)
-        except (OSError, subprocess.TimeoutExpired) as error:
-            return f"{ERROR} approved-work listing for {scope} failed: {error}"
-        if out.returncode:
-            return f"{ERROR} approved-work listing for {scope} failed: {out.stderr.strip()[:300]}"
-        for item in json.loads(out.stdout or "[]"):
-            owner = next((line.split(":", 1)[1].strip() for line in (item.get("body") or "").splitlines()
-                          if line.lower().startswith("owner:")), "no Owner: line")
-            rows.append(f"- {item['repository']['nameWithOwner']}#{item['number']} {item['title']} — Owner: {owner}")
-    if not rows:
-        return ""
-    text = "Open approved work (start or continue each item; its issue names the owner and next action):\n"
-    shown = []
+                                  "--limit", str(GH_LIMIT), "--json", "repository,number,title,body"],
+                                 capture_output=True, text=True, timeout=remaining, stdin=subprocess.DEVNULL)
+            if out.returncode:
+                return f"{ERROR} approved-work listing for {scope} failed: {out.stderr.strip()[:300]}"
+            items = json.loads(out.stdout or "[]")
+            if len(items) >= GH_LIMIT:
+                saturated.append(scope)
+            for item in items:
+                owner = next((line.split(":", 1)[1].strip() for line in (item.get("body") or "").splitlines()
+                              if line.lower().startswith("owner:")), "no Owner: line")
+                rows.append(f"- {item['repository']['nameWithOwner']}#{item['number']} {item['title']} — Owner: {owner}")
+    except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+        return f"{ERROR} approved-work listing failed: {error}"
+    lines = ["Open approved work (start or continue each item; its issue names the owner and next action):"]
+    size = len(lines[0])
     for row in sorted(rows):
-        if len(text) + sum(len(r) + 1 for r in shown) + len(row) > APPROVED_CAP:
+        if size + len(row) + 1 > APPROVED_CAP:
+            lines.append(f"{ERROR} {len(rows) - (len(lines) - 1)} more approved items are not shown; "
+                         "list them with `gh search issues --label approved --state open`.")
             break
-        shown.append(row)
-    text += "\n".join(shown)
-    if len(shown) < len(rows):
-        text += f"\n{ERROR} {len(rows) - len(shown)} more approved items are not shown; list them with gh."
-    return text
+        lines.append(row)
+        size += len(row) + 1
+    for scope in saturated:
+        lines.append(f"{ERROR} {scope} has {GH_LIMIT} or more approved items; the search may be incomplete. "
+                     f"List them with `gh search issues --owner {scope} --label approved --state open --limit 1000`.")
+    return "\n".join(lines) if rows or saturated else ""
 
 
 def claude(number):

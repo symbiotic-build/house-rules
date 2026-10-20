@@ -1039,30 +1039,47 @@ class ApprovedWorkListingTests(unittest.TestCase):
         gh.chmod(0o755)
         return mock.patch.dict(os.environ, {"PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}"})
 
-    def test_lists_open_items_with_their_owner_line(self):
-        (self.base / "custom/approved-work.conf").write_text("# owners\nexample-org\n")
-        issues = [{"repository": {"nameWithOwner": "example-org/tool"}, "number": 7, "title": "Ship the cache",
-                   "body": "Plan step 2.\nOwner: lane-3, after the parser PR merges\n"},
-                  {"repository": {"nameWithOwner": "example-org/tool"}, "number": 9, "title": "No owner yet", "body": ""}]
+    def configure(self, text="# owners\nexample-org\n"):
+        (self.base / "custom/approved-work.conf").write_text(text)
+
+    def test_lists_open_items_sorted_with_their_owner_line(self):
+        self.configure()
+        issues = [{"repository": {"nameWithOwner": "example-org/tool"}, "number": 9, "title": "No owner yet", "body": ""},
+                  {"repository": {"nameWithOwner": "example-org/tool"}, "number": 7, "title": "Ship the cache",
+                   "body": "Plan step 2.\nOwner: lane-3, after the parser PR merges\n"}]
         with self.fake_gh(json.dumps(issues)):
-            text = context.approved(self.base)
-        self.assertIn("example-org/tool#7 Ship the cache — Owner: lane-3, after the parser PR merges", text)
-        self.assertIn("example-org/tool#9 No owner yet — Owner: no Owner: line", text)
+            self.assertEqual(context.approved(self.base), "\n".join([
+                "Open approved work (start or continue each item; its issue names the owner and next action):",
+                "- example-org/tool#7 Ship the cache — Owner: lane-3, after the parser PR merges",
+                "- example-org/tool#9 No owner yet — Owner: no Owner: line"]))
 
     def test_prints_nothing_without_configuration_or_items(self):
         self.assertEqual(context.approved(self.base), "")
-        (self.base / "custom/approved-work.conf").write_text("example-org\n")
+        self.configure()
         with self.fake_gh("[]"):
             self.assertEqual(context.approved(self.base), "")
 
-    def test_a_failed_query_is_visible(self):
-        (self.base / "custom/approved-work.conf").write_text("example-org\n")
+    def test_failures_become_visible_error_lines(self):
+        self.configure()
         with self.fake_gh("", code=1):
             self.assertTrue(context.approved(self.base).startswith(context.ERROR))
+        with self.fake_gh("not json"):
+            self.assertTrue(context.approved(self.base).startswith(context.ERROR))
+        (self.base / "custom/approved-work.conf").unlink()
+        (self.base / "custom/approved-work.conf").mkdir()
+        self.assertTrue(context.approved(self.base).startswith(context.ERROR))
+
+    def test_a_full_search_warns_that_it_may_be_incomplete(self):
+        self.configure()
+        issues = [{"repository": {"nameWithOwner": "example-org/tool"}, "number": n, "title": "t", "body": ""}
+                  for n in range(context.GH_LIMIT)]
+        with self.fake_gh(json.dumps(issues)):
+            self.assertIn(f"{context.ERROR} example-org has {context.GH_LIMIT} or more approved items",
+                          context.approved(self.base))
 
     def test_claude_registers_the_listing_hook(self):
         commands = [h["command"] for h in context.hooks("claude", "/usr/bin/python3", self.base)["hooks"]]
-        self.assertTrue(commands[-1].endswith("scripts/session_context.py approved"))
+        self.assertEqual(sum(c.endswith("scripts/session_context.py approved") for c in commands), 1)
 
 
 def load_tests(loader, tests, pattern):
