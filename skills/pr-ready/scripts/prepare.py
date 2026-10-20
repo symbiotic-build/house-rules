@@ -974,7 +974,8 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     registered = not documentation_prepared and any(
         git(repo, "ls-tree", "--name-only", head, "--", path).strip()
         for path in ("docs/ENTITIES.json", "docs/DOCUMENTS.json"))
-    assignment_path = getattr(args, "assignment", None)
+    # A check round prepares no documentation context, so it never reads an assignment.
+    assignment_path = None if since else getattr(args, "assignment", None)
     # A check round reads registered documents in the checkout; changed ones are in the fix diff.
     unavailable = not since and getattr(args, "documentation_unavailable", False)
     needs_documentation = not documentation_prepared and not unavailable and not since and (registered or assignment_path)

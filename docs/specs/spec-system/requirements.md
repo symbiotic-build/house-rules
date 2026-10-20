@@ -226,7 +226,7 @@ Require evidence that the document can be understood without author coaching.
 
 **Condition:** The system prepares or accepts authoring and review assignments.
 
-**Result:** Validate technical, readability, design/cost, failure/recovery and whole-scenario coverage. Include affected linked tests. Apply the current fresh-reader procedure with independent corpus construction and chapter ratings.
+**Result:** Validate technical, readability, design/cost, failure/recovery and whole-scenario coverage. Include affected linked tests. Apply the current fresh-reader procedure with independent corpus construction and chapter ratings. A [check round](decisions-and-open-questions.md#check-round-decision) prepares no documentation input, so its reviewers inspect affected requirements and tests in the checkout instead.
 
 **Verification:** Inspect normal prepared assignments and cited fresh-reader responses.
 
