@@ -9,7 +9,7 @@
     {
       "path": "CHANGELOG-RULES.md",
       "kind": "other",
-      "reason": "Dated rule-change record, not a maintained specification."
+      "reason": "Frozen archive of dated rule-change records; new provenance is in rule pull request merge commits. Not a maintained specification."
     },
     {
       "path": "CUSTOM-INDEX.example.md",

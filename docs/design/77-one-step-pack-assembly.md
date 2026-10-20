@@ -1,4 +1,4 @@
-Status: design only; operator choices recorded on 2026-10-07; implementation pending.
+Status: operator choices recorded on 2026-10-07; implemented in [#96](https://github.com/symbiotic-sh/house-rules/pull/96).
 
 # One-step pack assembly from a named commit
 
