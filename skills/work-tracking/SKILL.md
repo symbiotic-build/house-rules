@@ -57,7 +57,8 @@ updates itself; agents load it as its own Skill and MCP server, not as part of H
   GitHub owner (`example-org`) or `owner/repo` per line; `#` starts a comment. Without the file nothing is
   listed. Where the session-start hook runs (Claude Code, Codex), it prints the open `approved` items at every
   start and after every compaction. Elsewhere, run `python3 scripts/session_context.py approved` from the
-  House Rules checkout at session start and after each compaction.
+  House Rules checkout at session start and after each compaction. A long list ends with a notice; `approved
+  --all` prints every item.
 
 ## The Git record
 

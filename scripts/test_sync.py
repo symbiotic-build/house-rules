@@ -1072,7 +1072,12 @@ class ApprovedWorkListingTests(unittest.TestCase):
 
     def test_failures_and_malformed_responses_become_one_visible_line(self):
         self.configure()
-        for stdout, code in (("", 1), ("", 0), ("not json", 0), ("{}", 0), ("[null]", 0)):
+        bad_issues = [{**self.issue(3, "t"), "number": None}, {**self.issue(3, "t"), "title": {"a": 1}},
+                      {**self.issue(3, "t"), "body": 42}, {**self.issue(3, "t"), "repository": "example-org/tool"},
+                      {**self.issue(3, "t"), "number": True}]
+        cases = [("", 1), ("", 0), ("not json", 0), ("{}", 0), ("[null]", 0), (json.dumps({"a": [1, 2]}, indent=2), 0),
+                 *((json.dumps([bad]), 0) for bad in bad_issues)]
+        for stdout, code in cases:
             with self.subTest(stdout=stdout, code=code), self.fake_gh(stdout, code):
                 listing = context.approved(self.base)
                 self.assertTrue(listing.startswith(context.ERROR), listing)
@@ -1081,27 +1086,43 @@ class ApprovedWorkListingTests(unittest.TestCase):
         (self.base / "custom/approved-work.conf").mkdir()
         self.assertTrue(context.approved(self.base).startswith(context.ERROR))
 
-    def test_a_numeric_body_counts_as_no_owner_line(self):
+    def test_a_multiline_gh_error_stays_one_line(self):
         self.configure()
-        with self.fake_gh(json.dumps([self.issue(3, "Odd body", 42)])):
+        gh = self.bin / "gh"
+        gh.write_text("#!/bin/sh\nprintf 'HTTP 502\\nbad gateway\\n' >&2\nexit 1\n")
+        gh.chmod(0o755)
+        with mock.patch.dict(os.environ, {"PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}"}):
             self.assertEqual(context.approved(self.base),
-                             self.HEAD + "\n- example-org/tool#3 Odd body — Owner: no Owner: line")
+                             f"{context.ERROR} approved-work listing for example-org failed: HTTP 502 bad gateway")
 
-    def test_a_full_search_names_the_command_that_lists_all(self):
-        self.configure("example-org/tool\n")
-        with self.fake_gh(json.dumps([self.issue(n, "t") for n in range(context.GH_LIMIT)])), \
-                mock.patch.object(context, "APPROVED_CAP", 400):
-            lines = context.approved(self.base).split("\n")
-        self.assertEqual(lines[1], f"{context.ERROR} example-org/tool returned the {context.GH_LIMIT}-item limit; run "
-                         f"`gh search issues --repo example-org/tool --label approved --state open --limit {context.GH_LIMIT}` for all of them.")
-
-    def test_a_long_list_is_cut_inside_the_cap_with_a_notice(self):
-        self.configure()
-        with self.fake_gh(json.dumps([self.issue(n, "x" * 40) for n in range(40)])), \
-                mock.patch.object(context, "APPROVED_CAP", 500):
+    def test_no_search_starts_after_the_shared_deadline(self):
+        self.configure("example-org\nother-org\n")
+        clock = iter([0.0, 1.0, context.GH_TIMEOUT + 1.0])
+        with self.fake_gh("[]"), mock.patch.object(context.time, "monotonic", lambda: next(clock)):
             listing = context.approved(self.base)
-        self.assertLessEqual(len(listing), 500 + 200)
-        self.assertTrue(listing.split("\n")[-1].startswith(context.ERROR + " the list is longer"))
+        self.assertEqual(listing, f"{context.ERROR} approved-work listing used its {context.GH_TIMEOUT} s "
+                                  "before searching other-org.")
+        self.assertEqual(len((self.bin / "calls").read_text().splitlines()), 1)
+
+    def test_a_full_search_warns_that_items_may_be_missing(self):
+        self.configure("example-org/tool\n")
+        with self.fake_gh(json.dumps([self.issue(n, "t") for n in range(context.GH_LIMIT)])):
+            lines = context.approved(self.base, cap=400).split("\n")
+        self.assertEqual(lines[1], f"{context.ERROR} example-org/tool reached GitHub search's {context.GH_LIMIT}-result "
+                         "limit, so this list may miss items. Close or unlabel finished approved issues; list an "
+                         f"owner's repositories as separate lines in {context.APPROVED_CONF}.")
+
+    def test_a_long_list_stays_inside_the_cap_and_all_prints_everything(self):
+        self.configure()
+        issues = json.dumps([self.issue(n, "x" * 40) for n in range(40)])
+        with self.fake_gh(issues):
+            listing = context.approved(self.base, cap=500)
+            everything = context.approved(self.base, cap=None)
+        self.assertLessEqual(len(listing), 500)
+        self.assertEqual(listing.split("\n")[-1], f"{context.ERROR} the list is longer than this hook shows; run "
+                         "`python3 scripts/session_context.py approved --all` in the House Rules checkout.")
+        self.assertEqual(len(everything.split("\n")), 41)
+        self.assertTrue(everything.startswith(listing.rsplit("\n", 1)[0]))
 
     def test_both_products_run_the_listing_as_its_own_hook(self):
         for product in ("claude", "codex"):
