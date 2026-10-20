@@ -39,9 +39,9 @@ ERROR = "HOUSE RULES HOOK ERROR:"
 EXTRA_FILES = ["skills/operator-writing/SKILL.md"]
 LOCAL_INDEX = "custom/INDEX.md"
 APPROVED_CONF = "custom/approved-work.conf"
-APPROVED_CAP = 3_000  # characters the hook prints; past it, issue rows give way to a notice naming `approved --all`
+APPROVED_CAP = 3_000  # characters the hook prints; issue rows that do not fit give way to one notice
 GH_TIMEOUT = 7        # seconds for all of the listing's GitHub searches, under the hook's TIMEOUT
-GH_LIMIT = 1000       # issues per search (GitHub's search maximum); reaching it prints a warning
+GH_LIMIT = 100        # issues per search, more than the cap can show; reaching it prints the notice
 HEADING = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$")
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
 
@@ -187,13 +187,13 @@ def one_line(text, limit=300):
     return " ".join(str(text).split())[:limit]
 
 
-def approved(base=None, cap=APPROVED_CAP):
+def approved(base=None):
     """Open issues labelled `approved` for the configured owners, with each issue's Owner: line.
 
     Approved work that waits on another step or session is tracked as such an issue (work-tracking
     §Work item and owner). Listing it at session start and after compaction keeps it from being dropped.
     It runs as its own hook, so it can never delay or replace the rules; every failure is one visible line.
-    `cap=None` prints the whole list (`approved --all`)."""
+    The list is a reminder bounded by APPROVED_CAP: when items are left out, one notice inside the cap says so."""
     try:
         try:
             config = ((base or root()) / APPROVED_CONF).read_text()
@@ -202,7 +202,7 @@ def approved(base=None, cap=APPROVED_CAP):
         scopes = [line.split("#", 1)[0].strip() for line in config.splitlines()]
         scopes = [scope for scope in scopes if scope]
         deadline = time.monotonic() + GH_TIMEOUT
-        rows, notes = [], []
+        rows, incomplete = [], False
         for scope in scopes:
             left = deadline - time.monotonic()
             if left <= 0:
@@ -214,31 +214,26 @@ def approved(base=None, cap=APPROVED_CAP):
             items = json.loads(out.stdout) if out.returncode == 0 else None
             if not isinstance(items, list) or not all(valid_issue(item) for item in items):
                 return f"{ERROR} approved-work listing for {scope} failed: {one_line(out.stderr or out.stdout)}"
-            if len(items) >= GH_LIMIT:
-                notes.append(f"{ERROR} {scope} reached GitHub search's {GH_LIMIT}-result limit, so this list may "
-                             f"miss items. Close or unlabel finished approved issues; list an owner's repositories "
-                             f"as separate lines in {APPROVED_CONF}.")
+            incomplete |= len(items) >= GH_LIMIT
             for item in items:
                 owner = next((line.split(":", 1)[1].strip() for line in item["body"].splitlines()
                               if line.lower().startswith("owner:")), "no Owner: line")
                 rows.append(f"- {item['repository']['nameWithOwner']}#{item['number']} {item['title']} — Owner: {owner}")
-    except (OSError, ValueError, subprocess.TimeoutExpired) as error:
+    except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired) as error:
         return f"{ERROR} approved-work listing failed: {one_line(error)}"
-    if not rows and not notes:
+    if not rows:
         return ""
-    # The heading and warnings always print; the cap cuts only issue rows.
-    kept = ["Open approved work. Continue the items you own; the others belong to the owners named:", *notes]
+    kept = ["Open approved work. Continue the items you own; the others belong to the owners named:"]
     rows = sorted(rows)
-    text = "\n".join([*kept, *rows])
-    if cap is not None and len(text) > cap:
-        notice = (f"{ERROR} the list is longer than this hook shows; run "
-                  f"`python3 scripts/session_context.py approved --all` in the House Rules checkout.")
-        for row in rows:
-            if len("\n".join([*kept, row, notice])) > cap:
-                break
-            kept.append(row)
-        text = "\n".join([*kept, notice])
-    return text
+    if not incomplete and len("\n".join([*kept, *rows])) <= APPROVED_CAP:
+        return "\n".join([*kept, *rows])
+    notice = (f"{ERROR} more open approved items exist than this list shows. Close or unlabel the finished "
+              "ones: the label marks only work that still waits.")
+    for row in rows:
+        if len("\n".join([*kept, row, notice])) > APPROVED_CAP:
+            break
+        kept.append(row)
+    return "\n".join([*kept, notice])
 
 
 def valid_issue(item):
@@ -291,8 +286,6 @@ def main(argv):
             output = codex()
         elif argv == ["approved"]:
             output = approved()
-        elif argv == ["approved", "--all"]:
-            output = approved(cap=None)
         elif argv == ["approved", "codex"]:
             listing = approved()
             output = listing and json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
@@ -300,7 +293,7 @@ def main(argv):
         elif len(argv) in (2, 3) and argv[0] == "hooks":
             output = json.dumps(hooks(argv[1], base=Path(argv[2]) if len(argv) == 3 else None), indent=2)
         else:
-            sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | approved [--all|codex] | hooks <claude|codex> [<root>]")
+            sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | approved [codex] | hooks <claude|codex> [<root>]")
     except (OSError, ValueError, UnicodeDecodeError) as error:
         # The hook's output is the only channel the model sees; print the failure there.
         output = f"{ERROR} {error}"

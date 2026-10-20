@@ -1104,25 +1104,32 @@ class ApprovedWorkListingTests(unittest.TestCase):
                                   "before searching other-org.")
         self.assertEqual(len((self.bin / "calls").read_text().splitlines()), 1)
 
-    def test_a_full_search_warns_that_items_may_be_missing(self):
-        self.configure("example-org/tool\n")
-        with self.fake_gh(json.dumps([self.issue(n, "t") for n in range(context.GH_LIMIT)])):
-            lines = context.approved(self.base, cap=400).split("\n")
-        self.assertEqual(lines[1], f"{context.ERROR} example-org/tool reached GitHub search's {context.GH_LIMIT}-result "
-                         "limit, so this list may miss items. Close or unlabel finished approved issues; list an "
-                         f"owner's repositories as separate lines in {context.APPROVED_CONF}.")
+    NOTICE = ("HOUSE RULES HOOK ERROR: more open approved items exist than this list shows. Close or unlabel the "
+              "finished ones: the label marks only work that still waits.")
 
-    def test_a_long_list_stays_inside_the_cap_and_all_prints_everything(self):
+    def row(self, number, title):
+        return f"- example-org/tool#{number} {title} — Owner: no Owner: line"
+
+    def test_a_full_search_ends_the_list_with_the_notice(self):
+        self.configure("example-org/tool\n")
+        numbers = range(100, 100 + context.GH_LIMIT)
+        with self.fake_gh(json.dumps([self.issue(n, "t") for n in numbers])), \
+                mock.patch.object(context, "APPROVED_CAP", 100_000):
+            self.assertEqual(context.approved(self.base),
+                             "\n".join([self.HEAD, *(self.row(n, "t") for n in numbers), self.NOTICE]))
+
+    def test_a_long_list_keeps_whole_rows_and_the_notice_inside_the_cap(self):
         self.configure()
-        issues = json.dumps([self.issue(n, "x" * 40) for n in range(40)])
-        with self.fake_gh(issues):
-            listing = context.approved(self.base, cap=500)
-            everything = context.approved(self.base, cap=None)
+        with self.fake_gh(json.dumps([self.issue(n, "x" * 40) for n in range(10, 50)])), \
+                mock.patch.object(context, "APPROVED_CAP", 500):
+            listing = context.approved(self.base)
+        self.assertEqual(listing, "\n".join([self.HEAD, self.row(10, "x" * 40), self.row(11, "x" * 40), self.NOTICE]))
         self.assertLessEqual(len(listing), 500)
-        self.assertEqual(listing.split("\n")[-1], f"{context.ERROR} the list is longer than this hook shows; run "
-                         "`python3 scripts/session_context.py approved --all` in the House Rules checkout.")
-        self.assertEqual(len(everything.split("\n")), 41)
-        self.assertTrue(everything.startswith(listing.rsplit("\n", 1)[0]))
+
+    def test_a_decoder_recursion_error_is_one_visible_line(self):
+        self.configure()
+        with self.fake_gh("[]"), mock.patch.object(context.json, "loads", side_effect=RecursionError("too deep")):
+            self.assertEqual(context.approved(self.base), f"{context.ERROR} approved-work listing failed: too deep")
 
     def test_both_products_run_the_listing_as_its_own_hook(self):
         for product in ("claude", "codex"):
