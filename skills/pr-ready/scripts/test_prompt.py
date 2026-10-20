@@ -91,7 +91,6 @@ class PromptTest(unittest.TestCase):
         classes = (ROOT / "prompts/util/triage-classes.md").read_text()
         self.assertEqual(result.stdout.count(classes), 1)
         self.assertIn("FIX-NOW even if the fix adds an index", result.stdout)
-        self.assertIn("Apply the same classes as round 1.", role.read_text())
         for duplicate in ("only FIX-NOW items block", "new mechanism", "nitpicks are dropped"):
             self.assertNotIn(duplicate, role.read_text())
 
@@ -553,10 +552,8 @@ class CollectionAcceptanceTest(unittest.TestCase):
         )
         self.assertNotIn("when every accepted finding is fixed", result.stdout)
         self.assertIn("A Low finding never blocks", result.stdout)
-        self.assertIn(
-            "For each accepted finding, verify against the code at HEAD that it "
-            "is fixed; quote the evidence.", result.stdout,
-        )
+        check_round = (ROOT / "prompts/util/check-round.md").read_text()
+        self.assertEqual(result.stdout.count(check_round), 1)
         self.assertIn(
             "one line per accepted finding: fixed / not fixed + evidence",
             result.stdout,

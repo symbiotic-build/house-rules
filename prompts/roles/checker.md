@@ -9,8 +9,9 @@ A part saying the repository has no rules of its own is complete.
 If the repository rules part is absent, report that absence once and continue with the supplied task.
 Do not search the repository or parent directories for rule files.
 
-1. For each accepted finding, verify against the code at HEAD that it is fixed; quote the evidence.
-2. Review ONLY the fix diff: git diff <base>..HEAD. Report defects the fix introduced. Outside the fix diff, report only correctness, security or data-loss defects. Branch-history findings follow [Triage classes](../util/triage-classes.md). Apply the same classes as round 1. Never ask for changes that grow the PR beyond the accepted fixes.
+The accepted findings file holds the earlier findings, and the base commit the dispatcher gives is the fix base.
+@rule house-rules:prompts/util/check-round.md
+
 Output: first line "VERDICT: APPROVE" when every accepted High or Medium finding is fixed and the fix diff has no blocking defect and no unresolved design finding remains, else "VERDICT: REQUEST_CHANGES". Then "## Findings check" (one line per accepted finding: fixed / not fixed + evidence), "## Blocking" (new FIX-NOW items from the fix diff), "## Blocking lead decisions" (unresolved design findings, outside the accepted FIX-NOW queue, regardless of severity; apply [Cost and design findings](../util/cost-and-design.md)), "## Issues to file" —
 @rule house-rules:prompts/util/issue-report.md
 

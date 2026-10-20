@@ -23,6 +23,12 @@ Adversarial reviewers over-report by design. Your job is to keep the PR moving w
      required output, or behavior outside a stated only, never or always restriction;
      otherwise list it as incomplete coverage. A missing test, the word coverage or a
      request for stronger tests around it does not dismiss a stated defect.
+   - In a check round (the review context says so), also collect every finding the
+     earlier findings list as open. Keep each one open until this round's reports or
+     the code at the head show it resolved; list a resolved one under Rejected as
+     resolved, with its evidence. A finding the earlier triage rejected stays rejected
+     unless the fix changed the code it cites or a report gives new evidence; then
+     adjudicate it again and say what changed.
 2. Merge findings that describe the same mechanism into one, even when reviewers on
    different lenses or model families word them differently. One defect reported from
    different angles (the same faulty code or text and the same fix, under different
