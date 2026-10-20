@@ -41,7 +41,7 @@ LOCAL_INDEX = "custom/INDEX.md"
 APPROVED_CONF = "custom/approved-work.conf"
 APPROVED_CAP = 3_000  # characters of the approved-work list; the rest is named, not dropped silently
 GH_TIMEOUT = 7        # seconds for all of the listing's GitHub searches, under the hook's TIMEOUT
-GH_LIMIT = 200        # issues per search; reaching it prints an incomplete-search warning
+GH_LIMIT = 1000       # issues per search (GitHub's search maximum); reaching it prints a notice
 HEADING = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$")
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
 
@@ -186,48 +186,43 @@ def approved(base=None):
     """Open issues labelled `approved` for the configured owners, with each issue's Owner: line.
 
     Approved work that waits on another step or session is tracked as such an issue (work-tracking
-    §Work item and owner); listing it at session start and after compaction keeps it from being dropped.
-    Every failure becomes a visible error line, never an exception that would replace the rules."""
+    §Work item and owner). Listing it at session start and after compaction keeps it from being dropped.
+    It runs as its own hook, so it can never delay or replace the rules; every failure is one visible line."""
     try:
         try:
             config = ((base or root()) / APPROVED_CONF).read_text()
         except FileNotFoundError:
             return ""
-        scopes = [line.strip() for line in config.splitlines() if line.strip() and not line.startswith("#")]
-        deadline = time.monotonic() + GH_TIMEOUT  # one budget for every search, under the hook's TIMEOUT
-        rows, saturated = [], []
+        scopes = [line.split("#", 1)[0].strip() for line in config.splitlines()]
+        scopes = [scope for scope in scopes if scope]
+        deadline = time.monotonic() + GH_TIMEOUT
+        rows, notes = [], []
         for scope in scopes:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return f"{ERROR} approved-work listing ran out of time before {scope}; list it with gh."
             flag = "--repo" if "/" in scope else "--owner"
-            out = subprocess.run(["gh", "search", "issues", flag, scope, "--label", "approved", "--state", "open",
-                                  "--limit", str(GH_LIMIT), "--json", "repository,number,title,body"],
-                                 capture_output=True, text=True, timeout=remaining, stdin=subprocess.DEVNULL)
-            if out.returncode:
-                return f"{ERROR} approved-work listing for {scope} failed: {out.stderr.strip()[:300]}"
-            items = json.loads(out.stdout or "[]")
+            command = f"gh search issues {flag} {scope} --label approved --state open --limit {GH_LIMIT}"
+            out = subprocess.run([*shlex.split(command), "--json", "repository,number,title,body"],
+                                 capture_output=True, text=True, timeout=max(0.1, deadline - time.monotonic()),
+                                 stdin=subprocess.DEVNULL)
+            items = json.loads(out.stdout) if out.returncode == 0 else None
+            if not isinstance(items, list) or not all(isinstance(item, dict) for item in items):
+                return f"{ERROR} approved-work listing for {scope} failed: {(out.stderr or out.stdout).strip()[:300]}"
             if len(items) >= GH_LIMIT:
-                saturated.append(scope)
+                notes.append(f"{ERROR} {scope} returned the {GH_LIMIT}-item limit; run `{command}` for all of them.")
             for item in items:
-                owner = next((line.split(":", 1)[1].strip() for line in (item.get("body") or "").splitlines()
+                body = item.get("body") if isinstance(item.get("body"), str) else ""
+                owner = next((line.split(":", 1)[1].strip() for line in body.splitlines()
                               if line.lower().startswith("owner:")), "no Owner: line")
                 rows.append(f"- {item['repository']['nameWithOwner']}#{item['number']} {item['title']} — Owner: {owner}")
-    except (OSError, UnicodeDecodeError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+    except (OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
         return f"{ERROR} approved-work listing failed: {error}"
-    lines = ["Open approved work (start or continue each item; its issue names the owner and next action):"]
-    size = len(lines[0])
-    for row in sorted(rows):
-        if size + len(row) + 1 > APPROVED_CAP:
-            lines.append(f"{ERROR} {len(rows) - (len(lines) - 1)} more approved items are not shown; "
-                         "list them with `gh search issues --label approved --state open`.")
-            break
-        lines.append(row)
-        size += len(row) + 1
-    for scope in saturated:
-        lines.append(f"{ERROR} {scope} has {GH_LIMIT} or more approved items; the search may be incomplete. "
-                     f"List them with `gh search issues --owner {scope} --label approved --state open --limit 1000`.")
-    return "\n".join(lines) if rows or saturated else ""
+    if not rows and not notes:
+        return ""
+    head = "Open approved work. Continue the items you own; the others belong to the owners named:"
+    text = "\n".join([head, *notes, *sorted(rows)])
+    if len(text) > APPROVED_CAP:
+        cut = text[:APPROVED_CAP].rsplit("\n", 1)[0]
+        text = cut + f"\n{ERROR} the list is longer than this hook shows; run the `gh search issues` command for each scope in {APPROVED_CONF}."
+    return text
 
 
 def claude(number):
@@ -239,9 +234,6 @@ def codex():
     """Parts 1 to SLOTS in one value: the same strict cap as Claude Code, so Codex may pass it whole."""
     rev, packed, _ = parts()
     text = "\n\n".join(render(number, rev, packed) for number in range(1, min(len(packed), SLOTS) + 1))
-    listing = approved()
-    if listing:
-        text += "\n\n" + listing
     return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}})
 
 
@@ -259,7 +251,9 @@ def hooks(product, python=None, base=None):
     elif product == "codex":
         # codex() caps its own output at SLOTS parts, so Codex may pass it whole (limit 0).
         handlers = [{"type": "command", "command": command(python, base, "codex"), "timeout": TIMEOUT,
-                     "statusMessage": "Loading House Rules", "additionalContextLimit": 0}]
+                     "statusMessage": "Loading House Rules", "additionalContextLimit": 0},
+                    {"type": "command", "command": command(python, base, "approved", "codex"), "timeout": TIMEOUT,
+                     "statusMessage": "Listing approved work"}]
     else:
         raise ValueError(f"no session-start hook for {product}")
     return {"hooks": handlers}
@@ -273,6 +267,10 @@ def main(argv):
             output = codex()
         elif argv == ["approved"]:
             output = approved()
+        elif argv == ["approved", "codex"]:
+            listing = approved()
+            output = listing and json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
+                                                                     "additionalContext": listing}})
         elif len(argv) in (2, 3) and argv[0] == "hooks":
             output = json.dumps(hooks(argv[1], base=Path(argv[2]) if len(argv) == 3 else None), indent=2)
         else:

@@ -1024,6 +1024,8 @@ on this computer; repository rules still win where they conflict.
 class ApprovedWorkListingTests(unittest.TestCase):
     """The session-start hook lists open `approved` issues so approved work survives compaction."""
 
+    HEAD = "Open approved work. Continue the items you own; the others belong to the owners named:"
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.base, self.bin = Path(self.tmp.name) / "root", Path(self.tmp.name) / "bin"
@@ -1034,24 +1036,33 @@ class ApprovedWorkListingTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def fake_gh(self, stdout, code=0):
+        """A gh that records its arguments and prints a fixed response."""
         gh = self.bin / "gh"
-        gh.write_text("#!/bin/sh\nprintf '%s' " + shlex.quote(stdout) + f"\nexit {code}\n")
+        gh.write_text("#!/bin/sh\necho \"$@\" >> " + shlex.quote(str(self.bin / "calls")) +
+                      "\nprintf '%s' " + shlex.quote(stdout) + f"\nexit {code}\n")
         gh.chmod(0o755)
         return mock.patch.dict(os.environ, {"PATH": f"{self.bin}{os.pathsep}{os.environ['PATH']}"})
 
     def configure(self, text="# owners\nexample-org\n"):
         (self.base / "custom/approved-work.conf").write_text(text)
 
+    def issue(self, number, title, body=""):
+        return {"repository": {"nameWithOwner": "example-org/tool"}, "number": number, "title": title, "body": body}
+
     def test_lists_open_items_sorted_with_their_owner_line(self):
         self.configure()
-        issues = [{"repository": {"nameWithOwner": "example-org/tool"}, "number": 9, "title": "No owner yet", "body": ""},
-                  {"repository": {"nameWithOwner": "example-org/tool"}, "number": 7, "title": "Ship the cache",
-                   "body": "Plan step 2.\nOwner: lane-3, after the parser PR merges\n"}]
+        issues = [self.issue(9, "No owner yet"), self.issue(7, "Ship the cache", "Plan.\nOwner: lane-3, after the parser PR\n")]
         with self.fake_gh(json.dumps(issues)):
             self.assertEqual(context.approved(self.base), "\n".join([
-                "Open approved work (start or continue each item; its issue names the owner and next action):",
-                "- example-org/tool#7 Ship the cache — Owner: lane-3, after the parser PR merges",
+                self.HEAD,
+                "- example-org/tool#7 Ship the cache — Owner: lane-3, after the parser PR",
                 "- example-org/tool#9 No owner yet — Owner: no Owner: line"]))
+
+    def test_comments_are_not_scopes(self):
+        self.configure("example-org  # approved backlog\n   # indented comment\n")
+        with self.fake_gh("[]"):
+            self.assertEqual(context.approved(self.base), "")
+        self.assertEqual((self.bin / "calls").read_text().split()[:5], ["search", "issues", "--owner", "example-org", "--label"])
 
     def test_prints_nothing_without_configuration_or_items(self):
         self.assertEqual(context.approved(self.base), "")
@@ -1059,27 +1070,45 @@ class ApprovedWorkListingTests(unittest.TestCase):
         with self.fake_gh("[]"):
             self.assertEqual(context.approved(self.base), "")
 
-    def test_failures_become_visible_error_lines(self):
+    def test_failures_and_malformed_responses_become_one_visible_line(self):
         self.configure()
-        with self.fake_gh("", code=1):
-            self.assertTrue(context.approved(self.base).startswith(context.ERROR))
-        with self.fake_gh("not json"):
-            self.assertTrue(context.approved(self.base).startswith(context.ERROR))
+        for stdout, code in (("", 1), ("", 0), ("not json", 0), ("{}", 0), ("[null]", 0)):
+            with self.subTest(stdout=stdout, code=code), self.fake_gh(stdout, code):
+                listing = context.approved(self.base)
+                self.assertTrue(listing.startswith(context.ERROR), listing)
+                self.assertNotIn("\n", listing)
         (self.base / "custom/approved-work.conf").unlink()
         (self.base / "custom/approved-work.conf").mkdir()
         self.assertTrue(context.approved(self.base).startswith(context.ERROR))
 
-    def test_a_full_search_warns_that_it_may_be_incomplete(self):
+    def test_a_numeric_body_counts_as_no_owner_line(self):
         self.configure()
-        issues = [{"repository": {"nameWithOwner": "example-org/tool"}, "number": n, "title": "t", "body": ""}
-                  for n in range(context.GH_LIMIT)]
-        with self.fake_gh(json.dumps(issues)):
-            self.assertIn(f"{context.ERROR} example-org has {context.GH_LIMIT} or more approved items",
-                          context.approved(self.base))
+        with self.fake_gh(json.dumps([self.issue(3, "Odd body", 42)])):
+            self.assertEqual(context.approved(self.base),
+                             self.HEAD + "\n- example-org/tool#3 Odd body — Owner: no Owner: line")
 
-    def test_claude_registers_the_listing_hook(self):
-        commands = [h["command"] for h in context.hooks("claude", "/usr/bin/python3", self.base)["hooks"]]
-        self.assertEqual(sum(c.endswith("scripts/session_context.py approved") for c in commands), 1)
+    def test_a_full_search_names_the_command_that_lists_all(self):
+        self.configure("example-org/tool\n")
+        with self.fake_gh(json.dumps([self.issue(n, "t") for n in range(context.GH_LIMIT)])), \
+                mock.patch.object(context, "APPROVED_CAP", 400):
+            lines = context.approved(self.base).split("\n")
+        self.assertEqual(lines[1], f"{context.ERROR} example-org/tool returned the {context.GH_LIMIT}-item limit; run "
+                         f"`gh search issues --repo example-org/tool --label approved --state open --limit {context.GH_LIMIT}` for all of them.")
+
+    def test_a_long_list_is_cut_inside_the_cap_with_a_notice(self):
+        self.configure()
+        with self.fake_gh(json.dumps([self.issue(n, "x" * 40) for n in range(40)])), \
+                mock.patch.object(context, "APPROVED_CAP", 500):
+            listing = context.approved(self.base)
+        self.assertLessEqual(len(listing), 500 + 200)
+        self.assertTrue(listing.split("\n")[-1].startswith(context.ERROR + " the list is longer"))
+
+    def test_both_products_run_the_listing_as_its_own_hook(self):
+        for product in ("claude", "codex"):
+            with self.subTest(product=product):
+                commands = [h["command"] for h in context.hooks(product, "/usr/bin/python3", self.base)["hooks"]]
+                expected = "scripts/session_context.py approved" + (" codex" if product == "codex" else "")
+                self.assertEqual(sum(c.endswith(expected) for c in commands), 1)
 
 
 def load_tests(loader, tests, pattern):
