@@ -1308,11 +1308,8 @@ class StructuredLayoutTests(PrepareFixture, unittest.TestCase):
         self.assertEqual(self.rows(change, "src/core.py"),
                          ["      1\tdef action():", "-     2\t    return 1", "+     2\t    return 'unique_head_payload'"])
 
-
-class CheckRoundTests(StructuredLayoutTests):
-    """A later review round checks only the fix since the last reviewed head."""
-
     def reviewed_then_fixed(self):
+        """A later review round checks only the fix since the last reviewed head."""
         self.add_review_change()
         reviewed = self.git(self.repo, "rev-parse", "HEAD")
         self.write(self.repo, "src/core.py", "def action():\n    return 3\n")
@@ -1345,6 +1342,17 @@ class CheckRoundTests(StructuredLayoutTests):
         instructions = prompt.split("# 7. Lens instructions\n", 1)[1]
         self.assertEqual(instructions.count(check_round), 1)
         self.assertTrue(instructions.rstrip("\n").endswith(check_round.rstrip("\n")))
+
+    def test_check_round_prepares_no_registered_documentation_context(self):
+        reviewed, _ = self.reviewed_then_fixed()
+        self.write(self.repo, "docs/ENTITIES.json", "{}\n")
+        self.commit(self.repo, "Register documentation")
+        # A full round prepares the registered documentation and fails on this incomplete registry.
+        with self.assertRaisesRegex(prepare.PrepareError, "mandatory documentation context"):
+            self.review()
+        prompt = self.review(since=reviewed)
+        self.assertIn("docs/ENTITIES.json", self.change(prompt))
+        self.assertNotIn("documentation context", prompt)
 
     def test_first_round_has_no_check_round_text(self):
         self.reviewed_then_fixed()
