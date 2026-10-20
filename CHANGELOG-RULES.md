@@ -2,17 +2,9 @@
 
 Source notes for House Rules invariants and procedures.
 
-## prompts/util/check-round.md, prompts/roles/checker.md, prompts/roles/triager.md — Later review rounds check the fix
-
-Operator decisions: 2026-10-19 and 2026-10-20. A review service reran its whole panel on the
-whole change in every later round and added every earlier report to each prompt, so later
-rounds cost more than the first while checking small fixes. The operator decided that every
-round after the first is a check round: reviewers verify the open findings and review only
-the fix since the last reviewed head, with the latest triage as the earlier findings, each
-reviewer's own earlier report, the PR description and human comments. A comparison on saved
-rounds chose that input. The check-round rules that the checker role stated now have one
-home that the checker and the preparer's check rounds share; the triager carries open
-earlier findings and keeps earlier rejections unless the fix or new evidence changes them.
+This file is a frozen archive. New provenance lives in each rule pull request's Rule changes
+section, which its merge commit carries; `skills/pr-ready/scripts/rules_changelog.py` prints the
+changelog built from those merge commits.
 
 ## skills/bench-discipline — Reuse baseline runs instead of rerunning them
 

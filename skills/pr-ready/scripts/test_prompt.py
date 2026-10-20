@@ -1611,14 +1611,6 @@ class AuditRestorationTest(unittest.TestCase):
             with self.subTest(clause=clause):
                 self.assertIn(clause, text)
 
-    def test_L6_source_incident_home(self):
-        text = (ROOT / 'rules/core.md').read_text()
-        for clause in (
-            'Record the source incident in CHANGELOG-RULES.md.',
-        ):
-            with self.subTest(clause=clause):
-                self.assertIn(clause, text)
-
     def test_L7_assumptions_require_validation(self):
         text = (ROOT / 'rules/core.md').read_text()
         for clause in (
