@@ -45,6 +45,11 @@ def parse_pr(text):
     return match[1], int(match[2])
 
 
+def bot_name(login):
+    """GitHub spells a bot `name[bot]` over REST and `name` over GraphQL; compare either way."""
+    return login.removesuffix("[bot]")
+
+
 def snapshot(repo, number, bot_login, deadline):
     pr = json.loads(gh(
         "pr", "view", str(number), "-R", repo, "--json",
@@ -82,7 +87,8 @@ def snapshot(repo, number, bot_login, deadline):
                 "-f", f"name={name}", "-F", f"number={number}", *cursor, deadline=deadline,
             ))["data"]["repository"]["pullRequest"]["comments"]
             latest = next((comment for comment in reversed(comments["nodes"])
-                           if (comment["author"] or {}).get("login") == bot_login), None)
+                           if bot_name((comment["author"] or {}).get("login") or "") == bot_name(bot_login)),
+                          None)
             if latest is not None:
                 result["review"] = latest["body"]
                 break
