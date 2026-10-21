@@ -17,4 +17,7 @@ Then read `custom/INDEX.md` when it exists. It is this
 computer's local index: installed tools and the operator's local policies,
 such as which model and tool run workers. Its policies apply to every session
 on this computer; repository rules still win where they conflict.
+
+Before sending any reply, check it against `rules/writing.md`
+and the operator-writing Skill.
 <!-- house-rules:end -->

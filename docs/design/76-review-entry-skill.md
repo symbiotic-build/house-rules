@@ -250,7 +250,7 @@ This implementation adds no verbatim writing-rule copy under `prompts/util/`.
 ### 6. Other references
 
 - The implementation deletes the operator-writing §Communication rules loading bullet from
-  [rules/core.md](../../rules/core.md). The core keeps “rules/writing.md governs all text.”
+  [rules/core.md](../../rules/core.md) prime rule 4. The core keeps “rules/writing.md governs all text.”
 - The implementation changes the response-style pointer in
   [skills/operator-protocol/SKILL.md](../../skills/operator-protocol/SKILL.md) to the writing-rule owner.
 - The implementation changes the communication-rules pointer in
@@ -271,9 +271,9 @@ The following test changes are proposals for the implementation, not results of 
 
 Updated tests:
 
-- Rename `test_reset_reloads_skills_and_references_the_writing_rule_owner` to
-  `test_reset_reloads_skills_and_writing_rules_name_operator_writing` after the foundation change lands.
-  The renamed test checks the core writing pointer and the writing-rule pointer to operator-writing.
+- Add no replacement for `test_reset_reloads_skills_and_references_the_writing_rule_owner`.
+  [#148](https://github.com/symbiotic-sh/house-rules/pull/148) removed it, because it asserted rule wording.
+  The rule-change review protects the core writing pointer and the writing-rule pointer to operator-writing.
 - Change `test_each_invariant_sentence_fits_twenty_words` to read the writing-rule §Communication rules.
 - Extend `test_moved_sections_have_one_rule_owner` to require each moved sentence only in the writing-rule owner.
 

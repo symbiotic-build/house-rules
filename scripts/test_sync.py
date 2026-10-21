@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -105,10 +106,10 @@ class SyncFixture:
         patch.start()
         self.addCleanup(patch.stop)
         if sync.tomllib is None:
-            hook_files = mock.patch.dict(sync.HOOK_FILES)
+            hook_files = mock.patch.dict(sync.KIMI_HOOK_FILES)
             hook_files.start()
             self.addCleanup(hook_files.stop)
-            del sync.HOOK_FILES["KIMI_CODE_HOME"]
+            del sync.KIMI_HOOK_FILES["KIMI_CODE_HOME"]
 
     def git(self, root, *args):
         return subprocess.run(["git", "-C", str(root), *args], stdin=subprocess.DEVNULL, check=True,
@@ -122,10 +123,10 @@ class SyncFixture:
         self.git(root, "add", "--", *paths)
         self.git(root, "commit", "-m", "Fixture change")
 
-    def invoke(self):
+    def invoke(self, *extra, root=None):
         out, err = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
-            code = sync.main(["--root", str(self.root)])
+            code = sync.main(["--root", str(root or self.root), *extra])
         return code, out.getvalue(), err.getvalue()
 
     def receipt(self, data):
@@ -650,7 +651,7 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
     def test_kimi_check_without_a_toml_reader_is_a_visible_finding(self):
         self.install_fixture()
         with mock.patch.object(sync, "tomllib", None), \
-                mock.patch.dict(sync.HOOK_FILES, {"KIMI_CODE_HOME": ("config.toml", "kimi")}):
+                mock.patch.dict(sync.KIMI_HOOK_FILES, {"KIMI_CODE_HOME": "config.toml"}):
             code, out, err = self.invoke()
         self.assertEqual(code, 1, out + err)
         self.assertIn(f"REPORT: Kimi session context hook not checked: Python {sys.version_info[0]}."
@@ -676,7 +677,7 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
         cases = {
             "fewer parts than slots": (self.claude / "settings.json", "claude", {"entry": fewer}),
             "matcher added": (self.claude / "settings.json", "claude", {"entry": moved}),
-            "interpreter missing": (self.codex / "hooks.json", "codex", {"python": str(self.base / "no-python")}),
+            "interpreter missing": (self.codex / "hooks.json", "codex", {"python": str(self.base / "missing/python3")}),
             "relative interpreter": (self.codex / "hooks.json", "codex", {"python": "python3"}),
             "registered twice": (self.codex / "hooks.json", "codex", {
                 "extra": [context.hooks("codex", sys.executable, self.root)]}),
@@ -708,8 +709,9 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
 
     def test_rules_longer_than_the_registered_slots_are_reported(self):
         self.install_fixture()
-        with mock.patch.object(context, "SLOTS", 1), mock.patch.object(context, "CAP", 1_500):
-            code, out, err = self.invoke()
+        path = self.root / "scripts/session_context.py"
+        path.write_text(path.read_text().replace("SLOTS = 12 ", "SLOTS = 1 ").replace("CAP = 10_000", "CAP = 1_500"))
+        code, out, err = self.invoke()
         self.assertEqual(code, 1, out + err)
         self.assertRegex(out, r"REPORT: session context needs [2-9] parts; the hook registers 1\n")
 
@@ -724,7 +726,8 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
         self.install_fixture()
         path = self.claude / "settings.json"
         mention = f"/usr/bin/test -f {shlex.quote(str(self.root / 'scripts/session_context.py'))}"
-        broken = [{"hooks": [{"type": "command", "command": []}, {"type": "command", "command": "echo 'open"},
+        broken = [{"hooks": 1}, {"hooks": None}, {"type": "command"},
+                  {"hooks": [{"type": "command", "command": []}, {"type": "command", "command": "echo 'open"},
                              "not a handler", {"type": "command"}, {"type": "command", "command": mention}]},
                   "not an entry"]
         self.register_hook(path, "claude", extra=broken)
@@ -762,6 +765,383 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
         self.assertIn("===== House Rules file rules/core.md =====\n# core rules", first.stdout)
         self.assertEqual(run("session_fixture").stdout, "")
         self.assertEqual(run("session_other").stdout, first.stdout)
+
+
+class InstallHookTests(SyncFixture, unittest.TestCase):
+    """sync.py --install-hooks writes only hook files: back up, drop old House Rules entries, add the current one."""
+
+    def setUp(self):
+        super().setUp()
+        self.install_fixture()
+        self.settings, self.codex_hooks = self.claude / "settings.json", self.codex / "hooks.json"
+        self.legacy = str(self.root / "custom/hooks/old-context.py")
+        self.unrelated = {"type": "command", "command": "/bin/echo unrelated"}
+
+    def read(self, path):
+        return json.loads(path.read_text())
+
+    def backups(self, path):
+        return sorted(path.parent.glob(path.name + ".house-rules-backup-*"))
+
+    def test_registers_the_hook_beside_other_settings_and_backs_up_the_file(self):
+        original = json.dumps({"model": "fixture", "hooks": {"SessionStart": [{"hooks": [self.unrelated]}],
+                                                              "Stop": [{"hooks": [self.unrelated]}]}})
+        self.write(self.settings, original)
+        self.codex_hooks.unlink()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn(f"REGISTERED: session context hook in {self.settings}", out)
+        self.assertIn("3 homes checked; 0 findings", out)
+        settings = self.read(self.settings)
+        self.assertEqual(settings["model"], "fixture")
+        self.assertEqual(settings["hooks"]["Stop"], [{"hooks": [self.unrelated]}])
+        self.assertEqual(settings["hooks"]["SessionStart"],
+                         [{"hooks": [self.unrelated]}, context.hooks("claude", sys.executable, self.root)])
+        self.assertEqual([path.read_text() for path in self.backups(self.settings)], [original])
+        self.assertEqual(self.read(self.codex_hooks)["hooks"]["SessionStart"],
+                         [context.hooks("codex", sys.executable, self.root)])
+        self.assertEqual(self.backups(self.codex_hooks), [])
+        self.assertFalse((self.kimi / "settings.json").exists() or (self.kimi / "hooks.json").exists())
+
+    def test_replaces_older_versions_and_hooks_a_receipt_lists_as_replaced(self):
+        legacy = [{"type": "command", "command": f"{sys.executable} -I {shlex.quote(self.legacy)} session {n}"}
+                  for n in (1, 2)]
+        self.receipt({"source_root": str(self.root), "previous_roots": [str(self.base / "old root")],
+                      "replaced_hooks": [handler["command"] for handler in legacy]})
+        fewer = context.hooks("claude", sys.executable, self.root)
+        fewer["hooks"].pop()
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": [
+            fewer, context.hooks("claude", "/usr/bin/python3", self.base / "old root"),
+            {"matcher": "*", "hooks": [*legacy, self.unrelated]}, {"hooks": legacy}]}}))
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: replaced House Rules hook still registered: {self.settings}", out)
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"], [
+            {"matcher": "*", "hooks": [self.unrelated]}, context.hooks("claude", sys.executable, self.root)])
+
+    def test_a_registration_without_the_approved_handler_is_replaced_whole(self):
+        for path, product in ((self.settings, "claude"), (self.codex_hooks, "codex")):
+            older = context.hooks(product, sys.executable, self.root)
+            older["hooks"] = [handler for handler in older["hooks"] if " approved" not in handler["command"]]
+            self.write(path, json.dumps({"hooks": {"SessionStart": [older]}}))
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        for path, product in ((self.settings, "claude"), (self.codex_hooks, "codex")):
+            self.assertEqual(self.read(path)["hooks"]["SessionStart"], [context.hooks(product, sys.executable, self.root)])
+
+    def test_unrelated_entries_with_empty_handler_lists_are_kept(self):
+        empty = [{"matcher": "startup", "hooks": []}, {"hooks": []}]
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": empty}}))
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"],
+                         [*empty, context.hooks("claude", sys.executable, self.root)])
+
+    def test_listed_commands_that_the_current_entry_reuses_stay_current(self):
+        current = context.hooks("claude", sys.executable, self.root)
+        self.receipt({"source_root": str(self.root),
+                      "replaced_hooks": [handler["command"] for handler in current["hooks"][:3]]})
+        older = {"hooks": current["hooks"][:-1]}
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": [older]}}))
+        for _ in range(2):
+            code, out, err = self.invoke("--install-hooks")
+            self.assertEqual(code, 0, out + err)
+            self.assertNotIn("replaced House Rules hook", out)
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"], [current])
+
+    def test_an_update_that_changes_the_hook_generator_installs_the_updated_entry(self):
+        path = self.origin / "scripts/session_context.py"
+        path.write_text(path.read_text().replace("SLOTS = 12 ", "SLOTS = 13 "))
+        self.commit(self.origin, ["scripts/session_context.py"])
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.claude_parts(), 13)
+
+    def test_the_selected_checkouts_current_generator_is_used_despite_cached_bytecode(self):
+        path = self.root / "scripts/session_context.py"
+        spec = importlib.util.spec_from_file_location("fixture_generator", path)
+        spec.loader.exec_module(importlib.util.module_from_spec(spec))  # writes timestamp bytecode
+        times = path.stat()
+        path.write_text(path.read_text().replace("SLOTS = 12 ", "SLOTS = 13 "))  # same size
+        os.utime(path, ns=(times.st_atime_ns, times.st_mtime_ns))
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(self.claude_parts(), 13, out + err)
+
+    def claude_parts(self):
+        handlers = self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"]
+        return sum(handler["command"].split()[-2] == "claude" for handler in handlers)
+
+    def test_the_default_root_keeps_the_link_it_was_run_through(self):
+        shutil.copyfile(SCRIPT, self.root / "scripts/sync.py")
+        alias = self.base / "stable root"
+        alias.symlink_to(self.root, target_is_directory=True)
+        run = [sys.executable, "-B", str(alias / "scripts/sync.py")]
+        environment = {**os.environ, "HOME": str(self.home)}
+        installed = subprocess.run([*run, "--install-hooks"], env=environment, stdin=subprocess.DEVNULL,
+                                   capture_output=True, text=True)
+        self.assertIn(f"REGISTERED: session context hook in {self.claude.resolve() / 'settings.json'}",
+                      installed.stdout, installed.stdout + installed.stderr)
+        command = self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"][0]["command"]
+        self.assertEqual(shlex.split(command)[2], str(alias / "scripts/session_context.py"))
+        # Kimi is registered by hand (INSTALL-AGENTS.md §3 step 10), here for the same linked root.
+        self.register_kimi_hook(root=alias)
+        checked = subprocess.run(run, env=environment, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        # Without a TOML reader the Kimi hook is reported as not checked; no other hook may be reported.
+        reported = [line for line in checked.stdout.splitlines() if "session context hook" in line and not (
+            sync.tomllib is None and "Kimi session context hook not checked" in line)]
+        self.assertEqual(reported, [], checked.stdout + checked.stderr)
+
+    def test_a_home_link_swapped_after_the_check_cannot_redirect_writes(self):
+        real = self.base / "claude real"
+        real.mkdir()
+        protected = self.codex / "skills/.system/claude"
+        protected.mkdir(parents=True)
+        self.write(protected / "settings.json", "{}")
+        link = self.base / "claude link"
+        link.symlink_to(real, target_is_directory=True)
+        real_open = os.open
+
+        def swap(path, flags, *args, **kwargs):  # folders are open and checked; relink before the write
+            handle = real_open(path, flags, *args, **kwargs)
+            if str(path).startswith(".settings.json."):
+                link.unlink()
+                link.symlink_to(protected, target_is_directory=True)
+            return handle
+
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(link)}), \
+                mock.patch.object(sync.os, "open", side_effect=swap):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(os.path.realpath(link), str(protected.resolve()), "the link was swapped")
+        self.assertEqual(sorted(path.name for path in protected.iterdir()), ["settings.json"])
+        self.assertEqual((protected / "settings.json").read_text(), "{}")
+        self.assertEqual(self.read(real / "settings.json")["hooks"]["SessionStart"],
+                         [context.hooks("claude", sys.executable, self.root)])
+
+    def test_a_correct_installation_is_not_rewritten(self):
+        before = self.settings.read_text()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertNotIn("REGISTERED", out)
+        self.assertEqual(self.settings.read_text(), before)
+        self.assertEqual(self.backups(self.settings), [])
+
+    def test_a_symlinked_root_is_written_as_given_so_moves_of_its_target_keep_working(self):
+        alias = self.base / "stable root"
+        alias.symlink_to(self.root, target_is_directory=True)
+        code, out, err = self.invoke("--install-hooks", root=alias)
+        self.assertIn(f"REGISTERED: session context hook in {self.settings}", out)
+        commands = [handler["command"] for handler in self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"]]
+        self.assertIn(shlex.quote(str(alias / "scripts/session_context.py")), commands[0])
+        self.assertEqual(len(self.read(self.settings)["hooks"]["SessionStart"]), 2)
+
+    def test_unreadable_hook_file_is_an_error_and_stays_unchanged(self):
+        self.write(self.settings, "{not json")
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertEqual(self.settings.read_text(), "{not json")
+        self.assertEqual(self.backups(self.settings), [])
+        self.assertIn(str(self.settings), err)
+
+    def test_files_written_before_a_later_failure_are_reported(self):
+        self.settings.unlink()
+        self.write(self.codex_hooks, "[]")
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn(f"REGISTERED: session context hook in {self.settings}", out)
+        self.assertIn(f"hook file is not a JSON object: {self.codex_hooks}", err)
+        self.assertEqual(self.codex_hooks.read_text(), "[]")
+
+    def test_backups_are_owner_only_and_never_replace_an_earlier_backup(self):
+        self.settings.chmod(0o644)
+        with mock.patch.object(sync.time, "strftime", return_value="20260101T000000"):
+            for model in ("first", "second"):
+                settings = self.read(self.settings)
+                settings["hooks"]["SessionStart"].pop()
+                settings["model"] = model
+                self.write(self.settings, json.dumps(settings))
+                code, out, err = self.invoke("--install-hooks")
+                self.assertEqual(code, 0, out + err)
+        backups = self.backups(self.settings)
+        self.assertEqual([self.read(path)["model"] for path in backups], ["first", "second"])
+        self.assertEqual({stat.S_IMODE(path.stat().st_mode) for path in backups}, {0o600})
+        self.assertEqual(stat.S_IMODE(self.settings.stat().st_mode), 0o644)
+
+    def test_only_the_printed_form_and_listed_commands_are_house_rules_owned(self):
+        script = shlex.quote(str(self.root / "scripts/session_context.py"))
+        listed = [f"/usr/bin/python3 -X utf8 {shlex.quote(self.legacy)} session 1", shlex.quote(self.legacy)]
+        self.receipt({"source_root": str(self.root), "replaced_hooks": listed})
+        kept = [f"/bin/echo -I {script} claude 1", f"/opt/bin/pygmentize -I {script} claude 1",
+                f"/usr/bin/test -f {script}", f"/usr/bin/python3 -Icprint(1) {script}",
+                f"/usr/bin/python3 -I {script} claude 1 --extra", f"/usr/bin/python3 -I {script}",
+                f"/usr/bin/python3 -X utf8 {shlex.quote(self.legacy)} session 2"]
+        removed = [*listed, f"/usr/bin/python3.14t -I {script} claude 3", f"/usr/bin/python -I {script} codex",
+                   f"/usr/bin/python3 -I {script} approved", f"/usr/bin/python3 -I {script} approved codex"]
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": [{"hooks": [
+            {"type": "command", "command": command} for command in kept + removed]}]}}))
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"], [
+            {"hooks": [{"type": "command", "command": command} for command in kept]},
+            context.hooks("claude", sys.executable, self.root)])
+
+    def test_no_hook_file_is_written_when_one_destination_is_protected(self):
+        protected = self.codex / "skills/.system/claude"
+        protected.mkdir(parents=True)
+        self.write(protected / "settings.json", "{}")
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(protected)}):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("protected Codex .system content", err)
+        self.assertEqual((protected / "settings.json").read_text(), "{}")
+        self.assertNotIn("REGISTERED", out)
+
+    def test_a_symlinked_hook_file_in_a_protected_folder_is_not_replaced(self):
+        protected = self.codex / "skills/.system/claude"
+        protected.mkdir(parents=True)
+        outside = self.base / "outside-settings.json"
+        self.write(outside, "{}")
+        (protected / "settings.json").symlink_to(outside)
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(protected)}):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("protected Codex .system content", err)
+        self.assertTrue((protected / "settings.json").is_symlink())
+        self.assertEqual(sorted(path.name for path in protected.iterdir()), ["settings.json"])
+
+    def test_a_backup_that_cannot_be_written_is_removed_and_the_file_kept(self):
+        settings = self.read(self.settings)
+        settings["hooks"]["SessionStart"].pop()
+        self.write(self.settings, json.dumps(settings))
+        before = self.settings.read_text()
+        real = os.fdopen
+
+        def failing(handle, mode="r", *args, **kwargs):
+            stream = real(handle, mode, *args, **kwargs)
+            if mode == "wb":
+                stream.write = mock.Mock(side_effect=OSError("fixture disk full"))
+            return stream
+
+        with mock.patch.object(sync.os, "fdopen", side_effect=failing):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("fixture disk full", err)
+        self.assertEqual(self.backups(self.settings), [])
+        self.assertEqual(self.settings.read_text(), before)
+
+    def test_an_installer_interpreter_with_any_name_recognizes_its_own_entry(self):
+        python = self.base / "bin/interpreter"
+        python.parent.mkdir()
+        python.symlink_to(sys.executable)
+        with mock.patch.object(sync.sys, "executable", str(python)):
+            for _ in range(2):
+                code, out, err = self.invoke("--install-hooks")
+                self.assertEqual(code, 0, out + err)
+        entries = self.read(self.settings)["hooks"]["SessionStart"]
+        self.assertEqual(entries[1:], [context.hooks("claude", str(python), self.root)])
+
+    def test_a_file_changed_by_another_writer_during_installation_is_not_overwritten(self):
+        self.write(self.settings, json.dumps({"model": "before"}))
+        real_chmod = os.chmod
+
+        def concurrent(path, mode, *args, **kwargs):  # the staged file is ready; another writer saves now
+            self.write(self.settings, json.dumps({"model": "other writer"}))
+            return real_chmod(path, mode, *args, **kwargs)
+
+        with mock.patch.object(sync.os, "chmod", side_effect=concurrent):
+            code, out, err = self.invoke("--install-hooks")
+        settings = self.claude.resolve() / "settings.json"
+        self.assertEqual(code, 2, out + err)
+        self.assertIn(f"hook file changed during installation; not written: {settings}", err)
+        self.assertEqual(self.read(self.settings), {"model": "other writer"})
+        self.assertEqual(sorted(p.name for p in self.claude.iterdir() if p.name.startswith(".settings.json.")), [])
+        backups = self.backups(self.settings)
+        self.assertEqual(len(backups), 1)
+        self.assertIn(f"BACKUP: {self.claude.resolve() / backups[0].name} (copy of {settings})", out)
+
+    def test_a_current_entry_followed_by_other_entries_is_not_rewritten(self):
+        settings = self.read(self.settings)
+        settings["hooks"]["SessionStart"].append({"hooks": [self.unrelated]})
+        self.write(self.settings, json.dumps(settings))
+        before = self.settings.read_text()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.settings.read_text(), before)
+        self.assertEqual(self.backups(self.settings), [])
+
+    def test_a_failed_cleanup_reports_the_write_failure_too(self):
+        settings = self.read(self.settings)
+        settings["hooks"]["SessionStart"].pop()
+        self.write(self.settings, json.dumps(settings))
+        real_fdopen = os.fdopen
+
+        def failing(handle, mode="r", *args, **kwargs):
+            stream = real_fdopen(handle, mode, *args, **kwargs)
+            if mode == "wb":
+                stream.write = mock.Mock(side_effect=OSError("fixture disk full"))
+            return stream
+
+        with mock.patch.object(sync.os, "fdopen", side_effect=failing), \
+                mock.patch.object(sync.os, "unlink", side_effect=OSError("fixture unlink denied")):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("fixture disk full", err)
+        self.assertIn("could not be removed either: fixture unlink denied", err)
+
+    def test_a_missing_generator_in_the_selected_checkout_writes_nothing(self):
+        (self.root / "scripts/session_context.py").unlink()
+        before = self.settings.read_text()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn(f"hook generator is missing: {self.root / 'scripts/session_context.py'}", err)
+        self.assertEqual(self.settings.read_text(), before)
+        self.assertIn(f"REPORT: session context hook runs a missing script: {self.settings}", out)
+
+    def test_a_failed_return_to_the_previous_directory_keeps_the_write_error(self):
+        settings = self.read(self.settings)
+        settings["hooks"]["SessionStart"].pop()
+        self.write(self.settings, json.dumps(settings))
+        real_fchdir, calls = os.fchdir, []
+        self.addCleanup(os.chdir, os.getcwd())  # the fixture denies the return to it
+
+        def fchdir(handle):
+            calls.append(handle)
+            if len(calls) == 2:  # the return after the failed write
+                raise OSError("fixture return denied")
+            return real_fchdir(handle)
+
+        with mock.patch.object(sync.os, "fchdir", side_effect=fchdir), \
+                mock.patch.object(sync.os, "replace", side_effect=OSError("fixture replace denied")):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("fixture replace denied; returning to the previous directory also failed: "
+                      "fixture return denied", err)
+
+    def test_a_failed_close_after_a_failed_resolve_keeps_the_resolve_error(self):
+        real_close, real_resolve = os.close, Path.resolve
+        home = self.claude
+
+        def failing_close(handle):
+            real_close(handle)
+            raise OSError("fixture close denied")
+
+        def resolve(path, *args, **kwargs):  # only the Claude home folder fails to resolve
+            if path == home and kwargs.get("strict"):
+                raise OSError("fixture resolve denied")
+            return real_resolve(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "resolve", autospec=True, side_effect=resolve), \
+                mock.patch.object(sync.os, "close", side_effect=failing_close):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("fixture resolve denied; closing hook folders also failed: fixture close denied", err)
+
+    def test_default_run_still_writes_no_hook_file(self):
+        self.settings.unlink()
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertFalse(self.settings.exists())
 
 
 class SyncSourceTests(SyncFixture, unittest.TestCase):
@@ -1224,6 +1604,9 @@ Then read `<HOUSE_RULES_ROOT>/custom/INDEX.md` when it exists. It is this
 computer's local index: installed tools and the operator's local policies,
 such as which model and tool run workers. Its policies apply to every session
 on this computer; repository rules still win where they conflict.
+
+Before sending any reply, check it against `<HOUSE_RULES_ROOT>/rules/writing.md`
+and the operator-writing Skill.
 <!-- house-rules:end -->"""
 
     def test_parent_folder_cleanup_preserves_house_rules_repository_pointer(self):
