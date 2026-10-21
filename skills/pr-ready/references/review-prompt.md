@@ -4,8 +4,9 @@ Fill the angle-bracketed fields; delete lines that do not apply.
 
 ```text
 Review <PR link or branch> in this checkout; diff `git diff <base>...HEAD`.
-<First round: "Review the whole change." | Later round: "Previous review: <path>. Mark
-each of its blocking items RESOLVED or NOT, then look for new issues in <new commit>.">
+<First round: "Review the whole change." | Later round, a check round: "Previous review: <path>.
+Fix base: <last reviewed head>." Prepare it with `prepare.py review --since <last reviewed head>`;
+the check-round rules are prompts/util/check-round.md.>
 Scope: <modules/directories>. Spec: <document and sections>; read the module README.
 Blocking review against the shared reviewer pack, focused on: <the invariants that matter for this
 change, e.g. authorization on every path, crash/replay, bounded cost>.

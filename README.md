@@ -24,15 +24,20 @@ and established project stacks override its defaults.
 Clone the repository to a permanent user-owned directory:
 
 ```sh
-git clone https://github.com/jak-pan/house-rules.git ~/house-rules
+git clone https://github.com/symbiotic-sh/house-rules.git ~/house-rules
 ```
 
 Then give your agent the prompt in [INSTALL-AGENTS.md](INSTALL-AGENTS.md). It preserves existing native
 instructions, adds a pointer to House Rules, and installs the skills in each product's
-supported location. Where the product supports it, a session hook also puts the
-always-load rules and the machine-local index into every session. Models, permissions,
+supported location. Where the product supports it, a session hook
+([scripts/session_context.py](scripts/session_context.py)) also puts the always-load rules
+and the machine-local index into every session. Models, permissions,
 plugins, and MCP connections stay in native settings; external integrations remain owned
 by their products.
+
+To update, run `python3 ~/house-rules/scripts/sync.py`. [scripts/sync.py](scripts/sync.py)
+fast-forwards a clean default-branch checkout. It then reports installation drift in each
+agent home. It changes no agent home itself.
 
 Do not copy the shared base into every project. In managed repositories, `AGENTS.md`
 is the [loader](STRUCTURE.md#managed-repository-loader); `.agents/rules.md` and `CONTEXT.md`
@@ -51,21 +56,43 @@ scope.
 
 ## Verify
 
-CI checks the report linter's JavaScript syntax. This is a
-smoke check, not proof of the linter's behavior or of any agent's discovery. The source
-repository also has local preparer/panel integration tests using temporary Git repositories
-and stub CLIs, plus verdict, Grok final-output and worker/reviewer-pack unit tests, with no
-network or model calls. Run the tests for changed skill scripts before committing:
+CI runs two workflows on every push and pull request. Both install the pinned documentation
+tooling first.
+
+- [Checks](.github/workflows/checks.yml) checks the report linter's JavaScript syntax. It
+  runs the installation sync tests and the transcript extraction tests. It prepares every
+  role and lens as the review service does, and tests that staging check.
+- [Specification documents](.github/workflows/spec-docs.yml) checks the supported runtime
+  and pins. It runs the documentation checker tests and the pr-ready script tests. It
+  checks the complete documentation corpus and audits every declared test selector.
+
+The tests use temporary Git repositories and stub CLIs. They make no network or model calls.
+The linter step is a syntax smoke check, not proof of the linter's behavior.
+
+Run the tests for changed scripts before committing. The first two commands set up the
+pinned tooling once:
 
 ```sh
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s skills/pr-ready/scripts
+python3 -m venv .tmp/spec-docs-env
+.tmp/spec-docs-env/bin/python -m pip install --require-hashes --only-binary=:all: --no-deps -r skills/spec-writing/scripts/requirements.lock
+PYTHONDONTWRITEBYTECODE=1 .tmp/spec-docs-env/bin/python -m unittest discover -s skills/pr-ready/scripts
+PYTHONDONTWRITEBYTECODE=1 .tmp/spec-docs-env/bin/python -m unittest discover -s scripts
+.tmp/spec-docs-env/bin/python -B scripts/check_review_staging.py
+.tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/spec_docs.py check --root .
 bash -n skills/pr-ready/scripts/review-panel.sh
 ```
 
-These tests currently run locally, not in CI. Projects using House Rules keep their own tests.
+Test other changed skill scripts the same way, for example with
+`discover -s skills/spec-writing/scripts`. Projects using House Rules keep their own tests.
 
 Approved changes to House Rules land on `main`; never leave one parked on a side branch and
 report it as done. Commit with the maintainer's GitHub noreply identity and UTC timestamps
 (`TZ=UTC git commit`).
+
+A pull request that changes rule text explains each change in its Rule changes section.
+The merge commit carries that section ([pr-ready](skills/pr-ready/SKILL.md) §4).
+[rules_changelog.py](skills/pr-ready/scripts/rules_changelog.py) prints the rules changelog
+from those merge commits. [CHANGELOG-RULES.md](CHANGELOG-RULES.md) is the frozen archive of
+earlier entries.
 
 Attribution is in [NOTICE.md](NOTICE.md); the license is [MIT](LICENSE).
