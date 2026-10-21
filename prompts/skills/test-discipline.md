@@ -47,6 +47,10 @@ stay green when it does not. Write the tests that do that and no others.
   assert class names, exact markup or copied style values unless they are the contract,
   such as anchor ids or escaping a spec requires. *Check:* breaking what the reader sees
   fails the test; a restyle that keeps it passes.
+- **A dedicated browser, started where it can run:** automated tests, UI checks and screenshots use a
+  dedicated headless browser, such as Chrome for Testing or Playwright's headless shell,
+  never the operator's own browser application or profile. Never start a browser inside a sandbox that stops it
+  from starting. *Check:* the browser path is not an installed desktop browser.
 - **Deterministic and independent:** any order, in parallel, no fixed sleeps; wait on a
   completion signal. Fix a flaky test or quarantine it with an owner and a date; never
   retry it silently. *Check:* the suite passes shuffled and in parallel.
