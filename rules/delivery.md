@@ -61,7 +61,7 @@
 - The one exception: contention is the declared study and resource policy permits it.
 - Before a benchmark or measured performance run starts, check the machine load.
 - When the one-minute load average is above the online core count, do not start the run.
-  Put this first in your next message to the operator, in bold: the run you were about to start, the load, the core count and the heaviest processes with their working directories.
+  Send the operator a message at once that starts with this, in bold: the run you were about to start, the load, the core count and the heaviest processes with their working directories.
   Also send it as a notification when the tool has one.
 - Start the run when the load falls below the core count, or when the operator says to start.
 - Build and test commands do not check the load. The build queue limits them.
