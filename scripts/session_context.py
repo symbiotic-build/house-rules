@@ -90,8 +90,11 @@ def sources(base, failures=None):
     failures = [] if failures is None else failures
     index = base / "INDEX.md"
     names = ["INDEX.md"]
-    if index.is_file():
-        listed = always_load(index.read_text(encoding="utf-8"))
+    # Read the index once: the file list and the printed index come from the same text, so an update
+    # between two reads cannot print an index whose newly listed file was never loaded.
+    index_text = index.read_text(encoding="utf-8") if index.is_file() else None
+    if index_text is not None:
+        listed = always_load(index_text)
         if not listed:
             failures.append("INDEX.md")
             yield "INDEX.md", f"{ERROR} {index} lists no always-load rule files.\n"
@@ -99,7 +102,9 @@ def sources(base, failures=None):
     names += EXTRA_FILES
     for name in names:
         path = base / name
-        if path.is_file():
+        if name == "INDEX.md" and index_text is not None:
+            yield name, index_text
+        elif path.is_file():
             yield name, path.read_text(encoding="utf-8")
         else:
             failures.append(name)
@@ -355,10 +360,14 @@ def hooks(product, python=None, base=None):
 
 def kimi_toml(python=None, base=None):
     """The [[hooks]] table INSTALL-AGENTS.md §3 appends to Kimi's config.toml."""
-    # A JSON string with non-ASCII kept as is is also a valid TOML basic string.
-    return "\n".join("[[hooks]]\n" + "".join(f"{key} = {json.dumps(value, ensure_ascii=False)}\n"
-                                              for key, value in table.items())
+    # A JSON string with non-ASCII kept as is is a valid TOML basic string once DEL, which JSON
+    # leaves literal and TOML rejects, is escaped too.
+    return "\n".join("[[hooks]]\n" + "".join(f"{key} = {toml_string(value)}\n" for key, value in table.items())
                      for table in hooks("kimi", python, base)["hooks"])
+
+
+def toml_string(value):
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f") if isinstance(value, str) else json.dumps(value)
 
 
 def main(argv):

@@ -87,20 +87,6 @@ A replay of the new triager rules on stored reviewer reports kept more known def
 dropped none that the earlier rules kept. Review prompts no longer claim per-lens model
 families or Decisions and Pre-flight sections they do not supply.
 
-## Install — Kimi Code session context
-
-Operator decisions: 2026-10-19, three answers to decision briefs. The first chose a hook that
-prints the rules once per Kimi Code session over writing the full rules into Kimi's
-instruction file, which would go stale between sync runs. Repeating the rules with every
-message had been ruled out before. The second accepted that `kimi -p` prints the
-injected text. Kimi Code runs session-start hooks but passes their output to no model.
-Kimi 2.1.1 also dropped prompt-hook output at compaction; Kimi 2.2.0 keeps the first
-prompt's hook output through compaction, so a second hook that re-sent the rules after
-compaction only added a duplicate copy. The third answer dropped that hook and set Kimi
-2.2.0 as the minimum. INSTALL-AGENTS.md §3 now registers one `UserPromptSubmit` hook that
-prints the rules on the first prompt of each session id. `scripts/sync.py` reports a missing
-or stale Kimi hook as drift.
-
 ## skills/pr-ready — Structured review layout
 
 Operator-approved task: 2026-10-17. Structured reviews put shared context first and lens
