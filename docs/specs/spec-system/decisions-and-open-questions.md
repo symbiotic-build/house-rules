@@ -56,6 +56,18 @@ The following records preserve the decisions that determine source authority, ch
 
 **Rejected alternatives:** Optional registry inclusion, recursive traversal of ordinary home links and truncated source bodies break completeness or selection boundaries. Changing an old pack’s baseline without rebuilding it cannot establish that its dependencies still match the new snapshot; regenerate the pack instead. Persistent mirrors and approval hashes duplicate existing authority.
 
+<a id="check-round-decision"></a>
+### Decision: check rounds take no documentation input
+
+
+**Choice:** A check round (`prepare.py review --since <commit>`) reviews only the fix since the last reviewed commit. Its input is the fix diff, the pull request description, human comments, the latest triager report and the reviewer's own previous report. It prepares no documentation context and ignores an explicit `--assignment`, so it needs neither selector validation nor the shared checker. Reviewers read registered documents in the checkout; changed documents are in the fix diff.
+
+**Authority:** Operator decision on check-round input, dated 2026-10-20, after a measured comparison of check-round inputs. [Pull request #164](https://github.com/symbiotic-sh/house-rules/pull/164), which implemented check rounds, records the decision's provenance and that comparison.
+
+**Reason:** A check round confirms that a fix resolves earlier findings. The full round already reviewed the documentation with its mandatory context, and resending that context made each check round cost as much as a full review.
+
+**Rejected alternatives:** Selecting documentation for every check round keeps validation but resends unchanged context and requires the checker on every service. Validating an assignment that preparation then ignores refuses rounds over input no reviewer receives.
+
 <a id="writing-decision"></a>
 ### Decision: explicit advisory prose targets
 

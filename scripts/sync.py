@@ -330,9 +330,9 @@ PYTHON = re.compile(r"python([0-9]+(\.[0-9]+)*t?)?(\.exe)?")
 def owner(handler, scripts, replaced=frozenset(), python=None):
     """ "ours", "replaced" or None for one hook handler; nothing is inferred from a command's shape.
 
-    Ours: exactly the form session_context.hooks() prints, <python> -I <script> claude <n> or
-    <python> -I <script> codex, with one of our scripts and a Python interpreter (the installer's
-    own file, or a program named python, python3, python3.14t ...). Replaced: a command a receipt
+    Ours: exactly a form session_context.hooks() prints, <python> -I <script> followed by
+    `claude <n>`, `codex`, `approved` or `approved codex`, with one of our scripts and a Python
+    interpreter (the installer's own file, or a program named python, python3, python3.14t ...). Replaced: a command a receipt
     lists verbatim under replaced_hooks.
     """
     command = handler.get("command") if isinstance(handler, dict) else None
@@ -345,7 +345,8 @@ def owner(handler, scripts, replaced=frozenset(), python=None):
     except ValueError:
         return None
     if len(tokens) not in (4, 5) or tokens[1] != "-I" or tokens[2] not in scripts or not (
-            tokens[3:] == ["codex"] or (tokens[3] == "claude" and len(tokens) == 5 and tokens[4].isdigit())):
+            tokens[3:] in (["codex"], ["approved"], ["approved", "codex"]) or
+            (tokens[3] == "claude" and len(tokens) == 5 and tokens[4].isdigit())):
         return None
     interpreter = tokens[0]
     if PYTHON.fullmatch(Path(interpreter).name) or same_file(interpreter, python or sys.executable):

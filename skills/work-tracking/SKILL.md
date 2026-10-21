@@ -49,6 +49,16 @@ updates itself; agents load it as its own Skill and MCP server, not as part of H
   assigned to your login whose latest claim names another agent is taken.
 - Priority ([priority labels](../../rules/priority-labels.md)) is a `P0`–`P3` label; dependencies are the host's
   blocked-by links.
+- **Approved for later:** work the operator approved that waits on another step or another session
+  carries the label `approved` and an `Owner:` line in its body naming the owning session or agent and its
+  next action or awaited event. It is one issue per approved deliverable or plan step, not per answer;
+  answers are decisions and go where they apply. The issue closes when the work is done.
+- **Listing approved work:** `custom/approved-work.conf` in the House Rules checkout (machine-local) holds one
+  GitHub owner (`example-org`) or `owner/repo` per line; `#` starts a comment. Without the file nothing is
+  listed. Where the session-start hook runs (Claude Code, Codex), it prints the open `approved` items at every
+  start and after every compaction. Elsewhere, run `python3 scripts/session_context.py approved` from the
+  House Rules checkout at session start and after each compaction. The list is a reminder of at most 3 000
+  characters; when items may be left out, it ends with one notice.
 
 ## The Git record
 

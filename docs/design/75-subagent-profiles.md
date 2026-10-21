@@ -1,6 +1,6 @@
 # Subagent profiles: general worker and specialist
 
-Status: revised design proposal; operator choices and lead decisions recorded on 2026-10-07; implementation not qualified.
+Status: partly implemented; operator choices and lead decisions recorded on 2026-10-07. Role prompts ([#91](https://github.com/symbiotic-sh/house-rules/pull/91)) and packs compiled from a named House Rules commit ([#96](https://github.com/symbiotic-sh/house-rules/pull/96)) exist. The specialist launcher, specialist-home verification and profile dispatch guidance do not exist.
 
 Issue: [#75](https://github.com/symbiotic-sh/house-rules/issues/75).
 

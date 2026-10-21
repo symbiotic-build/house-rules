@@ -2,6 +2,27 @@
 
 Source notes for House Rules invariants and procedures.
 
+This file is a frozen archive. New provenance lives in each rule pull request's Rule changes
+section, which its merge commit carries; `skills/pr-ready/scripts/rules_changelog.py` prints the
+changelog built from those merge commits.
+
+## skills/bench-discipline — Reuse baseline runs instead of rerunning them
+
+Operator direction: 2026-10-19, after an agent tuning review prompts proposed rerunning the baseline in each test round
+to measure run-to-run spread, although the baseline's earlier runs were available and the operator had asked for an
+efficient check rather than a precise comparison. The operator asked for a rule: evaluations and tuning of agent or
+model behavior use the baseline's existing runs, add a replicate only when the decision turns on a difference within
+the spread already seen, and compare which items each arm gets right. Measured performance runs are excluded.
+
+## prompts/util/review-bar.md — Rule-change dispositions belong to one reviewer
+
+Operator decision: 2026-10-20. Every reviewer had to give each rule-change item a disposition,
+so a review panel wrote the same table once per reviewer in every round. Only the
+rule-preservation reviewer now writes the dispositions; other reviewers report a rule
+regression they find during their own review. The rule-preservation reviewer now joins
+whenever the rule report is non-empty, including additions, rewrapped text and provenance
+entries, so no item loses its audit.
+
 ## skills/decision-brief, skills/operator-writing — One home for the operator-question format
 
 Operator confirmation: 2026-10-19, answer "1. 1" to the question "Approve the single home
@@ -50,6 +71,26 @@ Operator direction: 2026-10-19, after the hook PR: the installer should register
 itself and clear older registrations. `scripts/sync.py` had been check-only since its
 first version. It now writes hook files, and only them, when run with `--install-hooks`;
 the default run still writes nothing.
+
+## prompts and skills/pr-ready — Tuned first-round review prompts
+
+Operator-approved prompts: 2026-10-19 ("leave it at the best one, slight tune, go with it
+to unblock"). A tuning experiment replayed earlier first review rounds with six candidate
+prompt sets and scored each blind against defects that later rounds found; the operator
+chose the sixth candidate. Targeted lenses follow one required review procedure with a
+coverage ledger and per-lens inventories, and no longer refrain from defects outside their
+lens. A generic one-pass reviewer adds breadth without commands. The triager collects
+defects written only in coverage notes, classifies severity itself, judges over-claiming
+documents and test-discipline breaks by their consequence, and judges rare triggers by
+reachability instead of rejecting them. It also merges one defect reported from different
+angles into one item, a fix found in the chosen candidate's run. The structured change
+shows each changed text file up to 85 000 characters whole as a numbered full-context diff;
+moved-block references are dropped because each moved block now shows in place. The waste
+lens judges a large changed file by its separable responsibilities; size thresholds stay
+open.
+A replay of the new triager rules on stored reviewer reports kept more known defects and
+dropped none that the earlier rules kept. Review prompts no longer claim per-lens model
+families or Decisions and Pre-flight sections they do not supply.
 
 ## skills/pr-ready — Structured review layout
 

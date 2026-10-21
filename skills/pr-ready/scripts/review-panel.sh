@@ -138,6 +138,7 @@ import subprocess
 out, repo, rev, checkout, review_rev, session, assignment, resolved_base, summary, *members = sys.argv[1:]
 sys.path.insert(0, out)
 from compiler import Commit, PromptError, append_tasks, build_pack, publish, review_plan
+import preparer
 from preparer import main as prepare_main
 
 members = list(zip(members[::3], members[1::3], members[2::3]))
@@ -196,6 +197,11 @@ for reviewer, family, cli in members:
         if prepared[family] is None:
             raise PromptError("family context preparation failed; see the family's first reviewer diagnostics")
         task, family_diagnostics = prepared[family]
+        # A pinned preparer older than the structured-only lenses has none of them.
+        if (reviewer in getattr(preparer, "STRUCTURED_ONLY", ())
+                and not preparer.shows_structured_change(task.read_text(encoding="utf-8"), cli)):
+            raise PromptError(reviewer + " runs no commands and needs the structured change part; "
+                              "this family's context shows hunk headers only")
         if family_diagnostics != diagnostics_path:
             diagnostics_path.write_bytes(family_diagnostics.read_bytes())
         pack, manifest = append_tasks(pack, manifest, [(task, "review-panel-" + reviewer)])

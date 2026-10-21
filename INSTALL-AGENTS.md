@@ -196,7 +196,8 @@ For each selected product and configuration home:
 
     For each hook file it removes every earlier House Rules entry, adds the current one and
     keeps every other entry and setting. An earlier entry is a handler in exactly the form the
-    installer prints, `<python> -I <root>/scripts/session_context.py claude <n>` or `codex`,
+    installer prints, `<python> -I <root>/scripts/session_context.py` followed by `claude <n>`,
+    `codex`, `approved` or `approved codex`,
     for the current or a previous root, or a command a receipt lists verbatim under
     `replaced_hooks`, such as an older hand-made context hook. Nothing else is inferred from a
     command, so list every command of an older hook in the receipt before installing. The installer backs up a
@@ -307,7 +308,8 @@ Filesystem verification:
 
 Tools:
 
-- The rules and Skills need no runtime. Only the optional report linter
+- The rules and Skills are plain files. The session-start hook (`scripts/session_context.py`)
+  and `scripts/sync.py` need Python 3.9 or later. Only the optional report linter
   (`skills/audit-report-authoring/scripts/lint-report-set.mjs`) needs Node.js 22 or later;
   check for it only when that Skill is used, and do not install it silently.
 - Work tracking uses the Git host's CLI (skill `work-tracking`); on GitHub, `gh` with the
