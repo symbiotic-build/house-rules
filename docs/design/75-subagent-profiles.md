@@ -1,8 +1,8 @@
 # Subagent profiles: general worker and specialist
 
-Status: partly implemented; operator choices and lead decisions recorded on 2026-10-07. Role prompts ([#91](https://github.com/symbiotic-sh/house-rules/pull/91)) and packs compiled from a named House Rules commit ([#96](https://github.com/symbiotic-sh/house-rules/pull/96)) exist. The specialist launcher, specialist-home verification and profile dispatch guidance do not exist.
+Status: partly implemented; operator choices and lead decisions recorded on 2026-10-07. Role prompts ([#91](https://github.com/symbiotic-build/house-rules/pull/91)) and packs compiled from a named House Rules commit ([#96](https://github.com/symbiotic-build/house-rules/pull/96)) exist. The specialist launcher, specialist-home verification and profile dispatch guidance do not exist.
 
-Issue: [#75](https://github.com/symbiotic-sh/house-rules/issues/75).
+Issue: [#75](https://github.com/symbiotic-build/house-rules/issues/75).
 
 ## 1. Result
 
@@ -16,8 +16,8 @@ Host permission controls and built-in tool instructions still apply to both prof
 Every Claude specialist runs as a separate `claude -p --safe-mode` process.
 A Claude specialist that needs a skill receives the skill text in its pack.
 
-The shared-rule organization belongs to the [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74).
-The compiler contract belongs to the [prompt-building design (#77)](https://github.com/symbiotic-sh/house-rules/issues/77).
+The shared-rule organization belongs to the [role-pack design (#74)](https://github.com/symbiotic-build/house-rules/issues/74).
+The compiler contract belongs to the [prompt-building design (#77)](https://github.com/symbiotic-build/house-rules/issues/77).
 This design adds dispatch guidance, a specialist launcher and specialist-home verification.
 
 ## 2. Terms
@@ -32,7 +32,7 @@ This design adds dispatch guidance, a specialist launcher and specialist-home ve
 - **Manifest:** the compiler's JSON record of the House Rules revision, included files and blob identifiers, and the pack's SHA-256 hash.
 - **Specialist home:** a Codex or Kimi configuration home that loads no additional global task instructions, project instructions or discovered skills.
 - **Launcher:** the proposed specialist launcher in the agent-lanes scripts directory.
-- **Foundation:** the normal session instructions defined by the [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73).
+- **Foundation:** the normal session instructions defined by the [smaller-core design (#73)](https://github.com/symbiotic-build/house-rules/issues/73).
 
 File paths beginning with `<HOUSE_RULES_ROOT>` name the House Rules checkout.
 File paths beginning with `<checkout>` name the target repository.
@@ -42,7 +42,7 @@ Repository-relative links below name files from the House Rules root.
 ## 3. Current behavior and evidence limits
 
 `FACT` [INSTALL-AGENTS.md](../../INSTALL-AGENTS.md) at commit `3b043816284e223ba83d2cb4e60238a646500f84`, lines 105–129, tells sessions to read `<HOUSE_RULES_ROOT>/AGENTS.md` at start and after compaction.
-The index becomes `<HOUSE_RULES_ROOT>/INDEX.md` under the [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73).
+The index becomes `<HOUSE_RULES_ROOT>/INDEX.md` under the [smaller-core design (#73)](https://github.com/symbiotic-build/house-rules/issues/73).
 The House Rules repository pointer becomes `<HOUSE_RULES_ROOT>/AGENTS.md` pointing to that index and `<HOUSE_RULES_ROOT>/.agents/rules.md`.
 
 `FACT` [skills/pr-ready/scripts/review-panel.sh](../../skills/pr-ready/scripts/review-panel.sh) at commit `3b043816284e223ba83d2cb4e60238a646500f84`, lines 91–107 and 142, prepares reviewer prompts and starts Codex and Kimi without a specialist home.
@@ -88,7 +88,7 @@ The dispatcher must not describe the entire lane worker session as pinned to tha
 
 In-process subagents remain general workers.
 A dispatcher sends a job requiring isolated task rules to the specialist launcher.
-Every Claude specialist uses a separate safe-mode process, including a specialist review dispatched through the [change-review design (#76)](https://github.com/symbiotic-sh/house-rules/issues/76).
+Every Claude specialist uses a separate safe-mode process, including a specialist review dispatched through the [change-review design (#76)](https://github.com/symbiotic-build/house-rules/issues/76).
 
 ### 4.2 Dispatch guidance in the agent-lanes skill
 
@@ -113,8 +113,8 @@ Lane workers receive a role prompt compiled with shared-rule includes omitted.
 The proposed compiler option is `--session-rules-loaded`.
 The option tells the compiler that the receiving agent loads the shared rules through its normal House Rules instructions.
 Specialist packs and Warden reviewer prompts retain shared-rule includes.
-The [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74) owns the shared-rule includes and role text.
-The [prompt-building design (#77)](https://github.com/symbiotic-sh/house-rules/issues/77) owns the compiler option.
+The [role-pack design (#74)](https://github.com/symbiotic-build/house-rules/issues/74) owns the shared-rule includes and role text.
+The [prompt-building design (#77)](https://github.com/symbiotic-build/house-rules/issues/77) owns the compiler option.
 
 The dispatcher writes a specialist task file before compiling.
 The task file contains objective, acceptance, scope, authority, output, and the work item's Decisions and Pre-flight sections.
@@ -127,11 +127,11 @@ The proposed agent-lanes description adds “subagent profiles” to its existin
 
 The dispatcher compiles the pack.
 The specialist never compiles its own pack or follows House Rules source links to load more rules.
-The [prompt-building design (#77)](https://github.com/symbiotic-sh/house-rules/issues/77) owns part order and manifest fields.
+The [prompt-building design (#77)](https://github.com/symbiotic-build/house-rules/issues/77) owns part order and manifest fields.
 The specialist launcher requires the header `House Rules revision: <40-hex commit id>` and the manifest fields `house_rules_revision`, `files` and `pack.sha256`.
 
 The role prompt includes the shared writing, Git and priority-label rules from `rules/`.
-The [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74) owns those files and their `@rule house-rules:rules/<file>.md` includes.
+The [role-pack design (#74)](https://github.com/symbiotic-build/house-rules/issues/74) owns those files and their `@rule house-rules:rules/<file>.md` includes.
 No verbatim shared-rule copies remain under `prompts/util/`.
 Session-only rules about operator conversation, question presentation and running lanes are not included through role prompts.
 A specialist that needs a skill receives its text through the compiled pack.
@@ -139,7 +139,7 @@ Skill text comes from the same named House Rules commit as the role prompt.
 The compiler must report a skill-text dependency that cannot be included; the compiler must not silently omit required text.
 
 The compiler reads repository rules from `<checkout>/.agents/rules.md` or a non-loader `<checkout>/AGENTS.md`.
-The compiler excludes the managed pointer in `<checkout>/AGENTS.md` defined by the [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73).
+The compiler excludes the managed pointer in `<checkout>/AGENTS.md` defined by the [smaller-core design (#73)](https://github.com/symbiotic-build/house-rules/issues/73).
 The dispatcher copies no repository rules by hand.
 The task file supplies the work item's Decisions and Pre-flight sections.
 A dispatcher without a target repository uses `--no-target`.
@@ -241,7 +241,7 @@ The proposed installation instructions require:
 4. Registration in the machine-local `<HOUSE_RULES_ROOT>/custom/sync.env` through `SPECIALIST_CODEX_HOME` or `SPECIALIST_KIMI_CODE_HOME`, never through the normal-home keys.
 5. A Codex prompt-input check showing no additional global task instructions, project instructions or discovered skills from any source.
 
-The disabled skill list includes `change-review` after the [review-skill design (#76)](https://github.com/symbiotic-sh/house-rules/issues/76) lands.
+The disabled skill list includes `change-review` after the [review-skill design (#76)](https://github.com/symbiotic-build/house-rules/issues/76) lands.
 The proposed change makes [scripts/sync.py](../../scripts/sync.py) parse the specialist keys.
 The proposed synchronization check rejects a home registered as both specialist and normal.
 The proposed synchronization check reports all additional global task instructions, enabled discoverable skills from any source, and nonzero Codex project instruction limits.
@@ -251,11 +251,11 @@ Both synchronization checks and launcher checks report a missing disable entry.
 
 ### 4.7 Lane panels and Warden
 
-The [prompt-building design (#77)](https://github.com/symbiotic-sh/house-rules/issues/77) owns building lane review-panel prompts from named commits and testing the lane runner before drafting the matching Warden change with operator approval.
+The [prompt-building design (#77)](https://github.com/symbiotic-build/house-rules/issues/77) owns building lane review-panel prompts from named commits and testing the lane runner before drafting the matching Warden change with operator approval.
 Lane reviewers remain normal sessions with a role prompt on top.
 This design does not switch lane reviewers to specialist homes or the specialist launcher.
 
-The [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74) owns Warden shared-rule includes and staging `rules/`.
+The [role-pack design (#74)](https://github.com/symbiotic-build/house-rules/issues/74) owns Warden shared-rule includes and staging `rules/`.
 Warden reviewers retain a read-only PR copy, model-provider-only network access and no builds or tests.
 Continuous integration runs builds and tests.
 Warden posts its review on GitHub.
@@ -265,7 +265,7 @@ The specialist launcher does not change Warden's runtime boundary.
 ### 4.8 Skill identification
 
 The agent-lanes guidance tells dispatchers to select skills from descriptions before loading bodies.
-The [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73) owns normal-session loading and the shared skill-identification instruction.
+The [smaller-core design (#73)](https://github.com/symbiotic-build/house-rules/issues/73) owns normal-session loading and the shared skill-identification instruction.
 This design does not copy the foundation into specialist packs.
 Required specialist skill text is explicitly included through section 4.3.
 
@@ -345,7 +345,7 @@ The prompt-building design owns tests for shared-rule omission and Git-object-on
 
 ## 8. Rollout and pins
 
-The dependency order remains the [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74), [prompt-building design (#77)](https://github.com/symbiotic-sh/house-rules/issues/77), [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73), [change-review design (#76)](https://github.com/symbiotic-sh/house-rules/issues/76), then this design.
+The dependency order remains the [role-pack design (#74)](https://github.com/symbiotic-build/house-rules/issues/74), [prompt-building design (#77)](https://github.com/symbiotic-build/house-rules/issues/77), [smaller-core design (#73)](https://github.com/symbiotic-build/house-rules/issues/73), [change-review design (#76)](https://github.com/symbiotic-build/house-rules/issues/76), then this design.
 The specialist launcher qualifies after its compiler inputs and normal-session loading are available.
 Installation follows the specialist-home instructions once per machine that needs Codex or Kimi specialists.
 Claude specialists need no separate home.
@@ -359,10 +359,10 @@ The specialist launcher is local and does not require Warden to stage agent-lane
 
 ## 9. Interfaces with the other designs
 
-- **Smaller core (#73).** The [smaller-core design](https://github.com/symbiotic-sh/house-rules/issues/73) owns `<HOUSE_RULES_ROOT>/INDEX.md`, the pointer shape in `<HOUSE_RULES_ROOT>/AGENTS.md` and `<checkout>/AGENTS.md`, normal-session loading and tool-specific installation details.
-- **Role packs (#74).** The [role-pack design](https://github.com/symbiotic-sh/house-rules/issues/74) owns shared writing, Git and priority-label files in `rules/`, role includes and Warden staging.
-- **Review skill (#76).** The [change-review design](https://github.com/symbiotic-sh/house-rules/issues/76) owns the `change-review` name, the fixed review format, one reviewer for plain chat requests and panels only when requested.
-- **Prompt building (#77).** The [prompt-building design](https://github.com/symbiotic-sh/house-rules/issues/77) owns named-commit Git-object reads, pack order, manifests, repository-rule extraction, lane panel building and the approved Warden sequencing.
+- **Smaller core (#73).** The [smaller-core design](https://github.com/symbiotic-build/house-rules/issues/73) owns `<HOUSE_RULES_ROOT>/INDEX.md`, the pointer shape in `<HOUSE_RULES_ROOT>/AGENTS.md` and `<checkout>/AGENTS.md`, normal-session loading and tool-specific installation details.
+- **Role packs (#74).** The [role-pack design](https://github.com/symbiotic-build/house-rules/issues/74) owns shared writing, Git and priority-label files in `rules/`, role includes and Warden staging.
+- **Review skill (#76).** The [change-review design](https://github.com/symbiotic-build/house-rules/issues/76) owns the `change-review` name, the fixed review format, one reviewer for plain chat requests and panels only when requested.
+- **Prompt building (#77).** The [prompt-building design](https://github.com/symbiotic-build/house-rules/issues/77) owns named-commit Git-object reads, pack order, manifests, repository-rule extraction, lane panel building and the approved Warden sequencing.
 
 ## 10. Decisions
 
@@ -373,10 +373,10 @@ The numbered design links identify the owner of choices shared with another desi
 1. `DECISION` **2026-10-07 — Claude specialist process.** The operator chose a separate `claude -p --safe-mode` process for every Claude specialist.
 2. `DECISION` **2026-10-07 — Claude specialist skills.** The operator chose skill text in the prompt when a Claude specialist needs a skill, because the recorded safe-mode probe did not load skills even through `--plugin-dir`.
 3. `DECISION` **2026-10-07 — Claude specialist MCP qualification.** The operator required a test of explicit MCP servers through `--mcp-config` in safe mode and a fallback for an unsuccessful test.
-4. `DECISION` **2026-10-07 — Lane workers.** The operator chose normal Codex sessions with House Rules, skills and guardian escalation for implementers, fixers and lane reviewers; the [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74) owns how shared-rule includes are omitted for those sessions.
-5. `DECISION` **2026-10-07 — Shared rules.** The operator chose one home for writing, Git and priority-label rules in `rules/`; the [role-pack design (#74)](https://github.com/symbiotic-sh/house-rules/issues/74) owns that change.
-6. `DECISION` **2026-10-07 — Named prompt revision.** The operator chose prompt building from a named commit's Git objects in any clone; the [prompt-building design (#77)](https://github.com/symbiotic-sh/house-rules/issues/77) owns that change.
-7. `DECISION` **2026-10-07 — House Rules index.** The operator chose `<HOUSE_RULES_ROOT>/INDEX.md` as the index and the same pointer shape for global, managed-repository and House Rules instruction files; the [smaller-core design (#73)](https://github.com/symbiotic-sh/house-rules/issues/73) owns that change.
+4. `DECISION` **2026-10-07 — Lane workers.** The operator chose normal Codex sessions with House Rules, skills and guardian escalation for implementers, fixers and lane reviewers; the [role-pack design (#74)](https://github.com/symbiotic-build/house-rules/issues/74) owns how shared-rule includes are omitted for those sessions.
+5. `DECISION` **2026-10-07 — Shared rules.** The operator chose one home for writing, Git and priority-label rules in `rules/`; the [role-pack design (#74)](https://github.com/symbiotic-build/house-rules/issues/74) owns that change.
+6. `DECISION` **2026-10-07 — Named prompt revision.** The operator chose prompt building from a named commit's Git objects in any clone; the [prompt-building design (#77)](https://github.com/symbiotic-build/house-rules/issues/77) owns that change.
+7. `DECISION` **2026-10-07 — House Rules index.** The operator chose `<HOUSE_RULES_ROOT>/INDEX.md` as the index and the same pointer shape for global, managed-repository and House Rules instruction files; the [smaller-core design (#73)](https://github.com/symbiotic-build/house-rules/issues/73) owns that change.
 8. `DECISION` **2026-10-07 — Lead decision: capacity retries.** The lead chose reuse of the unchanged pack and manifest after a provider-capacity failure when the existing launch checks pass and the pack hash matches. The caller recompiles only when a compilation input changed.
 9. `DECISION` **2026-10-07 — Lead decision: read-only authority.** The lead required enforced write prevention through host filesystem permissions or the tool's own read-only sandbox. A launch that can only state the restriction in its prompt, including Kimi today, is refused for read-only roles. Qualification for every tool includes a write that the configuration would otherwise already permit. Claude safe mode stays required.
 

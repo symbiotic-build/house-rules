@@ -39,7 +39,7 @@ Without the text, the cause stays a guess between a missing permission and a wro
 
 ## House Rules
 
-### 3\. Merge [#52](https://github.com/jak-pan/house-rules/pull/52), the writing-rules PR?
+### 3\. Merge [#52](https://github.com/symbiotic-build/house-rules/pull/52), the writing-rules PR?
 `FACT` An earlier cleanup removed several writing rules without an operator decision; it puts them back. `FACT` It changes only the operator-writing skill and the rules changelog.\
 Agents on this machine use the rules from their next session; Warden and the lanes get them only after their House Rules pins move.
 

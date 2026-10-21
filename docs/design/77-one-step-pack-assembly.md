@@ -1,8 +1,8 @@
-Status: operator choices recorded on 2026-10-07; implemented in [#96](https://github.com/symbiotic-sh/house-rules/pull/96).
+Status: operator choices recorded on 2026-10-07; implemented in [#96](https://github.com/symbiotic-build/house-rules/pull/96).
 
 # One-step pack assembly from a named commit
 
-Issue: [#77](https://github.com/symbiotic-sh/house-rules/issues/77).
+Issue: [#77](https://github.com/symbiotic-build/house-rules/issues/77).
 
 ## Result
 
@@ -22,25 +22,25 @@ Lane workers run as normal Codex sessions in the operator's Codex home. Lane ses
 - **Target:** the repository checkout on which a worker works or performs a review.
 - **Loader:** the target's pointer file, which directs a session to the House Rules index and the target's own rules.
 
-House Rules file paths in this document are complete repository-relative paths. A target file has the `<target>/` prefix. The House Rules pointer is `house-rules/AGENTS.md`; the renamed House Rules index is `house-rules/INDEX.md`. Installed pointers use `<codex-home>/AGENTS.md` or `<repository>/AGENTS.md`. The pointer format and index rename belong to the [smaller-core design, issue #73](https://github.com/symbiotic-sh/house-rules/issues/73).
+House Rules file paths in this document are complete repository-relative paths. A target file has the `<target>/` prefix. The House Rules pointer is `house-rules/AGENTS.md`; the renamed House Rules index is `house-rules/INDEX.md`. Installed pointers use `<codex-home>/AGENTS.md` or `<repository>/AGENTS.md`. The pointer format and index rename belong to the [smaller-core design, issue #73](https://github.com/symbiotic-build/house-rules/issues/73).
 
 ## Pre-flight
 
 The dispatcher supplies the work item's Decisions and Pre-flight sections in the task file. Implementation reads those sections before changing code. Implementation also reads the target repository rules supplied in the pack.
 
-The [role-pack design, issue #74](https://github.com/symbiotic-sh/house-rules/issues/74), owns shared-rule placement and worker instructions. The smaller-core design owns the loader template and index rename. Those designs own pointer text. This compiler includes target rule files unchanged and does not classify their pointer text (lead decision L6).
+The [role-pack design, issue #74](https://github.com/symbiotic-build/house-rules/issues/74), owns shared-rule placement and worker instructions. The smaller-core design owns the loader template and index rename. Those designs own pointer text. This compiler includes target rule files unchanged and does not classify their pointer text (lead decision L6).
 
 ## Current behavior and evidence
 
-- `FACT` The compiler at commit `9e1815917a4052e030b603350b27b855e6489e67` reads included files from disk, as verified in this run with `git show 9e18159:skills/pr-ready/scripts/prompt.py` ([skills/pr-ready/scripts/prompt.py, lines 37–39](https://github.com/symbiotic-sh/house-rules/blob/9e1815917a4052e030b603350b27b855e6489e67/skills/pr-ready/scripts/prompt.py#L37-L39)).
-- `FACT` The compiler at commit `9e1815917a4052e030b603350b27b855e6489e67` expands repeated includes, as verified in this run by its `visit()` implementation ([skills/pr-ready/scripts/prompt.py, lines 16–39](https://github.com/symbiotic-sh/house-rules/blob/9e1815917a4052e030b603350b27b855e6489e67/skills/pr-ready/scripts/prompt.py#L16-L39)).
-- `FACT` The compiler at commit `9e1815917a4052e030b603350b27b855e6489e67` accepts a file or standard input and writes expanded text, as verified in this run by its `main()` implementation ([skills/pr-ready/scripts/prompt.py, lines 55–68](https://github.com/symbiotic-sh/house-rules/blob/9e1815917a4052e030b603350b27b855e6489e67/skills/pr-ready/scripts/prompt.py#L55-L68)).
+- `FACT` The compiler at commit `9e1815917a4052e030b603350b27b855e6489e67` reads included files from disk, as verified in this run with `git show 9e18159:skills/pr-ready/scripts/prompt.py` ([skills/pr-ready/scripts/prompt.py, lines 37–39](https://github.com/symbiotic-build/house-rules/blob/9e1815917a4052e030b603350b27b855e6489e67/skills/pr-ready/scripts/prompt.py#L37-L39)).
+- `FACT` The compiler at commit `9e1815917a4052e030b603350b27b855e6489e67` expands repeated includes, as verified in this run by its `visit()` implementation ([skills/pr-ready/scripts/prompt.py, lines 16–39](https://github.com/symbiotic-build/house-rules/blob/9e1815917a4052e030b603350b27b855e6489e67/skills/pr-ready/scripts/prompt.py#L16-L39)).
+- `FACT` The compiler at commit `9e1815917a4052e030b603350b27b855e6489e67` accepts a file or standard input and writes expanded text, as verified in this run by its `main()` implementation ([skills/pr-ready/scripts/prompt.py, lines 55–68](https://github.com/symbiotic-build/house-rules/blob/9e1815917a4052e030b603350b27b855e6489e67/skills/pr-ready/scripts/prompt.py#L55-L68)).
 
-`ASSUMPTION` The [docs/design/77-one-step-pack-assembly.md at commit 38f7eba761ee31f4e73da20d2a42f185321b4567](https://github.com/symbiotic-sh/house-rules/blob/38f7eba761ee31f4e73da20d2a42f185321b4567/docs/design/77-one-step-pack-assembly.md#current-behavior) reports that the lane runner assembled prompts through separate compiler calls and concatenation. That account was not reverified against lane scripts in this run. The design replaces piecewise assembly with one recorded pack.
+`ASSUMPTION` The [docs/design/77-one-step-pack-assembly.md at commit 38f7eba761ee31f4e73da20d2a42f185321b4567](https://github.com/symbiotic-build/house-rules/blob/38f7eba761ee31f4e73da20d2a42f185321b4567/docs/design/77-one-step-pack-assembly.md#current-behavior) reports that the lane runner assembled prompts through separate compiler calls and concatenation. That account was not reverified against lane scripts in this run. The design replaces piecewise assembly with one recorded pack.
 
 `DECISION` The operator's 2026-10-07 record says that lane workers use normal sessions instead of an isolated worker home. The role-pack design owns that session setup. The earlier isolated-home test is not the acceptance model for this design.
 
-`ASSUMPTION` The operator's 2026-10-07 record reports that Warden added staging for `rules/` in commit `9f1568b` for [Warden issue #238](https://github.com/symbiotic-sh/warden/issues/238). Warden deployment was not checked in this run. This design does not assume that Warden stages only `prompts/` and `skills/pr-ready/`.
+`ASSUMPTION` The operator's 2026-10-07 record reports that Warden added staging for `rules/` in commit `9f1568b` for [Warden issue #238](https://github.com/symbiotic-build/warden/issues/238). Warden deployment was not checked in this run. This design does not assume that Warden stages only `prompts/` and `skills/pr-ready/`.
 
 ## Design
 
@@ -73,7 +73,7 @@ skills/pr-ready/scripts/prompt.py --rev COMMIT [--repo DIR] [--list]
 - `--role NAME` selects `prompts/roles/NAME.md`. `--lens NAME` selects `prompts/lenses/NAME.md`. Each name must match `[a-z0-9-]+`.
 - `--include PATH` adds a House Rules repository-relative file. Repeated options retain command-line order.
 - `--task FILE` adds local task text without expanding it. Repeated options retain command-line order.
-- `--task-source NAME` gives the immediately preceding `--task` a logical source identifier, such as `symbiotic-sh/house-rules#77` or a caller-chosen name. It defaults to `inline`. It requires an immediately preceding `--task` and must never contain a machine path (lead decision L1).
+- `--task-source NAME` gives the immediately preceding `--task` a logical source identifier, such as `symbiotic-build/house-rules#77` or a caller-chosen name. It defaults to `inline`. It requires an immediately preceding `--task` and must never contain a machine path (lead decision L1).
 - `--target DIR` selects a target Git checkout. `--target-rev COMMIT` selects its rules revision, defaulting to its `HEAD`. `--no-target` declares that the pack has no target. Pack mode requires exactly one target choice.
 - `--session` omits includes whose House Rules repository-relative paths are under `rules/`. The dispatcher uses this option only for workers whose normal sessions already load the shared rules. The manifest records each omitted path. Warden and specialists without the foundation receive shared-rule includes by default.
 - `--out DIR` publishes `pack.txt` and `manifest.json` together in a new directory. It requires pack mode and the destination must not exist. Without `--out`, pack bytes go to standard output. `--manifest FILE` optionally writes the manifest in standard-output mode and requires `--rev`. The two output options are mutually exclusive.
@@ -81,7 +81,7 @@ skills/pr-ready/scripts/prompt.py --rev COMMIT [--repo DIR] [--list]
 - A failure returns exit 2 and one standard-error line. A compilation failure writes no output. In file-output mode, the compiler writes the complete pack and manifest into one temporary sibling directory on the destination filesystem, then publishes them with one directory rename. A failed write or rename publishes neither file. Standard-output mode is best effort: a failed output write exits nonzero, and the caller discards all output, including any manifest, from a nonzero run (lead decision L3).
 - The compiler uses only the Python standard library. The compiler supports Python 3.9 through `/usr/bin/python3`.
 
-The shared-rule option is the proposed way for one role file to serve normal lane sessions and Warden reviewers. The [role-pack design, issue #74](https://github.com/symbiotic-sh/house-rules/issues/74), owns which shared rules belong under `rules/`. That design keeps session-only instructions separate from role includes. This compiler omits only explicit shared-rule paths; the compiler does not infer rule meaning from prose.
+The shared-rule option is the proposed way for one role file to serve normal lane sessions and Warden reviewers. The [role-pack design, issue #74](https://github.com/symbiotic-build/house-rules/issues/74), owns which shared rules belong under `rules/`. That design keeps session-only instructions separate from role includes. This compiler omits only explicit shared-rule paths; the compiler does not infer rule meaning from prose.
 
 ### Reading from the commit
 
@@ -146,7 +146,7 @@ Repository rules (<target>/AGENTS.md at 3f1c2a9b7d04):
 
 The compiler does not expand includes or follow links inside either file. It does not read `<target>/CLAUDE.md`, `<target>/CONTEXT.md`, `<target>/INDEX.md` or files under `<target>/.claude/rules/` to assemble this part. The smaller-core design owns pointer templates and the index rename; this compiler does not detect those templates.
 
-The [role-pack design, issue #74](https://github.com/symbiotic-sh/house-rules/issues/74), owns instructions for consuming the supplied target rules. Normal lane sessions keep their House Rules loading behavior. Warden reviewers use the supplied prompt and read-only target copy. The earlier instruction forbidding every lane worker from loading House Rules is rejected.
+The [role-pack design, issue #74](https://github.com/symbiotic-build/house-rules/issues/74), owns instructions for consuming the supplied target rules. Normal lane sessions keep their House Rules loading behavior. Warden reviewers use the supplied prompt and read-only target copy. The earlier instruction forbidding every lane worker from loading House Rules is rejected.
 
 ### Manifest
 
@@ -169,7 +169,7 @@ The manifest is one JSON object with sorted keys and a trailing newline. Object 
   "parts": [
     {"kind": "role", "path": "prompts/roles/reviewer.md"},
     {"kind": "lens", "path": "prompts/lenses/correctness-security.md"},
-    {"bytes": 83, "kind": "task", "sha256": "<task hash>", "source": "symbiotic-sh/house-rules#77"}
+    {"bytes": 83, "kind": "task", "sha256": "<task hash>", "source": "symbiotic-build/house-rules#77"}
   ],
   "skipped_repeats": [],
   "target": null
@@ -297,10 +297,10 @@ Legacy single-file expansion remains available to existing callers. Normal sessi
 
 ## Interfaces with the other designs
 
-- [Smaller core, issue #73](https://github.com/symbiotic-sh/house-rules/issues/73): owns `house-rules/INDEX.md`, global and repository pointers, and its separate canary. This compiler includes target pointer text unchanged and does not detect its shape (lead decision L6).
-- [Role packs, issue #74](https://github.com/symbiotic-sh/house-rules/issues/74): owns shared rules under `rules/`, role instructions for normal sessions and Warden, and the Warden staging guard. This design provides shared-rule omission and a manifest of compiled inputs. The dispatcher puts Decisions and Pre-flight in task text.
-- [Specialists, issue #75](https://github.com/symbiotic-sh/house-rules/issues/75): owns specialist selection, separate Claude safe-mode processes, supplied skill text and the Model Context Protocol (MCP) test and fallback. Specialist packs use the named commit and include shared rules when the specialist does not load the foundation.
-- [Review skill, issue #76](https://github.com/symbiotic-sh/house-rules/issues/76): owns `change-review`, the shared review format, and one reviewer for a plain chat request unless a panel is requested. Dispatched reviewer prompts use the named-commit compiler interface.
+- [Smaller core, issue #73](https://github.com/symbiotic-build/house-rules/issues/73): owns `house-rules/INDEX.md`, global and repository pointers, and its separate canary. This compiler includes target pointer text unchanged and does not detect its shape (lead decision L6).
+- [Role packs, issue #74](https://github.com/symbiotic-build/house-rules/issues/74): owns shared rules under `rules/`, role instructions for normal sessions and Warden, and the Warden staging guard. This design provides shared-rule omission and a manifest of compiled inputs. The dispatcher puts Decisions and Pre-flight in task text.
+- [Specialists, issue #75](https://github.com/symbiotic-build/house-rules/issues/75): owns specialist selection, separate Claude safe-mode processes, supplied skill text and the Model Context Protocol (MCP) test and fallback. Specialist packs use the named commit and include shared rules when the specialist does not load the foundation.
+- [Review skill, issue #76](https://github.com/symbiotic-build/house-rules/issues/76): owns `change-review`, the shared review format, and one reviewer for a plain chat request unless a panel is requested. Dispatched reviewer prompts use the named-commit compiler interface.
 
 ## Decisions
 
@@ -311,14 +311,14 @@ Legacy single-file expansion remains available to existing callers. Normal sessi
 - **2026-10-07 — Index and pointers:** `DECISION` The operator chose renaming the House Rules index to `house-rules/INDEX.md`. Global, managed-repository and House Rules pointer files use the same shape with installation paths adjusted. The smaller-core design owns the rename and pointer text; loader detection is superseded by lead decision L6.
 
 - **2026-10-07 — Warden review boundary:** `DECISION` The operator kept Warden reviewers read-only, with no builds or tests and no network except the model provider. Continuous integration owns builds and tests. Warden posts reviews; Mac lane scripts start local fixers. The role-pack design owns the reviewer setup.
-- **2026-10-07 — Lead decision L1, task provenance:** `DECISION` The lead chose a logical task-source identifier, such as `symbiotic-sh/house-rules#77`, `inline` or a caller-chosen name, never a machine path. Keep the existing task order, byte count and hash.
+- **2026-10-07 — Lead decision L1, task provenance:** `DECISION` The lead chose a logical task-source identifier, such as `symbiotic-build/house-rules#77`, `inline` or a caller-chosen name, never a machine path. Keep the existing task order, byte count and hash.
 - **2026-10-07 — Lead decision L2, tree reading:** `DECISION` The lead chose reading only requested paths through one long-lived `git cat-file --batch` process, fed `<commit>:<path>` for each include as it is discovered. No whole-tree enumeration.
 - **2026-10-07 — Lead decision L3, failure contract:** `DECISION` The lead chose no output on compilation failure. File output publishes the pack and manifest together by writing both into one temporary directory and renaming that directory once. Standard-output mode is best effort: a failed write exits nonzero, and the caller discards any output from a nonzero run.
 - **2026-10-07 — Lead decision L4, literal task includes:** `DECISION` The lead allowed literal include lines in tasks. Task text is inserted literally and never expanded. Remove the task scan that rejects standalone include lines and its rejection acceptance case.
 - **2026-10-07 — Lead decision L5, capacity retries:** `DECISION` A read-only reviewer's run that fails with a provider-capacity error leaves no work to resume: the review panel's retry restarts the whole review with the unchanged pack and manifest, after checking both hashes. Each attempt keeps its own logs and output, and the summary records the attempt count. The resume note as an additional task file, with a fresh pack and manifest per attempt, applies to dispatched workers that change files (implementer, fixer). This narrows the capacity-retry text in the task-file section and implementation step 8.
 
-- **2026-10-07 — Lead decision L6, no loader classification:** `DECISION` The lead replaced the mixed-loader and older-loader refusal requirements recorded on [issue #77](https://github.com/symbiotic-sh/house-rules/issues/77). Three review rounds each found another loading instruction that escaped detection or a prohibition wrongly refused. Under no-fortification, the classification mechanism should not exist. A House Rules loading line is harmless because lane workers are normal sessions that already load House Rules and Warden reviewers cannot reach a live House Rules checkout from their jail. Include the target's `.agents/rules.md` and `AGENTS.md`, each unchanged when present, from the selected commit and in that order. No loader wording is refused and no local rule is dropped.
-- **2026-10-07 — Lead decision L7, task assembly:** `DECISION` The lead chose collecting task parts and joining them once, as recorded on [issue #77](https://github.com/symbiotic-sh/house-rules/issues/77). Re-copying the accumulated pack inside the loop adds copying without additional behavior. Keep task order, literal bytes, separators and manifest hashes.
+- **2026-10-07 — Lead decision L6, no loader classification:** `DECISION` The lead replaced the mixed-loader and older-loader refusal requirements recorded on [issue #77](https://github.com/symbiotic-build/house-rules/issues/77). Three review rounds each found another loading instruction that escaped detection or a prohibition wrongly refused. Under no-fortification, the classification mechanism should not exist. A House Rules loading line is harmless because lane workers are normal sessions that already load House Rules and Warden reviewers cannot reach a live House Rules checkout from their jail. Include the target's `.agents/rules.md` and `AGENTS.md`, each unchanged when present, from the selected commit and in that order. No loader wording is refused and no local rule is dropped.
+- **2026-10-07 — Lead decision L7, task assembly:** `DECISION` The lead chose collecting task parts and joining them once, as recorded on [issue #77](https://github.com/symbiotic-build/house-rules/issues/77). Re-copying the accumulated pack inside the loop adds copying without additional behavior. Keep task order, literal bytes, separators and manifest hashes.
 
 ## Open points
 

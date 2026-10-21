@@ -24,7 +24,7 @@ and established project stacks override its defaults.
 Clone the repository to a permanent user-owned directory:
 
 ```sh
-git clone https://github.com/symbiotic-sh/house-rules.git ~/house-rules
+git clone https://github.com/symbiotic-build/house-rules.git ~/house-rules
 ```
 
 Then give your agent the prompt in [INSTALL-AGENTS.md](INSTALL-AGENTS.md). It preserves existing native

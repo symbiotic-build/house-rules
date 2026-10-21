@@ -1531,7 +1531,7 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
 
     def test_qualified_issue_references_ignore_paths_and_anchors(self):
         cases = (
-            ("Tracked in symbiotic-sh/warden#267.", ["symbiotic-sh/warden#267"]),
+            ("Tracked in symbiotic-build/warden#267.", ["symbiotic-build/warden#267"]),
             ("(see owner/repo#12)", ["owner/repo#12"]),
             ("https://github.com/o/r/blob/abc/skills/design-flow/SKILL.md#5-implement", []),
             ("[guide](skills/design-flow/SKILL.md#5)", []),
