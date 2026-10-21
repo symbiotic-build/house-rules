@@ -178,10 +178,10 @@ class SyncFixture:
             self.register_hook(path, product)
         self.register_kimi_hook()
 
-    def register_kimi_hook(self, python=sys.executable, root=None, extra=""):
+    def register_kimi_hook(self, root=None):
         """Kimi's config.toml as INSTALL-AGENTS.md §3 describes it, beside unrelated settings and hooks."""
         self.write(self.kimi / "config.toml", 'default_model = "fixture"\n\n[[hooks]]\nevent = "Stop"\n'
-                   'command = "/bin/echo unrelated"\n\n' + context.kimi_toml(python, root or self.root) + extra)
+                   'command = "/bin/echo unrelated"\n\n' + context.kimi_toml(sys.executable, root or self.root))
 
     def register_hook(self, path, product, python=sys.executable, root=None, extra=()):
         """Write the hook file INSTALL-AGENTS.md §3 describes, beside unrelated hooks."""
@@ -624,6 +624,7 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
             "other event": prompt.replace("UserPromptSubmit", "SessionStart"),
             "interpreter missing": context.kimi_toml(str(self.base / "no-python"), self.root),
             "relative interpreter": context.kimi_toml("python3", self.root),
+            "non-Python program": context.kimi_toml("/usr/bin/true", self.root),
             "registered twice": prompt + "\n" + prompt,
             "second table with another mode": prompt + "\n" + prompt.replace("UserPromptSubmit", "PreCompact")
                                                                    .replace("kimi prompt", "kimi compact"),
@@ -1477,6 +1478,20 @@ class SessionContextTests(unittest.TestCase):
                     self.assertIn((self.root / listed_name).read_text().split("\n", 1)[0], delivered)
                 self.assertTrue(record.exists())
                 self.assertEqual(self.kimi("prompt", prompt), "")
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads a folder without search permission")
+    def test_kimi_unreadable_local_index_is_not_recorded_and_is_delivered_once_readable(self):
+        prompt = {"session_id": "session_a"}
+        folder = self.root / "custom"
+        record = self.root / "kimi-home" / context.KIMI_STATE / "session_a"
+        folder.chmod(0)
+        self.addCleanup(folder.chmod, 0o755)
+        self.assertIn("HOUSE RULES HOOK ERROR: [Errno 13] Permission denied", self.kimi("prompt", prompt))
+        self.assertFalse(record.exists())
+        folder.chmod(0o755)
+        self.assertIn("Local policy line.", self.kimi("prompt", prompt))
+        self.assertTrue(record.exists())
+        self.assertEqual(self.kimi("prompt", prompt), "")
 
     def test_kimi_missing_local_index_is_reported_once_per_session(self):
         prompt = {"session_id": "session_a"}

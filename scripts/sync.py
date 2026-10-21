@@ -409,7 +409,10 @@ def check_kimi_hook(root, roots, path, findings, generator=None):
         findings.append(f"missing session context hook: {path}")
         return
     python = ours[0][1][0]
-    if not Path(python).is_absolute() or not is_file(Path(python)) or \
+    # The same Python-program test the installer's owner() applies: an existing non-Python program
+    # (for example /usr/bin/true) would run without delivering the rules.
+    interpreter = PYTHON.fullmatch(Path(python).name) or same_file(python, sys.executable)
+    if not Path(python).is_absolute() or not is_file(Path(python)) or not interpreter or \
             [table for table, _ in ours] != (generator or session_context).hooks("kimi", python, root)["hooks"]:
         findings.append(f"stale session context hook: {path}")
 

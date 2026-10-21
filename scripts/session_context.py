@@ -116,9 +116,14 @@ def sources(base, failures=None):
             failures.append(name)
             yield name, f"{ERROR} {path} is missing.\n"
     path = base / LOCAL_INDEX
-    yield LOCAL_INDEX, path.read_text(encoding="utf-8") if path.is_file() else (
-        f"{ERROR} this computer's local index {path} is missing, so its local policies are not loaded. "
-        "INSTALL-AGENTS.md §4 creates it.\n")
+    # Only an absent local index is the operator's state; any other read failure (a denied folder, for
+    # example) reaches the caller, so a Kimi session is not recorded as having the local policies.
+    try:
+        local = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        local = (f"{ERROR} this computer's local index {path} is missing, so its local policies are not loaded. "
+                 "INSTALL-AGENTS.md §4 creates it.\n")
+    yield LOCAL_INDEX, local
 
 
 def sections(name, text):

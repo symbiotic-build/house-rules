@@ -241,8 +241,11 @@ For each selected product and configuration home:
     Register Kimi Code 2.2.0 or later by hand: print `hooks kimi`. It prints one `[[hooks]]`
     table in TOML for the `UserPromptSubmit` event; use Python 3.11 or later, because
     `scripts/sync.py` reads it back with Python's TOML reader. Back up `config.toml`, append
-    the table at its end, and preserve every other table and setting. Remove earlier tables
-    whose command runs `scripts/session_context.py` under the current or a previous root.
+    the table at its end, and preserve every other table and setting. When the file instead
+    assigns hooks as an array (`hooks = [...]`, including `hooks = []`), TOML forbids adding
+    `[[hooks]]` tables to it: rewrite each of its entries as its own `[[hooks]]` table, keeping
+    every field, then append the House Rules table. Remove earlier tables whose command runs
+    `scripts/session_context.py` under the current or a previous root.
     The hook prints the rules on a session's first prompt. After printing them, it keeps an
     empty file named after the session id in `$KIMI_CODE_HOME/house-rules-sessions/`, so
     later prompts in that session, including resumed ones, print nothing. While a House Rules
@@ -417,8 +420,10 @@ retained, and the summary identifies incomplete coverage. Exit codes are 0 for n
 findings, 1 for reported drift or conflicts, and 2 for an error.
 
 The scheduled run reports drift; an agent repairs it by following §3, including the
-no-write plan in §2 and the verification in §5. A missing or stale hook is repaired with
-`--install-hooks` (§3 step 10), which writes hook files and their backups and nothing else.
+no-write plan in §2 and the verification in §5. A missing or stale Claude Code or Codex hook is
+repaired with `--install-hooks` (§3 step 10), which writes hook files and their backups and
+nothing else. The installer does not write Kimi Code's `config.toml`: repair a missing or stale
+Kimi hook by hand, as §3 step 10 describes.
 Without that option the script does not modify instruction files, hook files, Skill entries,
 backups, receipts or the custom index. It never starts agent sessions. Runtime discovery remains the separate check in §5.
 
