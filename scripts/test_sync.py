@@ -1105,26 +1105,50 @@ class SessionContextTests(unittest.TestCase):
         for _ in range(2):
             self.assertIn('rules/core.md section "Long section" is', self.kimi("prompt", prompt))
 
-    def test_index_updated_between_reads_never_prints_a_file_list_it_did_not_load(self):
-        # An update replaces INDEX.md while the hook runs: later reads see a new always-load file.
-        self.write("rules/extra.md", "# Extra rules\n")
-        index = self.root / "INDEX.md"
-        updated = index.read_text().replace("- [writing](rules/writing.md)\n",
-                                            "- [writing](rules/writing.md)\n- [extra](rules/extra.md)\n")
-        real_read, reads = Path.read_text, []
+    def delivered_with_index_changing(self, first_read, later_reads):
+        """Delivered text and failures while INDEX.md changes between filesystem checks."""
+        index, changed = self.root / "INDEX.md", []
+        real_read, real_is_file = Path.read_text, Path.is_file
 
+        # The change lands right after the first read, or right after the index is first found missing.
         def read_text(path, *args, **kwargs):
-            if path == index:
-                reads.append(path)
-                return real_read(path, *args, **kwargs) if len(reads) == 1 else updated
-            return real_read(path, *args, **kwargs)
+            if path != index:
+                return real_read(path, *args, **kwargs)
+            text = later_reads if changed else first_read
+            changed.append(True)
+            return text
 
-        with mock.patch.object(Path, "read_text", read_text):
-            _, packed, _ = context.parts(self.root)
-        text = "".join(part for _, _, part in packed)
-        printed_index = text.split("===== House Rules file INDEX.md =====\n", 1)[1].split("\n=====", 1)[0]
-        self.assertNotIn("rules/extra.md", printed_index)
-        self.assertEqual(len(reads), 1)
+        def is_file(path):
+            if path != index:
+                return real_is_file(path)
+            present = (later_reads if changed else first_read) is not None
+            if not present:
+                changed.append(True)
+            return present
+
+        failures = []
+        with mock.patch.object(Path, "read_text", read_text), mock.patch.object(Path, "is_file", is_file):
+            rev, packed, _ = context.parts(self.root, failures)
+        return "".join(context.render(number, rev, packed) for number in range(1, len(packed) + 1)), failures
+
+    def assert_printed_index_matches_delivered_files(self, text):
+        printed = text.split("===== House Rules file INDEX.md =====\n", 1)[1].split("\n=====", 1)[0]
+        for name in context.always_load(printed):
+            self.assertIn(f"===== House Rules file {name} =====", text)
+
+    def test_index_changing_while_read_never_prints_a_file_list_it_did_not_load(self):
+        self.write("rules/extra.md", "# Extra rules\n")
+        original = (self.root / "INDEX.md").read_text()
+        updated = original.replace("- [writing](rules/writing.md)\n",
+                                   "- [writing](rules/writing.md)\n- [extra](rules/extra.md)\n")
+        text, failures = self.delivered_with_index_changing(original, updated)
+        self.assert_printed_index_matches_delivered_files(text)
+        self.assertEqual(failures, [])
+        # Found missing first, restored later: reported missing, never printed without its files.
+        text, failures = self.delivered_with_index_changing(None, updated)
+        self.assertIn("INDEX.md", failures)
+        self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root / 'INDEX.md'} is missing.", text)
+        self.assertNotIn("- [extra](rules/extra.md)", text)
 
     def test_kimi_hook_stopped_before_printing_leaves_the_next_prompt_to_print(self):
         # The reader of the hook's output is gone before the hook writes, so printing fails.

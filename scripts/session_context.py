@@ -102,8 +102,14 @@ def sources(base, failures=None):
     names += EXTRA_FILES
     for name in names:
         path = base / name
-        if name == "INDEX.md" and index_text is not None:
-            yield name, index_text
+        if name == "INDEX.md":
+            # Only the first read counts: an index restored after it was found missing is not printed
+            # with a file list that was never loaded from it.
+            if index_text is not None:
+                yield name, index_text
+            else:
+                failures.append(name)
+                yield name, f"{ERROR} {path} is missing.\n"
         elif path.is_file():
             yield name, path.read_text(encoding="utf-8")
         else:
