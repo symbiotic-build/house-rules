@@ -23,8 +23,8 @@ The shared [review bar](../util/review-bar.md) owns mandatory dispositions and B
 4. Reconcile detected items with declared changes. Cite the exact selected-source line or
    recorded decision for every approved change. A declaration is an author claim;
    verify that it supplies approval for the actual effect. A removal or weakening needs
-   operator approval on record (a `CHANGELOG-RULES.md` entry or the operator's dated words
-   quoted in the selected declaration source); an author's declaration does not approve it. Flag undeclared items and
+   operator approval on record (the operator's dated words quoted in the selected declaration
+   source, or an entry in the frozen `CHANGELOG-RULES.md` archive); an author's declaration does not approve it. Flag undeclared items and
    declarations that conceal a removal or weakening.
 5. Output one table row per report item: location, class, effect, disposition, evidence.
    The evidence identifies changed elements or explains why every element survives.

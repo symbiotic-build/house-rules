@@ -263,7 +263,7 @@ def review_plan(lenses):
     all_roles = ["technical", "readability", "design/cost", "failure/recovery", "whole-scenario"]
     specialists = {"naming-readability": ["readability"],
                    "design-spec": all_roles}
-    return [{"id": lens, "responsibilities": all_roles if lens.startswith("generalist-")
+    return [{"id": lens, "responsibilities": all_roles if lens.startswith("generalist-") or lens == "generic"
              else specialists.get(lens, ["technical"])} for lens in lenses]
 
 
@@ -515,6 +515,10 @@ def preparer_context(request):
         for reviewer in request.get("reservation_reviewers", []):
             selected, _ = expand(file="prompts/lenses/" + reviewer + ".md")
             reservation = max(reservation, len(selected) - len(instructions))
+        if request.get("check"):
+            # Every lens of a check round ends with the same check-round rules.
+            check_round, _ = expand(file="prompts/util/check-round.md")
+            instructions = instructions.rstrip("\n") + "\n\n" + check_round
     if request["documentation"]:
         assignment = Path(request["assignment"]).read_bytes() if request["assignment"] else None
         with Commit(request["repo"], request["head"]) as target:

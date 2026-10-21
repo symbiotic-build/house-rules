@@ -20,7 +20,7 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   configured output root, including through symlinks. Reviewer names must match
   `[a-z0-9-]+` and an existing file stem in `prompts/lenses/`, with no duplicates.
   Structured prompt order: shared review rules, PR/issue context and requirements, then
-  the change, complete changed source files and lens instructions last. Different lenses
+  the change and lens instructions last. Different lenses
   share the prefix before those final instructions when one task is prepared once and compiled per lens, as the panel does.
   Separate standalone calls share the layout, but live inputs such as new comments can differ between calls.
   Pack and diff retain their existing order, including specification rules after target rules unless an earlier include owns them.
@@ -67,18 +67,24 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   that requires this redaction is refused before publication or dispatch, using the same
   policy from the pinned preparer. Its source bytes and provenance are never rewritten. A later GitHub read failure names the failed source and preserves already
   fetched context. Comments are capped at 4,000 characters with a cut notice.
-  Codex defaults to `structured` (v3 numbered changes), others to `pack` (file index and hunk
-  headers); `--format diff` omits legacy spec content. `--format` overrides defaults;
-  structured changes use head line numbers, or old line numbers for removals. Git
-  moved-line detection uses `--color-moved=zebra --color-moved-ws=allow-indentation-change`;
-  paired moved blocks become one source-to-destination reference. Complete changed non-test
-  source files appear once, numbered at head. Their diff additions refer to head lines,
-  and their unchanged diff context is omitted. File classification uses the existing
-  source/test/docs index; documentation, tests and lockfiles receive no full-file copy.
-  `--full-file-cap N` sets the per-file character cap (default `60000`; nonnegative).
-  Oversized files are listed with their byte size and an omission notice. Deleted and
-  binary source files and submodules are explicitly listed without full head content. One note tells the
-  reviewer to read files only for context outside the supplied change and full files.
+  Codex defaults to `structured`, others to `pack` (file index and hunk headers);
+  `--format diff` omits legacy spec content. `--format` overrides defaults.
+  The structured change opens with two lists: the changed files shown whole, and the files
+  shown as a diff only with the reason (size, deleted, binary or submodule).
+  Each changed text file up to the cap, whether source, test or documentation, is shown
+  whole as uncolored `git diff` output with the whole file as context. Each line carries its
+  number: the head number for context and added lines, the old number for removed lines.
+  Git's mode, file-type and missing-newline lines stay as unnumbered rows. A file is read
+  whole only when its size fits the remaining prompt budget. The caller's `GIT_DIFF_OPTS`
+  and blank-line setting cannot shorten the context; a file whose numbered rows do not
+  rebuild its head text fails preparation instead of being labeled whole.
+  Larger, deleted and binary files and submodules are shown as plain `git diff -U3` output.
+  Lockfiles are listed only. `--full-file-cap N` sets the per-file character cap
+  (default `85000`; nonnegative). A selected spec document that the change shows whole
+  appears in the requirements as a pointer to that changed file, so its text appears once,
+  and the size guard budgets the pointer. A `generic` reviewer needs the structured change:
+  its preparation fails visibly when the change part holds hunk headers only, and in the
+  panel only that reviewer fails.
   Diff reads are bounded before prompt construction, using numstat first and streaming
   hunk headers for pack mode. Changed paths use NUL-delimited metadata and byte-preserving
   decoding, then literal Git pathspecs. Non-UTF-8 bytes are displayed as escapes and
@@ -95,6 +101,13 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   Notices identify every trim. If the prompt still exceeds the limit after all trim
   steps, preparation exits nonzero without emitting a prompt; the error names the limit,
   final size and completed trims. The panel reports this as a preparation failure.
+  A check round passes `--since REV`, the last reviewed commit or a commit whose tree is the
+  earlier change replayed onto the current merge-base. Part 5 then shows `REV..HEAD` in the
+  same layout, and the rule report covers the same range. Part 3 names both ranges. Part 4
+  keeps only the maintainer comments and the PR description (commit messages of the fix
+  without a PR). Linked issues, specifications and test IDs stay in the checkout and are not
+  read. Full preparation appends [the check-round rules](../../../prompts/util/check-round.md)
+  to every lens's instructions. An unknown `REV` fails preparation.
 
 ## Registered specifications
 
@@ -111,7 +124,7 @@ Without an assignment, `prepare.py review` uses the shared checker's source comp
 to assign every head-registered section changed since the range's merge base.
 Existing selection adds tests linked to changed requirements and applicable decisions.
 If no registered section changed, it omits the documentation pack and states one line:
-`No registered documentation changed in this range.` Explicit assignments keep their behavior.
+`No registered documentation changed in this range.` Explicit assignments keep their behavior outside check rounds.
 Invalid sources, unknown selectors and excessive mandatory context
 fail before a pack is published. Derived context uses the existing size guards;
 an oversized review names its selected sections and fails without truncating documentation.
@@ -143,7 +156,8 @@ an unsupported environment fails visibly without installing dependencies. When t
 checker cannot run (Python below 3.11 without `REVIEW_PYTHON`, `skills/spec-writing` not
 staged beside the preparer, or its pinned dependencies missing) and no `--assignment` is
 given, the review proceeds without the documentation pack and states why in the prompt;
-with `--assignment`, it fails visibly.
+with `--assignment`, a full review fails visibly. A [check round](../../../docs/specs/spec-system/decisions-and-open-questions.md#check-round-decision) (`--since`)
+prepares no documentation context, ignores `--assignment` and needs no checker.
 The panel accepts `REVIEW_PYTHON` for that interpreter and
 `REVIEW_SPEC_ASSIGNMENT` as an alternative to `--assignment`. These options select
 existing tooling and input; they install no dependencies or model configuration.

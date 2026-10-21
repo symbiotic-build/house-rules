@@ -58,7 +58,7 @@ Each technical term below links to its defining Markdown section.
 <a id="tour"></a>
 ## Tour
 
-Follow one edit through detection and review. These synthetic files and the summary are the complete input.
+Follow one edit through detection and review. These synthetic files and the PR body are the complete input.
 All rule files are protected by the [rule-change configuration](#configuration).
 The destination file already exists in the base, containing only `# Reporting` and its final newline.
 
@@ -96,19 +96,12 @@ Wrap this rule across lines without changing its words.
 - Report every failure.
 ```
 
-**Head: CHANGELOG-RULES.md** (absent in the base)
-
-```markdown
-# Approval
-Approved removal: “Keep the audit record. Retain the approval.”
-```
-
-**Selected --summary text**
+**Selected PR body** (given with `--pr`)
 
 ```markdown
 Audit example
 ## Rule changes
-Remove the audit-record rule; operator approval is in CHANGELOG-RULES.md.
+Remove the audit-record rule. Operator approval, 2026-10-20: “Remove the audit-record rule.”
 Change validation wording; operator approval is still required for weakening.
 Move failure reporting to rules/destination.md without changing its meaning.
 Rewrap the remaining paragraph.
@@ -121,13 +114,13 @@ Rewrap the remaining paragraph.
    - The changed block is source line 4 → line 3: `- Never skip validation.` → `- Avoid skipping validation.`
    - The moved block is source line 7 → destination line 2: `- Report every failure.`
    - The rewrapped block is source lines 9–10 → line 7, shown as one compact item.
-   - The changelog block stays whole in Provenance entries; the rule remains removed.
-2. **Read the declared changes.** The summary's section appears verbatim with original lines 2–6.
+2. **Read the declared changes.** The PR body's section appears verbatim with original lines 2–6.
    - Lines 3–5 declare the removal, wording change and move; line 6 declares the rewrap.
-   - When an explicit PR is given, its body replaces this summary as the selected source.
+   - Without `--pr`, the supplied `--summary` text is the selected source instead.
    - Without that section, the report prominently flags an undeclared change.
 3. **Audit every item.** The normal panel gains the rule-preservation lens.
-   - Without cited operator approval, the removal and weakening are Blocking findings.
+   - The removal can receive `approved change` because line 3 quotes the operator's dated approval.
+   - The weakening has no operator approval, so it is a Blocking finding.
    - The move can receive `same meaning` only after the reviewer checks its destination scope.
    - The rewrap needs a disposition after the reviewer opens its diff and confirms preserved structure.
 
@@ -144,7 +137,7 @@ The preparer compares captured Git text before rendering the change or dispatchi
 4. **Classify every block.** Keep same-word rewraps visible as `rewrapped` items; never drop a changed block.
 5. **Pair exact moves.** Pair exact removed and added copies as moves.
 6. **Check the allowance.** Refuse oversized complete reports before joining the rendered output.
-7. **Select the lens.** Dispatch from the resulting rule items; provenance entries do not select a lens.
+7. **Select the lens.** Dispatch the rule-preservation lens for every non-empty report, provenance entries included.
 
 <a id="rule-change-report"></a>
 ### Rule-change report
@@ -152,7 +145,15 @@ The preparer compares captured Git text before rendering the change or dispatchi
 A rule-change report is the complete comparison of protected Markdown changed blocks between review revisions.
 It prevents changed obligations from disappearing inside a large diff.
 The dispatch process pins the base commit before lens selection and preparation.
-Preparation captures its merge base with head once and reuses that comparison base for the report, documentation context and diff.
+Preparation captures the merge base of that base commit and head once.
+A full review reuses that comparison base for the report, documentation context and diff.
+
+A check round (`prepare.py review --since <commit>`) reviews only a fix.
+Its configuration, report and diff compare against that last reviewed commit.
+It prepares no documentation context ([check-round decision](../spec-system/decisions-and-open-questions.md#check-round-decision)).
+The declarations still come from the whole PR body or `--summary` text.
+The report covers only the fix range.
+
 The report names both immutable revisions. Working-tree edits do not affect it.
 
 Each zero-context Git hunk is one changed block, with its complete old and new text and source line ranges.
@@ -182,7 +183,7 @@ It does not compare every removed block with every added block.
 
 Provenance files record why rules changed. Their text never pairs with rule blocks or other provenance entries.
 A provenance block contributes its removed side and added side separately to `Provenance entries`.
-Those entries retain identities, locations and exact text, but do not enter rule totals or trigger the rule-preservation lens.
+Those entries retain identities, locations and exact text, but do not enter rule totals. Like rule items, they select the rule-preservation lens.
 
 Every item receives a stable report-local identity and class, plus old/new locations.
 A `rewrapped` item renders once, on one line: identity, kind, old location → new location and `same words, line breaks moved`.
@@ -209,16 +210,16 @@ The author corrects the source, and every reported item still needs a dispositio
 ### Review disposition
 
 A review disposition is a reviewer's judgment and evidence for one reported item.
-The shared [review bar](../../../prompts/util/review-bar.md) owns the mandatory obligation for every compiled review input.
+The shared [review bar](../../../prompts/util/review-bar.md) owns the mandatory obligation; the rule-preservation reviewer meets it.
 The [rule-preservation lens](../../../prompts/lenses/rule-preservation.md) owns the element-by-element audit procedure.
 Each item receives `same meaning`, `approved change` or `regression`, plus one evidence line.
 An approved change cites an approving line in the report's selected declaration source (PR body or `--summary`) or a recorded decision.
 
-A removal or weakening needs operator approval on record: a `CHANGELOG-RULES.md` entry or the operator's dated words quoted in the selected declaration source. The author's own declaration approves only same-meaning, stronger, intact moved and new rules.
+A removal or weakening needs operator approval on record. That record is the operator's dated words quoted in the selected declaration source, or an entry in the frozen `CHANGELOG-RULES.md` archive. The author's own declaration approves only same-meaning, stronger, intact moved and new rules.
 
 The lens compares actor, condition, action, strength, numbers, exceptions, scope and cross-references.
 It checks destination scope for moves and existing homes for new rules, including conflicts and duplicates.
-For `rewrapped`, each reviewer opens the diff at the reported locations and confirms preserved heading, code, list, quote, table and hard-break structure.
+For `rewrapped`, the reviewer opens the diff at the reported locations and confirms preserved heading, code, list, quote, table and hard-break structure.
 Same words do not establish preserved structure; the item still needs evidence and a disposition.
 It reconciles declared and detected changes and checks that removed text has a surviving home or approval.
 A regression, missing disposition, unapproved removal or weakening, undeclared change or failed-closed report is Blocking.
@@ -278,9 +279,8 @@ Require a meaning audit rather than sample sentence locks.
 
 **Condition:** A report is non-empty.
 
-**Result:** Every reviewer supplies a [review disposition](#review-disposition) per item, including `rewrapped` items.
-Removed, changed or moved rule items require the rule-preservation lens alongside the normal panel.
-Rewrapped-only changes do not require that lens.
+**Result:** The rule-preservation lens runs alongside the normal panel and supplies a [review disposition](#review-disposition) per item, including `rewrapped` and added items.
+Reviewers using other lenses supply no dispositions; they report a rule regression found during their own review as Blocking.
 
 **Verification:** Dispatch fixture and prompt inspection.
 
@@ -386,13 +386,15 @@ Unknown fields, unsupported versions, malformed patterns and invalid limits fail
 Default protected paths are `INDEX.md`, `STRUCTURE.md`, `PREFERENCES.md`, `INSTALL-AGENTS.md`, `AGENTS.md`, `CHANGELOG-RULES.md`,
 `rules/**/*.md`, `prompts/**/*.md`, `skills/**/*.md`, `.agents/rules.md` and `CONTEXT.md`.
 `CHANGELOG-RULES.md` is the default provenance path.
+
+That file is a frozen archive. New provenance lives in each pull request's Rule changes section. The merge commit carries that section ([pr-ready](../../../skills/pr-ready/SKILL.md) §4). [rules_changelog.py](../../../skills/pr-ready/scripts/rules_changelog.py) prints the changelog from those merge commits.
+
 Glob `**/` matches zero or more directories; `*` matches within one path segment. Recursive wildcards include newline characters.
 Only regular UTF-8 protected files are accepted. Invalid encoding or nonregular protected inputs fail visibly.
 
 The [preparer](../../../skills/pr-ready/scripts/prepare.py) exposes `review --context-only` for the report and
 `rule-lenses CHECKOUT --base BASE --rev HEAD --no-fetch` for dispatch.
-The selector prints `rule-preservation` only when a removed, changed or moved rule item exists.
-Rewrapped-only ranges select no lens; normal reviewers still dispose of every rewrapped item.
+The selector prints `rule-preservation` whenever the report is non-empty, provenance entries included.
 The lane [panel](../../../skills/pr-ready/scripts/review-panel.sh) adds that lens without replacing the requested reviewers.
 The service must run the same selector from its pinned preparer, add the lens from its compiled pack, and honor nonzero preparation status.
 There is no automatic service adoption in this repository.
@@ -509,12 +511,12 @@ Dispatch checks the caller-visible result.
 
 **Requirements:** [Required behavior](#req-rule-review).
 
-**Inputs:** Removed, changed, moved, added, rewrapped-only and unchanged reviews.
+**Inputs:** Removed, changed, moved, added, rewrapped-only, provenance-only and unchanged reviews.
 
-**Expected:** The selector returns `rule-preservation` for removals, changes and moves; additions, rewrapped-only ranges and unchanged input return no lens.
+**Expected:** The selector returns `rule-preservation` for every non-empty report: removals, changes, moves, additions, rewrapped-only ranges and provenance-only changes. Unchanged input returns no lens.
 The lane panel adds the required lens alongside normal reviewers.
 
-**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_rewrapped_only_range_needs_no_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_selector](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_adds_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_keeps_base_selected_before_lens_selection](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_base_command_resolves_reference_once_and_returns_commit](../../../skills/pr-ready/scripts/test_rule_changes.py)
+**Implementation:** [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_rewrapped_only_range_selects_the_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_selector](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_configured_provenance](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_adds_lens](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_panel_keeps_base_selected_before_lens_selection](../../../skills/pr-ready/scripts/test_rule_changes.py), [skills/pr-ready/scripts/test_rule_changes.py::RuleChangesTests::test_base_command_resolves_reference_once_and_returns_commit](../../../skills/pr-ready/scripts/test_rule_changes.py)
 
 <a id="test-rule-report-portability"></a>
 ### Portability
@@ -540,7 +542,7 @@ Inspect reviewer obligations in every compiled pack.
 
 **Requirements:** [Dispatch and accounting](#req-rule-review).
 
-**Inputs:** Detected items and the selected summary from the tour, declaration lines 2–6 and specific changes on lines 3–5.
+**Inputs:** Detected items and the selected PR body from the tour, declaration lines 2–6 and specific changes on lines 3–5.
 
 **Expected:** Every item receives evidence and a disposition; missing approval or accounting blocks review.
 

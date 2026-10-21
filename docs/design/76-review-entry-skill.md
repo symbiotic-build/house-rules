@@ -1,6 +1,6 @@
 # A review entry skill, and operator-writing only for documents
 
-Status: proposed implementation, incorporating the operator's decisions of 2026-10-07.
+Status: not implemented. The proposed `change-review` skill does not exist. Reviews run through the pr-ready review rounds and the review panel ([skills/pr-ready/SKILL.md](../../skills/pr-ready/SKILL.md)). The operator-writing skill still loads for all operator-facing text.
 
 Issue: [review entry skill (#76)](https://github.com/symbiotic-sh/house-rules/issues/76).
 Draft: [review entry design (#82)](https://github.com/symbiotic-sh/house-rules/pull/82).

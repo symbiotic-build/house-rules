@@ -9,7 +9,7 @@
     {
       "path": "CHANGELOG-RULES.md",
       "kind": "other",
-      "reason": "Dated rule-change record, not a maintained specification."
+      "reason": "Frozen archive of dated rule-change records; new provenance is in rule pull request merge commits. Not a maintained specification."
     },
     {
       "path": "CUSTOM-INDEX.example.md",
@@ -122,6 +122,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/lenses/generic.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/lenses/naming-readability.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
@@ -202,6 +207,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/util/check-round.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/util/cost-and-design.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
@@ -233,6 +243,11 @@
     },
     {
       "path": "prompts/util/review-bar.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/review-procedure.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },

@@ -55,6 +55,18 @@ the real home directory of the operating-system user running the agent. Use nati
 Windows paths for Windows-native agents. Recheck these baselines against current vendor
 documentation during installation.
 
+The session-context hook (§3 step 10) goes in each product's native hook file:
+
+| Product | Hook file | Hook output reaches the model |
+|---|---|---|
+| Claude Code | `$CLAUDE_CONFIG_DIR/settings.json` | Yes, up to 10 000 characters per hook |
+| Codex | `$CODEX_HOME/hooks.json` | Yes, after the operator trusts the hook in `/hooks` |
+| Kimi Code | None | No: it runs `SessionStart` hooks but discards their output |
+
+Verified 2026-10-19 with Claude Code 2.1.291, Codex CLI 0.159 and Kimi Code 2.1.1. Without
+the hook, a session holds only the managed block's instruction to read the rules, and a
+session can skip that instruction.
+
 A product may run with several configuration homes, for example Codex accounts launched
 with different `CODEX_HOME` folders. Find each one: ask the operator and check launchers,
 shell aliases and wrapper apps that set the variable. A folder is a Codex home only if it
@@ -72,6 +84,7 @@ Before changing anything, report:
 - every House Rules Skill found at `skills/<name>/SKILL.md`;
 - whether each destination will use a directory symlink or a checked copy;
 - instruction files that will change and their backup destinations;
+- hook files that will change (§3 step 10) and their backup destinations;
 - stale entries to remove (§3 steps 5 and 8; §5 helper links), name conflicts, malformed existing blocks,
   or policy that disables instructions or Skills;
 - external capabilities already installed and the command or owner responsible
@@ -172,7 +185,32 @@ For each selected product and configuration home:
 9. Install the same House Rules Skills into Claude Code's native user Skill
    directory. A symlink may point directly to the House Rules source; otherwise copy
    the complete Skill directory.
-10. Do not install anything from `custom/` as though House Rules owned it. Follow the
+10. Register the session-context hook in every Claude Code and Codex home (§1 hook table).
+    At every new, resumed, cleared and compacted session it prints `INDEX.md`, the rule files
+    the index lists under "Always load", the operator-writing Skill and `custom/INDEX.md`.
+    Print the entry with a Python 3.9 or later interpreter that agent sessions can run:
+
+    ```sh
+    "<PYTHON3>" "<HOUSE_RULES_ROOT>/scripts/session_context.py" hooks claude "<HOUSE_RULES_ROOT>"
+    ```
+
+    The printed entry runs that interpreter by its absolute path, quoted for a POSIX shell;
+    on native Windows, run the printed command in the product's hook shell before
+    registering it, and report it as a conflict when it fails. Claude Code gets one hook
+    per part, because it caps each hook's output at 10 000 characters. For Codex, print
+    `hooks codex` instead; Codex gets one hook. Back up the hook file. Add the printed object
+    as one entry of the file's `hooks.SessionStart` list, and preserve every other entry and
+    setting. Replace an earlier entry whose command runs `scripts/session_context.py` under
+    the current or a previous root. Codex skips a new hook until the operator trusts it in
+    `/hooks`; record that as a pending operator action in `custom/INDEX.md`. Kimi Code gets
+    no hook. Record each hook file and its backup in the receipt.
+
+    The hook and `scripts/sync.py` report two capacity errors. A section too long for one
+    part is split under more headings by the owner of its file: the operator for
+    `custom/INDEX.md`, a House Rules change for tracked files. More parts than hooks needs
+    a House Rules change that raises `SLOTS` in `scripts/session_context.py`; after it,
+    print and register the entry again in every home.
+11. Do not install anything from `custom/` as though House Rules owned it. Follow the
     ownership recorded in `custom/INDEX.md`.
 
 Writes should be staged in the destination directory and atomically renamed
@@ -193,10 +231,12 @@ exist. The entire `custom/` directory is gitignored because it describes one
 machine's tools, paths, accounts, and verification state. Start from
 `CUSTOM-INDEX.example.md`.
 
-Sessions find this index only through the managed block (§3 step 3), which tells
-them to read it after `INDEX.md`. Nothing in the tracked House Rules files points
-to it, so a machine without the current block never loads its local policies.
-After changing the block template, update every installed block (§5 verifies them).
+Sessions find this index through the managed block (§3 step 3), which tells them to
+read it after `INDEX.md`, and through the session-context hook (§3 step 10), which
+prints it. Nothing else in the tracked House Rules files points to it, so a machine
+without the current block and hook may never load its local policies. When the index is
+missing, the hook prints an error line in its place. After changing the block template,
+update every installed block (§5 verifies them).
 
 The index's "Local policies" section holds operator rules that apply to this
 computer only, because they name local tools, paths or accounts. Example: which
@@ -249,6 +289,8 @@ Filesystem verification:
   checked source bytes;
 - every instruction file contains exactly one House Rules block (counting old `forge:`
   and `groundwork:` markers too) and retains its surrounding operator content;
+- every Claude Code and Codex hook file holds exactly the §3 step 10 entry and retains
+  its other entries;
 - no other scanned Skill folder or parent-folder instruction file holds a stale House
   Rules, Forge or Groundwork entry, or an entry for a removed House Rules Skill;
 - no owned link or alias to a removed helper remains;
@@ -257,7 +299,8 @@ Filesystem verification:
 
 Tools:
 
-- The rules and Skills need no runtime. Only the optional report linter
+- The rules and Skills are plain files. The session-start hook (`scripts/session_context.py`)
+  and `scripts/sync.py` need Python 3.9 or later. Only the optional report linter
   (`skills/audit-report-authoring/scripts/lint-report-set.mjs`) needs Node.js 22 or later;
   check for it only when that Skill is used, and do not install it silently.
 - Work tracking uses the Git host's CLI (skill `work-tracking`); on GitHub, `gh` with the
@@ -280,12 +323,17 @@ instruction files such as `AGENTS.md` or `CLAUDE.md`.
    exactly one `Shared operating foundation (House Rules)` heading, list each House Rules
    Skill once, and contain no Forge or Groundwork text. For Claude Code, check `/memory`
    in a fresh session. Claude Code drops HTML comments from loaded instructions, so check
-   the heading rather than the markers.
+   the heading rather than the markers. For Codex, check that `/hooks` lists the House
+   Rules hook as trusted.
 2. Where no such view exists, or the operator asks for it, start a fresh session with a
    read-only prompt, for example: “Identify the loaded House Rules base path and available
    skills, then explain which rules apply to this simple question without creating a
    work item.” These are model runs: start them only when the operator has authorized that
-   cost, and treat the model's self-description as supporting evidence.
+   cost, and treat the model's self-description as supporting evidence. For the
+   session-context hook, run Claude Code with `-p --output-format stream-json --verbose`:
+   each `hook_response` event holds one part's output. Check that parts 1 to N each
+   arrive once, that each starts with its `House Rules part N of M` label, and that the
+   `custom/INDEX.md` section is present.
 3. If the report linter is in use, run it on a disposable fixture; never create
    verification issues in a real project.
 4. Verify each external capability through its owner's supported status or
@@ -312,15 +360,17 @@ revision and aborts if incoming tracked paths would overwrite ignored local file
 Dirty, detached, non-default, ahead and diverged checkouts are reported and never updated.
 It then checks that every rule file the index lists under "Always load" exists,
 then every configured home's managed block, missing or stale Skill links, owned links to
-removed Skills, and same-name entries in the other scanned Skill folders. Git and
+removed Skills, and same-name entries in the other scanned Skill folders. It checks that
+every Claude Code and Codex home holds exactly the §3 step 10 hook entry, run by an existing
+interpreter, and that the injected rules fit the hook's parts. Git and
 filesystem errors reach the caller. Findings collected before a verification error are
 retained, and the summary identifies incomplete coverage. Exit codes are 0 for no
 findings, 1 for reported drift or conflicts, and 2 for an error.
 
 The scheduled run reports drift; an agent repairs it by following §3, including the
 no-write plan in §2 and the verification in §5. The script does not modify instruction
-files, Skill entries, backups, receipts or the custom index, and does not start agent
-sessions. Runtime discovery remains the separate check in §5.
+files, hook files, Skill entries, backups, receipts or the custom index, and does not start
+agent sessions. Runtime discovery remains the separate check in §5.
 
 Only present product homes are selected from the baseline locations in §1, respecting
 `CLAUDE_CONFIG_DIR`, `CODEX_HOME` and `KIMI_CODE_HOME` when set; explicit environment
@@ -429,8 +479,9 @@ To remove House Rules:
    current content, after comparing it with the backup.
 2. Delete only owned links (ownership rule in §2, including broken links) and copies
    proven to match a receipt.
-3. Remove only the managed House Rules blocks from global instruction files. Restore a
-   backup only after comparing newer operator changes.
+3. Remove only the managed House Rules blocks from global instruction files, and only the
+   House Rules session-context entry from hook files. Restore a backup only after
+   comparing newer operator changes.
 4. Copy `custom/` elsewhere if the operator wants its backups and receipts, then delete
    the source folder.
 

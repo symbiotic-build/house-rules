@@ -21,8 +21,9 @@ STAGED = ("prompts", "rules", "skills/pr-ready", "skills/spec-writing")
 SERVICE_STAGED = ("prompts", "rules", "skills/pr-ready")
 SERVICE_RUN = ("import runpy, sys; from pathlib import Path; sys.argv = sys.argv[1:]; "
                "sys.path.insert(0, str(Path(sys.argv[0]).resolve().parent)); runpy.run_path(sys.argv[0], run_name='__main__')")
-SECTIONS = ("# 1. Review pack", "# 2. Instructions", "# 3. Pull request and issue",
-            "# 4. Requirements", "# 5. Change")
+# The service prepares Codex reviews in the structured format: lens instructions come last.
+SECTIONS = ("# 1. Review pack", "# 3. Pull request and issue", "# 4. Requirements", "# 5. Change",
+            "# 7. Lens instructions")
 GIT_ENV = {"GIT_AUTHOR_NAME": "check", "GIT_AUTHOR_EMAIL": "check@example.invalid",
            "GIT_COMMITTER_NAME": "check", "GIT_COMMITTER_EMAIL": "check@example.invalid"}
 
@@ -89,7 +90,7 @@ def check(root):
                   if line.strip() and not line.startswith("#")]
         for lens in lenses:
             result = run([sys.executable, str(scripts / "prepare.py"), "review", str(repo), "--base", "main",
-                          "--no-fetch", "--lens", lens, "--cli", "codex", "--format", "pack"], stage)
+                          "--no-fetch", "--lens", lens, "--cli", "codex"], stage)
             missing = [s for s in SECTIONS if s not in result.stdout]
             if result.returncode or missing:
                 detail = result.stderr.strip().splitlines()[-1:] or [f"missing {', '.join(missing)}"]

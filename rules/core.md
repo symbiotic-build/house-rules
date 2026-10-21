@@ -78,7 +78,7 @@
 - Draft new universal rules generalized from incidents for operator confirmation.
 - Obtain operator confirmation before recording those rules as standing guidance.
 - State each rule’s applicable scope and excluded scope.
-- Record the source incident in CHANGELOG-RULES.md.
+- Record the source incident in the pull request's Rule changes section; its merge commit carries it into the rules changelog (`pr-ready` §4).
 - Treat House Rules as a public repository.
 - Describe incidents generically in public-repository rule text, provenance lines, and commit messages.
 - Never include internal product/repository names, architecture, counts, or history in those descriptions.
