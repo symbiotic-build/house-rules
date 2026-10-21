@@ -1,9 +1,9 @@
-Status: design revised to the operator's decisions of 2026-10-07; implemented in [#91](https://github.com/symbiotic-sh/house-rules/pull/91); the five role files are in [prompts/roles/](../../prompts/roles/).
+Status: design revised to the operator's decisions of 2026-10-07; implemented in [#91](https://github.com/symbiotic-build/house-rules/pull/91); the five role files are in [prompts/roles/](../../prompts/roles/).
 
 # Complete worker role packs
 
-Design for [#74](https://github.com/symbiotic-sh/house-rules/issues/74), reviewed in
-[draft PR #80](https://github.com/symbiotic-sh/house-rules/pull/80).
+Design for [#74](https://github.com/symbiotic-build/house-rules/issues/74), reviewed in
+[draft PR #80](https://github.com/symbiotic-build/house-rules/pull/80).
 The operator's recorded answers of 2026-10-07 settle the shared-rule ownership and lane-session choices.
 Implementation details below remain proposals where the operator did not specify them.
 File paths are repository-relative unless a named repository or tool home qualifies them.
@@ -34,7 +34,7 @@ Tests cover shared-rule ownership, both prompt variants and the checker's identi
 - **Open citation:** an instruction to read a rule absent from both the compiled prompt and
   the session's declared House Rules loading path.
 - **Repository rules part** and **task part:** the supplied parts defined by the
-  [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77).
+  [one-step assembly design](https://github.com/symbiotic-build/house-rules/issues/77).
   The repository rules part holds the target repository's own rules or the line
   “Repository rules: this repository has no rules of its own.”
   The task part holds the work item's Decisions and Pre-flight sections.
@@ -46,23 +46,23 @@ The following observations come from the worktree at commit
 Historical lane-load reports from earlier design revisions are not new runtime evidence.
 
 - `FACT` The current compiler reads includes from checkout files, as shown by `path.open()` in
-  [skills/pr-ready/scripts/prompt.py at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/skills/pr-ready/scripts/prompt.py).
+  [skills/pr-ready/scripts/prompt.py at 979bc32](https://github.com/symbiotic-build/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/skills/pr-ready/scripts/prompt.py).
 - `FACT` The implementer prompt forbids loading House Rules in the opening paragraph of
-  [prompts/roles/implementer.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/implementer.md).
+  [prompts/roles/implementer.md at 979bc32](https://github.com/symbiotic-build/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/implementer.md).
   `FACT` The implementer prompt also directs the worker to the target repository's instruction file in
-  [prompts/roles/implementer.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/implementer.md).
+  [prompts/roles/implementer.md at 979bc32](https://github.com/symbiotic-build/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/implementer.md).
 - `FACT` The reviewer prompt permits one targeted test, as stated in
-  [prompts/roles/reviewer.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/reviewer.md).
+  [prompts/roles/reviewer.md at 979bc32](https://github.com/symbiotic-build/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/reviewer.md).
 - `FACT` The checker introduces itself as TRIAGER in the first line of
-  [prompts/roles/checker.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/checker.md).
+  [prompts/roles/checker.md at 979bc32](https://github.com/symbiotic-build/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/roles/checker.md).
 - `FACT` The staged-path guard permits only `prompts/` and `skills/pr-ready/`, as shown by
   `test_role_prompts_include_only_files_warden_stages` in
-  [skills/pr-ready/scripts/test_prompt.py at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/skills/pr-ready/scripts/test_prompt.py).
+  [skills/pr-ready/scripts/test_prompt.py at 979bc32](https://github.com/symbiotic-build/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/skills/pr-ready/scripts/test_prompt.py).
 
 `FACT` Priority-label instructions refer readers to the work-tracking skill in
-[prompts/util/issue-form.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/util/issue-form.md).
+[prompts/util/issue-form.md at 979bc32](https://github.com/symbiotic-build/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/util/issue-form.md).
 `FACT` The cost-defect definition lives in
-[prompts/util/triage-classes.md at 979bc32](https://github.com/symbiotic-sh/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/util/triage-classes.md).
+[prompts/util/triage-classes.md at 979bc32](https://github.com/symbiotic-build/house-rules/blob/979bc325653c4c2e25367721bd230440d3bd7828/prompts/util/triage-classes.md).
 `ASSESSMENT` Direct includes from shared rule owners remove the need for copied rule fragments and parity tests.
 
 ## 4. Design
@@ -98,7 +98,7 @@ No copy registry or copy-parity test is needed.
 Shared-rule edits change the canonical owner once.
 
 The index becomes `house-rules/INDEX.md` under the
-[smaller-core design](https://github.com/symbiotic-sh/house-rules/issues/73).
+[smaller-core design](https://github.com/symbiotic-build/house-rules/issues/73).
 The pointer at `house-rules/AGENTS.md` names `house-rules/INDEX.md` and `house-rules/.agents/rules.md`.
 The smaller-core design also owns the matching pointer shape in `<target-repository>/AGENTS.md`
 and `<codex-home>/AGENTS.md`.
@@ -135,7 +135,7 @@ The role prompt tells a Warden reviewer that the compiled pack supplies its Hous
 `DECISION` A lane session's House Rules come from the live checkout through the installed block.
 Only the lane role prompt is built from a named commit.
 The design does not claim that all lane-session instructions are pinned.
-The [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77)
+The [one-step assembly design](https://github.com/symbiotic-build/house-rules/issues/77)
 owns reading the named commit from Git objects in any clone.
 The one-step assembly design also removes the need for a separate pinned checkout.
 
@@ -154,7 +154,7 @@ The worker reports that absence once and continues with the supplied task.
 A normal session may follow its installed House Rules pointer.
 A Warden reviewer uses the supplied pack and does not follow a pointer into a live House Rules checkout.
 The previous blanket stay-off fragment is removed from the design.
-The [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77)
+The [one-step assembly design](https://github.com/symbiotic-build/house-rules/issues/77)
 owns recognizing the pointer shape in `<target-repository>/AGENTS.md` and supplying actual repository rules.
 That design must use the pointer shape chosen by the smaller-core design, rather than an obsolete loader template.
 
@@ -235,7 +235,7 @@ The implementation adds targeted regressions to
 `test_role_prompts_include_only_files_warden_stages` widens its allowed roots to `rules/`
 once Warden's staging change is deployed.
 The operator's decision record identifies that change as
-[warden#238](https://github.com/symbiotic-sh/warden/pull/238), merged as `9f1568b`.
+[warden#238](https://github.com/symbiotic-build/warden/pull/238), merged as `9f1568b`.
 This revision has not verified Warden's deployment.
 The guard does not allow arbitrary repository paths.
 The former copy-parity test proposal is deleted because the design adds no copied rule text.
@@ -330,22 +330,22 @@ Deployment follows these dependencies:
 4. Run the lane and Warden canaries from §7 before moving the callers to the new role-prompt commit.
    The live lane-session checkout remains a separate source of session instructions.
 
-The [one-step assembly design](https://github.com/symbiotic-sh/house-rules/issues/77)
+The [one-step assembly design](https://github.com/symbiotic-build/house-rules/issues/77)
 owns drafting its matching Warden compiler change after the lane-runner test passes and with operator approval.
 This design does not create a second Warden rollout or assume that staging deployment proves compiler deployment.
 
 ## 9. Interfaces with the other designs
 
-- **[Smaller always-loaded core](https://github.com/symbiotic-sh/house-rules/issues/73):** owns `house-rules/INDEX.md`,
+- **[Smaller always-loaded core](https://github.com/symbiotic-build/house-rules/issues/73):** owns `house-rules/INDEX.md`,
   the pointer files and its own canary.
   This design supplies the shared-rule owners that its index loads.
-- **[Specialist subagents](https://github.com/symbiotic-sh/house-rules/issues/75):** owns specialist execution,
+- **[Specialist subagents](https://github.com/symbiotic-build/house-rules/issues/75):** owns specialist execution,
   including separate Claude safe-mode processes, skill-text injection and its Model Context Protocol test and fallback.
   Specialist packs use the shared owners without assuming that safe mode loads session skills.
-- **[Review skill](https://github.com/symbiotic-sh/house-rules/issues/76):** owns the `change-review` skill,
+- **[Review skill](https://github.com/symbiotic-build/house-rules/issues/76):** owns the `change-review` skill,
   the fixed review format, the operator question format and one reviewer by default.
   This design supplies the reviewer role's shared writing rules and claim labels.
-- **[One-step assembly](https://github.com/symbiotic-sh/house-rules/issues/77):** owns Git-object prompt building from a named commit,
+- **[One-step assembly](https://github.com/symbiotic-build/house-rules/issues/77):** owns Git-object prompt building from a named commit,
   revision headers, repository rules assembly and caller integration for the two loading paths.
   Lane review panels use that builder rather than scripts taken from the live checkout.
 

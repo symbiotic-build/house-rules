@@ -1,8 +1,8 @@
 # House Rules index rename and pointer files
 
-Status: pointer-only design; operator direction recorded on 2026-10-07; implemented in [#93](https://github.com/symbiotic-sh/house-rules/pull/93).
+Status: pointer-only design; operator direction recorded on 2026-10-07; implemented in [#93](https://github.com/symbiotic-build/house-rules/pull/93).
 
-Issue: [#73](https://github.com/symbiotic-sh/house-rules/issues/73)
+Issue: [#73](https://github.com/symbiotic-build/house-rules/issues/73)
 
 ## 1. Result
 
@@ -34,10 +34,10 @@ Links to House Rules files resolve relative to this document.
 
 ## 3. Current behavior
 
-The implementation baseline is [ba1e5b0](https://github.com/symbiotic-sh/house-rules/tree/ba1e5b09199df53a32bc882ec4a8793cdd6b240d).
+The implementation baseline is [ba1e5b0](https://github.com/symbiotic-build/house-rules/tree/ba1e5b09199df53a32bc882ec4a8793cdd6b240d).
 
 - The baseline index at `<HOUSE_RULES_ROOT>/AGENTS.md` requires seven rule files in full at session start and after every reset or compaction:
-  [baseline index](https://github.com/symbiotic-sh/house-rules/blob/ba1e5b09199df53a32bc882ec4a8793cdd6b240d/AGENTS.md).
+  [baseline index](https://github.com/symbiotic-build/house-rules/blob/ba1e5b09199df53a32bc882ec4a8793cdd6b240d/AGENTS.md).
   They are `<HOUSE_RULES_ROOT>/rules/core.md`, `<HOUSE_RULES_ROOT>/rules/outcome.md`, `<HOUSE_RULES_ROOT>/rules/delivery.md`,
   `<HOUSE_RULES_ROOT>/rules/writing.md`, `<HOUSE_RULES_ROOT>/rules/git.md`, `<HOUSE_RULES_ROOT>/rules/priority-labels.md`
   and `<HOUSE_RULES_ROOT>/rules/session-writing.md`.
@@ -112,7 +112,7 @@ Later rule edits need no pointer reinstall.
   Every configured Codex home receives the same shape.
 - **Kimi Code:** `$KIMI_CODE_HOME/AGENTS.md`.
 - **Other products:** existing adapters point to the same shared index.
-  Adding Antigravity support belongs to [issue #78](https://github.com/symbiotic-sh/house-rules/issues/78).
+  Adding Antigravity support belongs to [issue #78](https://github.com/symbiotic-build/house-rules/issues/78).
 
 Managed repositories' `<REPOSITORY_ROOT>/AGENTS.md` files keep the three-line loader in §4.5.
 This implementation does not run the installer against real homes or repositories.
@@ -189,10 +189,10 @@ The rename does not pin normal session rules to a Git commit.
 
 ## 9. Interfaces with the other designs
 
-[Design #74](https://github.com/symbiotic-sh/house-rules/issues/74) owns shared-rule and worker-pack changes.
-[Design #75](https://github.com/symbiotic-sh/house-rules/issues/75) owns specialist processes and isolation.
-[Design #76](https://github.com/symbiotic-sh/house-rules/issues/76) owns review entry and writing triggers.
-[Design #77](https://github.com/symbiotic-sh/house-rules/issues/77) owns prompt assembly from pinned Git objects.
+[Design #74](https://github.com/symbiotic-build/house-rules/issues/74) owns shared-rule and worker-pack changes.
+[Design #75](https://github.com/symbiotic-build/house-rules/issues/75) owns specialist processes and isolation.
+[Design #76](https://github.com/symbiotic-build/house-rules/issues/76) owns review entry and writing triggers.
+[Design #77](https://github.com/symbiotic-build/house-rules/issues/77) owns prompt assembly from pinned Git objects.
 None of those changes belongs to this implementation.
 
 ## 10. Decisions

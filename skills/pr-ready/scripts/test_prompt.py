@@ -2130,7 +2130,7 @@ class CommitPackTest(CommitPackFixture, unittest.TestCase):
         third.write_bytes(b"")
         pack, manifest = self.good("--lens", "security", "--include", "common.md",
                                    "--include", "extra.md", "--task", task,
-                                   "--task-source", "symbiotic-sh/house-rules#77",
+                                   "--task-source", "symbiotic-build/house-rules#77",
                                    "--task", second, "--task-source", "resume-note", "--task", third)
         self.assertEqual(pack, (f"House Rules revision: {self.rev}\n\n"
                          "Loading path: compiled shared rules; canonical owners are included in this pack.\n\n"
@@ -2150,7 +2150,7 @@ class CommitPackTest(CommitPackFixture, unittest.TestCase):
             self.assertEqual(entry["sha256"], hashlib.sha256((self.repo / entry["path"]).read_bytes()).hexdigest())
         for entry, data, source in zip(manifest["parts"][-3:],
                                        [task.read_bytes() + b"\n", b"Resume\n", b""],
-                                       ["symbiotic-sh/house-rules#77", "resume-note", "inline"]):
+                                       ["symbiotic-build/house-rules#77", "resume-note", "inline"]):
             self.assertEqual(entry, {"kind": "task", "source": source, "bytes": len(data),
                                      "sha256": hashlib.sha256(data).hexdigest()})
         self.assertNotIn(str(self.root), self.manifest.read_text())

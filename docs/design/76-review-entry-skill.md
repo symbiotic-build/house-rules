@@ -2,8 +2,8 @@
 
 Status: not implemented. The proposed `change-review` skill does not exist. Reviews run through the pr-ready review rounds and the review panel ([skills/pr-ready/SKILL.md](../../skills/pr-ready/SKILL.md)). The operator-writing skill still loads for all operator-facing text.
 
-Issue: [review entry skill (#76)](https://github.com/symbiotic-sh/house-rules/issues/76).
-Draft: [review entry design (#82)](https://github.com/symbiotic-sh/house-rules/pull/82).
+Issue: [review entry skill (#76)](https://github.com/symbiotic-build/house-rules/issues/76).
+Draft: [review entry design (#82)](https://github.com/symbiotic-build/house-rules/pull/82).
 
 ## Result
 
@@ -18,7 +18,7 @@ The change-review skill does not load the pr-ready push, CI or merge procedure f
 The operator-writing skill loads for operator documents, questions to the operator and GitHub text.
 Everyday replies follow the always-loaded writing rules in [rules/writing.md](../../rules/writing.md).
 The foundation design owns the always-loaded rules and the House Rules index rename
-([foundation design (#73)](https://github.com/symbiotic-sh/house-rules/pull/79)).
+([foundation design (#73)](https://github.com/symbiotic-build/house-rules/pull/79)).
 
 ## Terms
 
@@ -28,7 +28,7 @@ The foundation design owns the always-loaded rules and the House Rules index ren
   Normal House Rules sessions already load shared rules; Warden reviewers receive those rules through role includes.
 - **Prompt compiler:** [skills/pr-ready/scripts/prompt.py](../../skills/pr-ready/scripts/prompt.py).
   The pack-assembly design requires the compiler to read Git objects from a named House Rules commit
-  ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
+  ([pack-assembly design (#77)](https://github.com/symbiotic-build/house-rules/pull/83)).
 - **Foundation:** the always-loaded session rules owned by the foundation design.
 - **Index:** the proposed House Rules index at `<HOUSE_RULES_ROOT>/INDEX.md`.
   The foundation design makes `<HOUSE_RULES_ROOT>/AGENTS.md` a pointer to that index and
@@ -61,7 +61,7 @@ includes eight files through `@rule house-rules:` lines.
 requires a `VERDICT:` line followed by Blocking, Spec issues, Follow-ups, Non-blocking and Coverage sections.
 
 `ASSUMPTION` The earlier version of this design reports a 2026-10-07 load test against
-commit ce7b7af ([prior design](https://github.com/symbiotic-sh/house-rules/blob/5a7e3b9/docs/design/76-review-entry-skill.md)).
+commit ce7b7af ([prior design](https://github.com/symbiotic-build/house-rules/blob/5a7e3b9/docs/design/76-review-entry-skill.md)).
 `ASSUMPTION` The prior design reports that Claude loaded no review skill for a plain review request.
 `ASSUMPTION` The prior design reports that Codex loaded operator-writing and pr-ready, then read only three reviewer-pack files.
 `ASSUMPTION` The prior design reports that Codex loaded operator-writing even for “hello.”
@@ -148,16 +148,16 @@ The specialist receives a reviewer pack compiled from the same named commit.
 The resolved commit remains fixed through compaction, so edits or branch changes cannot alter the review pack.
 The skill adds no stored pack, pin file, cache or manifest of its own.
 The pack-assembly design owns Git-object compilation and the session option
-([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
+([pack-assembly design (#77)](https://github.com/symbiotic-build/house-rules/pull/83)).
 The specialist-subagent design owns specialist launching
-([specialist-subagent design (#75)](https://github.com/symbiotic-sh/house-rules/pull/81)).
+([specialist-subagent design (#75)](https://github.com/symbiotic-build/house-rules/pull/81)).
 If the specialist launcher has not landed, omit the specialist hand-off paragraph from the implementation.
 The specialist-subagent implementation then adds the hand-off paragraph when its launcher lands.
 
 ### 2. House Rules index at `<HOUSE_RULES_ROOT>/INDEX.md`
 
 The foundation design owns the index rename and the common pointer shape for installed and repository loaders
-([foundation design (#73)](https://github.com/symbiotic-sh/house-rules/pull/79)).
+([foundation design (#73)](https://github.com/symbiotic-build/house-rules/pull/79)).
 This implementation changes the following triggers in `<HOUSE_RULES_ROOT>/INDEX.md`.
 The index keeps skill-name order.
 
@@ -205,7 +205,7 @@ The operator-writing skill also keeps its operator-document rules for closeout r
 The operator-writing skill keeps its GitHub forms and question format.
 Every review question uses that question format, including lane and Warden review questions.
 The worker-pack design owns delivery of shared question instructions to role prompts
-([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
+([worker-pack design (#74)](https://github.com/symbiotic-build/house-rules/pull/80)).
 
 The implementation deletes the operator-writing §Communication rules self-trigger.
 The implementation moves the general reply rules into [rules/writing.md](../../rules/writing.md), as specified in Design §5.
@@ -244,7 +244,7 @@ The implementation adds no second ordering rule.
 
 The moved rules have one owner in [rules/writing.md](../../rules/writing.md).
 The worker-pack design owns shared writing, Git and priority-label rule files under `rules/`
-([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
+([worker-pack design (#74)](https://github.com/symbiotic-build/house-rules/pull/80)).
 This implementation adds no verbatim writing-rule copy under `prompts/util/`.
 
 ### 6. Other references
@@ -272,7 +272,7 @@ The following test changes are proposals for the implementation, not results of 
 Updated tests:
 
 - Add no replacement for `test_reset_reloads_skills_and_references_the_writing_rule_owner`.
-  [#148](https://github.com/symbiotic-sh/house-rules/pull/148) removed it, because it asserted rule wording.
+  [#148](https://github.com/symbiotic-build/house-rules/pull/148) removed it, because it asserted rule wording.
   The rule-change review protects the core writing pointer and the writing-rule pointer to operator-writing.
 - Change `test_each_invariant_sentence_fits_twenty_words` to read the writing-rule §Communication rules.
 - Extend `test_moved_sections_have_one_rule_owner` to require each moved sentence only in the writing-rule owner.
@@ -363,19 +363,19 @@ Different shared-rule delivery modes do not require byte-identical prompt text.
 ## Rollout and interfaces with the other designs
 
 1. **Worker packs:** the worker-pack design owns shared files in `rules/`, role includes and normal-session lane workers
-   ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
+   ([worker-pack design (#74)](https://github.com/symbiotic-build/house-rules/pull/80)).
    Lane workers load live session rules; only their role prompt comes from the named commit.
    Warden reviewers stay read-only, without builds or tests and without network access except the model provider.
    Continuous integration runs builds and tests; Warden posts reviews, and Mac lane scripts start local fixers.
 2. **Pack assembly:** the pack-assembly design owns named-commit Git-object compilation and the session shared-rule option
-   ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
+   ([pack-assembly design (#77)](https://github.com/symbiotic-build/house-rules/pull/83)).
    This implementation uses the same compiler contract as lane review panels and Warden role compilation.
    This implementation does not require a separate pinned checkout or compile from uncommitted files.
 3. **Foundation:** the foundation design owns the smaller always-loaded core and `<HOUSE_RULES_ROOT>/INDEX.md`
-   ([foundation design (#73)](https://github.com/symbiotic-sh/house-rules/pull/79)).
+   ([foundation design (#73)](https://github.com/symbiotic-build/house-rules/pull/79)).
    This implementation changes the index's skill triggers and the core's operator-writing pointer after the foundation lands.
 4. **Specialists:** the specialist-subagent design owns specialist hand-offs and safe-mode skill delivery
-   ([specialist-subagent design (#75)](https://github.com/symbiotic-sh/house-rules/pull/81)).
+   ([specialist-subagent design (#75)](https://github.com/symbiotic-build/house-rules/pull/81)).
    This implementation adds no specialist launcher, isolated lane-worker home or new specialist policy.
 5. **Installation and pins:** update the operator checkout after merge and run
    [scripts/sync.py](../../scripts/sync.py).
@@ -395,17 +395,17 @@ Dependency implementation must preserve the review-entry acceptance criteria bef
 4. **2026-10-07 — Skill name.** The operator named the skill `change-review`.
 5. **2026-10-07 — Shared rules.** The operator chose one shared home in `rules/`, without verbatim prompt copies.
    The worker-pack design owns shared-rule files and role inclusion
-   ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80)).
+   ([worker-pack design (#74)](https://github.com/symbiotic-build/house-rules/pull/80)).
 6. **2026-10-07 — Lane sessions.** The operator chose normal House Rules sessions for lane workers.
    The worker-pack and pack-assembly designs own role compilation for those sessions
-   ([worker-pack design (#74)](https://github.com/symbiotic-sh/house-rules/pull/80),
-   [pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
+   ([worker-pack design (#74)](https://github.com/symbiotic-build/house-rules/pull/80),
+   [pack-assembly design (#77)](https://github.com/symbiotic-build/house-rules/pull/83)).
 7. **2026-10-07 — Prompt source.** The operator chose Git objects from a named House Rules commit for every prompt.
    The pack-assembly design owns that compiler contract
-   ([pack-assembly design (#77)](https://github.com/symbiotic-sh/house-rules/pull/83)).
+   ([pack-assembly design (#77)](https://github.com/symbiotic-build/house-rules/pull/83)).
 8. **2026-10-07 — Index name.** The operator chose `<HOUSE_RULES_ROOT>/INDEX.md` as the House Rules index.
    The foundation design owns the rename and pointer-only loaders
-   ([foundation design (#73)](https://github.com/symbiotic-sh/house-rules/pull/79)).
+   ([foundation design (#73)](https://github.com/symbiotic-build/house-rules/pull/79)).
 
 ## Open points
 

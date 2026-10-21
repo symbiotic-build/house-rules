@@ -62,7 +62,7 @@ The following records preserve the decisions that determine source authority, ch
 
 **Choice:** A check round (`prepare.py review --since <commit>`) reviews only the fix since the last reviewed commit. Its input is the fix diff, the pull request description, human comments, the latest triager report and the reviewer's own previous report. It prepares no documentation context and ignores an explicit `--assignment`, so it needs neither selector validation nor the shared checker. Reviewers read registered documents in the checkout; changed documents are in the fix diff.
 
-**Authority:** Operator decision on check-round input, dated 2026-10-20, after a measured comparison of check-round inputs. [Pull request #164](https://github.com/symbiotic-sh/house-rules/pull/164), which implemented check rounds, records the decision's provenance and that comparison.
+**Authority:** Operator decision on check-round input, dated 2026-10-20, after a measured comparison of check-round inputs. [Pull request #164](https://github.com/symbiotic-build/house-rules/pull/164), which implemented check rounds, records the decision's provenance and that comparison.
 
 **Reason:** A check round confirms that a fix resolves earlier findings. The full round already reviewed the documentation with its mandatory context, and resending that context made each check round cost as much as a full review.
 
