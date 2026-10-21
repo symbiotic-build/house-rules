@@ -10,8 +10,9 @@ Durable continuation preserves useful context across sessions.
 
 ## The 80% rule
 
-At ~80% context (or before any compaction), write the handoff, then end the session so a
-successor resumes from it. Also write one at session end and on ownership change. The
+At ~80% context (or before any compaction), write the handoff and give it to a successor
+that is attached to your lead (a started session, or a background job in the lead's session).
+End the session only after the lead confirms the successor holds the work. Also write one at session end and on ownership change. The
 handoff is an **immutable record** — by default a handoff record (an empty commit on the
 work branch, mirrored to the issue when the host is reachable), or the legacy ledger until
 the repository migrates (skill `work-tracking`). Same required contents everywhere:

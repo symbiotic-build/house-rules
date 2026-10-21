@@ -157,6 +157,10 @@
    Require completion reports to reach the orchestrating session.
    Never detach long-running work with `nohup`, `&` in a subshell, `disown`, or `setsid`.
    Require launch scripts to refuse detached execution.
+   End a turn only when work is finished, an attached background job will wake the session on the next awaited change, or the session waits on an operator question.
+   Treat waiting on CI, a review, a deploy, a remote job, or another session as open work.
+   Check status at its source: the pull request, CI run, or host log.
+   Never relay another agent's status report as fact.
    Re-read the attachment rule after any context compaction.
 
 ## Autonomy
