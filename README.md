@@ -96,3 +96,7 @@ from those merge commits. [CHANGELOG-RULES.md](CHANGELOG-RULES.md) is the frozen
 earlier entries.
 
 Attribution is in [NOTICE.md](NOTICE.md); the license is [MIT](LICENSE).
+
+## About
+
+House Rules is built by [Symbiotic Labs](https://symbiotic.build).
