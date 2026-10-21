@@ -319,7 +319,7 @@ runpy.run_path(sys.argv.pop(1), run_name="__main__")
                 result = subprocess.run([sys.executable, "-B", "-c", wrapper, str(SCRIPT),
                                          "run", "--session", "slow", "--pr", PR,
                                          "--pr", "other/project#8", *bot, "--heartbeat", "0.3"],
-                                        capture_output=True, text=True, env=self.env, timeout=5)
+                                        stdin=subprocess.DEVNULL, capture_output=True, text=True, env=self.env, timeout=5)
                 elapsed = time.monotonic() - start
                 self.assertEqual((result.returncode, result.stderr), (0, ""), result.stdout)
                 self.assertIn("heartbeat: no result change in 0.3 s.", result.stdout)
@@ -340,7 +340,7 @@ runpy.run_path(sys.argv.pop(1), run_name="__main__")
         os.mkfifo(self.root / "release")
         process = subprocess.Popen([sys.executable, "-B", str(SCRIPT), "run", "--session", "handshake",
                                     "--pr", PR, "--interval", "0.001", "--heartbeat", "3"],
-                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=self.env)
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=self.env)
         self.addCleanup(lambda: process.poll() is None and process.kill())
         # Opening the FIFO read/write avoids blocking the parent before the baseline arrives.
         descriptor = os.open(self.root / "release", os.O_RDWR | os.O_NONBLOCK)
@@ -405,7 +405,7 @@ Path.read_text = removed
 runpy.run_path(sys.argv.pop(1), run_name="__main__")
 '''
         result = subprocess.run([sys.executable, "-B", "-c", wrapper, str(SCRIPT), "status"],
-                                capture_output=True, text=True, env=self.env, timeout=5)
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True, env=self.env, timeout=5)
         self.assertEqual((result.returncode, result.stderr), (0, ""))
         raw = result.stdout.strip().split(" ", 3)[3]
         entry = json.loads(raw)
@@ -419,7 +419,7 @@ runpy.run_path(sys.argv.pop(1), run_name="__main__")
                 wrapper = "import os, runpy, sys; " + change + "runpy.run_path(sys.argv.pop(1), run_name='__main__')"
                 result = subprocess.run([sys.executable, "-B", "-c", wrapper, str(SCRIPT), "run",
                                          "--session", "detached", "--pr", PR, "--heartbeat", "0.2"],
-                                        capture_output=True, text=True, env=self.env, timeout=5,
+                                        stdin=subprocess.DEVNULL, capture_output=True, text=True, env=self.env, timeout=5,
                                         start_new_session=not orphan)
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("attached harness background job", result.stderr)
