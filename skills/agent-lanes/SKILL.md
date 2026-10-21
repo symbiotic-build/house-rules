@@ -166,5 +166,7 @@ git worktree remove <wt> && git branch -D <branch>; git worktree prune
   1. **Start or re-arm the watcher:** run `python3 <house-rules>/skills/agent-lanes/scripts/watch_prs.py run --session <id> --pr owner/repo#n --heartbeat 900` through the attached launcher after every wake.
   2. **Wait for the baseline:** wait for a line starting with `baseline recorded` and its snapshot for each pull request.
   3. **Inspect the pull requests:** check their current results after the baseline so changes before it remain visible.
-- **Handoff on saturation.** A lane near context limits writes a handoff and dies; a fresh
-  agent with a handoff beats a saturated one every time (skill `handoff-continuity`).
+- **Handoff on saturation.** A lane near context limits writes a handoff, gives it to a successor
+  that is attached to its lead (a started session, or a background job in the lead's session),
+  and ends only after the lead confirms the successor holds the work. A fresh agent with a
+  handoff beats a saturated one (skill `handoff-continuity`).
