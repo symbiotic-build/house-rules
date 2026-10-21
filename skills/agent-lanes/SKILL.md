@@ -157,5 +157,8 @@ git worktree remove <wt> && git branch -D <branch>; git worktree prune
 - **Background monitors.** Every long-running run has a watcher that surfaces failures instantly
   and feeds concrete counters into status lines. Prove work is running: process name, output
   path, dashboard link.
+  The [pull-request watcher](scripts/watch_prs.py) implements prime rule 15 for pull-request changes and periodic heartbeats.
+  Run `python3 <house-rules>/skills/agent-lanes/scripts/watch_prs.py run --session <id> --pr owner/repo#n --heartbeat 900` as a harness background job; repeat `--pr` for more requests.
+  Re-arm it after every wake; use `--bot-login <login>` to include a review bot's status comment.
 - **Handoff on saturation.** A lane near context limits writes a handoff and dies; a fresh
   agent with a handoff beats a saturated one every time (skill `handoff-continuity`).

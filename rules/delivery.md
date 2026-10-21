@@ -52,6 +52,12 @@
 - Parallelize autonomously inside the resource envelope.
 - Never broaden the campaign through parallelism.
 - Keep lane ownership disjoint.
+- Keep rules and policy in their home file.
+- Use messages between sessions for tasks, status, or questions.
+- To change a rule, edit its home file and tell running sessions which section to re-read.
+- Before sending a correction, read what the receiver already did.
+- Never send a second instruction on a subject while the first is still queued.
+- Assign one lead to decide for each work item.
 - Verify lane diffs stay within ownership.
 - Keep shared spine files append-only.
 - Run one benchmark or measured performance run at a time per machine, across all agents, lanes and sessions.
