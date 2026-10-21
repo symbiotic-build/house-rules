@@ -1073,17 +1073,30 @@ class SessionContextTests(unittest.TestCase):
         (self.root / "rules/core.md").write_bytes(original)
         self.assertIn("===== House Rules file rules/core.md =====", self.kimi("prompt", prompt))
 
-    def test_kimi_missing_rule_file_is_retried_until_the_complete_rules_print(self):
-        prompt = {"session_id": "session_a"}
-        original = (self.root / "rules/core.md").read_text()
-        (self.root / "rules/core.md").unlink()
-        for _ in range(2):
-            # The script names paths under its resolved location.
-            self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root.resolve() / 'rules/core.md'} is missing.",
-                          self.kimi("prompt", prompt))
-        self.write("rules/core.md", original)
-        self.assertIn("===== House Rules file rules/core.md =====\n# Core rules", self.kimi("prompt", prompt))
-        self.assertEqual(self.kimi("prompt", prompt), "")
+    def test_kimi_missing_rule_file_or_index_is_retried_until_the_complete_rules_print(self):
+        for number, name in enumerate(("rules/core.md", "INDEX.md")):
+            with self.subTest(missing=name):
+                prompt = {"session_id": f"session_{number}"}
+                original = (self.root / name).read_text()
+                (self.root / name).unlink()
+                record = self.root / "kimi-home" / context.KIMI_STATE / prompt["session_id"]
+                for _ in range(2):
+                    # (a) The missing file is reported and no completed delivery is recorded.
+                    # The script names paths under its resolved location.
+                    self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root.resolve() / name} is missing.",
+                                  self.kimi("prompt", prompt))
+                    self.assertFalse(record.exists())
+                self.write(name, original)
+                # (b) The same session's next prompt delivers every always-load file the printed index lists.
+                delivered = self.kimi("prompt", prompt)
+                printed = delivered.split("===== House Rules file INDEX.md =====\n", 1)[1].split("\n=====", 1)[0]
+                listed = context.always_load(printed)
+                self.assertTrue(listed, printed)
+                for listed_name in listed:
+                    self.assertIn(f"===== House Rules file {listed_name} =====\n", delivered)
+                    self.assertIn((self.root / listed_name).read_text().split("\n", 1)[0], delivered)
+                self.assertTrue(record.exists())
+                self.assertEqual(self.kimi("prompt", prompt), "")
 
     def test_kimi_missing_local_index_is_reported_once_per_session(self):
         prompt = {"session_id": "session_a"}
