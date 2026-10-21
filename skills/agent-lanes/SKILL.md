@@ -75,8 +75,9 @@ command -v cmake                          # check: the wrapper, not the real too
   `--ignore-user-config --disable shell_snapshot`, so each reviewer is one process instead of
   the user's MCP servers, plugins and hooks.
 
-**Overloaded machine.** Check the load before a heavy job and whenever commands slow down,
-and apply the overload rules with these commands.
+**Before a measured run.** Check the load with these commands before a benchmark or measured
+performance run starts, and apply the load rules in
+[rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work).
 
 ```bash
 getconf _NPROCESSORS_ONLN                         # online cores
