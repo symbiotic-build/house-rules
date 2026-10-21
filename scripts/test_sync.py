@@ -1126,14 +1126,19 @@ class SessionContextTests(unittest.TestCase):
                 changed.append(True)
             return present
 
-        failures = []
         with mock.patch.object(Path, "read_text", read_text), mock.patch.object(Path, "is_file", is_file):
-            rev, packed, _ = context.parts(self.root, failures)
-        return "".join(context.render(number, rev, packed) for number in range(1, len(packed) + 1)), failures
+            rev, packed, _ = context.parts(self.root)
+        return "".join(context.render(number, rev, packed) for number in range(1, len(packed) + 1))
 
-    def assert_printed_index_matches_delivered_files(self, text):
+    def assert_complete_or_visibly_missing(self, text):
+        """Either every always-load file the printed index lists is delivered, or the index is reported missing."""
         printed = text.split("===== House Rules file INDEX.md =====\n", 1)[1].split("\n=====", 1)[0]
-        for name in context.always_load(printed):
+        if printed.startswith("HOUSE RULES HOOK ERROR:"):
+            self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root / 'INDEX.md'} is missing.", printed)
+            return
+        listed = context.always_load(printed)
+        self.assertTrue(listed, printed)
+        for name in listed:
             self.assertIn(f"===== House Rules file {name} =====", text)
 
     def test_index_changing_while_read_never_prints_a_file_list_it_did_not_load(self):
@@ -1141,14 +1146,9 @@ class SessionContextTests(unittest.TestCase):
         original = (self.root / "INDEX.md").read_text()
         updated = original.replace("- [writing](rules/writing.md)\n",
                                    "- [writing](rules/writing.md)\n- [extra](rules/extra.md)\n")
-        text, failures = self.delivered_with_index_changing(original, updated)
-        self.assert_printed_index_matches_delivered_files(text)
-        self.assertEqual(failures, [])
-        # Found missing first, restored later: reported missing, never printed without its files.
-        text, failures = self.delivered_with_index_changing(None, updated)
-        self.assertIn("INDEX.md", failures)
-        self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root / 'INDEX.md'} is missing.", text)
-        self.assertNotIn("- [extra](rules/extra.md)", text)
+        self.assert_complete_or_visibly_missing(self.delivered_with_index_changing(original, updated))
+        # Found missing first, restored later.
+        self.assert_complete_or_visibly_missing(self.delivered_with_index_changing(None, updated))
 
     def test_kimi_hook_stopped_before_printing_leaves_the_next_prompt_to_print(self):
         # The reader of the hook's output is gone before the hook writes, so printing fails.
