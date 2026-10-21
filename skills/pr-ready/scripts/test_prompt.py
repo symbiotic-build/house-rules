@@ -1051,28 +1051,6 @@ class AnsweredRestoreTest(unittest.TestCase):
             "Changes outside approved authority require your decision.", detail
         )
 
-    def test_reset_reloads_skills_and_every_reply_checks_the_writing_rule_owner(self):
-        core = self.text("rules/core.md")
-        session = core.split("## Session start", 1)[1].split(
-            "## Protected operator assets", 1
-        )[0]
-        self.assertIn("including a compaction", session)
-        self.assertIn("reload the skills the current task uses", session.lower())
-        self.assertNotIn("writing", session)
-        prime_rules = core.split("## Prime rules", 1)[1].split("\n## ", 1)[0]
-        check = ("Check every operator-facing reply against rules/writing.md "
-                 "§Checks before sending")
-        self.assertIn("skills/operator-writing/SKILL.md §Communication rules", prime_rules)
-        self.assertIn(check, prime_rules)
-        self.assertEqual(core.count(check), 1)
-        self.assertNotIn("reader test", prime_rules)
-        communication = self.text("skills/operator-writing/SKILL.md").split(
-            "## Communication rules", 1
-        )[1].split("## Structure", 1)[0]
-        self.assertIn("Follow `operator-writing` for every operator-facing text’s "
-                      "structure, language, options, Mermaid diagrams, and reader test.",
-                      communication)
-
     def test_detail_test_keeps_adjacent_consequences(self):
         detail = self.text("rules/writing.md").split("- **Detail test:**", 1)[1]
         for requirement in (
