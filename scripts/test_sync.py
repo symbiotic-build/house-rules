@@ -641,8 +641,9 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
 
     def test_rules_longer_than_the_registered_slots_are_reported(self):
         self.install_fixture()
-        with mock.patch.object(context, "SLOTS", 1), mock.patch.object(context, "CAP", 1_500):
-            code, out, err = self.invoke()
+        path = self.root / "scripts/session_context.py"
+        path.write_text(path.read_text().replace("SLOTS = 12 ", "SLOTS = 1 ").replace("CAP = 10_000", "CAP = 1_500"))
+        code, out, err = self.invoke()
         self.assertEqual(code, 1, out + err)
         self.assertRegex(out, r"REPORT: session context needs [2-9] parts; the hook registers 1\n")
 
@@ -764,28 +765,41 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"], [current])
 
     def test_an_update_that_changes_the_hook_generator_installs_the_updated_entry(self):
-        self.addCleanup(setattr, sync, "session_context", sync.session_context)  # main() reloads it
         path = self.origin / "scripts/session_context.py"
         path.write_text(path.read_text().replace("SLOTS = 12 ", "SLOTS = 13 "))
         self.commit(self.origin, ["scripts/session_context.py"])
         code, out, err = self.invoke("--install-hooks")
         self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.claude_parts(), 13)
+
+    def test_the_selected_checkouts_current_generator_is_used_despite_cached_bytecode(self):
+        path = self.root / "scripts/session_context.py"
+        spec = importlib.util.spec_from_file_location("fixture_generator", path)
+        spec.loader.exec_module(importlib.util.module_from_spec(spec))  # writes timestamp bytecode
+        times = path.stat()
+        path.write_text(path.read_text().replace("SLOTS = 12 ", "SLOTS = 13 "))  # same size
+        os.utime(path, ns=(times.st_atime_ns, times.st_mtime_ns))
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(self.claude_parts(), 13, out + err)
+
+    def claude_parts(self):
         handlers = self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"]
-        self.assertEqual(sum(handler["command"].split()[-2] == "claude" for handler in handlers), 13)
+        return sum(handler["command"].split()[-2] == "claude" for handler in handlers)
 
     def test_the_default_root_keeps_the_link_it_was_run_through(self):
+        shutil.copyfile(SCRIPT, self.root / "scripts/sync.py")
         alias = self.base / "stable root"
         alias.symlink_to(self.root, target_is_directory=True)
-        with mock.patch.object(sync, "__file__", str(alias / "scripts/sync.py")):
-            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
-                code = sync.main(["--install-hooks"])
-        self.assertEqual(code, 0, out.getvalue() + err.getvalue())
-        self.assertIn(shlex.quote(str(alias / "scripts/session_context.py")),
-                      self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"][0]["command"])
-        with mock.patch.object(sync, "__file__", str(alias / "scripts/sync.py")):
-            with contextlib.redirect_stdout(io.StringIO()) as again, contextlib.redirect_stderr(io.StringIO()):
-                self.assertEqual(sync.main([]), 0)
-        self.assertIn("0 findings", again.getvalue())
+        run = [sys.executable, "-B", str(alias / "scripts/sync.py")]
+        environment = {**os.environ, "HOME": str(self.home)}
+        installed = subprocess.run([*run, "--install-hooks"], env=environment, stdin=subprocess.DEVNULL,
+                                   capture_output=True, text=True)
+        self.assertIn(f"REGISTERED: session context hook in {self.claude.resolve() / 'settings.json'}",
+                      installed.stdout, installed.stdout + installed.stderr)
+        command = self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"][0]["command"]
+        self.assertEqual(shlex.split(command)[2], str(alias / "scripts/session_context.py"))
+        checked = subprocess.run(run, env=environment, stdin=subprocess.DEVNULL, capture_output=True, text=True)
+        self.assertNotIn("session context hook", checked.stdout, checked.stdout + checked.stderr)
 
     def test_a_home_link_swapped_after_the_check_cannot_redirect_writes(self):
         real = self.base / "claude real"
@@ -795,17 +809,19 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.write(protected / "settings.json", "{}")
         link = self.base / "claude link"
         link.symlink_to(real, target_is_directory=True)
-        real_read = sync.read_hooks
+        real_open = os.open
 
-        def swap(path, data=None):
-            if path.name == "settings.json":
+        def swap(path, flags, *args, **kwargs):  # folders are open and checked; relink before the write
+            handle = real_open(path, flags, *args, **kwargs)
+            if str(path).startswith(".settings.json."):
                 link.unlink()
                 link.symlink_to(protected, target_is_directory=True)
-            return real_read(path, data)
+            return handle
 
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(link)}), \
-                mock.patch.object(sync, "read_hooks", side_effect=swap):
-            self.invoke("--install-hooks")
+                mock.patch.object(sync.os, "open", side_effect=swap):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(os.path.realpath(link), str(protected.resolve()), "the link was swapped")
         self.assertEqual(sorted(path.name for path in protected.iterdir()), ["settings.json"])
         self.assertEqual((protected / "settings.json").read_text(), "{}")
         self.assertEqual(self.read(real / "settings.json")["hooks"]["SessionStart"],
@@ -904,7 +920,6 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual(sorted(path.name for path in protected.iterdir()), ["settings.json"])
 
     def test_a_backup_that_cannot_be_written_is_removed_and_the_file_kept(self):
-        before = self.settings.read_text()
         settings = self.read(self.settings)
         settings["hooks"]["SessionStart"].pop()
         self.write(self.settings, json.dumps(settings))
@@ -935,6 +950,26 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         entries = self.read(self.settings)["hooks"]["SessionStart"]
         self.assertEqual(entries[1:], [context.hooks("claude", str(python), self.root)])
 
+    def test_a_file_changed_by_another_writer_during_installation_is_not_overwritten(self):
+        self.settings.unlink()
+        self.write(self.settings, json.dumps({"model": "before"}))
+        real_chmod = os.chmod
+
+        def concurrent(path, mode, *args, **kwargs):  # the staged file is ready; another writer saves now
+            self.write(self.settings, json.dumps({"model": "other writer"}))
+            return real_chmod(path, mode, *args, **kwargs)
+
+        with mock.patch.object(sync.os, "chmod", side_effect=concurrent):
+            code, out, err = self.invoke("--install-hooks")
+        settings = self.claude.resolve() / "settings.json"
+        self.assertEqual(code, 2, out + err)
+        self.assertIn(f"hook file changed during installation; not written: {settings}", err)
+        self.assertEqual(self.read(self.settings), {"model": "other writer"})
+        self.assertEqual(sorted(p.name for p in self.claude.iterdir() if p.name.startswith(".settings.json.")), [])
+        backups = self.backups(self.settings)
+        self.assertEqual(len(backups), 1)
+        self.assertIn(f"BACKUP: {self.claude.resolve() / backups[0].name} (copy of {settings})", out)
+
     def test_a_current_entry_followed_by_other_entries_is_not_rewritten(self):
         settings = self.read(self.settings)
         settings["hooks"]["SessionStart"].append({"hooks": [self.unrelated]})
@@ -944,6 +979,25 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual(code, 0, out + err)
         self.assertEqual(self.settings.read_text(), before)
         self.assertEqual(self.backups(self.settings), [])
+
+    def test_a_failed_cleanup_reports_the_write_failure_too(self):
+        settings = self.read(self.settings)
+        settings["hooks"]["SessionStart"].pop()
+        self.write(self.settings, json.dumps(settings))
+        real_fdopen = os.fdopen
+
+        def failing(handle, mode="r", *args, **kwargs):
+            stream = real_fdopen(handle, mode, *args, **kwargs)
+            if mode == "wb":
+                stream.write = mock.Mock(side_effect=OSError("fixture disk full"))
+            return stream
+
+        with mock.patch.object(sync.os, "fdopen", side_effect=failing), \
+                mock.patch.object(sync.os, "unlink", side_effect=OSError("fixture unlink denied")):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("fixture disk full", err)
+        self.assertIn("could not be removed either: fixture unlink denied", err)
 
     def test_default_run_still_writes_no_hook_file(self):
         self.settings.unlink()

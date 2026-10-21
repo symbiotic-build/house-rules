@@ -6,7 +6,6 @@ hook file (INSTALL-AGENTS.md §3 step 10). It writes no other file.
 """
 
 import argparse
-import importlib.util
 import json
 import os
 from pathlib import Path
@@ -15,16 +14,25 @@ import shlex
 import stat
 import subprocess
 import sys
-import tempfile
+import secrets
 import time
+import types
 
 
 MARKERS = re.compile(r"<!-- (house-rules|forge|groundwork):(begin|end) -->")
 def load_session_context(path):
-    """The hook generator from one checkout; main() loads it again after updating the checkout."""
-    spec = importlib.util.spec_from_file_location("session_context", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+    """The hook generator compiled from the current bytes of one checkout's script.
+
+    Compiling the source directly never reuses cached bytecode, which can survive an update that
+    keeps the file's size and modification second. main() loads the selected checkout's generator
+    after updating it, so installation and verification build the entry sessions will run.
+    """
+    module = types.ModuleType("session_context")
+    module.__file__ = str(path)
+    try:
+        exec(compile(Path(path).read_bytes(), str(path), "exec"), module.__dict__)
+    except SyntaxError as error:
+        raise ValueError(f"hook generator does not compile: {path}: {error}") from error
     return module
 
 
@@ -228,8 +236,9 @@ def skill_folders(selected, home):
     return sorted(folders)
 
 
-def verify(root, home, findings, selected, hook_root=None):
+def verify(root, home, findings, selected, hook_root=None, generator=None):
     """Collect results in caller-owned lists so a later error cannot discard them."""
+    generator = generator or session_context
     block = template(root)
     selected.extend(homes(root, home))
     roots = ownership_roots(root) | {str(hook_root or root)}
@@ -282,10 +291,10 @@ def verify(root, home, findings, selected, hook_root=None):
     for key, product_home in selected:
         if key in HOOK_FILES:
             check_hook(hook_root or root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], findings,
-                       replaced_hooks(root))
-    _, packed, too_long = session_context.parts(root)
-    if len(packed) > session_context.SLOTS:
-        findings.append(f"session context needs {len(packed)} parts; the hook registers {session_context.SLOTS}")
+                       replaced_hooks(root), generator)
+    _, packed, too_long = generator.parts(root)
+    if len(packed) > generator.SLOTS:
+        findings.append(f"session context needs {len(packed)} parts; the hook registers {generator.SLOTS}")
     for name, heading in too_long:
         findings.append(f"session context section too long for one part: {name}, heading \"{heading}\"")
 
@@ -310,7 +319,7 @@ def read_hooks(path, data=None):
     return settings, entries
 
 
-def check_hook(root, roots, path, product, findings, replaced=frozenset()):
+def check_hook(root, roots, path, product, findings, replaced=frozenset(), generator=None):
     """Exactly the INSTALL-AGENTS.md §3 SessionStart entry, run by an existing absolute interpreter."""
     _, entries = read_hooks(path)
     scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
@@ -326,7 +335,7 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset()):
     entry, commands = owned[0]
     python = commands[0][0] if commands[0] else ""
     if len(owned) != 1 or not Path(python).is_absolute() or not is_file(Path(python)) or \
-            entry != session_context.hooks(product, python, root):
+            entry != (generator or session_context).hooks(product, python, root):
         findings.append(f"stale session context hook: {path}")
 
 
@@ -376,7 +385,7 @@ def handler_commands(entry):
     return result
 
 
-def install_hooks(root, hook_root, home, python, report):
+def install_hooks(root, hook_root, home, python, report, generator=None):
     """Write the current hook entry into each Claude Code and Codex hook file.
 
     report(event, path, backup) runs at once after each backup ("backup") and each replacement
@@ -388,52 +397,107 @@ def install_hooks(root, hook_root, home, python, report):
     read again just before replacement, and a change since the first read is an error; a change
     in the instant between that check and the replacement is not detected, so installation runs
     while no agent session changes its settings (INSTALL-AGENTS.md §3 step 10).
+
+    Each home folder is opened once, its open handle is matched to the folder that passes the
+    protected-content check, and every read and write happens inside that handle, so renaming or
+    relinking the folder's path afterwards cannot redirect a write.
     """
+    generator = generator or session_context
+    if not hasattr(os, "fchdir") or not hasattr(os, "O_DIRECTORY"):
+        raise ValueError("--install-hooks needs directory handles (os.fchdir), which this platform lacks")
     roots = ownership_roots(root) | {str(hook_root)}
     scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
     replaced = replaced_hooks(root)
     selected = homes(root, home)
-    # Each hook file's folder is resolved once, checked, and used for every read and write after it,
-    # so a link swapped after the check cannot redirect writes into protected Codex content.
-    targets = [((product_home.resolve(strict=True)) / HOOK_FILES[key][0], HOOK_FILES[key][1])
-               for key, product_home in selected if key in HOOK_FILES]
-    for path, _ in targets:
-        check_protected(path, selected)
-        check_protected(path.parent, selected)
-    for path, product in targets:
-        data = path.read_bytes() if present(path) else None
-        settings, entries = read_hooks(path, data)
-        expected = session_context.hooks(product, python, hook_root)
-        kept, owned = [], []
-        for entry in entries:
-            handlers = entry.get("hooks") if isinstance(entry, dict) else None
-            if isinstance(handlers, list):
-                remaining = [handler for handler in handlers if owner(handler, scripts, replaced, python) is None]
-                if len(remaining) != len(handlers):
-                    owned.append(entry)
-                    if not remaining:
-                        continue  # an entry that held only House Rules handlers; other empty entries stay
-                    entry = {**entry, "hooks": remaining}
-            kept.append(entry)
-        if owned == [expected]:
-            continue
-        settings.setdefault("hooks", {})["SessionStart"] = kept + [expected]
-        mode = stat.S_IMODE(os.stat(path).st_mode) if data is not None else 0o600
-        backup = backup_copy(path, data, mode) if data is not None else None
-        if backup is not None:
-            report("backup", path, backup)
-        handle, temporary = tempfile.mkstemp(dir=path.parent, prefix=f".{path.name}.")
-        try:
-            with os.fdopen(handle, "w", encoding="utf-8") as stream:
-                stream.write(json.dumps(settings, indent=2) + "\n")
-            os.chmod(temporary, mode)
-            if (path.read_bytes() if present(path) else None) != data:
-                raise ValueError(f"hook file changed during installation; not written: {path}")
-            os.replace(temporary, path)
-        except BaseException:
-            os.unlink(temporary)
-            raise
-        report("registered", path, backup)
+    folders = []
+    try:
+        for key, product_home in selected:
+            if key in HOOK_FILES:
+                handle = os.open(product_home, os.O_RDONLY | os.O_DIRECTORY)
+                folders.append((handle, product_home.resolve(strict=True), *HOOK_FILES[key]))
+        for handle, real, name, _ in folders:  # every destination, before the first write
+            opened, checked = os.fstat(handle), os.stat(real)
+            if (opened.st_dev, opened.st_ino) != (checked.st_dev, checked.st_ino):
+                raise ValueError(f"hook folder changed while it was checked: {real}")
+            check_protected(real / name, selected)
+            check_protected(real, selected)
+        for handle, real, name, product in folders:
+            with inside(handle):
+                install_one(real, name, generator.hooks(product, python, hook_root), scripts, replaced, python,
+                            report)
+    finally:
+        for handle, *_ in folders:
+            os.close(handle)
+
+
+def inside(handle):
+    """Run a block with the working directory set to an open folder, then return to the old one."""
+    class Inside:
+        def __enter__(self):
+            self.previous = os.open(".", os.O_RDONLY)
+            os.fchdir(handle)
+
+        def __exit__(self, *exc):
+            try:
+                os.fchdir(self.previous)
+            finally:
+                os.close(self.previous)
+    return Inside()
+
+
+def read_relative(name):
+    try:
+        with open(name, "rb") as stream:
+            return stream.read()
+    except FileNotFoundError:
+        return None
+
+
+def install_one(real, name, expected, scripts, replaced, python, report):
+    """Install one hook file; the working directory is its checked folder, so every path is `name`."""
+    path = real / name  # for messages only
+    data = read_relative(name)
+    settings, entries = read_hooks(path, data) if data is not None else ({}, [])
+    kept, owned = [], []
+    for entry in entries:
+        handlers = entry.get("hooks") if isinstance(entry, dict) else None
+        if isinstance(handlers, list):
+            remaining = [handler for handler in handlers if owner(handler, scripts, replaced, python) is None]
+            if len(remaining) != len(handlers):
+                owned.append(entry)
+                if not remaining:
+                    continue  # an entry that held only House Rules handlers; other empty entries stay
+                entry = {**entry, "hooks": remaining}
+        kept.append(entry)
+    if owned == [expected]:
+        return
+    settings.setdefault("hooks", {})["SessionStart"] = kept + [expected]
+    mode = stat.S_IMODE(os.stat(name).st_mode) if data is not None else 0o600
+    backup = backup_copy(Path(name), data, mode) if data is not None else None
+    if backup is not None:
+        report("backup", path, real / backup.name)
+    temporary = f".{name}.{secrets.token_hex(6)}"
+    handle = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(json.dumps(settings, indent=2) + "\n")
+        os.chmod(temporary, mode)
+        if read_relative(name) != data:
+            raise ValueError(f"hook file changed during installation; not written: {path}")
+        os.replace(temporary, name)
+    except BaseException as error:
+        if os.path.lexists(temporary):
+            discard(temporary, error)
+        raise
+    report("registered", path, real / backup.name if backup else None)
+
+
+def discard(path, error):
+    """Remove a partial file after `error`; a failed removal reports both failures."""
+    try:
+        os.unlink(path)
+    except OSError as cleanup:
+        raise OSError(f"{error}; the incomplete file {path} could not be removed either: {cleanup}") from error
 
 
 def backup_copy(path, data, mode):
@@ -448,8 +512,8 @@ def backup_copy(path, data, mode):
         try:
             with os.fdopen(handle, "wb") as stream:
                 stream.write(data)
-        except BaseException:
-            os.unlink(backup)  # an incomplete backup must not look like a good one
+        except BaseException as error:
+            discard(backup, error)  # an incomplete backup must not look like a good one
             raise
         return backup
     raise ValueError(f"no free backup name beside {path}")
@@ -482,34 +546,26 @@ def main(argv=None):
     selected = []
     verification_complete = False
     # A failed checkout update must not prevent checking the installed homes.
-    before = []
+    generator = []
 
-    def head():
-        # A checkout whose revision cannot be read fails visibly in update(); keep no reload then.
-        try:
-            before.append(git(root, "rev-parse", "HEAD"))
-        except subprocess.CalledProcessError:
-            pass
-
-    def reload():
-        # An update that moved the checkout may have changed the hook generator; install and
-        # verify with the updated one.
-        global session_context
+    def load():
+        # The selected checkout's generator, read after its update, builds the entry its sessions run.
         script = root / "scripts/session_context.py"
-        if before and git(root, "rev-parse", "HEAD") != before[0] and is_file(script):
-            session_context = load_session_context(script)
+        generator.append(load_session_context(script) if is_file(script) else session_context)
 
     def install():
+        if not generator:
+            raise ValueError("hook generator was not loaded; no hook file written")
         install_hooks(root, hook_root, Path.home(), sys.executable, lambda event, path, backup: print(
             f"BACKUP: {backup} (copy of {path})" if event == "backup" else
-            f"REGISTERED: session context hook in {path}"))
+            f"REGISTERED: session context hook in {path}"), generator[0])
 
     for name, operation in (
-            ("head", head),
             ("update", lambda: findings.extend(update(root))),
-            ("reload", reload),
+            ("load", load),
             *((("install", install),) if args.install_hooks else ()),
-            ("verification", lambda: verify(root, Path.home(), findings, selected, hook_root))):
+            ("verification", lambda: verify(root, Path.home(), findings, selected, hook_root,
+                                            generator[0] if generator else None))):
         try:
             operation()
         except (OSError, ValueError, RecursionError, subprocess.CalledProcessError) as error:

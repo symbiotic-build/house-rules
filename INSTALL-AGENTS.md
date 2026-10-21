@@ -185,34 +185,42 @@ For each selected product and configuration home:
 10. Register the session-context hook in every Claude Code and Codex home (§1 hook table).
     At every new, resumed, cleared and compacted session it prints `INDEX.md`, the rule files
     the index lists under "Always load", the operator-writing Skill and `custom/INDEX.md`.
-    The hook command is quoted for a POSIX shell. On native Windows, first print the entry
-    with `scripts/session_context.py hooks <product> "<HOUSE_RULES_ROOT>"`, run its command
-    in the product's hook shell, and report a failure as a conflict instead of installing.
-    Run the installer with a Python 3.9 or later interpreter that agent sessions can run:
+    Before running the installer:
+
+    - List every additional product home found in §1 in `custom/sync.env` (§6). The
+      installer selects only the default homes and the homes listed there.
+    - List every command of an older hand-made context hook, verbatim, under
+      `replaced_hooks` in a JSON receipt in `custom/installations/`. The installer reads only
+      JSON receipts; remove an older hook recorded only in another receipt format by hand.
+    - On native Windows, print the entry with
+      `scripts/session_context.py hooks <product> "<HOUSE_RULES_ROOT>"` and run its command in
+      the product's hook shell, because the command is quoted for a POSIX shell. Report a
+      failure as a conflict instead of installing.
+
+    Then run the installer with a Python 3.9 or later interpreter that agent sessions can run:
 
     ```sh
     "<PYTHON3>" "<HOUSE_RULES_ROOT>/scripts/sync.py" --root "<HOUSE_RULES_ROOT>" --install-hooks
     ```
 
     For each hook file it removes every earlier House Rules entry, adds the current one and
-    keeps every other entry and setting. An earlier entry is a handler in exactly the form the
+    keeps every other entry and setting. An earlier entry is a handler in exactly a form the
     installer prints, `<python> -I <root>/scripts/session_context.py` followed by `claude <n>`,
-    `codex`, `approved` or `approved codex`,
-    for the current or a previous root, or a command a receipt lists verbatim under
-    `replaced_hooks`, such as an older hand-made context hook. Nothing else is inferred from a
-    command, so list every command of an older hook in the receipt before installing. The installer backs up a
-    changed file beside it under a new name, readable only by its owner, replaces it
-    atomically, and prints each backup and each file it writes as soon as it exists. It leaves a file that already holds the current
-    entry unchanged. Run it while no agent session is changing its settings: it reads each
-    file again just before replacing it and stops on a change, but a change in the instant
-    between that check and the replacement would be lost, and the backup holds the file as
-    first read. The entry runs the installer's
-    interpreter by its absolute path and names the root as passed to `--root`, so a stable
-    link to a moving checkout stays valid. Claude Code gets one hook per part, because it
-    caps each hook's output at 10 000 characters; Codex gets one hook; Kimi Code gets none.
-    Codex skips a new hook until the
-    operator trusts it in `/hooks`; record that as a pending operator action in
-    `custom/INDEX.md`. Record each hook file and its backup in the receipt.
+    `codex`, `approved` or `approved codex`, for the current or a previous root, or a command a
+    JSON receipt lists under `replaced_hooks`. Nothing else is inferred from a command. The
+    installer backs up a changed file beside it under a new name, readable only by its owner,
+    replaces it atomically, and prints each backup and each file it writes as soon as it
+    exists. A file whose only House Rules entry is already the current one stays unchanged.
+
+    Run it while no agent session is changing its settings: it reads each file again just
+    before replacing it and stops on a change, but a change in the instant between that check
+    and the replacement would be lost, and the backup holds the file as first read. The entry
+    runs the installer's interpreter by its absolute path and names the root as passed to
+    `--root`, so a stable link to a moving checkout stays valid. Claude Code gets one hook per
+    part, because it caps each hook's output at 10 000 characters; Codex gets one hook; Kimi
+    Code gets none. Codex skips a new hook until the operator trusts it in `/hooks`; record
+    that as a pending operator action in `custom/INDEX.md`. Record each hook file and its
+    backup in the receipt.
 
     The hook and `scripts/sync.py` report two capacity errors. A section too long for one
     part is split under more headings by the owner of its file: the operator for
