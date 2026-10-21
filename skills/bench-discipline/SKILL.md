@@ -68,6 +68,12 @@ Retrieval evaluations also apply the [retrieval rules](references/retrieval-eval
 - Determine repeat counts from observed variability and the precision needed for the
   decision, within the approved budget. A deterministic check may need no replicates;
   one noisy observation usually supports exploration rather than a reliable comparison.
+- For evaluations and tuning of agent or model behavior, use the baseline's existing
+  runs. Do not rerun a baseline or add replicates by default. Add one only when the
+  decision turns on a difference no larger than the spread already seen between runs;
+  name that reason and its cost before launching. Compare which items each arm gets
+  right, not only totals: a lost or gained item shows without replicates. Measured
+  performance runs (timing, throughput, memory) keep their own noise controls.
 - Account for dependencies such as repeated requests for the same item or shared seeds.
   Pair comparable units when appropriate. Reusing stored stochastic outputs isolates
   downstream effects; resampling them measures a different source of uncertainty.

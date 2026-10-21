@@ -2,22 +2,90 @@
 
 Source notes for House Rules invariants and procedures.
 
-## rules/delivery.md — Parallel work (load check only before measured runs)
+This file is a frozen archive. New provenance lives in each rule pull request's Rule changes
+section, which its merge commit carries; `skills/pr-ready/scripts/rules_changelog.py` prints the
+changelog built from those merge commits.
 
-Operator direction: 2026-10-19. An agent held back a few light unit-test suites because the
-one-minute load average was above the core count, although the load came from desktop
-processes, not builds. The operator called the load threshold for builds and tests a bad
-rule: the build queue already runs one build or test command at a time within a core budget,
-and the benchmark rule already keeps other work off the machine during a measured run. The
-load threshold came from an agent's draft for the shared-machine rule, not from an operator
-direction. The operator also directed that a benchmark about to start on a loaded machine
-must reach the operator at once, not sit inside a long message.
+## skills/bench-discipline — Reuse baseline runs instead of rerunning them
 
-- Build and test commands no longer check the load; the build queue limits them.
-- Before a benchmark or measured performance run, the agent checks the load. Above the core
-  count it does not start the run. It reports the run, the load, the core count and the
-  heaviest processes first and in bold in its next message, and as a notification when the
-  tool has one. It starts when the load falls or the operator says to start.
+Operator direction: 2026-10-19, after an agent tuning review prompts proposed rerunning the baseline in each test round
+to measure run-to-run spread, although the baseline's earlier runs were available and the operator had asked for an
+efficient check rather than a precise comparison. The operator asked for a rule: evaluations and tuning of agent or
+model behavior use the baseline's existing runs, add a replicate only when the decision turns on a difference within
+the spread already seen, and compare which items each arm gets right. Measured performance runs are excluded.
+
+## prompts/util/review-bar.md — Rule-change dispositions belong to one reviewer
+
+Operator decision: 2026-10-20. Every reviewer had to give each rule-change item a disposition,
+so a review panel wrote the same table once per reviewer in every round. Only the
+rule-preservation reviewer now writes the dispositions; other reviewers report a rule
+regression they find during their own review. The rule-preservation reviewer now joins
+whenever the rule report is non-empty, including additions, rewrapped text and provenance
+entries, so no item loses its audit.
+
+## skills/decision-brief, skills/operator-writing — One home for the operator-question format
+
+Operator confirmation: 2026-10-19, answer "1. 1" to the question "Approve the single home
+for the operator-question format?" (approve it, and it merges with the session-context hook).
+A session asked the operator to decide in the decision-brief skill's `Decision 1 = Option 2` answer form, with decision IDs
+and options named "Option 1". The session writing rules prescribe a different format for
+the same questions: numbered `### 1\.` question headings, a one-line `FACT` / `ASSESSMENT`
+context, one bold "(recommended)" option, no word "Option" and an "Answer like so:"
+example. Both texts claimed the same subject, so following the skill broke the rule.
+
+[rules/session-writing.md §Questions to the operator](rules/session-writing.md#questions-to-the-operator)
+stays the one home for how operator questions, options and answers are written. The
+decision-brief skill keeps what a brief explains before its questions and references that
+section; it drops the `Decision N = Option M` answer line and the decision IDs. The
+operator-writing skill drops the "Option 1, 2, 3" naming and references the same section.
+
+Scope: questions the operator must answer, in chat or in a brief. Excluded: specifications
+and design documents, whose open questions stay unnumbered, and the content a brief
+explains before its questions.
+
+## rules/writing.md — Claim labels: a summarising fetch is not the source
+
+Operator confirmation: 2026-10-19, answer "2. 1" to the question "Approve the claim-label
+line on summarising fetch tools?". A session labelled four claims
+`FACT` after reading a web page only through a tool that summarises pages with a model.
+Such a tool's quotes can be paraphrased, so the session had not read the primary source.
+The rule already says a claim read in a summary is never a `FACT`; the new line says that
+a summarising fetch is such a summary, and that quotes are verified against the raw page or
+file.
+
+Scope: claims labelled `FACT`. Excluded: reading summaries for orientation, and claims
+labelled `ASSUMPTION` with their source named.
+
+## Install — Session-context hook
+
+Operator direction: 2026-10-19, after a session skipped rules it had been told to read:
+the fix should hold for every installation by default. The managed block only tells a
+session to read the rules; it does not put them into the session, and the machine-local
+index was read only when the session followed that instruction. INSTALL-AGENTS.md §3 now
+registers a tracked session-start hook that prints the always-load rules, the
+operator-writing skill and `custom/INDEX.md`, split at file and heading boundaries into
+labelled parts under the product's output cap. `scripts/sync.py` reports a missing or
+stale hook as drift.
+
+## prompts and skills/pr-ready — Tuned first-round review prompts
+
+Operator-approved prompts: 2026-10-19 ("leave it at the best one, slight tune, go with it
+to unblock"). A tuning experiment replayed earlier first review rounds with six candidate
+prompt sets and scored each blind against defects that later rounds found; the operator
+chose the sixth candidate. Targeted lenses follow one required review procedure with a
+coverage ledger and per-lens inventories, and no longer refrain from defects outside their
+lens. A generic one-pass reviewer adds breadth without commands. The triager collects
+defects written only in coverage notes, classifies severity itself, judges over-claiming
+documents and test-discipline breaks by their consequence, and judges rare triggers by
+reachability instead of rejecting them. It also merges one defect reported from different
+angles into one item, a fix found in the chosen candidate's run. The structured change
+shows each changed text file up to 85 000 characters whole as a numbered full-context diff;
+moved-block references are dropped because each moved block now shows in place. The waste
+lens judges a large changed file by its separable responsibilities; size thresholds stay
+open.
+A replay of the new triager rules on stored reviewer reports kept more known defects and
+dropped none that the earlier rules kept. Review prompts no longer claim per-lens model
+families or Decisions and Pre-flight sections they do not supply.
 
 ## skills/pr-ready — Structured review layout
 

@@ -2,3 +2,4 @@
 .tmp/
 .debug-session/
 custom/
+__pycache__/
