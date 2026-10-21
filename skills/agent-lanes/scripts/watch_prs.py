@@ -14,6 +14,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -21,10 +22,13 @@ TRANSIENT_STATES = ("preparing", "reviewing", "triaging", "queued", "publishing"
 TRANSIENT_CHECKS = {"IN_PROGRESS", "QUEUED", "PENDING", "EXPECTED", "WAITING"}
 
 
-def gh(*args):
+def gh(*args, deadline):
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise subprocess.TimeoutExpired(["gh", *args], 0)
     result = subprocess.run(
         ["gh", *args], stdin=subprocess.DEVNULL, capture_output=True,
-        text=True, timeout=60,
+        text=True, timeout=min(60, remaining),
     )
     if result.returncode:
         raise RuntimeError((result.stderr or result.stdout or "gh failed").strip())
@@ -41,10 +45,10 @@ def parse_pr(text):
     return match[1], int(match[2])
 
 
-def snapshot(repo, number, bot_login=None):
+def snapshot(repo, number, bot_login, deadline):
     pr = json.loads(gh(
         "pr", "view", str(number), "-R", repo, "--json",
-        "state,headRefOid,mergeable,statusCheckRollup",
+        "state,headRefOid,mergeable,statusCheckRollup,reviews", deadline=deadline,
     ))
     checks = sorted(
         f"{check.get('name') or check['context']}="
@@ -54,15 +58,37 @@ def snapshot(repo, number, bot_login=None):
     result = {
         "state": pr["state"], "head": pr["headRefOid"],
         "mergeable": pr["mergeable"], "checks": checks,
+        "reviews": sorted(
+            ({field: review[field] for field in ("id", "state", "submittedAt")}
+             for review in pr.get("reviews") or [] if review.get("submittedAt")),
+            key=lambda review: review["id"],
+        ),
     }
     if bot_login:
-        pages = json.loads(gh(
-            "api", f"repos/{repo}/issues/{number}/comments?per_page=100",
-            "--paginate", "--slurp",
-        ))
-        comments = [comment for page in pages for comment in page
-                    if comment["user"]["login"] == bot_login]
-        result["review"] = comments[-1]["body"] if comments else ""
+        owner, name = repo.split("/")
+        query = """query($owner:String!, $name:String!, $number:Int!, $before:String) {
+          repository(owner:$owner, name:$name) { pullRequest(number:$number) {
+            comments(last:100, before:$before) {
+              nodes { author { login } body }
+              pageInfo { hasPreviousPage startCursor }
+            }
+          } }
+        }"""
+        cursor = []
+        result["review"] = ""
+        while True:
+            comments = json.loads(gh(
+                "api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}",
+                "-f", f"name={name}", "-F", f"number={number}", *cursor, deadline=deadline,
+            ))["data"]["repository"]["pullRequest"]["comments"]
+            latest = next((comment for comment in reversed(comments["nodes"])
+                           if (comment["author"] or {}).get("login") == bot_login), None)
+            if latest is not None:
+                result["review"] = latest["body"]
+                break
+            if not comments["pageInfo"]["hasPreviousPage"]:
+                break
+            cursor = ["-f", f"before={comments['pageInfo']['startCursor']}"]
     return result
 
 
@@ -77,6 +103,9 @@ def progress_only(diff):
     if "checks" in diff:
         old, new = map(set, diff["checks"])
         # A vanished check is a status change, not evidence of ongoing progress.
+        if ({check.rsplit("=", 1)[0] for check in old}
+                - {check.rsplit("=", 1)[0] for check in new}):
+            return False
         if not new - old or any(
             check.rsplit("=", 1)[-1] not in TRANSIENT_CHECKS for check in new - old
         ):
@@ -94,26 +123,46 @@ def live(pid):
         return True
 
 
+def publish(registration, entry):
+    """Publish a complete registry entry without exposing partial JSON to status."""
+    with tempfile.NamedTemporaryFile(mode="w", dir=registration.parent,
+                                     suffix=".tmp", delete=False) as output:
+        temporary = Path(output.name)
+        try:
+            json.dump(entry, output)
+            output.close()
+            temporary.replace(registration)
+        finally:
+            temporary.unlink(missing_ok=True)
+
+
 def run(args, home):
+    if os.getppid() == 1 or os.getsid(0) == os.getpid():
+        raise ValueError("run requires an attached harness background job; "
+                         "orphaned processes and session leaders are refused")
     watchers = home / "watchers"
     watchers.mkdir(parents=True, exist_ok=True)
     registration = watchers / f"{args.session}-{os.getpid()}.json"
-    registration.write_text(json.dumps({
+    publish(registration, {
         "session": args.session, "pid": os.getpid(),
         "prs": [f"{repo}#{number}" for repo, number in args.pr],
         "started": time.time(),
-    }))
+    })
     base, errors = {}, {}
-    start = time.monotonic()
+    deadline = time.monotonic() + args.heartbeat
     try:
         while True:
             changes = []
             for repo, number in args.pr:
+                if time.monotonic() >= deadline:
+                    break
                 key = f"{repo}#{number}"
                 try:
-                    current = snapshot(repo, number, args.bot_login)
+                    current = snapshot(repo, number, args.bot_login, deadline)
                 except (OSError, RuntimeError, ValueError, KeyError, TypeError,
                         subprocess.TimeoutExpired) as error:
+                    if isinstance(error, subprocess.TimeoutExpired) and time.monotonic() >= deadline:
+                        break
                     errors[key] = errors.get(key, 0) + 1
                     print(f"{key}: read failed ({error}); attempt {errors[key]}",
                           file=sys.stderr, flush=True)
@@ -123,7 +172,9 @@ def run(args, home):
                         return 2
                     continue
                 errors[key] = 0
-                if key in base and current != base[key]:
+                if key not in base:
+                    print(f"baseline recorded: {key}: {json.dumps(current)}", flush=True)
+                elif current != base[key]:
                     diff = {field: [base[key][field], value]
                             for field, value in current.items() if value != base[key][field]}
                     if args.all or not progress_only(diff):
@@ -132,7 +183,7 @@ def run(args, home):
             if changes:
                 print("\n".join(changes), flush=True)
                 return 0
-            remaining = args.heartbeat - (time.monotonic() - start)
+            remaining = deadline - time.monotonic()
             if remaining <= 0:
                 print(f"heartbeat: no result change in {args.heartbeat:g} s. Current state:")
                 for key, value in base.items():
@@ -148,10 +199,10 @@ def mark(args, home, is_open):
     sessions.mkdir(parents=True, exist_ok=True)
     registration = sessions / f"{args.session}.json"
     if is_open:
-        registration.write_text(json.dumps({
+        publish(registration, {
             "session": args.session, "open": True, "since": time.time(),
             "note": args.note or "",
-        }))
+        })
         print(f"open work registered for {args.session}")
     else:
         registration.unlink(missing_ok=True)
@@ -164,7 +215,10 @@ def status(home):
     for directory, label in ((home / "sessions", "open session"),
                              (home / "watchers", "watcher")):
         for registration in sorted(directory.glob("*.json")):
-            entry = json.loads(registration.read_text())
+            try:
+                entry = json.loads(registration.read_text())
+            except FileNotFoundError:
+                continue
             alive = "" if "pid" not in entry else (" alive" if live(entry["pid"]) else " DEAD")
             print(f"{label}: {registration.stem}{alive} {json.dumps(entry)}")
             found = True

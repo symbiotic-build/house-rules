@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 import watch_prs
@@ -20,7 +21,8 @@ PR = f"{REPO}#7"
 
 def pr(**changes):
     value = {"state": "OPEN", "headRefOid": "a" * 40, "mergeable": "MERGEABLE",
-             "statusCheckRollup": [{"name": "rust", "status": "IN_PROGRESS", "conclusion": ""}]}
+             "statusCheckRollup": [{"name": "rust", "status": "IN_PROGRESS", "conclusion": ""}],
+             "reviews": []}
     value.update(changes)
     return value
 
@@ -80,6 +82,9 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
+import select
+import re
 
 root = Path(os.environ["WATCH_TEST_ROOT"])
 args = sys.argv[1:]
@@ -93,6 +98,10 @@ if args[:2] == ["pr", "view"]:
     index = counts.get(repo, 0)
     counts[repo] = index + 1
     counts_file.write_text(json.dumps(counts))
+elif args[:2] == ["api", "graphql"]:
+    fields = dict(arg.split("=", 1) for arg in args if "=" in arg)
+    repo = fields["owner"] + "/" + fields["name"]
+    index = counts[repo] - 1
 elif args[0] == "api":
     repo = "/".join(args[1].split("/")[1:3])
     index = counts[repo] - 1
@@ -100,15 +109,36 @@ else:
     sys.exit("unexpected gh arguments: " + repr(args))
 sequence = scenarios[repo]
 entry = sequence[min(index, len(sequence) - 1)]
+if entry.get("wait_for_baseline"):
+    with (root / "release").open() as release:
+        if not select.select([release], [], [], 2)[0]:
+            sys.exit("baseline was not flushed")
+        release.readline()
+time.sleep(entry.get("comment_delay" if args[0] == "api" else "delay", 0))
 if "error" in entry:
     print(entry["error"], file=sys.stderr)
     sys.exit(1)
-if args[0] == "api":
+if args[:2] == ["api", "graphql"]:
+    if not re.search(r"\\blast\\s*:\\s*100\\b", fields["query"]):
+        sys.exit("expected native reverse comment pagination")
+    pages = entry.get("pages", []) or [[]]
+    page = int(fields["before"]) - 1 if "before" in fields else len(pages) - 1
+    with (root / "pages-read.jsonl").open("a") as trace:
+        trace.write(json.dumps(page) + "\\n")
+    print(json.dumps({"data": {"repository": {"pullRequest": {"comments": {
+        "nodes": [{"author": c["user"], "body": c["body"]} for c in pages[page]],
+        "pageInfo": {"hasPreviousPage": page > 0, "startCursor": str(page)},
+    }}}}}))
+elif args[0] == "api":
+    with (root / "pages-read.jsonl").open("a") as trace:
+        for page in range(len(entry.get("pages", []))):
+            trace.write(json.dumps(page) + "\\n")
     if "--paginate" not in args or "--slurp" not in args:
         sys.exit("comment pages must not be truncated")
     print(json.dumps(entry.get("pages", [])))
 else:
-    print(json.dumps(entry["pr"]))
+    fields = args[args.index("--json") + 1].split(",")
+    print(json.dumps({field: entry["pr"][field] for field in fields}))
 ''')
         fake.chmod(0o755)
 
@@ -126,7 +156,10 @@ else:
 
     def assert_change(self, result, diff):
         self.assertEqual((result.returncode, result.stderr), (0, ""), result.stdout)
-        self.assertEqual(result.stdout, f"{PR} changed: {json.dumps(diff)}\n")
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[-1], f"{PR} changed: {json.dumps(diff)}")
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].startswith(f"baseline recorded: {PR}: "))
         self.assertEqual(list((self.home / "watchers").glob("*.json")), [])
 
     def test_running_checks_are_ignored_until_a_finished_result(self):
@@ -179,11 +212,12 @@ else:
     def test_heartbeat_reports_current_state_without_waiting_for_poll_interval(self):
         self.scenario.write_text(json.dumps({REPO: [{"pr": pr()}]}))
         result = self.command("run", "--session", "heartbeat", "--pr", PR,
-                              "--heartbeat", "0.01", "--interval", "90")
+                              "--heartbeat", "0.2", "--interval", "90")
         expected = {"state": "OPEN", "head": "a" * 40,
-                    "mergeable": "MERGEABLE", "checks": ["rust=IN_PROGRESS"]}
+                    "mergeable": "MERGEABLE", "checks": ["rust=IN_PROGRESS"], "reviews": []}
         self.assertEqual((result.returncode, result.stderr), (0, ""))
-        self.assertEqual(result.stdout, "heartbeat: no result change in 0.01 s. Current state:\n"
+        self.assertEqual(result.stdout, f"baseline recorded: {PR}: {json.dumps(expected)}\n"
+                         "heartbeat: no result change in 0.2 s. Current state:\n"
                          f"  {PR}: {json.dumps(expected)}\n")
         self.assertEqual(list((self.home / "watchers").glob("*.json")), [])
 
@@ -220,6 +254,177 @@ else:
         self.assertIn("expected owner/repo#number", result.stderr)
         self.assertFalse(self.trace.exists())
         self.assertFalse(self.home.exists())
+
+    def test_submitted_reviews_wake_the_session(self):
+        for state in ("APPROVED", "CHANGES_REQUESTED"):
+            with self.subTest(state=state):
+                self.counts.unlink(missing_ok=True)
+                review = {"id": "review-1", "state": state,
+                          "submittedAt": "2026-10-21T12:00:00Z"}
+                self.assert_change(self.watch([
+                    {"pr": pr()}, {"pr": pr(reviews=[review])},
+                ]), {"reviews": [[], [review]]})
+
+    def test_removed_failure_wakes_even_when_another_check_starts(self):
+        before = pr(statusCheckRollup=[{"name": "lint", "conclusion": "FAILURE"},
+                                      {"name": "unit", "status": "QUEUED"}])
+        after = pr(statusCheckRollup=[{"name": "unit", "status": "IN_PROGRESS"}])
+        self.assert_change(self.watch([{"pr": before}, {"pr": after}]),
+                           {"checks": [["lint=FAILURE", "unit=QUEUED"], ["unit=IN_PROGRESS"]]})
+
+    def test_newest_matching_bot_comment_stops_history_reads(self):
+        pages = [[comment("old", "someone-else")] * 100 for _ in range(3)]
+        pages.append([comment("**State: approved**")])
+        result = self.watch([{"pr": pr(), "pages": pages}],
+                            "--bot-login", "review-bot[bot]", "--heartbeat", "0.3",
+                            "--interval", "90")
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+        self.assertIn('"review": "**State: approved**"', result.stdout)
+        self.assertEqual((self.root / "pages-read.jsonl").read_text().splitlines(), ["3"])
+
+    def test_bot_lookup_searches_older_pages_and_handles_absent_authors(self):
+        # Newest matching body wins; deleted authors do not abort the search.
+        pages = [[comment("**State: approved**"), comment("**State: changes requested**")],
+                 [{"user": None, "body": "deleted author"}]]
+        result = self.watch([{"pr": pr(), "pages": pages}],
+                            "--bot-login", "review-bot[bot]", "--heartbeat", "0.3",
+                            "--interval", "90")
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+        self.assertIn('"review": "**State: changes requested**"', result.stdout)
+        self.assertEqual((self.root / "pages-read.jsonl").read_text().splitlines(), ["1", "0"])
+
+    def test_heartbeat_bounds_slow_reads_and_stops_before_the_next_request(self):
+        for delay, comment_delay, bot in ((1, 0, []),
+                                          (0.1, 1, ["--bot-login", "review-bot[bot]"])):
+            with self.subTest(delay=delay, comment_delay=comment_delay):
+                self.counts.unlink(missing_ok=True)
+                self.trace.unlink(missing_ok=True)
+                start = time.monotonic()
+                self.scenario.write_text(json.dumps({
+                    REPO: [{"pr": pr(), "delay": delay, "comment_delay": comment_delay}],
+                    "other/project": [{"pr": pr()}],
+                }))
+                wrapper = r'''import json, os, runpy, subprocess, sys
+from pathlib import Path
+original = subprocess.run
+def read(*args, **kwargs):
+    with (Path(os.environ["WATCH_TEST_ROOT"]) / "timeouts.jsonl").open("a") as output:
+        output.write(json.dumps(kwargs["timeout"]) + "\n")
+    return original(*args, **kwargs)
+subprocess.run = read
+runpy.run_path(sys.argv.pop(1), run_name="__main__")
+'''
+                timeouts_file = self.root / "timeouts.jsonl"
+                timeouts_file.unlink(missing_ok=True)
+                result = subprocess.run([sys.executable, "-B", "-c", wrapper, str(SCRIPT),
+                                         "run", "--session", "slow", "--pr", PR,
+                                         "--pr", "other/project#8", *bot, "--heartbeat", "0.3"],
+                                        capture_output=True, text=True, env=self.env, timeout=5)
+                elapsed = time.monotonic() - start
+                self.assertEqual((result.returncode, result.stderr), (0, ""), result.stdout)
+                self.assertIn("heartbeat: no result change in 0.3 s.", result.stdout)
+                self.assertLess(elapsed, 0.9, "read timeouts must share the heartbeat budget")
+                self.assertEqual(json.loads(self.counts.read_text()), {REPO: 1})
+                timeouts = [json.loads(line) for line in timeouts_file.read_text().splitlines()]
+                self.assertLessEqual(timeouts[0], 0.3)
+                if bot:
+                    self.assertEqual(len(timeouts), 2)
+                    self.assertLess(timeouts[1], timeouts[0] - 0.1)
+                self.assertEqual(list((self.home / "watchers").glob("*.json")), [])
+
+    def test_baseline_is_flushed_before_the_next_read(self):
+        self.scenario.write_text(json.dumps({REPO: [
+            {"pr": pr()}, {"pr": pr(state="MERGED"), "wait_for_baseline": True},
+        ]}))
+        # The fake's second response needs a signal sent only after the handshake.
+        os.mkfifo(self.root / "release")
+        process = subprocess.Popen([sys.executable, "-B", str(SCRIPT), "run", "--session", "handshake",
+                                    "--pr", PR, "--interval", "0.001", "--heartbeat", "3"],
+                                   stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=self.env)
+        self.addCleanup(lambda: process.poll() is None and process.kill())
+        # Opening the FIFO read/write avoids blocking the parent before the baseline arrives.
+        descriptor = os.open(self.root / "release", os.O_RDWR | os.O_NONBLOCK)
+        self.addCleanup(os.close, descriptor)
+        line = process.stdout.readline()
+        os.write(descriptor, b"continue\n")
+        output, error = process.communicate(timeout=5)
+        expected = {"state": "OPEN", "head": "a" * 40, "mergeable": "MERGEABLE",
+                    "checks": ["rust=IN_PROGRESS"], "reviews": []}
+        self.assertEqual(line, f"baseline recorded: {PR}: {json.dumps(expected)}\n")
+        self.assertEqual((process.returncode, error), (0, ""), output)
+        self.assertEqual(output, f'{PR} changed: {{"state": ["OPEN", "MERGED"]}}\n')
+
+    def test_registration_is_invisible_until_publication(self):
+        self.scenario.write_text(json.dumps({REPO: [{"pr": pr()}]}))
+        # Pause the real filesystem writer after opening its file, before any content.
+        wrapper = r'''import io, os, runpy, sys
+from pathlib import Path
+original = io.open
+def pause(file, mode="r", *args, **kwargs):
+    stream = original(file, mode, *args, **kwargs)
+    if (isinstance(file, (str, os.PathLike)) and "w" in mode
+            and {Path(file).parent.name, Path(file).name} & {"sessions", "watchers"}):
+        print("write paused", flush=True)
+        sys.stdin.readline()
+    return stream
+io.open = pause
+runpy.run_path(sys.argv.pop(1), run_name="__main__")
+'''
+        for arguments in (("open", "--session", "atomic"),
+                          ("run", "--session", "atomic", "--pr", PR, "--heartbeat", "0.2")):
+            with self.subTest(command=arguments[0]):
+                process = subprocess.Popen([sys.executable, "-B", "-c", wrapper, str(SCRIPT), *arguments],
+                                           stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                           stderr=subprocess.PIPE, text=True, env=self.env)
+                self.addCleanup(lambda p=process: p.poll() is None and p.kill())
+                self.assertEqual(process.stdout.readline(), "write paused\n")
+                during = self.command("status")
+                output, error = process.communicate("continue\n", timeout=5)
+                self.assertEqual((during.returncode, during.stdout, during.stderr),
+                                 (0, "no registered open sessions or watchers\n", ""))
+                self.assertEqual((process.returncode, error), (0, ""), output)
+                if arguments[0] == "open":
+                    published = self.command("status")
+                    entry = json.loads(published.stdout.split(" ", 3)[3])
+                    self.assertEqual((published.returncode, published.stderr, entry),
+                                     (0, "", {"session": "atomic", "open": True,
+                                              "since": entry["since"], "note": ""}))
+                    self.command("done", "--session", "atomic")
+
+    def test_status_skips_a_registration_removed_after_enumeration(self):
+        for session in ("a", "b"):
+            self.command("open", "--session", session)
+        wrapper = r'''import runpy, sys
+from pathlib import Path
+original = Path.read_text
+def removed(path, *args, **kwargs):
+    if path.name == "a.json":
+        path.unlink()
+    return original(path, *args, **kwargs)
+Path.read_text = removed
+runpy.run_path(sys.argv.pop(1), run_name="__main__")
+'''
+        result = subprocess.run([sys.executable, "-B", "-c", wrapper, str(SCRIPT), "status"],
+                                capture_output=True, text=True, env=self.env, timeout=5)
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+        raw = result.stdout.strip().split(" ", 3)[3]
+        entry = json.loads(raw)
+        self.assertEqual(result.stdout, f"open session: b {json.dumps(entry)}\n")
+        self.assertEqual(entry, {"session": "b", "open": True, "since": entry["since"], "note": ""})
+
+    def test_detached_run_refuses_orphan_and_session_leader(self):
+        for orphan in (True, False):
+            with self.subTest(orphan=orphan):
+                change = "os.getppid = lambda: 1; " if orphan else ""
+                wrapper = "import os, runpy, sys; " + change + "runpy.run_path(sys.argv.pop(1), run_name='__main__')"
+                result = subprocess.run([sys.executable, "-B", "-c", wrapper, str(SCRIPT), "run",
+                                         "--session", "detached", "--pr", PR, "--heartbeat", "0.2"],
+                                        capture_output=True, text=True, env=self.env, timeout=5,
+                                        start_new_session=not orphan)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("attached harness background job", result.stderr)
+                self.assertFalse(self.trace.exists())
+                self.assertFalse(self.home.exists())
 
     def test_open_done_and_status_use_the_overridden_registry(self):
         result = self.command("open", "--session", "session-a", "--note", "waiting for checks")

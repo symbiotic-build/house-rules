@@ -158,7 +158,13 @@ git worktree remove <wt> && git branch -D <branch>; git worktree prune
   and feeds concrete counters into status lines. Prove work is running: process name, output
   path, dashboard link.
   The [pull-request watcher](scripts/watch_prs.py) implements prime rule 15 for pull-request changes and periodic heartbeats.
-  Run `python3 <house-rules>/skills/agent-lanes/scripts/watch_prs.py run --session <id> --pr owner/repo#n --heartbeat 900` as a harness background job; repeat `--pr` for more requests.
-  Re-arm it after every wake; use `--bot-login <login>` to include a review bot's status comment.
+  Use the harness's background-job mechanism, such as Claude Code's Bash `run_in_background`, as the supported attached launcher.
+  Use `--bot-login <login>` to include a review bot's status comment; repeat `--pr` for more requests.
+
+  **Procedure: arm the pull-request watcher before inspection**
+
+  1. **Start or re-arm the watcher:** run `python3 <house-rules>/skills/agent-lanes/scripts/watch_prs.py run --session <id> --pr owner/repo#n --heartbeat 900` through the attached launcher after every wake.
+  2. **Wait for the baseline:** wait for a line starting with `baseline recorded` and its snapshot for each pull request.
+  3. **Inspect the pull requests:** check their current results after the baseline so changes before it remain visible.
 - **Handoff on saturation.** A lane near context limits writes a handoff and dies; a fresh
   agent with a handoff beats a saturated one every time (skill `handoff-continuity`).
