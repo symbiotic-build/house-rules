@@ -63,7 +63,7 @@ The session-context hook (§3 step 10) goes in each product's native hook file:
 | Codex | `$CODEX_HOME/hooks.json` | Yes, after the operator trusts the hook in `/hooks` |
 | Kimi Code | `$KIMI_CODE_HOME/config.toml` | Only from `UserPromptSubmit` hooks |
 
-Verified 2026-10-19 with Claude Code 2.1.291, Codex CLI 0.159 and Kimi Code 2.1.1. Without
+Verified 2026-10-19 with Claude Code 2.1.291, Codex CLI 0.159 and Kimi Code 2.1.1 and 2.2.0. Without
 the hook, a session holds only the managed block's instruction to read the rules, and a
 session can skip that instruction.
 
