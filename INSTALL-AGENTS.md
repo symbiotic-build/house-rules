@@ -119,10 +119,10 @@ For each selected product and configuration home:
 3. Inside that block, instruct the agent to read the permanent House Rules
    `INDEX.md` at session start and after every context compaction or reset, load its
    required rule files and only relevant House Rules Skills, use `STRUCTURE.md` for
-   artifact placement, and keep native product configuration
-   outside House Rules. Use resolved absolute paths from this computer. Install this
-   exact adapter text, replacing `<HOUSE_RULES_ROOT>` with the permanent absolute
-   path:
+   artifact placement, check every reply against the writing rules before sending it,
+   and keep native product configuration outside House Rules. Use resolved absolute
+   paths from this computer. Install this exact adapter text, replacing
+   `<HOUSE_RULES_ROOT>` with the permanent absolute path:
 
    ```markdown
    <!-- house-rules:begin -->
@@ -143,6 +143,9 @@ For each selected product and configuration home:
    computer's local index: installed tools and the operator's local policies,
    such as which model and tool run workers. Its policies apply to every session
    on this computer; repository rules still win where they conflict.
+
+   Before sending any reply, check it against `<HOUSE_RULES_ROOT>/rules/writing.md`
+   and the operator-writing Skill.
    <!-- house-rules:end -->
    ```
 4. Older installations use the project's earlier names: `<!-- forge:begin -->` /
