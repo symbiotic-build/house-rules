@@ -29,6 +29,8 @@ context = sync.session_context
 
 # The always-load rule files the fixture index lists (the real index lists the same seven).
 RULES = ("core", "outcome", "delivery", "writing", "git", "priority-labels", "session-writing")
+# Python 3.9 and 3.10 cannot read Kimi's config.toml: sync.py reports that, and only the test of that report runs.
+NEEDS_TOML = unittest.skipIf(sync.tomllib is None, "Python 3.11 or later reads Kimi's config.toml")
 
 class SyncFixture:
     """Shared setup and assertions for independent test classes."""
@@ -103,6 +105,11 @@ class SyncFixture:
         patch = mock.patch.object(Path, "home", return_value=self.home)
         patch.start()
         self.addCleanup(patch.stop)
+        if sync.tomllib is None:
+            hook_files = mock.patch.dict(sync.KIMI_HOOK_FILES)
+            hook_files.start()
+            self.addCleanup(hook_files.stop)
+            del sync.KIMI_HOOK_FILES["KIMI_CODE_HOME"]
 
     def git(self, root, *args):
         return subprocess.run(["git", "-C", str(root), *args], stdin=subprocess.DEVNULL, check=True,
@@ -169,6 +176,12 @@ class SyncFixture:
                     self.link(path, self.root / "skills" / name)
         for path, product in ((self.claude / "settings.json", "claude"), (self.codex / "hooks.json", "codex")):
             self.register_hook(path, product)
+        self.register_kimi_hook()
+
+    def register_kimi_hook(self, root=None):
+        """Kimi's config.toml as INSTALL-AGENTS.md §3 describes it, beside unrelated settings and hooks."""
+        self.write(self.kimi / "config.toml", 'default_model = "fixture"\n\n[[hooks]]\nevent = "Stop"\n'
+                   'command = "/bin/echo unrelated"\n\n' + context.kimi_toml(sys.executable, root or self.root))
 
     def register_hook(self, path, product, python=sys.executable, root=None, extra=()):
         """Write the hook file INSTALL-AGENTS.md §3 describes, beside unrelated hooks."""
@@ -578,9 +591,10 @@ class SyncHomeTests(SyncFixture, unittest.TestCase):
 
 
 class SyncHookTests(SyncFixture, unittest.TestCase):
-    def test_missing_session_hooks_are_reported_for_claude_and_codex_only(self):
+    @NEEDS_TOML
+    def test_missing_session_hooks_are_reported_for_claude_codex_and_kimi(self):
         self.install_fixture()
-        before = {path: path.read_text() for path in (self.claude / "settings.json", self.codex / "hooks.json")}
+        before = [self.claude / "settings.json", self.codex / "hooks.json", self.kimi / "config.toml"]
         for path in before:
             path.unlink()
         code, out, err = self.invoke()
@@ -588,7 +602,62 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
         for path in before:
             self.assertIn(f"REPORT: missing session context hook: {path}", out)
             self.assertFalse(path.exists())
-        self.assertNotIn(str(self.kimi), out)
+
+    @NEEDS_TOML
+    def test_kimi_config_without_our_hooks_is_a_missing_hook_and_stays_unchanged(self):
+        self.install_fixture()
+        path = self.kimi / "config.toml"
+        original = ('[[hooks]]\nevent = "UserPromptSubmit"\n'
+                    'command = "python3 /elsewhere/house-rules-context.py prompt"\n')
+        self.write(path, original)
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: missing session context hook: {path}", out)
+        self.assertEqual(path.read_text(), original)
+
+    @NEEDS_TOML
+    def test_stale_kimi_hooks_are_reported_without_writes(self):
+        path = self.kimi / "config.toml"
+        prompt = context.kimi_toml(sys.executable, self.root)
+        cases = {
+            "matcher added": prompt.replace("timeout", 'matcher = "x"\ntimeout'),
+            "other event": prompt.replace("UserPromptSubmit", "SessionStart"),
+            "interpreter missing": context.kimi_toml(str(self.base / "no-python"), self.root),
+            "relative interpreter": context.kimi_toml("python3", self.root),
+            "non-Python program": context.kimi_toml("/usr/bin/true", self.root),
+            "registered twice": prompt + "\n" + prompt,
+            "second table with another mode": prompt + "\n" + prompt.replace("UserPromptSubmit", "PreCompact")
+                                                                   .replace("kimi prompt", "kimi compact"),
+        }
+        for name, hooks in cases.items():
+            with self.subTest(name=name):
+                self.install_fixture()
+                self.write(path, hooks)
+                code, out, err = self.invoke()
+                self.assertEqual(code, 1, out + err)
+                self.assertIn(f"REPORT: stale session context hook: {path}", out)
+                self.assertEqual(path.read_text(), hooks)
+
+    @NEEDS_TOML
+    def test_unreadable_kimi_config_is_reported_and_other_homes_are_still_checked(self):
+        self.install_fixture()
+        path = self.kimi / "config.toml"
+        self.write(path, "[[hooks]\nbroken")
+        (self.claude / "settings.json").unlink()
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertRegex(out, rf"REPORT: unreadable Kimi config, session context hook not checked: {re.escape(str(path))}: ")
+        self.assertIn(f"REPORT: missing session context hook: {self.claude / 'settings.json'}", out)
+
+    def test_kimi_check_without_a_toml_reader_is_a_visible_finding(self):
+        self.install_fixture()
+        with mock.patch.object(sync, "tomllib", None), \
+                mock.patch.dict(sync.KIMI_HOOK_FILES, {"KIMI_CODE_HOME": "config.toml"}):
+            code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: Kimi session context hook not checked: Python {sys.version_info[0]}."
+                      f"{sys.version_info[1]} has no TOML reader; run sync with Python 3.11 or later: "
+                      f"{self.kimi / 'config.toml'}", out)
 
     def test_other_hooks_without_ours_are_a_missing_hook_and_stay_unchanged(self):
         self.install_fixture()
@@ -678,6 +747,25 @@ class SyncHookTests(SyncFixture, unittest.TestCase):
         self.assertIn("===== House Rules file rules/core.md =====\n# core rules", result.stdout)
         self.assertIn(f"HOUSE RULES HOOK ERROR: this computer's local index {self.root / 'custom/INDEX.md'} "
                       "is missing", result.stdout)
+
+    @NEEDS_TOML
+    def test_registered_kimi_command_prints_the_rules_once_per_session(self):
+        self.install_fixture()
+        hooks = sync.tomllib.loads((self.kimi / "config.toml").read_text())["hooks"]
+        prompt = next(hook for hook in hooks if hook["event"] == "UserPromptSubmit")
+
+        def run(session):
+            data = {"hook_event_name": "UserPromptSubmit", "session_id": session, "cwd": str(self.base)}
+            return subprocess.run(prompt["command"], shell=True, cwd=self.base, stdin=None, input=json.dumps(data),
+                                  env={**os.environ, "KIMI_CODE_HOME": str(self.kimi)},
+                                  capture_output=True, text=True, check=True, timeout=prompt["timeout"])
+
+        first = run("session_fixture")
+        self.assertEqual(first.stderr, "")
+        self.assertRegex(first.stdout, r"^===== House Rules part 1 of 1 \(revision [0-9a-f]{12}, text [0-9a-f]{12}\); ")
+        self.assertIn("===== House Rules file rules/core.md =====\n# core rules", first.stdout)
+        self.assertEqual(run("session_fixture").stdout, "")
+        self.assertEqual(run("session_other").stdout, first.stdout)
 
 
 class InstallHookTests(SyncFixture, unittest.TestCase):
@@ -798,8 +886,13 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
                       installed.stdout, installed.stdout + installed.stderr)
         command = self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"][0]["command"]
         self.assertEqual(shlex.split(command)[2], str(alias / "scripts/session_context.py"))
+        # Kimi is registered by hand (INSTALL-AGENTS.md §3 step 10), here for the same linked root.
+        self.register_kimi_hook(root=alias)
         checked = subprocess.run(run, env=environment, stdin=subprocess.DEVNULL, capture_output=True, text=True)
-        self.assertNotIn("session context hook", checked.stdout, checked.stdout + checked.stderr)
+        # Without a TOML reader the Kimi hook is reported as not checked; no other hook may be reported.
+        reported = [line for line in checked.stdout.splitlines() if "session context hook" in line and not (
+            sync.tomllib is None and "Kimi session context hook not checked" in line)]
+        self.assertEqual(reported, [], checked.stdout + checked.stderr)
 
     def test_a_home_link_swapped_after_the_check_cannot_redirect_writes(self):
         real = self.base / "claude real"
@@ -1312,6 +1405,192 @@ class SessionContextTests(unittest.TestCase):
         with mock.patch.object(context, "root", return_value=self.root), contextlib.redirect_stdout(out):
             context.main(["claude", "1"])
         self.assertRegex(out.getvalue(), r"^HOUSE RULES HOOK ERROR: 'utf-8' codec can't decode byte 0xff")
+
+    def script(self):
+        """The real hook script, copied into this synthetic checkout so it reads these files."""
+        path = self.root / "scripts/session_context.py"
+        if not path.exists():
+            path.parent.mkdir(exist_ok=True)
+            shutil.copyfile(REPO / "scripts/session_context.py", path)
+        return [sys.executable, "-I", str(path)]
+
+    def kimi_env(self):
+        return {**os.environ, "KIMI_CODE_HOME": str(self.root / "kimi-home")}
+
+    def kimi(self, mode, data):
+        """Run one Kimi hook through its command line, as Kimi runs it; return its output."""
+        result = subprocess.run([*self.script(), "kimi", mode], cwd=self.root, env=self.kimi_env(),
+                                stdin=None, input=data if isinstance(data, str) else json.dumps(data),
+                                capture_output=True, text=True, timeout=30, check=True)
+        self.assertEqual(result.stderr, "")
+        return result.stdout
+
+    def test_kimi_prints_the_rules_on_the_first_prompt_of_each_session_only(self):
+        codex = subprocess.run([*self.script(), "codex"], cwd=self.root, stdin=subprocess.DEVNULL,
+                               capture_output=True, text=True, timeout=30, check=True).stdout
+        rules = json.loads(codex)["hookSpecificOutput"]["additionalContext"] + "\n"
+        prompt = {"hook_event_name": "UserPromptSubmit", "session_id": "session_a", "prompt": []}
+        self.assertEqual(self.kimi("prompt", prompt), rules)
+        self.assertEqual(self.kimi("prompt", prompt), "")
+        self.assertEqual(self.kimi("prompt", {**prompt, "session_id": "session_b"}), rules)
+        self.assertEqual(self.kimi("prompt", {**prompt, "is_steer": True}), "")
+        self.assertEqual(self.kimi("prompt", {**prompt, "session_id": "session_b"}), "")
+
+    def test_kimi_input_without_a_usable_session_id_prints_the_rules_with_an_error(self):
+        for name, data in {"no session id": {"hook_event_name": "UserPromptSubmit"},
+                           "path in session id": {"session_id": "../outside"},
+                           "not JSON": "not json"}.items():
+            with self.subTest(name=name):
+                output = self.kimi("prompt", data)
+                self.assertTrue(output.startswith("HOUSE RULES HOOK ERROR: Kimi gave no usable session id"), output)
+                self.assertIn("===== House Rules file rules/core.md =====", output)
+                self.assertFalse((self.root / "outside").exists())
+
+    def test_kimi_retries_on_the_next_prompt_after_a_failed_read(self):
+        prompt = {"session_id": "session_a"}
+        original = (self.root / "rules/core.md").read_bytes()
+        (self.root / "rules/core.md").write_bytes(b"# Core rules\n\xff not UTF-8\n")
+        self.assertTrue(self.kimi("prompt", prompt).startswith("HOUSE RULES HOOK ERROR: 'utf-8' codec"))
+        (self.root / "rules/core.md").write_bytes(original)
+        self.assertIn("===== House Rules file rules/core.md =====", self.kimi("prompt", prompt))
+
+    def test_kimi_missing_rule_file_or_index_is_retried_until_the_complete_rules_print(self):
+        for number, name in enumerate(("rules/core.md", "INDEX.md")):
+            with self.subTest(missing=name):
+                prompt = {"session_id": f"session_{number}"}
+                original = (self.root / name).read_text()
+                (self.root / name).unlink()
+                record = self.root / "kimi-home" / context.KIMI_STATE / prompt["session_id"]
+                for _ in range(2):
+                    # (a) The missing file is reported and no completed delivery is recorded.
+                    # The script names paths under its resolved location.
+                    self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root.resolve() / name} is missing.",
+                                  self.kimi("prompt", prompt))
+                    self.assertFalse(record.exists())
+                self.write(name, original)
+                # (b) The same session's next prompt delivers every always-load file the printed index lists.
+                delivered = self.kimi("prompt", prompt)
+                printed = delivered.split("===== House Rules file INDEX.md =====\n", 1)[1].split("\n=====", 1)[0]
+                listed = context.always_load(printed)
+                self.assertTrue(listed, printed)
+                for listed_name in listed:
+                    self.assertIn(f"===== House Rules file {listed_name} =====\n", delivered)
+                    self.assertIn((self.root / listed_name).read_text().split("\n", 1)[0], delivered)
+                self.assertTrue(record.exists())
+                self.assertEqual(self.kimi("prompt", prompt), "")
+
+    @unittest.skipIf(os.geteuid() == 0, "root reads a folder without search permission")
+    def test_kimi_unreadable_local_index_is_not_recorded_and_is_delivered_once_readable(self):
+        prompt = {"session_id": "session_a"}
+        folder = self.root / "custom"
+        record = self.root / "kimi-home" / context.KIMI_STATE / "session_a"
+        folder.chmod(0)
+        self.addCleanup(folder.chmod, 0o755)
+        self.assertIn("HOUSE RULES HOOK ERROR: [Errno 13] Permission denied", self.kimi("prompt", prompt))
+        self.assertFalse(record.exists())
+        folder.chmod(0o755)
+        self.assertIn("Local policy line.", self.kimi("prompt", prompt))
+        self.assertTrue(record.exists())
+        self.assertEqual(self.kimi("prompt", prompt), "")
+
+    def test_kimi_missing_local_index_is_reported_once_per_session(self):
+        prompt = {"session_id": "session_a"}
+        (self.root / "custom/INDEX.md").unlink()
+        self.assertIn(f"HOUSE RULES HOOK ERROR: this computer's local index {self.root.resolve() / 'custom/INDEX.md'} "
+                      "is missing", self.kimi("prompt", prompt))
+        self.assertEqual(self.kimi("prompt", prompt), "")
+
+    def test_kimi_rules_quoting_the_error_prefix_still_print_once(self):
+        prompt = {"session_id": "session_a"}
+        self.write("custom/INDEX.md", "# Machine-local capability index\n\n```text\n"
+                                      "HOUSE RULES HOOK ERROR: example of a hook error line\n```\n")
+        self.assertIn("HOUSE RULES HOOK ERROR: example of a hook error line", self.kimi("prompt", prompt))
+        self.assertEqual(self.kimi("prompt", prompt), "")
+
+    def test_kimi_section_too_long_for_a_part_is_retried(self):
+        prompt = {"session_id": "session_a"}
+        self.write("rules/core.md", "# Core rules\n\n## Long section\n\n" + "word " * 3000 + "\n")
+        for _ in range(2):
+            self.assertIn('rules/core.md section "Long section" is', self.kimi("prompt", prompt))
+
+    def delivered_with_index_changing(self, first_read, later_reads):
+        """Delivered text and failures while INDEX.md changes between filesystem checks."""
+        index, changed = self.root / "INDEX.md", []
+        real_read, real_is_file = Path.read_text, Path.is_file
+
+        # The change lands right after the first read, or right after the index is first found missing.
+        def read_text(path, *args, **kwargs):
+            if path != index:
+                return real_read(path, *args, **kwargs)
+            text = later_reads if changed else first_read
+            changed.append(True)
+            return text
+
+        def is_file(path):
+            if path != index:
+                return real_is_file(path)
+            present = (later_reads if changed else first_read) is not None
+            if not present:
+                changed.append(True)
+            return present
+
+        with mock.patch.object(Path, "read_text", read_text), mock.patch.object(Path, "is_file", is_file):
+            rev, packed, _ = context.parts(self.root)
+        return "".join(context.render(number, rev, packed) for number in range(1, len(packed) + 1))
+
+    def assert_complete_or_visibly_missing(self, text):
+        """Either every always-load file the printed index lists is delivered, or the index is reported missing."""
+        printed = text.split("===== House Rules file INDEX.md =====\n", 1)[1].split("\n=====", 1)[0]
+        if printed.startswith("HOUSE RULES HOOK ERROR:"):
+            self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root / 'INDEX.md'} is missing.", printed)
+            return
+        listed = context.always_load(printed)
+        self.assertTrue(listed, printed)
+        for name in listed:
+            self.assertIn(f"===== House Rules file {name} =====", text)
+
+    def test_index_changing_while_read_never_prints_a_file_list_it_did_not_load(self):
+        self.write("rules/extra.md", "# Extra rules\n")
+        original = (self.root / "INDEX.md").read_text()
+        updated = original.replace("- [writing](rules/writing.md)\n",
+                                   "- [writing](rules/writing.md)\n- [extra](rules/extra.md)\n")
+        self.assert_complete_or_visibly_missing(self.delivered_with_index_changing(original, updated))
+        # Found missing first, restored later.
+        self.assert_complete_or_visibly_missing(self.delivered_with_index_changing(None, updated))
+
+    def test_kimi_hook_stopped_before_printing_leaves_the_next_prompt_to_print(self):
+        # The reader of the hook's output is gone before the hook writes, so printing fails.
+        hook = subprocess.Popen([*self.script(), "kimi", "prompt"], cwd=self.root, env=self.kimi_env(),
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        hook.stdout.close()
+        _, error = hook.communicate(json.dumps({"session_id": "session_a"}).encode(), timeout=30)
+        self.assertIn(b"BrokenPipeError", error)
+        self.assertFalse((self.root / "kimi-home" / context.KIMI_STATE / "session_a").exists())
+        self.assertIn("===== House Rules file rules/core.md =====", self.kimi("prompt", {"session_id": "session_a"}))
+
+    def test_kimi_session_records_are_kept_however_old(self):
+        prompt = {"session_id": "session_old"}
+        self.kimi("prompt", prompt)
+        record = self.root / "kimi-home" / context.KIMI_STATE / "session_old"
+        stamp = record.stat().st_mtime - 400 * 24 * 3600
+        os.utime(record, (stamp, stamp))
+        self.kimi("prompt", {"session_id": "session_new"})
+        self.assertTrue(record.exists())
+        self.assertEqual(self.kimi("prompt", prompt), "")
+
+    @NEEDS_TOML
+    def test_printed_kimi_hooks_parse_as_toml_and_keep_unusual_paths_exact(self):
+        base = Path('/opt/house "rules" \\ ünï \x7f')
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            context.main(["hooks", "kimi", str(base)])
+        hooks = sync.tomllib.loads(out.getvalue())["hooks"]
+        self.assertEqual(hooks, context.hooks("kimi", sys.executable, base)["hooks"])
+        self.assertEqual(len(hooks), 1)
+        self.assertEqual(hooks[0]["event"], "UserPromptSubmit")
+        self.assertEqual(shlex.split(hooks[0]["command"]),
+                         [sys.executable, "-I", str(base / "scripts/session_context.py"), "kimi", "prompt"])
+        self.assertEqual(hooks[0]["timeout"], context.TIMEOUT)
 
     def test_house_rules_itself_fits_the_registered_slots(self):
         rev, packed, too_long = context.parts(REPO)

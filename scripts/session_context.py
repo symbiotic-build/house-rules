@@ -7,11 +7,17 @@ custom/INDEX.md, read live from the House Rules checkout that holds this script.
 
   session_context.py claude <n>      part <n> for Claude Code; one hook per part
   session_context.py codex           every part, as one Codex additionalContext value
+  session_context.py kimi prompt     every part, on the first prompt of each Kimi session id
   session_context.py approved        open approved work items, when custom/approved-work.conf names
                                      GitHub owners or owner/repo pairs (one per line); nothing otherwise
   session_context.py hooks <product> [<root>]
                                      the hook entry INSTALL-AGENTS.md §3 registers, running this
                                      interpreter and the script under <root> (default: this checkout)
+
+Kimi Code passes no session-start hook output to the model, so for Kimi a UserPromptSubmit
+hook prints the rules once per session id. Kimi 2.2.0 and later keep that output through
+compaction. The session ids already given the complete rules are empty files under
+$KIMI_CODE_HOME/house-rules-sessions, written only after the rules were printed.
 
 Claude Code caps each hook's output at 10 000 characters and runs a product's hooks in
 parallel, so parts can arrive in any order. Parts split only at file and heading boundaries,
@@ -22,6 +28,7 @@ error line in place of the text.
 
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -42,6 +49,8 @@ APPROVED_CONF = "custom/approved-work.conf"
 APPROVED_CAP = 3_000  # characters the hook prints; issue rows that do not fit give way to one notice
 GH_TIMEOUT = 7        # seconds for all of the listing's GitHub searches, under the hook's TIMEOUT
 GH_LIMIT = 100        # issues per search, more than the cap can show; reaching it prints the notice
+KIMI_STATE = "house-rules-sessions"   # Folder in the Kimi home holding one empty file per session id given the rules.
+SESSION_ID = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}")
 HEADING = re.compile(r" {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t#]*$")
 FENCE = re.compile(r"\s*(`{3,}|~{3,})")
 
@@ -72,23 +81,49 @@ def revision(base):
         return "unknown"
 
 
-def sources(base):
-    """(name, text) for every injected file; a missing file becomes an error line."""
+def sources(base, failures=None):
+    """(name, text) for every injected file; a missing file becomes an error line.
+
+    failures, when given, collects each House Rules file that could not be supplied. A missing local
+    index is the operator's state, not a House Rules failure, so it is not collected.
+    """
+    failures = [] if failures is None else failures
     index = base / "INDEX.md"
     names = ["INDEX.md"]
-    if index.is_file():
-        listed = always_load(index.read_text(encoding="utf-8"))
+    # Read the index once: the file list and the printed index come from the same text, so an update
+    # between two reads cannot print an index whose newly listed file was never loaded.
+    index_text = index.read_text(encoding="utf-8") if index.is_file() else None
+    if index_text is not None:
+        listed = always_load(index_text)
         if not listed:
+            failures.append("INDEX.md")
             yield "INDEX.md", f"{ERROR} {index} lists no always-load rule files.\n"
         names += listed
     names += EXTRA_FILES
     for name in names:
         path = base / name
-        yield name, path.read_text(encoding="utf-8") if path.is_file() else f"{ERROR} {path} is missing.\n"
+        if name == "INDEX.md":
+            # Only the first read counts: an index restored after it was found missing is not printed
+            # with a file list that was never loaded from it.
+            if index_text is not None:
+                yield name, index_text
+            else:
+                failures.append(name)
+                yield name, f"{ERROR} {path} is missing.\n"
+        elif path.is_file():
+            yield name, path.read_text(encoding="utf-8")
+        else:
+            failures.append(name)
+            yield name, f"{ERROR} {path} is missing.\n"
     path = base / LOCAL_INDEX
-    yield LOCAL_INDEX, path.read_text(encoding="utf-8") if path.is_file() else (
-        f"{ERROR} this computer's local index {path} is missing, so its local policies are not loaded. "
-        "INSTALL-AGENTS.md §4 creates it.\n")
+    # Only an absent local index is the operator's state; any other read failure (a denied folder, for
+    # example) reaches the caller, so a Kimi session is not recorded as having the local policies.
+    try:
+        local = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        local = (f"{ERROR} this computer's local index {path} is missing, so its local policies are not loaded. "
+                 "INSTALL-AGENTS.md §4 creates it.\n")
+    yield LOCAL_INDEX, local
 
 
 def sections(name, text):
@@ -113,16 +148,17 @@ def sections(name, text):
     return blocks
 
 
-def parts(base=None):
+def parts(base=None, failures=None):
     """Pack whole sections into parts under the cap.
 
     Returns (revision, [(file, heading, text)] per part, [(file, heading)] of sections too long for
     one part). A section is never split: one too long for a part becomes a visible error line.
+    failures, when given, collects the House Rules files sources() could not supply.
     """
     base = base or root()
     limit = CAP - RESERVE
     blocks, too_long = [], []
-    for name, text in sources(base):
+    for name, text in sources(base, failures):
         for index, (name, heading, section) in enumerate(sections(name, text)):
             if units(section) > limit:
                 too_long.append((name, heading))
@@ -249,11 +285,62 @@ def claude(number):
     return render(number, rev, packed)
 
 
+def every_part(failures=None):
+    """Parts 1 to SLOTS in one text: the same strict cap as Claude Code, so one value may carry it whole.
+
+    failures, when given, collects what kept the text from being complete: missing House Rules files,
+    sections too long for a part, and parts beyond SLOTS.
+    """
+    failures = [] if failures is None else failures
+    rev, packed, too_long = parts(failures=failures)
+    failures.extend(f"{name}, heading \"{heading}\"" for name, heading in too_long)
+    if len(packed) > SLOTS:
+        failures.append(f"parts {SLOTS + 1} to {len(packed)}")
+    return "\n\n".join(render(number, rev, packed) for number in range(1, min(len(packed), SLOTS) + 1))
+
+
 def codex():
-    """Parts 1 to SLOTS in one value: the same strict cap as Claude Code, so Codex may pass it whole."""
-    rev, packed, _ = parts()
-    text = "\n\n".join(render(number, rev, packed) for number in range(1, min(len(packed), SLOTS) + 1))
-    return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": text}})
+    return json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": every_part()}})
+
+
+def kimi_records():
+    home = os.environ.get("KIMI_CODE_HOME") or str(Path.home() / ".kimi-code")
+    return Path(home) / KIMI_STATE
+
+
+def kimi_session(stdin):
+    """The session id from Kimi's hook input, or None when it is missing or unsafe as a file name."""
+    try:
+        data = json.loads(stdin.read())
+    except ValueError:
+        return None
+    session = data.get("session_id") if isinstance(data, dict) else None
+    return session if isinstance(session, str) and SESSION_ID.fullmatch(session) else None
+
+
+def kimi_prompt(stdin, stdout):
+    """Print every part on the first prompt of a session id, then record the id; later prompts print nothing.
+
+    The record is written only after the rules were printed and flushed. A failed read, an error line in
+    place of a House Rules file, or a hook stopped before printing leaves the next prompt to try again.
+    """
+    session = kimi_session(stdin)
+    if session is None:
+        # Without a session id the hook cannot tell prompts apart, so every prompt gets the rules.
+        stdout.write(f"{ERROR} Kimi gave no usable session id, so the rules repeat on every prompt. "
+                     "Check the UserPromptSubmit hook input.\n" + every_part() + "\n")
+        return
+    record = kimi_records() / session
+    if record.exists():
+        return
+    failures = []
+    output = every_part(failures)
+    stdout.write(output + "\n")
+    stdout.flush()
+    if failures:
+        return
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.touch()
 
 
 def command(python, base, *args):
@@ -273,9 +360,25 @@ def hooks(product, python=None, base=None):
                      "statusMessage": "Loading House Rules", "additionalContextLimit": 0},
                     {"type": "command", "command": command(python, base, "approved", "codex"), "timeout": TIMEOUT,
                      "statusMessage": "Listing approved work"}]
+    elif product == "kimi":
+        # The [[hooks]] table of Kimi's config.toml; kimi_toml() prints it.
+        handlers = [{"event": "UserPromptSubmit", "command": command(python, base, "kimi", "prompt"),
+                     "timeout": TIMEOUT}]
     else:
-        raise ValueError(f"no session-start hook for {product}")
+        raise ValueError(f"no session-context hook for {product}")
     return {"hooks": handlers}
+
+
+def kimi_toml(python=None, base=None):
+    """The [[hooks]] table INSTALL-AGENTS.md §3 appends to Kimi's config.toml."""
+    # A JSON string with non-ASCII kept as is is a valid TOML basic string once DEL, which JSON
+    # leaves literal and TOML rejects, is escaped too.
+    return "\n".join("[[hooks]]\n" + "".join(f"{key} = {toml_string(value)}\n" for key, value in table.items())
+                     for table in hooks("kimi", python, base)["hooks"])
+
+
+def toml_string(value):
+    return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f") if isinstance(value, str) else json.dumps(value)
 
 
 def main(argv):
@@ -290,10 +393,16 @@ def main(argv):
             listing = approved()
             output = listing and json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart",
                                                                      "additionalContext": listing}})
+        elif argv == ["kimi", "prompt"]:
+            kimi_prompt(sys.stdin, sys.stdout)
+            output = ""
+        elif len(argv) in (2, 3) and argv[0] == "hooks" and argv[1] == "kimi":
+            output = kimi_toml(base=Path(argv[2]) if len(argv) == 3 else None).rstrip("\n")
         elif len(argv) in (2, 3) and argv[0] == "hooks":
             output = json.dumps(hooks(argv[1], base=Path(argv[2]) if len(argv) == 3 else None), indent=2)
         else:
-            sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | approved [codex] | hooks <claude|codex> [<root>]")
+            sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | approved [codex] | kimi prompt | "
+                     "hooks <claude|codex|kimi> [<root>]")
     except (OSError, ValueError, UnicodeDecodeError) as error:
         # The hook's output is the only channel the model sees; print the failure there.
         output = f"{ERROR} {error}"

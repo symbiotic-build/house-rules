@@ -18,6 +18,11 @@ import secrets
 import time
 import types
 
+try:
+    import tomllib
+except ImportError:   # Python 3.9 and 3.10 have no TOML reader; the Kimi hook check reports it.
+    tomllib = None
+
 
 MARKERS = re.compile(r"<!-- (house-rules|forge|groundwork):(begin|end) -->")
 def load_session_context(path):
@@ -37,9 +42,10 @@ def load_session_context(path):
 
 
 session_context = load_session_context(Path(__file__).with_name("session_context.py"))
-# Native hook file and session_context.py product name for each product with a session-start hook.
-# Kimi Code runs SessionStart hooks but does not pass their output to the model (INSTALL-AGENTS.md §1).
+# Native hook file and session_context.py product name for each product the installer registers.
 HOOK_FILES = {"CLAUDE_CONFIG_DIR": ("settings.json", "claude"), "CODEX_HOME": ("hooks.json", "codex")}
+# Kimi Code's hook is registered by hand (INSTALL-AGENTS.md §3 step 10); verification checks its config.toml.
+KIMI_HOOK_FILES = {"KIMI_CODE_HOME": "config.toml"}
 
 
 def status(path, *, follow_symlinks=True):
@@ -292,6 +298,8 @@ def verify(root, home, findings, selected, hook_root=None, generator=None):
         if key in HOOK_FILES:
             check_hook(hook_root or root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], findings,
                        replaced_hooks(root), generator)
+        elif key in KIMI_HOOK_FILES:
+            check_kimi_hook(hook_root or root, roots, product_home / KIMI_HOOK_FILES[key], findings, generator)
     _, packed, too_long = generator.parts(root)
     if len(packed) > generator.SLOTS:
         findings.append(f"session context needs {len(packed)} parts; the hook registers {generator.SLOTS}")
@@ -373,6 +381,40 @@ def same_file(first, second):
         return os.path.samefile(first, second)
     except OSError:
         return False
+
+
+def check_kimi_hook(root, roots, path, findings, generator=None):
+    """Exactly the [[hooks]] table `hooks kimi` prints, run by an existing absolute interpreter."""
+    if tomllib is None:
+        findings.append(f"Kimi session context hook not checked: Python {sys.version_info[0]}.{sys.version_info[1]} "
+                        f"has no TOML reader; run sync with Python 3.11 or later: {path}")
+        return
+    try:
+        config = tomllib.loads(path.read_text(encoding="utf-8")) if present(path) else {}
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
+        findings.append(f"unreadable Kimi config, session context hook not checked: {path}: {error}")
+        return
+    scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
+    tables = config.get("hooks") if isinstance(config.get("hooks"), list) else []
+    ours = []
+    for table in tables:
+        command = table.get("command") if isinstance(table, dict) else None
+        try:
+            tokens = shlex.split(command) if isinstance(command, str) else []
+        except ValueError:
+            tokens = []
+        if len(tokens) >= 3 and tokens[1] == "-I" and tokens[2] in scripts:
+            ours.append((table, tokens))
+    if not ours:
+        findings.append(f"missing session context hook: {path}")
+        return
+    python = ours[0][1][0]
+    # The same Python-program test the installer's owner() applies: an existing non-Python program
+    # (for example /usr/bin/true) would run without delivering the rules.
+    interpreter = PYTHON.fullmatch(Path(python).name) or same_file(python, sys.executable)
+    if not Path(python).is_absolute() or not is_file(Path(python)) or not interpreter or \
+            [table for table, _ in ours] != (generator or session_context).hooks("kimi", python, root)["hooks"]:
+        findings.append(f"stale session context hook: {path}")
 
 
 def handler_commands(entry):

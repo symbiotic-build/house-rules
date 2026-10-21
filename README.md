@@ -29,7 +29,7 @@ git clone https://github.com/symbiotic-sh/house-rules.git ~/house-rules
 
 Then give your agent the prompt in [INSTALL-AGENTS.md](INSTALL-AGENTS.md). It preserves existing native
 instructions, adds a pointer to House Rules, and installs the skills in each product's
-supported location. Where the product supports it, a session-start hook
+supported location. Where the product supports it, a session hook
 ([scripts/session_context.py](scripts/session_context.py)) also puts the always-load rules
 and the machine-local index into every session. Models, permissions,
 plugins, and MCP connections stay in native settings; external integrations remain owned
