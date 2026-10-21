@@ -898,7 +898,6 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         protected = self.codex / "skills/.system/claude"
         protected.mkdir(parents=True)
         self.write(protected / "settings.json", "{}")
-        self.settings.unlink()
         with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(protected)}):
             code, out, err = self.invoke("--install-hooks")
         self.assertEqual(code, 2, out + err)
@@ -951,7 +950,6 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual(entries[1:], [context.hooks("claude", str(python), self.root)])
 
     def test_a_file_changed_by_another_writer_during_installation_is_not_overwritten(self):
-        self.settings.unlink()
         self.write(self.settings, json.dumps({"model": "before"}))
         real_chmod = os.chmod
 
@@ -998,6 +996,35 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual(code, 2, out + err)
         self.assertIn("fixture disk full", err)
         self.assertIn("could not be removed either: fixture unlink denied", err)
+
+    def test_a_missing_generator_in_the_selected_checkout_writes_nothing(self):
+        (self.root / "scripts/session_context.py").unlink()
+        before = self.settings.read_text()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn(f"hook generator is missing: {self.root / 'scripts/session_context.py'}", err)
+        self.assertEqual(self.settings.read_text(), before)
+        self.assertIn(f"REPORT: session context hook runs a missing script: {self.settings}", out)
+
+    def test_a_failed_return_to_the_previous_directory_keeps_the_write_error(self):
+        settings = self.read(self.settings)
+        settings["hooks"]["SessionStart"].pop()
+        self.write(self.settings, json.dumps(settings))
+        real_fchdir, calls = os.fchdir, []
+        self.addCleanup(os.chdir, os.getcwd())  # the fixture denies the return to it
+
+        def fchdir(handle):
+            calls.append(handle)
+            if len(calls) == 2:  # the return after the failed write
+                raise OSError("fixture return denied")
+            return real_fchdir(handle)
+
+        with mock.patch.object(sync.os, "fchdir", side_effect=fchdir), \
+                mock.patch.object(sync.os, "replace", side_effect=OSError("fixture replace denied")):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("fixture replace denied; returning to the previous directory also failed: "
+                      "fixture return denied", err)
 
     def test_default_run_still_writes_no_hook_file(self):
         self.settings.unlink()

@@ -192,10 +192,13 @@ For each selected product and configuration home:
     - List every command of an older hand-made context hook, verbatim, under
       `replaced_hooks` in a JSON receipt in `custom/installations/`. The installer reads only
       JSON receipts; remove an older hook recorded only in another receipt format by hand.
-    - On native Windows, print the entry with
+    - On native Windows the installer cannot run, because it binds its writes to an open
+      folder (`os.fchdir`), which Windows lacks; register by hand instead. Print the entry with
       `scripts/session_context.py hooks <product> "<HOUSE_RULES_ROOT>"` and run its command in
-      the product's hook shell, because the command is quoted for a POSIX shell. Report a
-      failure as a conflict instead of installing.
+      the product's hook shell, because the command is quoted for a POSIX shell; report a
+      failure as a conflict. Then back up the hook file, remove the earlier House Rules
+      entries described below, add the printed entry to `hooks.SessionStart`, keep every
+      other entry and setting, and never write under `$CODEX_HOME/skills/.system/`.
 
     Then run the installer with a Python 3.9 or later interpreter that agent sessions can run:
 

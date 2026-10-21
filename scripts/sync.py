@@ -337,6 +337,8 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset(), gener
     if len(owned) != 1 or not Path(python).is_absolute() or not is_file(Path(python)) or \
             entry != (generator or session_context).hooks(product, python, root):
         findings.append(f"stale session context hook: {path}")
+    elif any(len(tokens) > 2 and not is_file(Path(tokens[2])) for tokens in commands):
+        findings.append(f"session context hook runs a missing script: {path}")
 
 
 PYTHON = re.compile(r"python([0-9]+(\.[0-9]+)*t?)?(\.exe)?")
@@ -414,7 +416,12 @@ def install_hooks(root, hook_root, home, python, report, generator=None):
         for key, product_home in selected:
             if key in HOOK_FILES:
                 handle = os.open(product_home, os.O_RDONLY | os.O_DIRECTORY)
-                folders.append((handle, product_home.resolve(strict=True), *HOOK_FILES[key]))
+                try:
+                    real = product_home.resolve(strict=True)
+                except BaseException:
+                    os.close(handle)
+                    raise
+                folders.append((handle, real, *HOOK_FILES[key]))
         for handle, real, name, _ in folders:  # every destination, before the first write
             opened, checked = os.fstat(handle), os.stat(real)
             if (opened.st_dev, opened.st_ino) != (checked.st_dev, checked.st_ino):
@@ -425,23 +432,49 @@ def install_hooks(root, hook_root, home, python, report, generator=None):
             with inside(handle):
                 install_one(real, name, generator.hooks(product, python, hook_root), scripts, replaced, python,
                             report)
-    finally:
-        for handle, *_ in folders:
+    except BaseException as error:
+        close_all([handle for handle, *_ in folders], error)
+        raise
+    close_all([handle for handle, *_ in folders], None)
+
+
+def close_all(handles, error):
+    """Close every handle; a failure is raised, carrying `error` when one is already propagating."""
+    failures = []
+    for handle in handles:
+        try:
             os.close(handle)
+        except OSError as failure:
+            failures.append(str(failure))
+    if failures:
+        message = "; ".join(failures)
+        raise OSError(f"{error}; closing hook folders also failed: {message}" if error else
+                      f"closing hook folders failed: {message}") from error
 
 
 def inside(handle):
-    """Run a block with the working directory set to an open folder, then return to the old one."""
+    """Run a block with the working directory set to an open folder, then return to the old one.
+
+    A failure to return keeps the block's own error in the message, so neither is lost.
+    """
     class Inside:
         def __enter__(self):
             self.previous = os.open(".", os.O_RDONLY)
-            os.fchdir(handle)
+            try:
+                os.fchdir(handle)
+            except BaseException:
+                os.close(self.previous)
+                raise
 
-        def __exit__(self, *exc):
+        def __exit__(self, kind, error, trace):
             try:
                 os.fchdir(self.previous)
+            except OSError as failure:
+                raise OSError(f"{error}; returning to the previous directory also failed: {failure}"
+                              if error else f"returning to the previous directory failed: {failure}") from error
             finally:
                 os.close(self.previous)
+            return False
     return Inside()
 
 
@@ -551,7 +584,9 @@ def main(argv=None):
     def load():
         # The selected checkout's generator, read after its update, builds the entry its sessions run.
         script = root / "scripts/session_context.py"
-        generator.append(load_session_context(script) if is_file(script) else session_context)
+        if not is_file(script):
+            raise ValueError(f"hook generator is missing: {script}; no hook file written")
+        generator.append(load_session_context(script))
 
     def install():
         if not generator:
