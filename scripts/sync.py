@@ -20,9 +20,15 @@ import time
 
 
 MARKERS = re.compile(r"<!-- (house-rules|forge|groundwork):(begin|end) -->")
-_SPEC = importlib.util.spec_from_file_location("session_context", Path(__file__).with_name("session_context.py"))
-session_context = importlib.util.module_from_spec(_SPEC)
-_SPEC.loader.exec_module(session_context)
+def load_session_context(path):
+    """The hook generator from one checkout; main() loads it again after updating the checkout."""
+    spec = importlib.util.spec_from_file_location("session_context", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+session_context = load_session_context(Path(__file__).with_name("session_context.py"))
 # Native hook file and session_context.py product name for each product with a session-start hook.
 # Kimi Code runs SessionStart hooks but does not pass their output to the model (INSTALL-AGENTS.md §1).
 HOOK_FILES = {"CLAUDE_CONFIG_DIR": ("settings.json", "claude"), "CODEX_HOME": ("hooks.json", "codex")}
@@ -338,20 +344,17 @@ def owner(handler, scripts, replaced=frozenset(), python=None):
     command = handler.get("command") if isinstance(handler, dict) else None
     if not isinstance(command, str):
         return None
-    if command in replaced:
-        return "replaced"
     try:
         tokens = shlex.split(command)
     except ValueError:
-        return None
-    if len(tokens) not in (4, 5) or tokens[1] != "-I" or tokens[2] not in scripts or not (
+        tokens = []
+    # The current form wins over the receipt list, which may name commands the current entry reuses.
+    if len(tokens) in (4, 5) and tokens[1] == "-I" and tokens[2] in scripts and (
             tokens[3:] in (["codex"], ["approved"], ["approved", "codex"]) or
-            (tokens[3] == "claude" and len(tokens) == 5 and tokens[4].isdigit())):
-        return None
-    interpreter = tokens[0]
-    if PYTHON.fullmatch(Path(interpreter).name) or same_file(interpreter, python or sys.executable):
+            (tokens[3] == "claude" and len(tokens) == 5 and tokens[4].isdigit())) and (
+            PYTHON.fullmatch(Path(tokens[0]).name) or same_file(tokens[0], python or sys.executable)):
         return "ours"
-    return None
+    return "replaced" if command in replaced else None
 
 
 def same_file(first, second):
@@ -390,11 +393,11 @@ def install_hooks(root, hook_root, home, python, report):
     scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
     replaced = replaced_hooks(root)
     selected = homes(root, home)
-    targets = [(product_home / HOOK_FILES[key][0], HOOK_FILES[key][1])
+    # Each hook file's folder is resolved once, checked, and used for every read and write after it,
+    # so a link swapped after the check cannot redirect writes into protected Codex content.
+    targets = [((product_home.resolve(strict=True)) / HOOK_FILES[key][0], HOOK_FILES[key][1])
                for key, product_home in selected if key in HOOK_FILES]
     for path, _ in targets:
-        # Every destination, before the first write: its target, and the folder its backup and
-        # replacement are written in, which a symlinked file does not resolve to.
         check_protected(path, selected)
         check_protected(path.parent, selected)
     for path, product in targets:
@@ -408,9 +411,8 @@ def install_hooks(root, hook_root, home, python, report):
                 remaining = [handler for handler in handlers if owner(handler, scripts, replaced, python) is None]
                 if len(remaining) != len(handlers):
                     owned.append(entry)
-                if not remaining:
-                    continue
-                if len(remaining) != len(handlers):
+                    if not remaining:
+                        continue  # an entry that held only House Rules handlers; other empty entries stay
                     entry = {**entry, "hooks": remaining}
             kept.append(entry)
         if owned == [expected]:
@@ -467,7 +469,8 @@ def always_load(root, findings):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1])
+    # The default keeps the path this script was run by, so a stable link stays in hook entries.
+    parser.add_argument("--root", type=Path, default=Path(os.path.abspath(__file__)).parents[1])
     parser.add_argument("--install-hooks", action="store_true",
                         help="write the session-context hook into each Claude Code and Codex hook file")
     args = parser.parse_args(argv)
@@ -479,13 +482,32 @@ def main(argv=None):
     selected = []
     verification_complete = False
     # A failed checkout update must not prevent checking the installed homes.
+    before = []
+
+    def head():
+        # A checkout whose revision cannot be read fails visibly in update(); keep no reload then.
+        try:
+            before.append(git(root, "rev-parse", "HEAD"))
+        except subprocess.CalledProcessError:
+            pass
+
+    def reload():
+        # An update that moved the checkout may have changed the hook generator; install and
+        # verify with the updated one.
+        global session_context
+        script = root / "scripts/session_context.py"
+        if before and git(root, "rev-parse", "HEAD") != before[0] and is_file(script):
+            session_context = load_session_context(script)
+
     def install():
         install_hooks(root, hook_root, Path.home(), sys.executable, lambda event, path, backup: print(
             f"BACKUP: {backup} (copy of {path})" if event == "backup" else
             f"REGISTERED: session context hook in {path}"))
 
     for name, operation in (
+            ("head", head),
             ("update", lambda: findings.extend(update(root))),
+            ("reload", reload),
             *((("install", install),) if args.install_hooks else ()),
             ("verification", lambda: verify(root, Path.home(), findings, selected, hook_root))):
         try:

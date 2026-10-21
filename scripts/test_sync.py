@@ -743,6 +743,74 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         for path, product in ((self.settings, "claude"), (self.codex_hooks, "codex")):
             self.assertEqual(self.read(path)["hooks"]["SessionStart"], [context.hooks(product, sys.executable, self.root)])
 
+    def test_unrelated_entries_with_empty_handler_lists_are_kept(self):
+        empty = [{"matcher": "startup", "hooks": []}, {"hooks": []}]
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": empty}}))
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"],
+                         [*empty, context.hooks("claude", sys.executable, self.root)])
+
+    def test_listed_commands_that_the_current_entry_reuses_stay_current(self):
+        current = context.hooks("claude", sys.executable, self.root)
+        self.receipt({"source_root": str(self.root),
+                      "replaced_hooks": [handler["command"] for handler in current["hooks"][:3]]})
+        older = {"hooks": current["hooks"][:-1]}
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": [older]}}))
+        for _ in range(2):
+            code, out, err = self.invoke("--install-hooks")
+            self.assertEqual(code, 0, out + err)
+            self.assertNotIn("replaced House Rules hook", out)
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"], [current])
+
+    def test_an_update_that_changes_the_hook_generator_installs_the_updated_entry(self):
+        self.addCleanup(setattr, sync, "session_context", sync.session_context)  # main() reloads it
+        path = self.origin / "scripts/session_context.py"
+        path.write_text(path.read_text().replace("SLOTS = 12 ", "SLOTS = 13 "))
+        self.commit(self.origin, ["scripts/session_context.py"])
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        handlers = self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"]
+        self.assertEqual(sum(handler["command"].split()[-2] == "claude" for handler in handlers), 13)
+
+    def test_the_default_root_keeps_the_link_it_was_run_through(self):
+        alias = self.base / "stable root"
+        alias.symlink_to(self.root, target_is_directory=True)
+        with mock.patch.object(sync, "__file__", str(alias / "scripts/sync.py")):
+            with contextlib.redirect_stdout(io.StringIO()) as out, contextlib.redirect_stderr(io.StringIO()) as err:
+                code = sync.main(["--install-hooks"])
+        self.assertEqual(code, 0, out.getvalue() + err.getvalue())
+        self.assertIn(shlex.quote(str(alias / "scripts/session_context.py")),
+                      self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"][0]["command"])
+        with mock.patch.object(sync, "__file__", str(alias / "scripts/sync.py")):
+            with contextlib.redirect_stdout(io.StringIO()) as again, contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(sync.main([]), 0)
+        self.assertIn("0 findings", again.getvalue())
+
+    def test_a_home_link_swapped_after_the_check_cannot_redirect_writes(self):
+        real = self.base / "claude real"
+        real.mkdir()
+        protected = self.codex / "skills/.system/claude"
+        protected.mkdir(parents=True)
+        self.write(protected / "settings.json", "{}")
+        link = self.base / "claude link"
+        link.symlink_to(real, target_is_directory=True)
+        real_read = sync.read_hooks
+
+        def swap(path, data=None):
+            if path.name == "settings.json":
+                link.unlink()
+                link.symlink_to(protected, target_is_directory=True)
+            return real_read(path, data)
+
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(link)}), \
+                mock.patch.object(sync, "read_hooks", side_effect=swap):
+            self.invoke("--install-hooks")
+        self.assertEqual(sorted(path.name for path in protected.iterdir()), ["settings.json"])
+        self.assertEqual((protected / "settings.json").read_text(), "{}")
+        self.assertEqual(self.read(real / "settings.json")["hooks"]["SessionStart"],
+                         [context.hooks("claude", sys.executable, self.root)])
+
     def test_a_correct_installation_is_not_rewritten(self):
         before = self.settings.read_text()
         code, out, err = self.invoke("--install-hooks")
