@@ -27,6 +27,8 @@
 - Send failing jobs to a CI-repair investigator.
 - Require a specialized agent to verify UI work visually with screenshots.
 - Do not rely only on programmatic assertions.
+- Never launch the operator's own browser application or profile from automated tests or UI checks.
+- Start a browser only where it can run; never inside a sandbox that stops it from starting.
 - Follow `../prompts/skills/test-discipline.md` §Test discipline for what each test must prove, tests for systems that keep durable state, duration, hanging-test removal, build-queue hold limits, and scale-test replacement.
 - Follow `../skills/pr-ready/references/guards.md` for guard/test upkeep and daily whole-system audits.
 - Require an explicit maximum cost/token/runtime boundary before launching external or paid work.
