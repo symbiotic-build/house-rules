@@ -418,8 +418,8 @@ def install_hooks(root, hook_root, home, python, report, generator=None):
                 handle = os.open(product_home, os.O_RDONLY | os.O_DIRECTORY)
                 try:
                     real = product_home.resolve(strict=True)
-                except BaseException:
-                    os.close(handle)
+                except BaseException as error:
+                    close_all([handle], error)
                     raise
                 folders.append((handle, real, *HOOK_FILES[key]))
         for handle, real, name, _ in folders:  # every destination, before the first write
@@ -462,18 +462,18 @@ def inside(handle):
             self.previous = os.open(".", os.O_RDONLY)
             try:
                 os.fchdir(handle)
-            except BaseException:
-                os.close(self.previous)
+            except BaseException as error:
+                close_all([self.previous], error)
                 raise
 
         def __exit__(self, kind, error, trace):
             try:
                 os.fchdir(self.previous)
             except OSError as failure:
+                close_all([self.previous], error)
                 raise OSError(f"{error}; returning to the previous directory also failed: {failure}"
                               if error else f"returning to the previous directory failed: {failure}") from error
-            finally:
-                os.close(self.previous)
+            close_all([self.previous], error)
             return False
     return Inside()
 

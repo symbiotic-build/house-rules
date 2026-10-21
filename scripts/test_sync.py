@@ -1026,6 +1026,25 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertIn("fixture replace denied; returning to the previous directory also failed: "
                       "fixture return denied", err)
 
+    def test_a_failed_close_after_a_failed_resolve_keeps_the_resolve_error(self):
+        real_close, real_resolve = os.close, Path.resolve
+        home = self.claude
+
+        def failing_close(handle):
+            real_close(handle)
+            raise OSError("fixture close denied")
+
+        def resolve(path, *args, **kwargs):  # only the Claude home folder fails to resolve
+            if path == home and kwargs.get("strict"):
+                raise OSError("fixture resolve denied")
+            return real_resolve(path, *args, **kwargs)
+
+        with mock.patch.object(Path, "resolve", autospec=True, side_effect=resolve), \
+                mock.patch.object(sync.os, "close", side_effect=failing_close):
+            code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("fixture resolve denied; closing hook folders also failed: fixture close denied", err)
+
     def test_default_run_still_writes_no_hook_file(self):
         self.settings.unlink()
         code, out, err = self.invoke()

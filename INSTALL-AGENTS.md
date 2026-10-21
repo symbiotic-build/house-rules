@@ -195,10 +195,11 @@ For each selected product and configuration home:
     - On native Windows the installer cannot run, because it binds its writes to an open
       folder (`os.fchdir`), which Windows lacks; register by hand instead. Print the entry with
       `scripts/session_context.py hooks <product> "<HOUSE_RULES_ROOT>"` and run its command in
-      the product's hook shell, because the command is quoted for a POSIX shell; report a
-      failure as a conflict. Then back up the hook file, remove the earlier House Rules
-      entries described below, add the printed entry to `hooks.SessionStart`, keep every
-      other entry and setting, and never write under `$CODEX_HOME/skills/.system/`.
+      the product's hook shell, because the command is quoted for a POSIX shell. If the command
+      fails there, stop: report a conflict and change no hook file. Only after it succeeds, back
+      up the hook file, remove the earlier House Rules entries described below, add the printed
+      entry to `hooks.SessionStart`, keep every other entry and setting, and never write under
+      `$CODEX_HOME/skills/.system/`.
 
     Then run the installer with a Python 3.9 or later interpreter that agent sessions can run:
 
