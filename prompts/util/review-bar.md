@@ -12,7 +12,8 @@ concrete scenario.
 - Design: would an expert in the underlying engine or library build it this way? See
   Cost and design findings below.
 - Code quality: the smallest change that works, in the surrounding style, one way to do
-  each thing, names that say what things do.
+  each thing, names that say what things do and follow the declared naming conventions
+  (writing rules, Language).
 - Waste, as a blocking class: tests that guard no real behavior or defect, duplicate or
   tautological checks, speculative abstractions, dead code, drive-by refactors, docs longer
   than the fact they carry.
