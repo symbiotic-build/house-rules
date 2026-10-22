@@ -9,7 +9,6 @@ import re
 import string
 from pathlib import Path
 import subprocess
-import sys
 import tempfile
 import time
 import unittest
@@ -2255,26 +2254,25 @@ class LiteralAnnotationTests(CorpusFixture, unittest.TestCase):
         self.assertEqual([d.line for d in errors if d.code == "D12"], expected)
         self.assertEqual({d.code for d in errors}, {"D12"})
 
-    def test_check_work_grows_linearly_with_literal_examples(self):
-        # Executed checker lines measure work without timing: a scan of every link per example grows quadratically.
-        def work(count):
-            self.paths = self.clean.copy()
-            candidate = self.document(count)[0]
-            lines = 0
-            def trace(frame, event, arg):
-                nonlocal lines
-                if frame.f_code.co_filename != s.__file__:
-                    return None
-                lines += event == "line"
-                return trace
-            sys.settrace(trace)
-            try:
-                s.check(candidate)
-            finally:
-                sys.settrace(None)
-            return lines
-        small, large = work(200), work(400)
-        self.assertLess(large, 2.5 * small, (small, large))
+    def test_check_time_grows_linearly_with_literal_examples(self):
+        # Protects literal annotation lookups from scanning every link of the document per example. With
+        # 500 and 2000 annotated examples, a linear check takes about 3.5 times as long on the larger
+        # document and a per-link scan about 12 times, so a margin of 8 holds against timing noise, which
+        # the best of three runs reduces further.
+        block = "```text\nwriter\n```\n\n**Entities in this example:** [Writer](#writer).\n\nUnrelated explanation.\n\n"
+        def best(count):
+            paths = self.clean.copy()
+            edit(paths, ACCEPTANCE, "**Procedure: demonstrate", block * count + "**Procedure: demonstrate")
+            candidate, runs = corpus(paths), []
+            for _ in range(3):
+                started = time.perf_counter()
+                result = s.check(candidate)
+                runs.append(time.perf_counter() - started)
+            self.assertTrue(result.ok, result.errors[:3])
+            return min(runs)
+        small, large = best(500), best(2000)
+        print(f"literal examples: 4x the examples took {large / small:.2f}x as long")
+        self.assertLess(large / small, 8, (small, large))
 
 
 class DiagnosticCoverageSuite(unittest.TestSuite):
