@@ -46,6 +46,7 @@ Place each item honestly:
   edge case or recovery detail that no settled rule contradicts may be a Follow-up (an
   acceptance case or tracked issue for implementation). Design-finding disposition
   follows [Cost and design findings](cost-and-design.md).
+
 Settled-decision disagreements follow [Code canon](../skills/code-canon.md).
 Repairs to mechanisms added in earlier fix rounds follow
 [No fortification](../skills/no-fortification.md).
