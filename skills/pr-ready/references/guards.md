@@ -15,6 +15,8 @@ There are no fixed caps on blocking findings or filed issues. The triager decide
 severity and deduplication; all critical findings block. Capacity never skips or degrades
 a guard. Only token exhaustion stops guard work, and it goes to the operator with the
 unfinished work identified. This does not waive safety controls or operator stop requests.
+One exception: an audit unit that makes no progress in two consecutive waves is deferred
+until the next run ([Daily whole-system audit](#daily-whole-system-audit), step 4).
 
 ## Daily whole-system audit
 
@@ -40,8 +42,10 @@ audited repository.
 4. **Check the gaps:** after each wave, one agent
    ([gap-check role](../../../prompts/roles/audit-gap-check.md)) reopens units whose rows
    lack cited evidence. Open units return to the next wave of the same run. A unit with no
-   progress in two consecutive waves is deferred with "no progress", visibly; the others
-   continue, and the next run audits deferred units again after planned and stale ones.
+   progress in two consecutive waves is deferred with "no progress"; the others continue,
+   and the next run audits deferred units again after planned and stale ones. The audit
+   report shows each deferred unit with what its auditors tried and what blocked them (job
+   failures, unreadable files, the gap check's reasons), so someone can repair the cause.
 5. **Triage and publish:** the [audit triager](../../../prompts/roles/audit-triager.md)
    merges and verifies findings; the service publishes them.
 
