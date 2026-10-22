@@ -217,6 +217,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/skills/naming-defaults.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/skills/native-first.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
