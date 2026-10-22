@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
+from functools import cached_property
 import hashlib
 import fcntl
 from html import escape, unescape
@@ -435,6 +436,14 @@ class Corpus:
     profile_bytes: bytes = b""
     assignment: dict | None = None
     base: Corpus | None = None
+
+    @cached_property
+    def rejected_patterns(self):
+        """Compile each rejected spelling's matcher once per corpus."""
+        return {(rejected["text"], rejected.get("case_sensitive") is True):
+                phrase_pattern(rejected["text"], rejected.get("case_sensitive") is True)
+                for entity in self.entities.values() for rejected in entity["rejected_forms"]
+                if isinstance(rejected, dict) and isinstance(rejected.get("text"), str)}
 
     @property
     def registry(self):
@@ -1450,7 +1459,7 @@ def check_uses(corpus, md, diagnostics, missing=None):
         if not literal:
             for entity in corpus.entities.values():
                 for rejected in entity["rejected_forms"]:
-                    if isinstance(rejected, dict) and isinstance(rejected.get("text"), str) and phrase_pattern(rejected["text"], rejected.get("case_sensitive") is True).search(text):
+                    if isinstance(rejected, dict) and isinstance(rejected.get("text"), str) and corpus.rejected_patterns[rejected["text"], rejected.get("case_sensitive") is True].search(text):
                         diagnostics.add("D13", f"rejected form for entity '{entity['id']}'; use its registered replacement", md.path, line + 1)
 
 
