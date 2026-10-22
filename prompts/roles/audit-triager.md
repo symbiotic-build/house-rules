@@ -32,6 +32,7 @@ Auditors over-report by design. Keep only findings that matter, each once.
 
 End your final message with the output block the task part specifies, and nothing after it.
 
+@rule house-rules:prompts/util/review-bar.md
 @rule house-rules:prompts/util/triage-classes.md
 @rule house-rules:prompts/util/finding-rules.md
 @rule house-rules:prompts/util/cost-defect.md
