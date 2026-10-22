@@ -86,7 +86,7 @@ The agent ran the spec checker by hand before some commits, and that repository 
 - Its naming rules and rejected forms are data in the repository's `docs/ENTITIES.json`, not code in the checker ([#190](https://github.com/symbiotic-build/house-rules/pull/190) makes declaring them a rule).
 - `scripts/sync.py --install-hooks` registers agent session hooks in agent homes such as `~/.claude/settings.json`. It writes no Git hook and no repository file.
 - The PR watcher `skills/agent-lanes/scripts/watch_prs.py` wakes a session when a PR's CI checks or reviews change.
-- House Rules' own [CI workflow](../../.github/workflows/checks.yml) runs unit tests and prompt staging. It does not run the spec checker on the repository's two registered documents.
+- House Rules' own [specification workflow](../../.github/workflows/spec-docs.yml) runs the spec checker over its whole corpus and audits the declared test selectors. Each consuming repository needs its own copy of such a step, and nothing runs the checker before a commit.
 
 `FACT` These measurements and observations come from this session, at House Rules `ebb6b37` on macOS with Git 2.54.0:
 
@@ -788,7 +788,7 @@ Each PR follows the normal review and closes nothing until the last one closes [
 - **Runner and built-ins:** `skills/repository-checks/scripts/checks.py` with `run`, `prepare` and `status`, the whitespace and spec-docs definitions, and its tests. Gate: the acceptance cases below as unit tests.
 - **Install procedure:** `install`, `skills/repository-checks/SKILL.md` and its `INDEX.md` entry. Depends on the runner. Gate: the install fixture cases.
 - **Agent status line:** the extra session-start handler in `scripts/session_context.py` and `scripts/sync.py --install-hooks`. Depends on the runner's `status`. Gate: `scripts/test_sync.py`.
-- **Rule line and House Rules adoption:** the [rule line](#rule-line), House Rules' own `.agents/checks.json`, and its CI step, which also adds the spec check House Rules' CI lacks today. Depends on the install. Gate: CI on that PR.
+- **Rule line and House Rules adoption:** the [rule line](#rule-line), House Rules' own `.agents/checks.json`, and its CI step, which replaces the corpus check in `.github/workflows/spec-docs.yml`; that workflow keeps its tests and selector audit. Depends on the install. Gate: CI on that PR.
 
 Repositories adopt by running the install; nothing changes in a repository that has not.
 Removing adoption is deleting the configuration, the hook blocks and the workflow file; the install's `--dry-run` lists them.
