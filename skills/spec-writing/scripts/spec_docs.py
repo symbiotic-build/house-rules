@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from bisect import bisect_left
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from functools import cached_property
@@ -290,18 +290,34 @@ class Markdown:
         return "".join(self.text.splitlines(keepends=True)[start:end]).encode()
 
     @cached_property
-    def filled_lines_before(self):
-        """Count, for each line number, the lines before it that hold more than container markers."""
-        counts = [0]
-        for line in self.text.splitlines():
-            counts.append(counts[-1] + bool(line.strip(' >\t')))
-        return counts
+    def neighbours(self):
+        return Neighbours(self)
 
-    @cached_property
-    def linked_inlines(self):
-        """Return the line range and links of each inline token that holds links, in document order."""
-        return [(token.map, self.inline_links[id(token)]) for token in self.tokens
-                if token.type == 'inline' and token.map and self.inline_links.get(id(token))]
+
+class Neighbours:
+    """Links of one document's inline tokens, found by how far blank container lines reach from a line range."""
+
+    def __init__(self, md):
+        # filled[n] counts the lines before line n that hold more than container markers.
+        self.filled = [0]
+        for line in md.text.splitlines():
+            self.filled.append(self.filled[-1] + bool(line.strip(' >\t')))
+        self.linked = [(token.map, md.inline_links[id(token)]) for token in md.tokens
+                       if token.type == 'inline' and token.map and md.inline_links.get(id(token))]
+        self.by_end = sorted((span[1], index) for index, (span, _) in enumerate(self.linked))
+        self.by_start = sorted((span[0], index) for index, (span, _) in enumerate(self.linked))
+
+    def beside(self, start, end):
+        """Return, in document order, the links of tokens that end or start across only blank lines from the range."""
+        last = len(self.filled) - 1
+        before, after = self.filled[min(start, last)], self.filled[min(end, last)]
+        # Blank lines reach back to the line after the last filled one, and ahead to the next filled one.
+        back = bisect_left(self.filled, before)
+        ahead = bisect_right(self.filled, after) - 1 if after < self.filled[-1] else float('inf')
+        count = len(self.linked)
+        chosen = {index for _, index in self.by_end[bisect_left(self.by_end, (back, -1)):bisect_right(self.by_end, (start, count))]}
+        chosen.update(index for _, index in self.by_start[bisect_left(self.by_start, (end, -1)):bisect_right(self.by_start, (ahead, count))])
+        return [link for index in sorted(chosen) for link in self.linked[index][1]]
 
 
 def markdown_parser():
@@ -1447,15 +1463,7 @@ def prune_repeated_links(corpus):
 
 def neighboring_links(md, token):
     """Return annotations beside one literal, across only blank container lines."""
-    counts = md.filled_lines_before
-
-    def adjacent(start, end):
-        start, end = min(start, len(counts) - 1), min(end, len(counts) - 1)
-        return start >= end or counts[start] == counts[end]
-    return [link for span, links in md.linked_inlines
-            if (span[1] <= token.map[0] and adjacent(span[1], token.map[0])
-                or token.map[1] <= span[0] and adjacent(token.map[1], span[0]))
-            for link in links]
+    return md.neighbours.beside(*token.map)
 
 
 def check_uses(corpus, md, diagnostics, missing=None):
