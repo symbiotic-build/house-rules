@@ -258,13 +258,14 @@ At pre-push Git writes one line per pushed reference to the hook's standard inpu
 The runner checks each pushed local commit as its own snapshot, so a commit made in the same clone during the push cannot stand in for the one Git sends. A deleted reference, whose local commit is all zeros, has nothing to check.
 
 Before using an object Git names, the runner resolves it to the commit it points at (`<object>^{commit}`), so a pushed annotated tag is checked as its commit. A pushed object that resolves to no commit, such as a tag of a tree, stops the run with a [preparation failure](#failure-preparation) naming the reference.
+
 A pushed commit's push base is its merge base with the remote commit Git names, when that commit is present locally. Otherwise it is the merge base with the remote's default branch, and otherwise the empty tree. When the two commits share no ancestor, for example a new unrelated branch, the base is the empty tree too, so every file in the pushed commit counts as changed.
-The merge base also gives the right range after a rebase or for a new branch. In CI the base is the PR's base commit, or the previous commit for a push.
+For a new branch the merge base gives exactly the branch's own changes. After a rebase it can also include the commits the branch was moved onto, which only selects more checks, never fewer. In CI the base is the PR's base commit, or the previous commit for a push.
 
 <a id="snapshot-handling"></a>
 ### Snapshot handling
 
-Every check in one run reads the same fixed content, the snapshot commit, so no concurrent edit can change what a check sees.
+Every check of one snapshot reads that snapshot's fixed content, a commit, so no concurrent edit can change what a check sees. A pre-commit or CI run has one snapshot; a pre-push run has one per pushed commit.
 At pre-commit the runner builds it once, at the start, without touching the real index, the working tree or any reference:
 
 **Procedure: build the pre-commit snapshot**
@@ -323,7 +324,7 @@ The hooks refuse the commit or push on any nonzero status.
 A check run report is the runner's account of one run and of each check in it.
 It names the stage and, for each snapshot the run checked, the snapshot, its base and its House Rules revision. For each check it gives the status, duration, output, fix line and rerun command.
 
-A run checks one snapshot, except at pre-push, where it checks one per pushed commit; each pushed commit can have its own configuration and pin. The run's result is the worst snapshot result, `error` before `fail` before `pass`. A push that only deletes references checks nothing and passes with the line "nothing to check: the push only deletes references".
+A run checks one snapshot, except at pre-push, where it checks one per pushed commit; each pushed commit can have its own configuration and pin. A snapshot's result is `fail` when any of its checks failed or could not start, and `pass` otherwise. A preparation failure, which can occur without any snapshot, makes the run's result `error`. Otherwise the run's result is `fail` when any snapshot failed, and `pass` otherwise. A push that only deletes references checks nothing and passes with the line "nothing to check: the push only deletes references".
 It is the one output format for every check, so an agent can act on any failure the same way.
 
 Each check's status is `pass`, `fail`, `error` or `skipped`. A skipped check states why, for example "no staged input", "requires docs/DOCUMENTS.json" or "disabled: <reason>".
@@ -415,7 +416,9 @@ rm -f "$refs"
 # house-rules:repository-checks:end
 ```
 
-The block saves the reference lines to a temporary file and gives them to the runner. When creating, writing or reopening that file fails, the block names the failure, removes the file and refuses the push before any check runs, so a partial copy never stands for the whole push. After the runner it reopens the hook's standard input from that file, so another tool's lines after the block read the same lines; a large-file extension's pre-push hook is one such reader. Removing the file after `exec` is safe, because the open input stays readable until the hook exits.
+The block saves the reference lines to a temporary file and gives them to the runner. When creating or writing that file fails, the block names the failure, removes the file and refuses the push before any check runs, so a partial copy never stands for the whole push. After the runner passes, the block reopens the hook's standard input from that file, so another tool's lines after the block read the same lines; a large-file extension's pre-push hook is one such reader. Removing the file after `exec` is safe, because the open input stays readable until the hook exits.
+
+When that reopening fails, the push is refused after the checks ran. A plain `/bin/sh` exits at the failed redirection before the block's message and removal run, so the author may see only the shell's own error and a leftover temporary file.
 The block holds no machine paths: both paths come from per-clone Git settings, so the block can also live in a tracked hooks folder.
 
 The install handles each existing hook file one way:
@@ -498,11 +501,11 @@ The live index's tree differs from the snapshot at the end of a pre-commit run.
 The snapshot cannot be built: the index copy cannot be read, or the index still has unmerged entries.
 The installed Git cannot read attributes from a commit (`--attr-source`).
 A pushed object resolves to no commit, such as a tag of a tree.
-At pre-push, the [hook block](#hook-block) cannot create, write or reopen its temporary copy of the pushed references; the block refuses the push itself, before the runner starts.
+At pre-push, the [hook block](#hook-block) cannot create or write its temporary copy of the pushed references; the block refuses the push itself, before the runner starts. Reopening the copy after the checks can fail too; the push is then refused after the checks ran.
 
 **Outcome:** The runner exits 2 and prints one error line naming the cause and the command that repairs it. The hook refuses the commit or push.
 
-**Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used. A failed temporary copy of the pushed references is removed.
+**Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used. A failed temporary copy of the pushed references is removed, except when a plain `/bin/sh` exits at a failed reopening; the file then stays in the temporary folder.
 
 **Recovery:** The author runs the printed repair: `checks.py prepare` when online, `checks.py install` for a missing setting, or a configuration fix through a reviewed PR.
 For a changed index the author reviews what was staged and commits again.
@@ -670,7 +673,7 @@ A pre-commit check sees what the commit contains, and no run disturbs other work
 
 **Condition:** Any stage.
 
-**Result:** Every check in a run reads one snapshot commit, built at pre-commit from a copy of the index. The configuration, pin and `requires` come from it. A hook stage accepts only checks that read `{snapshot}`. A pre-commit run whose live index no longer matches the snapshot at the end stops. The runner never writes the working tree, the index, the stash or references.
+**Result:** Every check of a snapshot reads that snapshot's commit; at pre-commit the run's one snapshot is built from a copy of the index. The configuration, pin and `requires` come from it. A hook stage accepts only checks that read `{snapshot}`. A pre-commit run whose live index no longer matches the snapshot at the end stops. The runner never writes the working tree, the index, the stash or references.
 
 **Verification:** Fixtures with partly staged files and with a file staged by another process during a run.
 
@@ -953,7 +956,7 @@ python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage c
  "warnings": ["budget: pre-commit took 40.7 s of 10 s; slowest check spec-docs"]}]}
 ```
 
-The run's `result` is the worst snapshot `result`: `error`, then `fail`, then `pass`, matching exit status 2, 1 or 0. `snapshots` is empty for a push that only deletes references, and the run's result is then `pass`.
+The run's `result` is `error` after a preparation failure, matching exit status 2. Otherwise it is `fail` when any snapshot `result` is `fail`, matching exit status 1, and `pass` with exit status 0. A check that could not start has check status `error` and makes its snapshot's result `fail`. On a preparation failure the run object also holds `error`: one object with `reference` (the pushed reference it concerns, or `null`), `cause` and `repair`; the snapshots checked before the failure stay listed. `snapshots` is empty for a push that only deletes references, and the run's result is then `pass`.
 
 In each snapshot entry, `reference` is the pushed local reference at pre-push and `null` otherwise. `source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `snapshot` is the commit identity passed to the checks. `base` is a commit identity, or the empty tree's identity in the cases the [check definition](#check-definition) names. Each override has `id`, `change` and `reason`.
 
@@ -983,9 +986,9 @@ Evidence: planned, following the [tour](#tour).
 
 **Requirements:** [Snapshot](#req-checks-snapshot), [failure output](#req-checks-report).
 
-**Inputs:** The tour's staged "segment id", with an unstaged correction of the same file in the working tree. Staged trailing whitespace with an unstaged `.gitattributes` edit that turns whitespace checks off. Separately, a file staged by another process while a check runs, and the same file staged and restored again during the run.
+**Inputs:** The tour's staged "segment id", with an unstaged correction of the same file in the working tree. Staged trailing whitespace with an unstaged `.gitattributes` edit that turns whitespace checks off. A configured check whose program is missing. Separately, a file staged by another process while a check runs, and the same file staged and restored again during the run.
 
-**Expected:** The commit is refused from the staged content and the report matches the tour's text. The staged trailing whitespace fails under the snapshot's attributes. The file staged during the run stops the run with a preparation failure. The staged-and-restored file leaves the checks' result unchanged, because they read the snapshot. The working tree, index, stash and references are unchanged.
+**Expected:** The commit is refused from the staged content and the report matches the tour's text. The staged trailing whitespace fails under the snapshot's attributes. The check with a missing program has status `error`, its snapshot's result is `fail`, and the run exits 1. The file staged during the run stops the run with a preparation failure. The staged-and-restored file leaves the checks' result unchanged, because they read the snapshot. The working tree, index, stash and references are unchanged.
 
 Evidence: planned, following the [refusal declaration](#failure-check-refused).
 
@@ -1061,8 +1064,8 @@ Evidence: planned, following [Pinning and offline use](#pinning).
 
 **Requirements:** [Failure output](#req-checks-report), [pinned and offline](#req-checks-offline).
 
-**Inputs:** A pin missing from the cache with network access denied; an invalid configuration; no supported interpreter; an index with unmerged entries; a Git without `--attr-source`; a pushed tag of a tree; a pre-push whose temporary copy of the references fails to write.
+**Inputs:** A pin missing from the cache with network access denied; an invalid configuration; no supported interpreter; an index with unmerged entries; a Git without `--attr-source`; a pushed tag of a tree, alone and pushed together with a passing branch; a pre-push whose temporary copy of the references fails to write.
 
-**Expected:** Each runner case exits 2 with one line naming the cause and its repair command, and the hook refuses the commit or push. The failed temporary copy makes the [hook block](#hook-block) print its own line and refuse the push with status 1 before the runner starts.
+**Expected:** Each runner case exits 2 with one line naming the cause and its repair command, and the hook refuses the commit or push. The failed temporary copy makes the [hook block](#hook-block) print its own line and refuse the push with status 1 before the runner starts. The push of a passing branch with a tag of a tree exits 2 with run result `error`; its `error` names the tag, and the branch's snapshot stays listed with result `pass`.
 
 Evidence: planned, following the [preparation declaration](#failure-preparation).
