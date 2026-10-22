@@ -4,6 +4,7 @@ from contextlib import redirect_stdout, redirect_stderr
 from dataclasses import replace
 import io
 import json
+import random
 import re
 from pathlib import Path
 import subprocess
@@ -2080,6 +2081,86 @@ class SnapshotTests(unittest.TestCase):
 
 
 
+
+
+def scan_every_pattern(corpus, text):
+    """Reference recognizer: every phrase and symbol pattern scans the whole text."""
+    matches = []
+    for identity, entity in corpus.entities.items():
+        for phrase in set([entity["title"], *entity["forms"]]):
+            matches.extend((m.start(), m.end(), identity, phrase, False) for m in s.phrase_pattern(phrase).finditer(text))
+        for symbol in entity["symbols"]:
+            matches.extend((m.start(), m.end(), identity, symbol, True) for m in s.phrase_pattern(symbol, True).finditer(text))
+    matches.sort(key=lambda m: (m[0], -(m[1] - m[0]), m[2]))
+    occupied, output = [], []
+    for match in matches:
+        if not any(a <= match[0] and match[1] <= b and (a, b) != match[:2] for a, b in occupied):
+            output.append(match)
+            occupied.append(match[:2])
+    return output
+
+
+class RecognitionTests(unittest.TestCase):
+    """The indexed recognizer finds exactly the matches of a scan with every pattern."""
+
+    # identity: (title, forms, symbols, rejected forms)
+    ENTITIES = {
+        "e.log-group": ("Log group", ["log group", "group limit"], ["LOG_GROUP"], ["log-group"]),
+        "e.group-limit": ("Group limit", ["group limit", "limit"], ["limit", "Limit"], []),
+        "e.kit": ("Kit", ["kit", "ski kit", "sign", "file id"], ["Kit"], ["kits"]),
+        "e.unicode": ("Naïve set", ["naïve set", "Kelvin", "a a"], ["ſet"], ["Kelvin scale"]),
+        "e.punctuation": (".env", ["x-ray", "c++", "max_bytes", "v2 api", "§"], ["--json"], ["§ 2"]),
+    }
+    TEXTS = [
+        "Log group limit and LOG_GROUP limit",  # overlapping phrases; one span for two entities
+        "the group limit; Limit, LIMIT and limit",  # phrases beside case-sensitive symbols
+        "KIT and kIt; ſIGN, ſign; fİle İD, FıLE ıd",  # case equivalents of k, s and i
+        "kelvin, Kelvin, KELVIN, Kelvin scale",
+        "NAÏVE SET and naïve ſet; ſet; set",
+        "a a a, a a",  # a phrase overlapping itself
+        ".env, x-ray, C++ code, MAX_BYTES, V2 API, § 2, --json, kits, ski kit",
+        "kits _kit kit_ kit2 2kit",  # word boundaries
+        "",
+    ]
+
+    def setUp(self):
+        self.corpus = s.Corpus(None, {}, s.Diagnostics())
+        for identity, (title, forms, symbols, rejected) in self.ENTITIES.items():
+            self.corpus.entities[identity] = dict(id=identity, title=title, forms=forms, symbols=symbols,
+                                                  rejected_forms=[dict(text=t, replacement="x", reason="y") for t in rejected])
+
+    def texts(self):
+        pieces = [*self.TEXTS, *(p for e in self.ENTITIES.values() for group in e[:3] for p in ([group] if isinstance(group, str) else group))]
+        swaps = {"k": "K", "K": "K", "s": "ſ", "S": "ſ", "i": "ı", "I": "İ", "a": "A", "e": "E"}
+        rng = random.Random(196)
+        for _ in range(3000):
+            text = "".join(rng.choice(pieces) + rng.choice(["", " ", "_", "-", ".", ", ", "\n", "x"]) for _ in range(rng.randint(1, 6)))
+            yield "".join(swaps.get(c, c) if rng.random() < 0.2 else c for c in text)
+        yield from self.TEXTS
+
+    def test_indexed_recognizer_matches_a_scan_with_every_pattern(self):
+        hits = 0
+        for text in self.texts():
+            expected = scan_every_pattern(self.corpus, text)
+            self.assertEqual(s.recognized(self.corpus, text), expected, text)
+            hits += len(expected)
+            rejected = any(s.phrase_pattern(r["text"]).search(text) for e in self.corpus.entities.values() for r in e["rejected_forms"])
+            self.assertTrue(self.corpus.recognizer.may_reject(text) or not rejected, text)
+        self.assertGreater(hits, 3000)
+        spans = {m[:3] for m in s.recognized(self.corpus, self.TEXTS[0])}
+        self.assertTrue({(4, 15, "e.log-group"), (4, 15, "e.group-limit"), (0, 9, "e.log-group")} <= spans, spans)
+        self.assertEqual({m[2] for m in s.recognized(self.corpus, self.TEXTS[2])}, {"e.kit"})
+
+    def test_ascii_folds_list_every_case_equivalent_of_an_ascii_character(self):
+        # The index lowers ASCII and folds only these characters, so re.IGNORECASE must equate no others with ASCII.
+        others = "".join(chr(c) for c in range(0x80, 0x110000) if not 0xD800 <= c < 0xE000)
+        found = {m.group(): chr(c).lower() for c in range(0x80) for m in re.finditer(re.escape(chr(c)), others, re.I)}
+        self.assertEqual(found, {chr(c): folded for c, folded in s.ASCII_FOLDS.items()})
+        # A boundary character next to a match never folds into an ASCII letter or digit.
+        word = re.compile(r"\w")
+        joined = [c for c in map(chr, range(0x110000)) if not 0xD800 <= ord(c) < 0xE000 and not word.match(c)
+                  and (ord(c) in s.ASCII_FOLDS or re.search(r"[A-Za-z0-9]", c.lower()))]
+        self.assertEqual(joined, [])
 
 
 class DiagnosticCoverageSuite(unittest.TestSuite):

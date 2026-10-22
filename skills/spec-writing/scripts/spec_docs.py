@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from bisect import bisect_left
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
+from functools import cached_property
 import hashlib
 import fcntl
 from html import escape, unescape
@@ -287,6 +289,20 @@ class Markdown:
     def range_bytes(self, start, end):
         return "".join(self.text.splitlines(keepends=True)[start:end]).encode()
 
+    @cached_property
+    def filled_lines_before(self):
+        """Count, for each line number, the lines before it that hold more than container markers."""
+        counts = [0]
+        for line in self.text.splitlines():
+            counts.append(counts[-1] + bool(line.strip(' >\t')))
+        return counts
+
+    @cached_property
+    def linked_inlines(self):
+        """Return the line range and links of each inline token that holds links, in document order."""
+        return [(token.map, self.inline_links[id(token)]) for token in self.tokens
+                if token.type == 'inline' and token.map and self.inline_links.get(id(token))]
+
 
 def markdown_parser():
     """Keep native parsing and annotate link/anchor syntax for source rewrites."""
@@ -391,16 +407,22 @@ def parse_markdown(path, text, diagnostics):
             else:
                 rows.append((row, row_line, headers[:]))
             row = None
+    # Each line after a heading start and before the next heading start belongs to one introduction.
+    starts, introductions = [h.start for h in headings], defaultdict(list)
+    for token in tokens:
+        if (token.type == "inline" and token.map and not in_region(token.map[0])
+                and not any(a <= token.map[0] < b for a, b in detail_blocks)):
+            index = bisect_left(starts, token.map[0]) - 1
+            if index >= 0:
+                introductions[index].append(token)
     for i, heading in enumerate(headings):
         heading.intro_end = headings[i + 1].start if i + 1 < len(headings) else len(lines)
         for following in headings[i + 1:]:
             if following.level <= heading.level:
                 heading.end = following.start - (1 if following.anchor else 0)
                 break
-        for token in tokens:
-            if (token.type == "inline" and token.map and not in_region(token.map[0])
-                    and not any(a <= token.map[0] < b for a, b in detail_blocks)
-                    and heading.start < token.map[0] < heading.intro_end):
+        for token in introductions[i]:
+            if heading.start < token.map[0] < heading.intro_end:
                 match = re.match(r"^\*\*([^*]+?):\*\*\s*(.*)", token.content, re.S)
                 if match:
                     key = match[1]
@@ -443,6 +465,11 @@ class Corpus:
     @property
     def registry_digest(self):
         return digest(canonical(self.registry))
+
+    @cached_property
+    def recognizer(self):
+        """Built on first use, after load_corpus has registered every entity."""
+        return Recognizer(self.entities)
 
     def locate(self, selector):
         if not isinstance(selector, str):
@@ -1060,13 +1087,17 @@ def check(corpus, base=None, _freshness=True):
             if symbol in symbols:
                 d.add("D03", f"duplicate identity '{symbol}'; first at {symbols[symbol]}", ep)
             symbols[symbol] = entity["id"]
+    targets = [(entity, use_targets(corpus, entity)) for entity in corpus.entities.values()]
+    facts = {}
+    for f in corpus.facts.values():
+        facts.setdefault((f["path"], f["anchor"]), f)
     for md in corpus.markdown.values():
         for link in md.links:
             section = corpus.section_at(md.path, link.line)
-            for entity in corpus.entities.values():
-                if section and link.destination in use_targets(corpus, entity) and section["document"] not in entity["scope"]:
+            for entity, entity_targets in targets:
+                if section and link.destination in entity_targets and section["document"] not in entity["scope"]:
                     d.add("D07", f"entity '{entity['id']}' is used outside its declared document scope", md.path, link.line + 1)
-            fact = next((f for f in corpus.facts.values() if (f["path"], f["anchor"]) == link.destination), None)
+            fact = facts.get(link.destination)
             if fact:
                 value_bearing = link.code_label or any(character.isdigit() for character in link.label)
                 if value_bearing and normalize_literal(link.label, corpus.contract) != normalize_literal(fact["value"], corpus.contract):
@@ -1156,21 +1187,69 @@ def phrase_pattern(text, exact=False):
     return re.compile(r"(?<!\w)" + re.escape(text) + r"(?!\w)", 0 if exact else re.I)
 
 
+# Non-ASCII characters that re.IGNORECASE matches to an ASCII character; a test proves the list complete.
+ASCII_FOLDS = str.maketrans({"\u0130": "i", "\u0131": "i", "\u017f": "s", "\u212a": "k"})
+
+
+def phrase_runs(text):
+    """Return the lowered ASCII letter-and-digit runs of a phrase whose neighbours in it are ASCII.
+
+    Pattern boundaries and literal punctuation then make every match show each run as a whole run of folded text."""
+    return frozenset(m.group().lower() for m in re.finditer(r"[A-Za-z0-9]+", text)
+                     if (m.start() == 0 or text[m.start() - 1].isascii()) and (m.end() == len(text) or text[m.end()].isascii()))
+
+
+class Recognizer:
+    """Registered phrase and symbol patterns, compiled once per corpus, with results per scanned text.
+
+    Each pattern and rejected form is indexed by its longest run; one without runs is indexed by the empty
+    string, which every text holds."""
+
+    def __init__(self, entities):
+        self.patterns, self.keyed, self.rejected, self.results = [], defaultdict(list), defaultdict(list), {}
+        for identity, entity in entities.items():
+            terms = [(phrase, False) for phrase in set([entity["title"], *entity["forms"]])]
+            for text, exact in terms + [(symbol, True) for symbol in entity["symbols"]]:
+                runs = phrase_runs(text)
+                self.keyed[max(sorted(runs), key=len, default="")].append(len(self.patterns))
+                self.patterns.append((identity, text, exact, phrase_pattern(text, exact), runs))
+            for rejected in entity["rejected_forms"]:
+                if isinstance(rejected, dict) and isinstance(rejected.get("text"), str):
+                    runs = phrase_runs(rejected["text"])
+                    self.rejected[max(sorted(runs), key=len, default="")].append(runs)
+
+    @staticmethod
+    def runs(text):
+        """Return the ASCII letter-and-digit runs of the text, lowered after folding its ASCII case equivalents."""
+        return {"", *re.findall(r"[a-z0-9]+", (text if text.isascii() else text.translate(ASCII_FOLDS)).lower())}
+
+    def candidates(self, text):
+        """Return, in registration order, the patterns that can match: those whose runs all occur in the text."""
+        runs = self.runs(text)
+        return [self.patterns[index][:4] for index in sorted(
+            index for run in runs for index in self.keyed.get(run, ()) if self.patterns[index][4] <= runs)]
+
+    def may_reject(self, text):
+        """Return False only when no rejected form can match the text."""
+        runs = self.runs(text)
+        return any(rejected <= runs for run in runs for rejected in self.rejected.get(run, ()))
+
+
 def recognized(corpus, text):
     """Return longest registered phrase matches; ambiguity is retained for review."""
-    matches = []
-    for identity, entity in corpus.entities.items():
-        for phrase in set([entity["title"], *entity["forms"]]):
-            matches.extend((m.start(), m.end(), identity, phrase, False) for m in phrase_pattern(phrase).finditer(text))
-        for symbol in entity["symbols"]:
-            matches.extend((m.start(), m.end(), identity, symbol, True) for m in phrase_pattern(symbol, True).finditer(text))
-    matches.sort(key=lambda m: (m[0], -(m[1] - m[0]), m[2]))
-    occupied, output = [], []
-    for match in matches:
-        if not any(a <= match[0] and match[1] <= b and (a, b) != match[:2] for a, b in occupied):
-            output.append(match)
-            occupied.append(match[:2])
-    return output
+    results = corpus.recognizer.results
+    if text not in results:
+        matches = [(m.start(), m.end(), identity, phrase, exact)
+                   for identity, phrase, exact, pattern in corpus.recognizer.candidates(text)
+                   for m in pattern.finditer(text)]
+        matches.sort(key=lambda m: (m[0], -(m[1] - m[0]), m[2]))
+        occupied, output = [], []
+        for match in matches:
+            if not any(a <= match[0] and match[1] <= b and (a, b) != match[:2] for a, b in occupied):
+                output.append(match)
+                occupied.append(match[:2])
+        results[text] = output
+    return list(results[text])
 
 
 def use_targets(corpus, entity):
@@ -1357,16 +1436,19 @@ def prune_repeated_links(corpus):
 
 def neighboring_links(md, token):
     """Return annotations beside one literal, across only blank container lines."""
+    counts = md.filled_lines_before
+
     def adjacent(start, end):
-        return not any(line.strip(' >\t') for line in md.text.splitlines()[start:end])
-    return [link for neighbor in md.tokens if neighbor.type == 'inline' and neighbor.map
-            and (neighbor.map[1] <= token.map[0] and adjacent(neighbor.map[1], token.map[0])
-                 or token.map[1] <= neighbor.map[0] and adjacent(token.map[1], neighbor.map[0]))
-            for link in md.inline_links.get(id(neighbor), [])]
+        start, end = min(start, len(counts) - 1), min(end, len(counts) - 1)
+        return start >= end or counts[start] == counts[end]
+    return [link for span, links in md.linked_inlines
+            if (span[1] <= token.map[0] and adjacent(span[1], token.map[0])
+                or token.map[1] <= span[0] and adjacent(token.map[1], span[0]))
+            for link in links]
 
 
 def check_uses(corpus, md, diagnostics, missing=None):
-    seen = set()
+    seen, intros = set(), {}
     for token_index, token in enumerate(md.tokens):
         if not token.map or any(a <= token.map[0] < b for a, b in md.generated):
             continue
@@ -1389,7 +1471,9 @@ def check_uses(corpus, md, diagnostics, missing=None):
         use_section = md.use_section_at(line)
         local = use_section.start if use_section else -1
         # Defining heading and first nonempty paragraph may omit their own link.
-        intro = next((t for i, t in enumerate(md.tokens) if t.type == "inline" and t.map and heading and heading.start < t.map[0] < heading.intro_end and i and md.tokens[i - 1].type == "paragraph_open" and visible(t.children).strip()), None)
+        if id(heading) not in intros:
+            intros[id(heading)] = next((t for i, t in enumerate(md.tokens) if t.type == "inline" and t.map and heading and heading.start < t.map[0] < heading.intro_end and i and md.tokens[i - 1].type == "paragraph_open" and visible(t.children).strip()), None)
+        intro = intros[id(heading)]
         literal = token.type in ("fence", "code_block")
         links = md.inline_links.get(id(token), [])
         if literal:
@@ -1444,7 +1528,7 @@ def check_uses(corpus, md, diagnostics, missing=None):
                         and not any(a < span[1] and span[0] < b for a, b, _ in link_spans)):
                     missing.append((token, span, entity))
             seen.add((local, identity))
-        if not literal:
+        if not literal and corpus.recognizer.may_reject(text):
             for entity in corpus.entities.values():
                 for rejected in entity["rejected_forms"]:
                     if isinstance(rejected, dict) and isinstance(rejected.get("text"), str) and phrase_pattern(rejected["text"]).search(text):
@@ -1597,7 +1681,10 @@ def check_prose(corpus, md, diagnostics):
             continue
         numeric_prose, link_spans, code_spans = inline_spans(token, md.inline_links.get(id(token), []))
         ignored_spans = [(a, b) for a, b, _ in link_spans] + code_spans
-        numeric_prose = "".join(" " if any(a <= index < b for a, b in ignored_spans) else char for index, char in enumerate(numeric_prose))
+        masked = list(numeric_prose)
+        for a, b in ignored_spans:
+            masked[a:b] = " " * len(masked[a:b])
+        numeric_prose = "".join(masked)
         parts = sentences(token.children)
         limit = procedure_words if ordered_depth else descriptive
         for sentence in parts:
