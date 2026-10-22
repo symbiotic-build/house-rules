@@ -72,6 +72,10 @@
       "reason": "Preserved design input; conversion to the specification system is outside this change."
     },
     {
+      "path": "docs/design/194-repository-checks.md",
+      "kind": "design"
+    },
+    {
       "path": "prompts/README.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
@@ -864,6 +868,191 @@
             "acceptance"
           ],
           "summary": "Run behavior checks and inspect reviewer obligations.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        }
+      ],
+      "scenarios": []
+    },
+    {
+      "id": "repository-checks",
+      "title": "Repository checks",
+      "status": "draft",
+      "purpose": "Repository checks run a repository's deterministic rule checks before each commit, before each push and in CI, from one declared configuration.",
+      "audience": "House Rules maintainers and repository owners familiar with Git hooks and CI workflows.",
+      "scope": "The check configuration, the check runner, built-in checks, the install procedure, agent session status and the rule line.",
+      "non_goals": "Judgment rules that need a reviewer, prose warnings, Warden changes and implementation in this change.",
+      "navigation": {
+        "path": "docs/design/194-repository-checks.md",
+        "region": "repository-checks"
+      },
+      "sections": [
+        {
+          "id": "repository-checks",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "repository-checks",
+          "roles": [],
+          "summary": "Read what repository checks do and who runs them.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "evidence",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "evidence",
+          "roles": [
+            "evidence",
+            "constraints"
+          ],
+          "summary": "See what exists today, what was measured and the constraints.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "tour",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "tour",
+          "roles": [
+            "tour"
+          ],
+          "summary": "Follow one install, a refused commit and its fix.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "configuration",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "configuration",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Declare checks in one file and write a check to the command contract.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "running",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "running",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "See when each check runs, what it reads and how pre-commit stays fast.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "installation",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "installation",
+          "roles": [
+            "mechanism",
+            "ownership",
+            "integration"
+          ],
+          "summary": "Install hooks and CI without breaking other tools, and connect agent sessions.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "pinning",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "pinning",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Control the House Rules revision and work without a network.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "review",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "review",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Review overrides, and know which rules stay with reviewers.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "examples",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "examples",
+          "roles": [
+            "mechanism"
+          ],
+          "summary": "Apply the configuration to another naming style and to a repository without specifications.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "requirements",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "requirements",
+          "roles": [
+            "requirements"
+          ],
+          "summary": "Find the obligations each mechanism must meet.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "decisions",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "decisions",
+          "roles": [
+            "decisions",
+            "alternatives"
+          ],
+          "summary": "Read each proposed choice and the alternatives it rejects.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "questions",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "questions",
+          "roles": [
+            "questions"
+          ],
+          "summary": "See the choices that wait for the operator.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "rollout",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "rollout",
+          "roles": [
+            "rollout",
+            "work-packages"
+          ],
+          "summary": "Plan the implementation pull requests and adoption.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "reference",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "reference",
+          "roles": [
+            "reference"
+          ],
+          "summary": "Look up configuration fields, built-ins, commands and the report format.",
+          "prerequisites": [],
+          "explanatory_dependencies": []
+        },
+        {
+          "id": "acceptance",
+          "path": "docs/design/194-repository-checks.md",
+          "anchor": "acceptance",
+          "roles": [
+            "acceptance",
+            "acceptance-evidence"
+          ],
+          "summary": "See the planned demonstrations for each requirement.",
           "prerequisites": [],
           "explanatory_dependencies": []
         }
