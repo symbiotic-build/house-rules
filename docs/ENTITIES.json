@@ -326,6 +326,111 @@
       ],
       "symbols": [],
       "rejected_forms": []
+    },
+    "repository-checks.check-configuration": {
+      "kind": "data",
+      "home": {
+        "section": "repository-checks#configuration",
+        "anchor": "check-configuration"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "check configuration"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "repository-checks.check-definition": {
+      "kind": "concept",
+      "home": {
+        "section": "repository-checks#configuration",
+        "anchor": "check-definition"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "check definition"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "repository-checks.check-stage": {
+      "kind": "concept",
+      "home": {
+        "section": "repository-checks#running",
+        "anchor": "check-stage"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "check stage"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "repository-checks.check-runner": {
+      "kind": "component",
+      "home": {
+        "section": "repository-checks#running",
+        "anchor": "check-runner"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "check runner"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "repository-checks.check-run-report": {
+      "kind": "data",
+      "home": {
+        "section": "repository-checks#running",
+        "anchor": "check-run-report"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "check run report"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "repository-checks.check-installation": {
+      "kind": "mechanism",
+      "home": {
+        "section": "repository-checks#installation",
+        "anchor": "check-installation"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "check installation"
+      ],
+      "symbols": [],
+      "rejected_forms": []
+    },
+    "repository-checks.hook-block": {
+      "kind": "data",
+      "home": {
+        "section": "repository-checks#installation",
+        "anchor": "hook-block"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "hook block"
+      ],
+      "symbols": [],
+      "rejected_forms": []
     }
   },
   "naming_rules": []
