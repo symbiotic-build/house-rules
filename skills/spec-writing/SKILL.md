@@ -284,6 +284,10 @@ as an `interface` entity and records the old spelling `QuotaExceeded` as a rejec
 - When you fix a name spelled two ways, add the wrong spelling as a rejected form.
   A rejected spelling that differs from a registered one only in case, such as
   `QUOTA_EXCEEDED`, matches exactly; list each wrong casing you know.
+- Write a rejected spelling only inside a fenced code block, for example to quote an
+  original passage or show a wrong example; `D13` does not search fenced blocks. When
+  consumers still use an old spelling, state that compatibility requirement in prose and
+  show the old spelling in a fenced block.
 
 ## Duty to critique
 

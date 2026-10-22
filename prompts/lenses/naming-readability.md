@@ -36,7 +36,7 @@ rejecting that bare form for the second concept. Check the sentence's intended m
 not only whether its link resolves.
 
 Check every public name against the naming conventions the writing rules require: types,
-fields, errors and error reasons, settings, events and commands. A kind of public name
+fields, error types and error reasons, settings, events and commands. A kind of public name
 with no declared convention is a finding. A name that breaks its declared convention is a
 finding. One concept spelled two ways anywhere in the document set is a finding, even when
 each chapter is consistent on its own; include code spans, tables and examples. Check the

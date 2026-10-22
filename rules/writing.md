@@ -31,7 +31,8 @@ happened, why it matters and what to do, in that order.
   use a synonym or reuse its accepted form for another concept.
 - The same concept keeps the same name in documents, code and user interfaces.
 - Every specification and every codebase declares one naming convention for each kind of
-  public name it defines: types, fields, errors and error reasons, settings, events and commands.
+  public name it defines: types, fields, error types and error reasons, settings, events
+  and commands.
 - Each convention states casing, required prefixes or suffixes, and word order.
   Example: "error reasons are lower snake case, subject first: `quota_exceeded`, never
   `exceeded_quota` or `QuotaExceeded`."
