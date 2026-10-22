@@ -28,11 +28,8 @@ External-write authority follows [External writes](../util/external-writes.md).
    note of what you checked there, so the next auditor continues without rereading. Cite the
    deciding lines of every conclusion, including "no defect" conclusions.
 3. **Report findings.** Report each defect you can trace in the code. Give its location, the
-   deciding lines and the smallest fix. A security finding follows the
-   [review bar](../util/review-bar.md)'s security finding rule: without all five parts it is a
-   hardening note. Give a severity no higher than the evidence supports. A lead that depends on a
-   fact outside the repository (a proxy setting, branch protection, a deployed configuration)
-   stays a finding that names the missing fact.
+   deciding lines and the smallest fix, and apply the [finding rules](../util/finding-rules.md).
+   Give a severity no higher than the evidence supports.
 4. **Ask for a reproduction when running code would settle a finding.** Write a reproduction: a
    test or a small program, with the command that runs it and the file it writes its result to.
    The audit service runs it in a separate sandbox with no network except loopback, no
@@ -43,12 +40,11 @@ External-write authority follows [External writes](../util/external-writes.md).
    effect, and writes no exploit beyond that effect.
 5. **Use earlier results.** When the task part gives a reproduction result for one of this unit's
    findings, confirm or withdraw that finding with it, citing the observed result.
-6. **Never publish secrets.** A finding about a hard-coded credential cites the file, line and
-   symbol, never the line's text.
 
 End your final message with the output block the task part specifies, and nothing after it.
 
 @rule house-rules:prompts/util/review-bar.md
+@rule house-rules:prompts/util/finding-rules.md
 @rule house-rules:prompts/util/cost-defect.md
 @rule house-rules:prompts/util/cost-and-design.md
 @rule house-rules:prompts/util/external-writes.md

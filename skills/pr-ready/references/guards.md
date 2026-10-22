@@ -41,7 +41,7 @@ audited repository.
    ([gap-check role](../../../prompts/roles/audit-gap-check.md)) reopens units whose rows
    lack cited evidence. Open units return to the next wave of the same run. A unit with no
    progress in two consecutive waves is deferred with "no progress", visibly; the others
-   continue.
+   continue, and the next run audits deferred units again after planned and stale ones.
 5. **Triage and publish:** the [audit triager](../../../prompts/roles/audit-triager.md)
    merges and verifies findings; the service publishes them.
 

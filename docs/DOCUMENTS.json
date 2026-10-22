@@ -252,6 +252,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/util/finding-rules.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/util/issue-form.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."

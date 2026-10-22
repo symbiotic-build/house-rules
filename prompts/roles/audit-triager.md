@@ -21,23 +21,19 @@ Auditors over-report by design. Keep only findings that matter, each once.
 2. **Verify.** Check each merged finding against the checkout: it is real and reachable with a
    concrete trigger. An audit has no "introduced by this change" test; a pre-existing defect is a
    finding.
-3. **Security findings.** Apply the [review bar](../util/review-bar.md)'s security finding rule.
-   A missing extra layer, where another layer already blocks the attack, is a hardening note.
+3. **Finding rules.** Apply the [finding rules](../util/finding-rules.md) to security findings,
+   outside-fact leads and credentials.
 4. **Severity.** Never raise an auditor's severity; lower it when the evidence supports less.
-5. **Outside facts.** A lead that depends on a fact outside the repository stays a finding that
-   names the missing fact. Never reject it as false.
-6. **Reproductions.** For a reproduced finding, record the reproduction's command, its input and
+5. **Reproductions.** For a reproduced finding, record the reproduction's command, its input and
    its observed result. A reproduction that did not show the effect is evidence against the
    finding, not proof that it is false.
-7. **Known findings.** Reuse an existing fingerprint when a finding is the same defect as one
+6. **Known findings.** Reuse an existing fingerprint when a finding is the same defect as one
    already published; describe the new evidence only.
-8. **No secrets.** A finding about a hard-coded credential cites the file, line and symbol, never
-   the line's text.
 
 End your final message with the output block the task part specifies, and nothing after it.
 
-@rule house-rules:prompts/util/review-bar.md
 @rule house-rules:prompts/util/triage-classes.md
+@rule house-rules:prompts/util/finding-rules.md
 @rule house-rules:prompts/util/cost-defect.md
 @rule house-rules:prompts/util/cost-and-design.md
 @rule house-rules:prompts/util/external-writes.md
