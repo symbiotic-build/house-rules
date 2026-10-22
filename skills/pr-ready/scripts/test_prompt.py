@@ -385,7 +385,7 @@ class CollectionAcceptanceTest(unittest.TestCase):
     def test_code_change_rules_are_skills_without_common_folder(self):
         rules = ROOT / "prompts/skills"
         self.assertEqual({p.stem for p in rules.glob("*.md")},
-                         {"code-canon", "native-first", "no-fortification", "test-discipline"})
+                         {"code-canon", "naming-defaults", "native-first", "no-fortification", "test-discipline"})
         self.assertFalse((ROOT / "prompts/common").exists())
         self.assertTrue((ROOT / "prompts/util").is_dir())
         self.assertFalse((ROOT / "prompts/utils").exists())

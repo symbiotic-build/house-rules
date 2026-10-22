@@ -53,6 +53,7 @@ How to work:
 @rule house-rules:prompts/skills/native-first.md
 @rule house-rules:prompts/skills/no-fortification.md
 @rule house-rules:prompts/skills/test-discipline.md
+@rule house-rules:prompts/skills/naming-defaults.md
 
 Final message: what changed per task item (fixed, already fixed, or does not hold, with
 evidence), files touched, the gate commands with counts, and anything left undone.

@@ -34,3 +34,9 @@ not force every application into a Markdown vault.
 Architecture principles (canonical data, end-state design, tenancy) live in
 `skills/design-canon/SKILL.md`; Rust-specific tooling defaults live in
 `skills/rust-canon/SKILL.md`.
+
+## Naming defaults
+
+The naming defaults a project can adopt live in
+[prompts/skills/naming-defaults.md](prompts/skills/naming-defaults.md), so compiled
+reviewers and implementers receive them.
