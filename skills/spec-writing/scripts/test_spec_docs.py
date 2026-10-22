@@ -1005,6 +1005,9 @@ class CorpusTests(CorpusFixture, unittest.TestCase):
              "bounds encoded bytes in one log group; its code spelling is `log_group_max_bytes`.")
         metadata(self.paths, s.JSON_PATHS[0], lambda v: v["entities"]["example.log-group-limit"]["rejected_forms"].append(
             dict(text="LOG_GROUP_MAX_BYTES", replacement="log_group_max_bytes", reason="Settings are lower snake case.")))
+        # Dotless i (U+0131) folds apart from "i" yet matches it case-insensitively.
+        metadata(self.paths, s.JSON_PATHS[0], lambda v: v["entities"]["example.log-group-limit"]["rejected_forms"].append(
+            dict(text="log group byte lımit", replacement="log group byte limit", reason="Use the registered spelling.")))
         self.assertTrue((result := s.check(refresh(self.paths))).ok, result.errors)
         edit(self.paths, SETTINGS, "its code spelling is `log_group_max_bytes`.",
              "its code spelling is `LOG_GROUP_MAX_BYTES`.")
