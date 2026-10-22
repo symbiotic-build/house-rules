@@ -104,7 +104,7 @@ The agent ran the spec checker by hand before some commits, and that repository 
 The design must meet these constraints:
 
 - Never stop another tool's existing hook, which rules out setting `core.hooksPath` on a clone that has hooks in `.git/hooks`.
-- Read the staged index at pre-commit, because a working tree can differ from the commit.
+- Check exactly the staged content at pre-commit, because a working tree can differ from the commit and another session can stage files during a run.
 - Never change the working tree or the Git stash, because several agent sessions can share one working tree and one stash.
 - Run the runner itself on Python 3.9 or later, and run each check with its own supported interpreter.
 - Never fail on prose warnings, which the [writing rules](../../rules/writing.md) §House technical English keep advisory.
@@ -126,12 +126,12 @@ Everything in this tour uses House Rules defaults.
 2. **Install:** the same command without `--dry-run`.
    - Writes the [check configuration](#check-configuration), the pre-commit and pre-push [hook blocks](#hook-block) and the CI workflow.
    - Prepares the pinned House Rules revision and the spec checker's environment in the local cache.
-3. **Check the current tree:** `checks.py run --stage ci`.
-   - Runs every CI check over the whole commit, so existing failures show before the hook starts refusing commits.
+3. **Stage the install and check everything:** `git add` the files the install listed, then `checks.py run --stage ci --index`.
+   - Runs every CI check over the staged snapshot, which already holds the new configuration, so existing failures show before the hook starts refusing commits.
    - Here both checks pass.
 4. **Commit the install** through a normal PR. A reviewer reads the configuration, which holds only the pin.
 5. **Edit a chapter and commit:** the change adds "segment id" to `docs/specs/storage/recovery.md`.
-   - The pre-commit hook runs both default checks on the staged index.
+   - The pre-commit hook builds a snapshot commit of the staged index and runs both default checks on it.
    - The spec checker reports one error; Git refuses the commit.
 6. **Fix and rerun one check:** rename to "segment identifier", stage it, then run the `rerun` command the report printed.
    - The spec check passes.
@@ -211,19 +211,20 @@ Both follow one contract, so the runner treats a House Rules check and a reposit
 The contract has five parts:
 
 - **Inputs.** `paths` lists the repository-relative globs the check reads. `requires` lists files that must exist in the snapshot for the check to apply; a snapshot without them skips the check with that reason.
-- **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files that exist in the snapshot as arguments. `diff` runs once with a base and a head.
-- **Snapshot.** `run` is either one argument list or a map from snapshot kind (`index` or `commit`) to an argument list. A map tells the runner the check can read the staged index or a commit itself.
+- **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files that exist in the snapshot as arguments. `diff` runs once with a base and the snapshot.
+- **Snapshot.** `run` is one argument list. A check that reads the [snapshot commit](#snapshot-handling) names it with `{snapshot}` and reads files from it, never from the working tree. Only such a check may list a hook stage; a check without `{snapshot}` reads the working tree and runs in CI only.
 - **Result.** Exit status 0 is a pass. Any other status is a failure. A command that cannot start, such as a missing program, is an error.
 - **Output.** The runner shows everything the command printed, unshortened, in its [check run report](#check-run-report). `fix` adds one line telling the reader what to change.
 
 A deleted or renamed-away file selects a `files` check but is not passed to it, because it no longer exists.
 A selection that holds only such files skips the check with the reason "only deleted inputs".
-At pre-commit a `diff` check's `{base}` is `HEAD`, or the empty tree before the first commit, and its head is the index.
-The index has no commit identity, so a `diff` check that uses `{head}` needs an `index` variant in its `run` map. The runner refuses a configuration without one.
+At every stage `{base}` and `{snapshot}` are commit identities, so a `diff` check runs the same command everywhere.
+At pre-commit `{base}` is `HEAD`; before the first commit it is the empty tree, the one value that is a tree identity instead.
 
 Commands run without a shell, from the repository root, with standard input closed.
 A check must not change files, the index or Git references.
-The runner adds `CHECK_STAGE`, `CHECK_BASE` and `CHECK_HEAD` to the environment, so a check script can read the same range the runner chose.
+The runner adds `CHECK_STAGE`, `CHECK_BASE` and `CHECK_SNAPSHOT` to the environment with the same values as the placeholders, so a check script can read the range the runner chose.
+A configuration that lists a hook stage for a check without `{snapshot}` stops with a configuration error.
 
 The built-in definitions at the first implemented revision are whitespace and spec-docs, listed in [Built-in checks](#built-in-checks).
 Spec-docs reads its naming style from the repository's own `docs/ENTITIES.json`.
@@ -259,20 +260,28 @@ The merge base also gives the right range after a rebase or for a new branch. In
 The pre-push stage checks the commits reachable from `HEAD`.
 A push of a branch other than the checked-out one is not checked at pre-push; CI checks it.
 
+<a id="snapshot-handling"></a>
 ### Snapshot handling
 
-The runner never stashes, resets or rewrites the working tree to make a check see the commit.
-A check that can read a snapshot itself gets the right arguments from its `run` map: spec-docs gets `--staged` at pre-commit and `--rev <head>` elsewhere.
+Every check in one run reads the same fixed content, the snapshot commit, so no concurrent edit can change what a check sees.
+At pre-commit the runner builds it once, at the start, without touching the real index, the working tree or any reference:
 
-A check with one argument list reads the working tree.
-At pre-commit it runs only when none of its selected input files has unstaged changes, so it sees exactly what the commit contains.
-Otherwise the runner stops with a [preparation failure](#failure-preparation) that names those files; the author stages or sets aside the changes.
-At pre-push the same rule compares the working tree with `HEAD`.
+**Procedure: build the pre-commit snapshot**
 
-The runner captures the snapshot once, at the start: `HEAD` and a digest of the staged entries (`git ls-files --stage -z`). Reading the entries this way never writes the index.
-It reads the configuration and selects checks from that capture. After the last check it captures both again.
-When either changed during the run, for example because another session staged a file, the run stops with a preparation failure and the author runs it again.
-Git writes the commit from the index after the hook exits. A change in that last window is not detected; CI checks the commit that results.
+1. **Copy the index file** into a temporary folder. Git replaces that file by an atomic rename, so the copy is one complete version.
+2. **Write its tree:** `GIT_INDEX_FILE=<copy> git write-tree`. This writes objects only.
+3. **Wrap the tree in a commit:** `git commit-tree <tree> -p HEAD`, without `-p` before the first commit. No branch or reference points to the commit.
+
+At pre-push the snapshot is `HEAD`, and in CI it is the commit under test.
+The runner reads the configuration, the pin, `requires` and the changed files from the snapshot, and passes it to every check as `{snapshot}`.
+Spec-docs reads it with `--rev {snapshot}`, and whitespace compares it with `git diff --check {base} {snapshot}`.
+
+After the last check the runner builds the tree of the live index again, the same way.
+When it differs from the snapshot's tree, another process staged something during the run. The run then stops with a [preparation failure](#failure-preparation), because the commit Git is about to write is not the content the checks saw.
+Git writes the commit from the live index after the hook exits. A change in that last moment is not detected; CI checks the commit that results.
+
+A check that reads the working tree, such as a linter run on its files, cannot see the snapshot. It runs in CI, on a clean checkout of the commit.
+A repository that wants it at pre-commit wraps it to read the files from `{snapshot}`, for example with `git show {snapshot}:<path>` piped to the tool.
 
 ### Keeping pre-commit fast
 
@@ -354,8 +363,9 @@ Running it again repairs missing pieces and keeps every choice the repository ma
 
 1. **Preview:** `checks.py install --dry-run`. Lists each file and setting with "create", "update", "unchanged" or "refused", and writes nothing.
 2. **Install:** `checks.py install`. Performs the listed writes.
-3. **Check the tree:** `checks.py run --stage ci`. Shows failures in existing files before the hooks start refusing commits.
-4. **Commit the repository files** through a reviewed PR: the configuration and, when written, the CI workflow.
+3. **Stage the install:** `git add` the configuration and, when written, the CI workflow.
+4. **Check everything:** `checks.py run --stage ci --index`. Every CI check runs over the staged snapshot. Failures in existing files show before the hooks start refusing commits.
+5. **Commit the repository files** through a reviewed PR. CI then runs the same checks on the commit.
 
 > **Detail — what the install writes**
 >
@@ -465,14 +475,14 @@ That pin and the repository's pin are independent; the report names the revision
 This refusal keeps a commit from passing without its checks having run.
 
 **Trigger:** The configuration is invalid, the pinned revision cannot be read or fetched, the extracted runner does not match the pin, or no supported interpreter or environment can be prepared.
-A working-tree check's input files have unstaged changes, or the index or `HEAD` changed during the run.
+The live index's tree differs from the snapshot at the end of a pre-commit run.
 
 **Outcome:** The runner exits 2 and prints one error line naming the cause and the command that repairs it. The hook refuses the commit or push.
 
 **Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used.
 
 **Recovery:** The author runs the printed repair: `checks.py prepare` when online, `checks.py install` for a missing setting, or a configuration fix through a reviewed PR.
-For unstaged inputs the author stages or sets aside those changes; for a changed snapshot the author runs the commit again.
+For a changed index the author reviews what was staged and commits again.
 
 **Authority:** The author repairs the clone; a configuration change needs the repository's normal review.
 
@@ -549,7 +559,7 @@ It keeps every default check and adds its own linter for code names.
 >   "code-names": {
 >     "run": ["npx", "--no-install", "eslint", "--max-warnings=0", "{files}"],
 >     "paths": ["src/**/*.ts"],
->     "stages": ["pre-commit", "ci"],
+>     "stages": ["ci"],
 >     "scope": "files",
 >     "fix": "Rename to the convention in .agents/rules.md §Naming.",
 >     "reason": "Code names follow the repository's lower camel case convention."
@@ -557,10 +567,10 @@ It keeps every default check and adds its own linter for code names.
 > }
 > ```
 >
-> The linter's own configuration holds its naming rule. The runner passes only staged `.ts` files at pre-commit and every matching file in CI.
+> The linter's own configuration holds its naming rule. The command has no `{snapshot}`, so it reads the working tree and runs in CI only, with every matching file.
 
 The default spec-docs check needed no change, because its naming style is data in `docs/ENTITIES.json`.
-The repository check reads the working tree. A partly staged `.ts` file therefore stops the commit until the author stages or sets aside the rest, as [Running checks](#running) explains.
+A repository that wants the linter before each commit wraps it to read each file from `{snapshot}` and adds `pre-commit` to its stages, as [Running checks](#running) explains.
 
 ### A repository with no specifications
 
@@ -633,9 +643,9 @@ A pre-commit check sees what the commit contains, and no run disturbs other work
 
 **Condition:** Any stage.
 
-**Result:** Checks with a `run` map receive the snapshot arguments for the stage. Checks with one argument list run only when their input files match the snapshot. The configuration comes from the snapshot, and a snapshot that changes during the run stops it. The runner never writes the working tree, the index, the stash or references.
+**Result:** Every check in a run reads one snapshot commit, built at pre-commit from a copy of the index. The configuration, pin and `requires` come from it. A hook stage accepts only checks that read `{snapshot}`. A pre-commit run whose live index no longer matches the snapshot at the end stops. The runner never writes the working tree, the index, the stash or references.
 
-**Verification:** Fixture with partly staged files.
+**Verification:** Fixtures with partly staged files and with a file staged by another process during a run.
 
 **Tests:** [Refused commit](#test-checks-refused-commit), [naming override](#test-checks-naming-override).
 
@@ -760,15 +770,15 @@ None of these choices is approved until the operator approves the design.
 **Rejected alternatives:** A tracked `.githooks/` folder with `core.hooksPath` silently disables other tools' hooks and fights tools that set the same setting. The pre-commit framework adds a third-party Python tool, its own configuration and network fetches of hook repositories; a repository that already uses it calls the runner from a local hook entry instead. Plain hook files written without markers could not be refreshed without overwriting other tools' lines.
 
 <a id="decision-snapshot"></a>
-### Decision: snapshot-aware checks and a warning for the rest
+### Decision: one snapshot commit per run
 
-**Choice:** Pass snapshot arguments to checks that can read the index or a commit. Run other checks on the working tree only when their inputs match the snapshot, and stop otherwise. Capture the snapshot at the start and stop when it changes during the run. Never modify the working tree.
+**Choice:** Build one snapshot commit at the start of a pre-commit run from a copy of the index, and give every check that commit. Allow at hook stages only checks that read it; run working-tree checks in CI. Stop when the live index differs from the snapshot at the end. Never modify the working tree.
 
-**Authority:** Lead decision, 2026-10-22, after Warden round 1 asked for one; part of the design that awaits operator approval.
+**Authority:** Lead decision, 2026-10-22, after Warden rounds 1 and 2 asked for one; part of the design that awaits operator approval.
 
-**Reason:** A pre-commit check must see what the commit contains, or a commit can pass with content no check saw. Several agent sessions can share one working tree and one Git stash. Hiding unstaged changes during a run would change files another session is editing, and a stash entry could be applied by the wrong session. The spec checker and `git diff --check` already read the index.
+**Reason:** A pre-commit check must see what the commit contains, or a commit can pass with content no check saw. Several agent sessions can share one working tree and one Git stash. Hiding unstaged changes during a run would change files another session is editing, and a stash entry could be applied by the wrong session. The spec checker and `git diff --check` already read a commit. A scratch test built the snapshot this way and left the index file and every reference byte-identical; the spec checker read the snapshot through `--rev`.
 
-**Rejected alternatives:** Running a working-tree check with only a warning lets the hook pass a commit whose staged content fails; Warden round 1 found that this contradicts the snapshot requirement. Hiding unstaged changes for the duration of the run, which the pre-commit framework's documentation describes, edits a shared working tree; this was not reproduced in this session. Exporting the index into a temporary tree for every check costs a full copy per commit and breaks tools that find their configuration relative to the repository. Locking the index for the run would block other sessions' work; detecting a change and asking for a rerun costs nothing in the normal case.
+**Rejected alternatives:** Running a working-tree check with only a warning lets the hook pass a commit whose staged content fails; Warden round 1 found that this contradicts the snapshot requirement. Running working-tree checks only when their inputs have no unstaged changes, with captures of the index at the start and the end, was the round 1 fix. Warden round 2 found two interleavings that pass it: a working-tree file corrected after the guard, and a staged file changed and restored during the run. Letting each check read the live index (`--staged`) has the same gap. Hiding unstaged changes for the duration of the run, which the pre-commit framework's documentation describes, edits a shared working tree; this was not reproduced in this session. Exporting the index into a temporary tree for every check costs a full copy per commit and breaks tools that find their configuration relative to the repository. Locking the index for the run would block other sessions' work; detecting a change and asking for a rerun costs nothing in the normal case.
 
 <a id="decision-build-queue"></a>
 ### Decision: commit checks wait in the build queue
@@ -837,7 +847,7 @@ Fields of one entry in `checks`. A built-in entry may set any field; a repositor
 | Field | Type | Meaning |
 |---|---|---|
 | `enabled` | boolean | `false` turns the check off; needs `reason` |
-| `run` | list, or map of `index` and `commit` to lists | command arguments |
+| `run` | list | command arguments |
 | `stages` | list of stages | where the check runs |
 | `scope` | `tree`, `files` or `diff` | how inputs are passed |
 | `paths` | list of globs | input files |
@@ -847,7 +857,7 @@ Fields of one entry in `checks`. A built-in entry may set any field; a repositor
 
 A `budgets` entry has `seconds`, a positive number, and `reason`. The default pre-commit budget is 10 s and needs no entry; pre-push and CI have no default budget.
 
-Placeholders in `run`: `{files}` (one argument per selected file; `files` scope only), `{base}`, `{head}`, `{house_rules}` (the pinned tree) and `{python}` (the pinned spec checker environment's interpreter).
+Placeholders in `run`: `{files}` (one argument per selected file; `files` scope only), `{base}`, `{snapshot}`, `{house_rules}` (the pinned tree) and `{python}` (the pinned spec checker environment's interpreter). `{base}` and `{snapshot}` hold the same values at every stage that the [snapshot handling](#snapshot-handling) defines.
 Glob `**/` matches zero or more folders and `*` matches within one path segment, as in the `.rule-changes.json` file of the [rule-changes specification](../specs/rule-changes/rule-changes.md).
 
 <a id="built-in-checks"></a>
@@ -860,21 +870,21 @@ Glob `**/` matches zero or more folders and `*` matches within one path segment,
 
 > **Detail — built-in commands and inputs**
 >
-> - `whitespace` reads every file. At pre-commit it runs `git diff --cached --check`; elsewhere `git diff --check {base} {head}`.
-> - `spec-docs` declares `**` as its input: every file. The checker classifies every candidate Markdown file in any letter case, resolves links to source files and checks generated attributes, so no narrower list is complete. At pre-commit it runs `{python} {house_rules}/skills/spec-writing/scripts/spec_docs.py check --root . --staged`; elsewhere the same with `--rev {head}`.
+> - `whitespace` reads every file and runs `git diff --check {base} {snapshot}` at every stage.
+> - `spec-docs` declares `**` as its input: every file. The checker classifies every candidate Markdown file in any letter case, resolves links to source files and checks generated attributes, so no narrower list is complete. It runs `{python} {house_rules}/skills/spec-writing/scripts/spec_docs.py check --root . --rev {snapshot}` at every stage.
 > - It passes no `--base`. With a base, the checker also requires review-assignment input for changed requirements, which only the review procedure supplies.
 
 <a id="runner-commands"></a>
 ### Runner commands
 
 ```text
-checks.py run --stage pre-commit|pre-push|ci [--base REV] [--head REV] [--only ID]... [--house-rules PATH] [--json]
+checks.py run --stage pre-commit|pre-push|ci [--base REV] [--head REV | --index] [--only ID]... [--house-rules PATH] [--json]
 checks.py install [--dry-run] [--update-pin REV] [--ci github]
 checks.py prepare
 checks.py status [--session]
 ```
 
-`--house-rules PATH` runs from an existing House Rules checkout, which must be at the pinned revision; the CI step uses it. `--only` limits the run to named checks and is what the report's rerun line uses.
+`--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--house-rules PATH` runs from an existing House Rules checkout, which must be at the pinned revision; the CI step uses it. `--only` limits the run to named checks and is what the report's rerun line uses.
 
 The workflow the install writes for GitHub Actions has five steps. It checks out the repository with full history and reads the pin from the configuration. It checks out House Rules at that pin into `.tmp/house-rules`, sets up Python 3.13 and runs:
 
@@ -888,23 +898,23 @@ python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage c
 `run --json` prints one object.
 
 ```json
-{"version": 1, "stage": "pre-commit", "snapshot": "index",
+{"version": 1, "stage": "pre-commit", "source": "index",
  "house_rules": "ebb6b3762d90c7f8ed725b5119eb874325aa6c42",
- "base": null, "head": null, "result": "fail",
+ "base": "4e1a…", "snapshot": "9f3c…", "result": "fail",
  "checks": [
   {"id": "spec-docs", "status": "fail", "seconds": 40.6,
-   "command": ["…/python", "…/spec_docs.py", "check", "--root", ".", "--staged"],
+   "command": ["…/python", "…/spec_docs.py", "check", "--root", ".", "--rev", "9f3c…"],
    "output": "spec-docs: error D13 docs/specs/storage/recovery.md:118: …",
    "fix": "apply the remedy for each code in the spec checker's diagnostic table, …",
    "rerun": "… checks.py run --stage pre-commit --only spec-docs",
    "skip_reason": null},
-  {"id": "whitespace", "status": "pass", "seconds": 0.1, "command": ["git", "diff", "--cached", "--check"],
+  {"id": "whitespace", "status": "pass", "seconds": 0.1, "command": ["git", "diff", "--check", "4e1a…", "9f3c…"],
    "output": "", "fix": null, "rerun": "… --only whitespace", "skip_reason": null}],
  "overrides": [],
  "warnings": ["budget: pre-commit took 40.7 s of 10 s; slowest check spec-docs"]}
 ```
 
-`result` is `pass`, `fail` or `error`, matching exit status 0, 1 or 2. Each override has `id`, `change` and `reason`.
+`source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `base` and `snapshot` are the commit identities passed to the checks. `result` is `pass`, `fail` or `error`, matching exit status 0, 1 or 2. Each override has `id`, `change` and `reason`.
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -921,7 +931,7 @@ Until then each is a planned demonstration of the worked example it names; none 
 
 **Inputs:** A fixture clone with a registered specification and no hooks; the tour's install and commits.
 
-**Expected:** The install writes the tour's configuration and both hook blocks. The hook and `run --stage ci` give the same result for the same commit.
+**Expected:** The install writes the tour's configuration and both hook blocks. `run --stage ci --index` after staging the install runs both checks. The hook and `run --stage ci` give the same result for the same commit.
 
 Evidence: planned, following the [tour](#tour).
 
@@ -932,9 +942,9 @@ Evidence: planned, following the [tour](#tour).
 
 **Requirements:** [Snapshot](#req-checks-snapshot), [failure output](#req-checks-report).
 
-**Inputs:** The tour's staged "segment id", with an unstaged correction of the same file in the working tree. Separately, a partly staged `.ts` file for the working-tree check, and a file staged by another process while a check runs.
+**Inputs:** The tour's staged "segment id", with an unstaged correction of the same file in the working tree. Separately, a file staged by another process while a check runs, and the same file staged and restored again during the run.
 
-**Expected:** The commit is refused from the staged content and the report matches the tour's text. The partly staged file and the changed index each stop the run with a preparation failure. The working tree, index and stash are unchanged.
+**Expected:** The commit is refused from the staged content and the report matches the tour's text. The file staged during the run stops the run with a preparation failure. The staged-and-restored file leaves the checks' result unchanged, because they read the snapshot. The working tree, index, stash and references are unchanged.
 
 Evidence: planned, following the [refusal declaration](#failure-check-refused).
 
@@ -960,7 +970,7 @@ Evidence: planned, following [Running checks](#running).
 
 **Inputs:** The camel-case repository from [Worked examples](#examples), with a stub command in place of the linter, and the same entry without a reason.
 
-**Expected:** Spec-docs applies the repository's naming rule; the repository check receives only staged `.ts` files; the entry without a reason is refused with a configuration error.
+**Expected:** Spec-docs applies the repository's naming rule; the repository check runs in CI with every matching `.ts` file; the entry without a reason, and the entry with `pre-commit` but no `{snapshot}`, are refused with configuration errors.
 
 Evidence: planned, following [Worked examples](#examples).
 
