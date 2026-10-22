@@ -52,8 +52,8 @@ Use this map to choose the next explanation to read.
 - [Overrides and review](194-repository-checks.md#review) — Review overrides, and know which rules stay with reviewers.
 - [Worked examples](194-repository-checks.md#examples) — Apply the configuration to another naming style and to a repository without specifications.
 - [Requirements](194-repository-checks.md#requirements) — Find the obligations each mechanism must meet.
-- [Decisions and alternatives](194-repository-checks.md#decisions) — Read each proposed choice and the alternatives it rejects.
-- [Open questions](194-repository-checks.md#questions) — See the choices that wait for the operator.
+- [Decisions and alternatives](194-repository-checks.md#decisions) — Read each choice, its authority and the alternatives it rejects.
+- [Open questions](194-repository-checks.md#questions) — Confirm that no design choice remains open.
 - [Rollout and work packages](194-repository-checks.md#rollout) — Plan the implementation pull requests and adoption.
 - [Reference](194-repository-checks.md#reference) — Look up configuration fields, built-ins, commands and the report format.
 - [Acceptance](194-repository-checks.md#acceptance) — See the planned demonstrations for each requirement.
@@ -218,7 +218,7 @@ The contract has five parts:
 
 A deleted or renamed-away file selects a `files` check but is not passed to it, because it no longer exists.
 A selection that holds only such files skips the check with the reason "only deleted inputs".
-`{snapshot}` is always a commit identity. `{base}` is a commit identity, except in two cases where it is the empty tree's identity: before the first commit, and at pre-push when the branch has neither an upstream nor a remote default branch. Git accepts both in a comparison, so a `diff` check runs the same command everywhere.
+`{snapshot}` is always a commit identity. `{base}` is a commit identity, except in two cases where it is the empty tree's identity: before the first commit, and at pre-push when a pushed commit has neither a remote commit nor a remote default branch to compare with. Git accepts both in a comparison, so a `diff` check runs the same command everywhere.
 At pre-commit `{base}` is `HEAD`.
 
 Commands run without a shell, from the repository root, with standard input closed.
@@ -245,7 +245,7 @@ Pre-commit and pre-push are for fast checks on what changed. CI is the full gate
 | Stage | Started by | Snapshot | Change selection |
 |---|---|---|---|
 | pre-commit | Git `pre-commit` hook | staged index | files staged for this commit |
-| pre-push | Git `pre-push` hook | `HEAD` commit | files changed since the push base |
+| pre-push | Git `pre-push` hook | each pushed commit | files changed since that commit's push base |
 | ci | CI step | head commit | none: every CI check runs |
 
 At pre-commit and pre-push the runner skips a check whose `paths` match no changed file.
@@ -254,11 +254,11 @@ At CI every check listed for `ci` runs over the whole commit.
 CI therefore also catches a commit made without hooks, such as one from a clone that never ran the install.
 
 A `diff` check needs a base. At pre-commit it is `HEAD`, as the check contract states.
-At pre-push the push base is the merge base of `HEAD` with its upstream branch on the pushed remote. Without an upstream it is the merge base with that remote's default branch, and without either it is the empty tree.
-The merge base also gives the right range after a rebase or for a new branch. In CI the base is the PR's base commit, or the previous commit for a push.
+At pre-push Git writes one line per pushed reference to the hook's standard input: local reference, local commit, remote reference and remote commit.
+The runner checks each pushed local commit as its own snapshot, so a commit made in the same clone during the push cannot stand in for the one Git sends. A deleted reference, whose local commit is all zeros, has nothing to check.
 
-The pre-push stage checks the commits reachable from `HEAD`.
-A push of a branch other than the checked-out one is not checked at pre-push; CI checks it.
+A pushed commit's push base is its merge base with the remote commit Git names, when that commit is present locally. Otherwise it is the merge base with the remote's default branch, and otherwise the empty tree.
+The merge base also gives the right range after a rebase or for a new branch. In CI the base is the PR's base commit, or the previous commit for a push.
 
 <a id="snapshot-handling"></a>
 ### Snapshot handling
@@ -272,7 +272,7 @@ At pre-commit the runner builds it once, at the start, without touching the real
 2. **Write its tree:** `GIT_INDEX_FILE=<copy> git write-tree`. This writes objects only.
 3. **Wrap the tree in a commit:** `git commit-tree <tree> -p HEAD`, without `-p` before the first commit. The runner sets a fixed author and committer, `repository checks <checks@localhost>`, so the step needs no Git identity. No branch or reference points to the commit.
 
-At pre-push the snapshot is `HEAD`, and in CI it is the commit under test.
+At pre-push the snapshot is each pushed commit that Git names on the hook's standard input, and in CI it is the commit under test.
 The runner reads the configuration, the pin, `requires` and the changed files from the snapshot, and passes it to every check as `{snapshot}`.
 Spec-docs reads it with `--rev {snapshot}`. Whitespace compares it with `git --attr-source={snapshot} diff --check {base} {snapshot}`, so the whitespace rules in `.gitattributes` also come from the snapshot.
 
@@ -396,7 +396,23 @@ runner=$(git config --get house-rules.checks-runner) || {
 # house-rules:repository-checks:end
 ```
 
-The pre-push block is the same with `--stage pre-push` and passes the hook's remote name.
+The pre-push block runs `--stage pre-push` instead, and also handles the pushed references that Git writes once to the hook's standard input:
+
+```sh
+# house-rules:repository-checks:begin
+runner=$(git config --get house-rules.checks-runner) || {
+  echo "repository checks are not installed in this clone; run: python3 <House Rules>/skills/repository-checks/scripts/checks.py install" >&2
+  exit 1
+}
+refs=$(mktemp) || exit 1
+cat > "$refs"
+"$(git config --get house-rules.checks-python)" -I "$runner" run --stage pre-push --remote "$1" < "$refs" || { status=$?; rm -f "$refs"; exit $status; }
+exec < "$refs"
+rm -f "$refs"
+# house-rules:repository-checks:end
+```
+
+The block saves the reference lines to a temporary file and gives them to the runner. It then reopens the hook's standard input from that file, so another tool's lines after the block read the same lines; a large-file extension's pre-push hook is one such reader. Removing the file after `exec` is safe, because the open input stays readable until the hook exits.
 The block holds no machine paths: both paths come from per-clone Git settings, so the block can also live in a tracked hooks folder.
 
 The install handles each existing hook file one way:
@@ -666,7 +682,7 @@ Pre-commit and pre-push stay fast without skipping a check whose inputs changed.
 
 **Condition:** Stage `pre-commit` or `pre-push`.
 
-**Result:** A check runs when at least one changed or deleted file matches its `paths`, and is skipped with a stated reason otherwise. Pre-push changes are counted from the push base. The report prints each duration and warns when the total exceeds the stage's budget. CI runs every CI check regardless of changes. Each built-in meets its time target.
+**Result:** A check runs when at least one changed or deleted file matches its `paths`, and is skipped with a stated reason otherwise. At pre-push each pushed commit's changes are counted from its own push base. The report prints each duration and warns when the total exceeds the stage's budget. CI runs every CI check regardless of changes. Each built-in meets its time target.
 
 **Verification:** Fixture commits that touch and do not touch each check's inputs, including a one-commit push; timing of each built-in on its target corpus.
 
@@ -892,13 +908,13 @@ Glob `**/` matches zero or more folders and `*` matches within one path segment,
 ### Runner commands
 
 ```text
-checks.py run --stage pre-commit|pre-push|ci [--base REV] [--head REV | --index] [--only ID]... [--house-rules PATH] [--json]
+checks.py run --stage pre-commit|pre-push|ci [--base REV] [--head REV | --index] [--remote NAME] [--only ID]... [--house-rules PATH] [--json]
 checks.py install [--dry-run] [--update-pin REV] [--ci github]
 checks.py prepare
 checks.py status [--session]
 ```
 
-`--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--house-rules PATH` runs from an existing House Rules checkout, which must be at the pinned revision; the CI step uses it. `--only` limits the run to named checks and is what the report's rerun line uses.
+`--remote NAME` names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. `--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--house-rules PATH` runs from an existing House Rules checkout, which must be at the pinned revision; the CI step uses it. `--only` limits the run to named checks and is what the report's rerun line uses.
 
 The workflow the install writes for GitHub Actions has five steps. It checks out the repository with full history and reads the pin from the configuration. It checks out House Rules at that pin into `.tmp/house-rules`, sets up Python 3.13 and runs:
 
@@ -943,9 +959,9 @@ Until then each is a planned demonstration of the worked example it names; none 
 
 **Requirements:** [One configuration](#req-checks-one-configuration), [same runner](#req-checks-same-runner).
 
-**Inputs:** A fixture clone with a registered specification and no hooks, whose configuration adds one CI-only repository check that reads the working tree (a stub command without `{snapshot}`); the tour's install and commits.
+**Inputs:** A fixture clone with a registered specification, no hooks and no configuration; the tour's install and commits. After the install, the fixture adds one CI-only repository check that reads the working tree (a stub command without `{snapshot}`) to the configuration and stages it.
 
-**Expected:** The install writes the tour's configuration and both hook blocks. `run --stage ci --index` after staging the install runs both default checks and lists the stub check as skipped with the reason "reads the working tree; runs in CI on the commit"; `run --stage ci` on the commit runs the stub. The hook and `run --stage ci` give the same result for the same commit.
+**Expected:** The install writes the tour's configuration and both hook blocks. After the stub is added and staged, `run --stage ci --index` runs both default checks and lists the stub check as skipped with the reason "reads the working tree; runs in CI on the commit"; `run --stage ci` on the commit runs the stub. The hook and `run --stage ci` give the same result for the same commit.
 
 Evidence: planned, following the [tour](#tour).
 
@@ -969,9 +985,9 @@ Evidence: planned, following the [refusal declaration](#failure-check-refused).
 
 **Requirements:** [Run only changed inputs](#req-checks-fast).
 
-**Inputs:** A repository check with `paths: ["src/**/*.ts"]`: one commit staging only a `.py` file, one staging a `.ts` file, one deleting a `.ts` file, and a CI run on the first commit. A one-commit push of a new branch and of a rebased branch with a pre-push check. Spec-docs timed on the 1.24 MB corpus.
+**Inputs:** A repository check with `paths: ["src/**/*.ts"]`: one commit staging only a `.py` file, one staging a `.ts` file, one deleting a `.ts` file, and a CI run on the first commit. A one-commit push of a new branch and of a rebased branch with a pre-push check. A push during which another commit is made on the pushed branch. A pre-push hook file with another tool's line after the block that reads standard input. Spec-docs timed on the 1.24 MB corpus.
 
-**Expected:** The repository check skips with "no staged input" on the first commit, runs on the second, skips with "only deleted inputs" on the third, and runs in CI. Both pushes count the pushed commit's files. Spec-docs runs on all three commits within its time target. The budget warning appears when the total exceeds the configured budget.
+**Expected:** The repository check skips with "no staged input" on the first commit, runs on the second, skips with "only deleted inputs" on the third, and runs in CI. Both pushes count the pushed commit's files. The push with a new commit made during it checks the commit Git sends, not the new one. The other tool's line reads the same reference lines as the runner. Spec-docs runs on all three commits within its time target. The budget warning appears when the total exceeds the configured budget.
 
 Evidence: planned, following [Running checks](#running).
 
