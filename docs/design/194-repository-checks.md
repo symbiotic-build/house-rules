@@ -94,6 +94,7 @@ The agent ran the spec checker by hand before some commits, and that repository 
 >
 > - Spec checker on a 1.24 MB private specification corpus: 40.7 s wall, 39.8 s CPU with `check`; 40.6 s wall with `check --staged`. One CPU core does the work.
 > - Spec checker on House Rules' own documents: 0.8 s CPU. The wall time was 85.4 s, because the command waited 84 s in this machine's shared build queue.
+> - A profile of the 40.7 s run put 83% of it in two repeated-work defects: patterns rebuilt 3.2 million times and documents split into lines 276 000 times. [#196](https://github.com/symbiotic-build/house-rules/issues/196) removes them, to the operator's target of 2 s or less on that corpus.
 > - The spec checker's runtime file requires CPython 3.11 to 3.14. On this machine `python3` is 3.15.0 and `/usr/bin/python3` is 3.9.6; `python3.14` is installed separately.
 > - In a scratch repository, a `.git/hooks/post-commit` hook ran. After `git config core.hooksPath .githooks`, the same hook no longer ran.
 > - `git rev-parse --git-path hooks` printed `.git/hooks` before and `.githooks` after that setting. In a linked worktree it printed the main clone's shared hooks folder.
@@ -107,6 +108,7 @@ The design must meet these constraints:
 - Never change the working tree or the Git stash, because several agent sessions can share one working tree and one stash.
 - Run the runner itself on Python 3.9 or later, and run each check with its own supported interpreter.
 - Never fail on prose warnings, which the [writing rules](../../rules/writing.md) §House technical English keep advisory.
+- Run every check under the machine's build-queue rule, with no exception for commit checks.
 
 <a id="tour"></a>
 ## Tour: a default install
@@ -155,21 +157,19 @@ Everything in this tour uses House Rules defaults.
 >
 > ```text
 > repository checks: pre-commit on the staged index, House Rules ebb6b37 (pinned)
-> FAIL  spec-docs   40.6 s
+> FAIL  spec-docs    1.8 s
 >       spec-docs: error D13 docs/specs/storage/recovery.md:118: rejected form 'segment id'; use 'segment identifier'
 >       spec-docs: 1 error, 0 warnings
 >       fix: apply the remedy for each code in the spec checker's diagnostic table, run spec_docs.py generate, stage the result
 >       rerun: python3.14 ~/.cache/house-rules/revisions/ebb6b37…/skills/repository-checks/scripts/checks.py run --stage pre-commit --only spec-docs
 > PASS  whitespace   0.1 s
-> budget: pre-commit took 40.7 s of 10 s; slowest check spec-docs. Raise budgets.pre-commit or move spec-docs to pre-push, with a reason.
 > Commit refused: 1 of 2 checks failed. Fix the findings, stage the fixes and commit again.
 > ```
 >
-> The 40.6 s is the time measured on the large corpus in [Current state and evidence](#evidence). The rerun line holds the full revision; it is shortened here.
+> The 1.8 s is illustrative: it assumes [#196](https://github.com/symbiotic-build/house-rules/issues/196) meets its target of 2 s or less on the large corpus. The rerun line holds the full revision; it is shortened here.
 
-The spec check runs in step 5 because the commit staged a Markdown file, one of its inputs.
-A commit that stages only source code skips it, as [Running checks](#running) explains.
-The budget line is a warning: it never refuses a commit.
+The spec check runs on every commit, because the files it reads cannot yet be listed safely, as [Running checks](#running) explains.
+The whitespace check runs on every commit too, because every staged file is its input.
 
 <a id="configuration"></a>
 ## Configuration and checks
@@ -182,13 +182,15 @@ A repository chooses its checks in one file; House Rules supplies the defaults a
 
 A check configuration is the versioned JSON file `.agents/checks.json` that pins House Rules and declares the repository's checks.
 It sits beside the repository's [bible](../../rules/core.md) (§Terms), `.agents/rules.md`, because it is part of the repository's rules.
-A missing file means the repository has not adopted repository checks; the runner then does nothing and says so.
+The runner reads this file from the run's snapshot: the staged index at pre-commit, the commit at pre-push and in CI.
+An unstaged edit to it therefore has no effect on the commit being checked.
+A snapshot without the file has not adopted repository checks; the runner then does nothing and says so.
 
 The file has four top-level fields:
 
 - `version` is 1.
 - `house_rules` holds the pinned `revision`, a full 40-character commit, and the `url` to fetch it from. This is the consuming repository's tool configuration that the [House Rules revision](../specs/spec-system/source-formats.md#house-rules-revision) reference asks for.
-- `budgets` optionally maps a hook [check stage](#check-stage) to a number of seconds. A run that takes longer prints a warning.
+- `budgets` optionally maps a hook [check stage](#check-stage) to an entry with `seconds` and `reason`. A run that takes longer prints a warning.
 - `checks` maps a check identity to an entry. An entry for a built-in identity changes that built-in; any other identity adds a repository check.
 
 The effective set is every built-in [check definition](#check-definition) at the pinned revision, changed by the repository's entries.
@@ -208,11 +210,16 @@ Both follow one contract, so the runner treats a House Rules check and a reposit
 
 The contract has five parts:
 
-- **Inputs.** `paths` lists the repository-relative globs the check reads. `requires` lists files that must exist for the check to apply; a repository without them skips the check with that reason.
-- **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files as arguments. `diff` runs once with a base and a head commit.
+- **Inputs.** `paths` lists the repository-relative globs the check reads. `requires` lists files that must exist in the snapshot for the check to apply; a snapshot without them skips the check with that reason.
+- **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files that exist in the snapshot as arguments. `diff` runs once with a base and a head.
 - **Snapshot.** `run` is either one argument list or a map from snapshot kind (`index` or `commit`) to an argument list. A map tells the runner the check can read the staged index or a commit itself.
 - **Result.** Exit status 0 is a pass. Any other status is a failure. A command that cannot start, such as a missing program, is an error.
 - **Output.** The runner shows everything the command printed, unshortened, in its [check run report](#check-run-report). `fix` adds one line telling the reader what to change.
+
+A deleted or renamed-away file selects a `files` check but is not passed to it, because it no longer exists.
+A selection that holds only such files skips the check with the reason "only deleted inputs".
+At pre-commit a `diff` check's `{base}` is `HEAD`, or the empty tree before the first commit, and its head is the index.
+The index has no commit identity, so a `diff` check that uses `{head}` needs an `index` variant in its `run` map. The runner refuses a configuration without one.
 
 Commands run without a shell, from the repository root, with standard input closed.
 A check must not change files, the index or Git references.
@@ -237,7 +244,7 @@ Pre-commit and pre-push are for fast checks on what changed. CI is the full gate
 | Stage | Started by | Snapshot | Change selection |
 |---|---|---|---|
 | pre-commit | Git `pre-commit` hook | staged index | files staged for this commit |
-| pre-push | Git `pre-push` hook | `HEAD` commit | files changed by commits not yet on the remote |
+| pre-push | Git `pre-push` hook | `HEAD` commit | files changed since the push base |
 | ci | CI step | head commit | none: every CI check runs |
 
 At pre-commit and pre-push the runner skips a check whose `paths` match no changed file.
@@ -245,8 +252,9 @@ A deleted file counts as changed, because a deletion can break links that other 
 At CI every check listed for `ci` runs over the whole commit.
 CI therefore also catches a commit made without hooks, such as one from a clone that never ran the install.
 
-A `diff` check needs a base. At pre-commit the base is the index against `HEAD`.
-At pre-push it is the oldest commit not on the remote. In CI it is the PR's base commit, or the previous commit for a push.
+A `diff` check needs a base. At pre-commit it is `HEAD`, as the check contract states.
+At pre-push the push base is the merge base of `HEAD` with its upstream branch on the pushed remote. Without an upstream it is the merge base with that remote's default branch, and without either it is the empty tree.
+The merge base also gives the right range after a rebase or for a new branch. In CI the base is the PR's base commit, or the previous commit for a push.
 
 The pre-push stage checks the commits reachable from `HEAD`.
 A push of a branch other than the checked-out one is not checked at pre-push; CI checks it.
@@ -257,25 +265,36 @@ The runner never stashes, resets or rewrites the working tree to make a check se
 A check that can read a snapshot itself gets the right arguments from its `run` map: spec-docs gets `--staged` at pre-commit and `--rev <head>` elsewhere.
 
 A check with one argument list reads the working tree.
-When an input file differs between the working tree and the snapshot, the runner still runs the check. It prints a warning that names those files.
-CI runs on a clean checkout, so CI gives the authoritative result for such a check.
+At pre-commit it runs only when none of its selected input files has unstaged changes, so it sees exactly what the commit contains.
+Otherwise the runner stops with a [preparation failure](#failure-preparation) that names those files; the author stages or sets aside the changes.
+At pre-push the same rule compares the working tree with `HEAD`.
+
+The runner captures the snapshot once, at the start: `HEAD` and a digest of the staged entries (`git ls-files --stage -z`). Reading the entries this way never writes the index.
+It reads the configuration and selects checks from that capture. After the last check it captures both again.
+When either changed during the run, for example because another session staged a file, the run stops with a preparation failure and the author runs it again.
+Git writes the commit from the index after the hook exits. A change in that last window is not detected; CI checks the commit that results.
 
 ### Keeping pre-commit fast
 
-Pre-commit stays fast through three mechanisms:
+Pre-commit stays fast because each check is fast, not because slow checks are skipped:
 
-- **Change selection.** A check runs only when the commit stages one of its inputs. The 40 s spec check runs on a commit that touches Markdown, not on a code-only commit.
-- **Measured time.** The report prints every check's duration. The run's total is compared with `budgets.pre-commit`, 10 s by default. A run over budget prints a warning naming the slowest check.
-- **Stage choice.** A repository whose check does not fit moves it to `pre-push` or raises its budget, in both cases with a reason in the configuration.
+- **Time targets.** Each built-in check has a measured time target, listed in [Built-in checks](#built-in-checks). Spec-docs must take 2 s or less on the 1.24 MB corpus, which [#196](https://github.com/symbiotic-build/house-rules/issues/196) delivers before spec-docs becomes a default.
+- **Change selection.** A check runs only when the commit stages one of its inputs. Spec-docs declares every file as its input, because its inputs include linked source files, unclassified Markdown and generated attributes.
+- **Measured time.** The report prints every check's duration. The run's total is compared with the pre-commit budget, 10 s by default. A run over budget prints a warning naming the slowest check.
+- **Stage choice.** A repository whose own check does not fit moves it to `pre-push` or raises its budget, in both cases with a reason in the configuration.
 
 The budget is a warning, never a timeout.
 The [verification rules](../../rules/delivery.md) (§Verification) fail long-running checks on lack of progress, not on elapsed time; the runner adds no timer of its own.
 
-The 10 s default is provisional; see [Open questions](#questions).
-It is set from two measurements. The 40.7 s spec check on the large corpus produces the warning; the House Rules corpus at 0.8 s CPU does not.
-
 Checks run one at a time, in configuration order with built-ins first.
 Parallel checks would add load on a shared machine. A repository with many slow checks moves them to pre-push instead.
+
+### Build queue
+
+A machine can declare a build queue: one shared queue in which builds and test runs wait, one at a time.
+When the environment variable `HOUSE_RULES_CHECK_QUEUE` names the machine's queue command, the runner starts every check through it.
+The queue must let a queued tool started inside a queued command, such as a build tool inside a check, run straight through. The queue on the measured machine does this, so a check never waits for itself.
+A commit can therefore wait behind another session's build. The [queue decision](#decision-build-queue) records why.
 
 <a id="check-runner"></a>
 ### Check runner
@@ -375,6 +394,7 @@ The install handles each existing hook file one way:
 - **No file:** create it with `#!/bin/sh`, the block and mode 0755.
 - **File with the markers:** replace the lines between them.
 - **Shell script without the markers:** insert the block directly after the first line, so it runs before any later `exit` in the file.
+- **Hook file that is not executable:** refuse, and print the `chmod +x` command. Git ignores such a file, and making it executable would also start the other tool's code.
 - **File written by the pre-commit framework:** refuse, and print the `repo: local` entry that calls the runner from that framework's configuration.
 - **Any other file:** refuse, naming the file and its first line.
 
@@ -382,7 +402,8 @@ The install never sets `core.hooksPath`.
 When the repository already set it, for example to a Husky folder, `git rev-parse --git-path hooks` points there and the block goes into that folder's files.
 A block in a tracked folder is a repository change; the install lists it with the other files to commit.
 
-A linked worktree shares its main clone's hooks folder and Git settings, so one install covers every worktree of a clone.
+A linked worktree shares its main clone's Git settings. It shares the hooks folder only when that folder is the default or an absolute `core.hooksPath`.
+A relative `core.hooksPath` resolves inside each worktree, so each of those worktrees needs its own install. The session status line reports a worktree whose hooks folder lacks the block.
 
 <a id="agent-sessions"></a>
 ### Agent sessions and the PR watcher
@@ -444,12 +465,14 @@ That pin and the repository's pin are independent; the report names the revision
 This refusal keeps a commit from passing without its checks having run.
 
 **Trigger:** The configuration is invalid, the pinned revision cannot be read or fetched, the extracted runner does not match the pin, or no supported interpreter or environment can be prepared.
+A working-tree check's input files have unstaged changes, or the index or `HEAD` changed during the run.
 
 **Outcome:** The runner exits 2 and prints one error line naming the cause and the command that repairs it. The hook refuses the commit or push.
 
 **Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used.
 
 **Recovery:** The author runs the printed repair: `checks.py prepare` when online, `checks.py install` for a missing setting, or a configuration fix through a reviewed PR.
+For unstaged inputs the author stages or sets aside those changes; for a changed snapshot the author runs the commit again.
 
 **Authority:** The author repairs the clone; a configuration change needs the repository's normal review.
 
@@ -537,7 +560,7 @@ It keeps every default check and adds its own linter for code names.
 > The linter's own configuration holds its naming rule. The runner passes only staged `.ts` files at pre-commit and every matching file in CI.
 
 The default spec-docs check needed no change, because its naming style is data in `docs/ENTITIES.json`.
-The repository check reads the working tree, so a partly staged `.ts` file produces the snapshot warning from [Running checks](#running).
+The repository check reads the working tree. A partly staged `.ts` file therefore stops the commit until the author stages or sets aside the rest, as [Running checks](#running) explains.
 
 ### A repository with no specifications
 
@@ -610,7 +633,7 @@ A pre-commit check sees what the commit contains, and no run disturbs other work
 
 **Condition:** Any stage.
 
-**Result:** Checks with a `run` map receive the snapshot arguments for the stage. Checks with one argument list read the working tree, and the runner warns about each input file that differs from the snapshot. The runner never writes the working tree, the index, the stash or references.
+**Result:** Checks with a `run` map receive the snapshot arguments for the stage. Checks with one argument list run only when their input files match the snapshot. The configuration comes from the snapshot, and a snapshot that changes during the run stops it. The runner never writes the working tree, the index, the stash or references.
 
 **Verification:** Fixture with partly staged files.
 
@@ -629,15 +652,15 @@ Pre-commit and pre-push stay fast without skipping a check whose inputs changed.
 
 **Condition:** Stage `pre-commit` or `pre-push`.
 
-**Result:** A check runs when at least one changed or deleted file matches its `paths`, and is skipped with a stated reason otherwise. The report prints each duration and warns when the total exceeds the stage's budget. CI runs every CI check regardless of changes.
+**Result:** A check runs when at least one changed or deleted file matches its `paths`, and is skipped with a stated reason otherwise. Pre-push changes are counted from the push base. The report prints each duration and warns when the total exceeds the stage's budget. CI runs every CI check regardless of changes. Each built-in meets its time target.
 
-**Verification:** Fixture commits that touch and do not touch each check's inputs.
+**Verification:** Fixture commits that touch and do not touch each check's inputs, including a one-commit push; timing of each built-in on its target corpus.
 
 **Tests:** [Change selection](#test-checks-change-selection).
 
-**Status:** provisional.
+**Status:** specified.
 
-**Basis:** The default budget value and the default stage of spec-docs are [open questions](#questions).
+**Basis:** [Build-queue decision](#decision-build-queue) and the operator's target in [#196](https://github.com/symbiotic-build/house-rules/issues/196).
 
 <a id="req-checks-report"></a>
 ### Requirement: failure output an agent can act on
@@ -667,9 +690,9 @@ A rerun of the install repairs what is missing and changes nothing the repositor
 
 **Condition:** Any clone, with or without existing hooks, `core.hooksPath` or configuration.
 
-**Result:** The install writes only the items listed in check installation, never sets `core.hooksPath`, keeps hook lines outside its markers, refuses hook files it cannot edit safely, and rewrites the configuration only for `--update-pin`. `--dry-run` writes nothing.
+**Result:** The install writes only the items listed in check installation, never sets `core.hooksPath`, keeps hook lines outside its markers, refuses hook files it cannot edit safely or that are not executable, and rewrites the configuration only for `--update-pin`. `--dry-run` writes nothing.
 
-**Verification:** Fixture clones with existing hooks, a Husky folder, a pre-commit framework hook and an existing configuration.
+**Verification:** Fixture clones with existing hooks, a non-executable hook, a Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook and an existing configuration.
 
 **Tests:** [Install over existing hooks](#test-checks-install-existing).
 
@@ -708,7 +731,7 @@ None of these choices is approved until the operator approves the design.
 
 **Choice:** Declare checks in `.agents/checks.json`, versioned JSON, beside the bible.
 
-**Authority:** Lead proposal, 2026-10-22; awaits operator approval. The operator's example name was `.house-rules.toml`.
+**Authority:** Lead decision, 2026-10-22, which the operator left to the lead ("you tell me"). The operator's example name was `.house-rules.toml`.
 
 **Reason:** The runner must read it on Python 3.9, and Python has no TOML reader before 3.11. House Rules already keeps tool configuration in JSON (`.rule-changes.json`, `docs/DOCUMENTS.json`). The `.agents/` folder already holds the repository's rules, and the file adds nothing at the top level.
 
@@ -739,13 +762,24 @@ None of these choices is approved until the operator approves the design.
 <a id="decision-snapshot"></a>
 ### Decision: snapshot-aware checks and a warning for the rest
 
-**Choice:** Pass snapshot arguments to checks that can read the index or a commit; run other checks on the working tree with a warning; never modify the working tree.
+**Choice:** Pass snapshot arguments to checks that can read the index or a commit. Run other checks on the working tree only when their inputs match the snapshot, and stop otherwise. Capture the snapshot at the start and stop when it changes during the run. Never modify the working tree.
 
-**Authority:** Lead proposal, 2026-10-22; awaits operator approval.
+**Authority:** Lead decision, 2026-10-22, after Warden round 1 asked for one; part of the design that awaits operator approval.
 
-**Reason:** Several agent sessions can share one working tree and one Git stash. Hiding unstaged changes during a run would change files another session is editing, and a stash entry could be applied by the wrong session. The spec checker and `git diff --check` already read the index.
+**Reason:** A pre-commit check must see what the commit contains, or a commit can pass with content no check saw. Several agent sessions can share one working tree and one Git stash. Hiding unstaged changes during a run would change files another session is editing, and a stash entry could be applied by the wrong session. The spec checker and `git diff --check` already read the index.
 
-**Rejected alternatives:** Hiding unstaged changes for the duration of the run, which the pre-commit framework's documentation describes, edits a shared working tree; this was not reproduced in this session. Exporting the index into a temporary tree for every check costs a full copy per commit and breaks tools that find their configuration relative to the repository.
+**Rejected alternatives:** Running a working-tree check with only a warning lets the hook pass a commit whose staged content fails; Warden round 1 found that this contradicts the snapshot requirement. Hiding unstaged changes for the duration of the run, which the pre-commit framework's documentation describes, edits a shared working tree; this was not reproduced in this session. Exporting the index into a temporary tree for every check costs a full copy per commit and breaks tools that find their configuration relative to the repository. Locking the index for the run would block other sessions' work; detecting a change and asking for a rerun costs nothing in the normal case.
+
+<a id="decision-build-queue"></a>
+### Decision: commit checks wait in the build queue
+
+**Choice:** Run every check through the machine's build queue when the machine declares one, with no exception for commit checks. Make slow checks fast instead.
+
+**Authority:** Operator decision, 2026-10-22, quoted: "no... the queue is there for something... No skips if it runs cargo or whatever... Also it should be solved by fixing the time it takes and fixing slow code..."
+
+**Reason:** The queue keeps builds and tests from overloading a shared machine. A commit check is one more such command. The 84 s wait measured in [Current state and evidence](#evidence) came from a slow check meeting a busy queue; [#196](https://github.com/symbiotic-build/house-rules/issues/196) addresses the slow check.
+
+**Rejected alternatives:** Commit checks skip the queue: rejected by the operator, because the queue exists to protect the machine and the fix for slow checks is faster code.
 
 <a id="decision-no-agent-stop"></a>
 ### Decision: no end-of-turn agent check
@@ -772,12 +806,9 @@ None of these choices is approved until the operator approves the design.
 <a id="questions"></a>
 ## Open questions
 
-These choices need the operator before the design is approved. The lead's recommendation is given for each.
-
-- **Default stage of spec-docs.** The lead recommends `pre-commit`: commits without the check caused the incident, and change selection limits the 40 s cost to commits that stage Markdown. The alternative is `pre-push`, which keeps commits fast and checks once per push. Owner: operator.
-- **Default pre-commit budget.** The lead recommends a 10 s warning, set from the two measurements in [Current state and evidence](#evidence). Owner: operator.
-- **Build queue.** The machine's build queue made a 0.8 s check wait 84 s. The lead recommends that the runner does not queue its checks; build tools that checks start stay queued through the machine's wrappers. This needs the operator because the queue rule covers "test binaries or scripts run on their own". Owner: operator.
-- **Configuration name and format.** The lead recommends `.agents/checks.json` over the operator's example `.house-rules.toml`, for the reasons in the [configuration file decision](#decision-configuration-file). Owner: operator.
+No design choice is open. The operator answered the build-queue question, and left the file name and the warning budget to the lead.
+Spec-docs runs at pre-commit by default; the operator's answer is to make it fast rather than move it.
+Two things remain before implementation: the operator's approval of this design, and [#196](https://github.com/symbiotic-build/house-rules/issues/196) meeting its time target.
 
 <a id="rollout"></a>
 ## Rollout and work packages
@@ -785,7 +816,7 @@ These choices need the operator before the design is approved. The lead's recomm
 The work lands as four implementation PRs after the operator approves this design.
 Each PR follows the normal review and closes nothing until the last one closes [#194](https://github.com/symbiotic-build/house-rules/issues/194).
 
-- **Runner and built-ins:** `skills/repository-checks/scripts/checks.py` with `run`, `prepare` and `status`, the whitespace and spec-docs definitions, and its tests. Gate: the acceptance cases below as unit tests.
+- **Runner and built-ins:** `skills/repository-checks/scripts/checks.py` with `run`, `prepare` and `status`, the whitespace and spec-docs definitions, and its tests. Depends on [#196](https://github.com/symbiotic-build/house-rules/issues/196) for the spec-docs time target. Gate: the acceptance cases below as unit tests.
 - **Install procedure:** `install`, `skills/repository-checks/SKILL.md` and its `INDEX.md` entry. Depends on the runner. Gate: the install fixture cases.
 - **Agent status line:** the extra session-start handler in `scripts/session_context.py` and `scripts/sync.py --install-hooks`. Depends on the runner's `status`. Gate: `scripts/test_sync.py`.
 - **Rule line and House Rules adoption:** the [rule line](#rule-line), House Rules' own `.agents/checks.json`, and its CI step, which replaces the corpus check in `.github/workflows/spec-docs.yml`; that workflow keeps its tests and selector audit. Depends on the install. Gate: CI on that PR.
@@ -814,21 +845,24 @@ Fields of one entry in `checks`. A built-in entry may set any field; a repositor
 | `fix` | text | one-line fix hint |
 | `reason` | text | why the entry differs from the default |
 
+A `budgets` entry has `seconds`, a positive number, and `reason`. The default pre-commit budget is 10 s and needs no entry; pre-push and CI have no default budget.
+
 Placeholders in `run`: `{files}` (one argument per selected file; `files` scope only), `{base}`, `{head}`, `{house_rules}` (the pinned tree) and `{python}` (the pinned spec checker environment's interpreter).
 Glob `**/` matches zero or more folders and `*` matches within one path segment, as in the `.rule-changes.json` file of the [rule-changes specification](../specs/rule-changes/rule-changes.md).
 
 <a id="built-in-checks"></a>
 ### Built-in checks
 
-| Identity | Stages | Scope | Requires |
-|---|---|---|---|
-| `whitespace` | pre-commit, ci | diff | nothing |
-| `spec-docs` | pre-commit, ci | tree | `docs/DOCUMENTS.json` |
+| Identity | Stages | Scope | Requires | Time target |
+|---|---|---|---|---|
+| `whitespace` | pre-commit, ci | diff | nothing | none set |
+| `spec-docs` | pre-commit, ci | tree | `docs/DOCUMENTS.json` | 2 s or less on the 1.24 MB corpus |
 
 > **Detail — built-in commands and inputs**
 >
 > - `whitespace` reads every file. At pre-commit it runs `git diff --cached --check`; elsewhere `git diff --check {base} {head}`.
-> - `spec-docs` reads `**/*.md`, `docs/DOCUMENTS.json` and `docs/ENTITIES.json`. Every Markdown file is an input because the checker classifies every candidate Markdown file. At pre-commit it runs `{python} {house_rules}/skills/spec-writing/scripts/spec_docs.py check --root . --staged`; elsewhere the same with `--rev {head}`, plus `--base {base}` when a base exists.
+> - `spec-docs` declares `**` as its input: every file. The checker classifies every candidate Markdown file in any letter case, resolves links to source files and checks generated attributes, so no narrower list is complete. At pre-commit it runs `{python} {house_rules}/skills/spec-writing/scripts/spec_docs.py check --root . --staged`; elsewhere the same with `--rev {head}`.
+> - It passes no `--base`. With a base, the checker also requires review-assignment input for changed requirements, which only the review procedure supplies.
 
 <a id="runner-commands"></a>
 ### Runner commands
@@ -898,9 +932,9 @@ Evidence: planned, following the [tour](#tour).
 
 **Requirements:** [Snapshot](#req-checks-snapshot), [failure output](#req-checks-report).
 
-**Inputs:** The tour's staged "segment id", with an unstaged correction of the same file in the working tree.
+**Inputs:** The tour's staged "segment id", with an unstaged correction of the same file in the working tree. Separately, a partly staged `.ts` file for the working-tree check, and a file staged by another process while a check runs.
 
-**Expected:** The commit is refused from the staged content, the report matches the tour's text, and the working tree, index and stash are unchanged.
+**Expected:** The commit is refused from the staged content and the report matches the tour's text. The partly staged file and the changed index each stop the run with a preparation failure. The working tree, index and stash are unchanged.
 
 Evidence: planned, following the [refusal declaration](#failure-check-refused).
 
@@ -911,9 +945,9 @@ Evidence: planned, following the [refusal declaration](#failure-check-refused).
 
 **Requirements:** [Run only changed inputs](#req-checks-fast).
 
-**Inputs:** One commit staging only a `.py` file, one staging a `.md` file, one deleting a `.md` file, and a CI run on the first commit.
+**Inputs:** A repository check with `paths: ["src/**/*.ts"]`: one commit staging only a `.py` file, one staging a `.ts` file, one deleting a `.ts` file, and a CI run on the first commit. A one-commit push of a new branch and of a rebased branch with a pre-push check. Spec-docs timed on the 1.24 MB corpus.
 
-**Expected:** Spec-docs skips with "no staged input" on the first, runs on the second and third, and runs in CI. The budget warning appears when the total exceeds the configured budget.
+**Expected:** The repository check skips with "no staged input" on the first commit, runs on the second, skips with "only deleted inputs" on the third, and runs in CI. Both pushes count the pushed commit's files. Spec-docs runs on all three commits within its time target. The budget warning appears when the total exceeds the configured budget.
 
 Evidence: planned, following [Running checks](#running).
 
@@ -950,9 +984,9 @@ Evidence: planned, following [Worked examples](#examples).
 
 **Requirements:** [Install](#req-checks-install).
 
-**Inputs:** Clones with a tool-written `post-commit` and `pre-commit`, a `core.hooksPath` Husky folder, a pre-commit framework hook, a binary hook and an existing configuration; each installed twice.
+**Inputs:** Clones with a tool-written `post-commit` and `pre-commit`, a non-executable `pre-commit`, a `core.hooksPath` Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook, a binary hook and an existing configuration; each installed twice.
 
-**Expected:** Other tools' lines still run; the Husky folder receives the blocks; the framework and binary hooks are refused with their stated output; the configuration is unchanged; the second install reports every item unchanged.
+**Expected:** Other tools' lines still run; the Husky folder receives the blocks; the non-executable, framework and binary hooks are refused with their stated output; the status line reports the linked worktree without its block; the configuration is unchanged; the second install reports every item unchanged.
 
 Evidence: planned, following [Check installation](#check-installation).
 
