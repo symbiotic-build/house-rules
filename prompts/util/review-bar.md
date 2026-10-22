@@ -12,7 +12,8 @@ concrete scenario.
 - Design: would an expert in the underlying engine or library build it this way? See
   Cost and design findings below.
 - Code quality: the smallest change that works, in the surrounding style, one way to do
-  each thing, names that say what things do.
+  each thing, names that say what things do and follow the declared naming conventions
+  (writing rules, Language).
 - Waste, as a blocking class: tests that guard no real behavior or defect, duplicate or
   tautological checks, speculative abstractions, dead code, drive-by refactors, docs longer
   than the fact they carry.
@@ -46,6 +47,7 @@ Place each item honestly:
   edge case or recovery detail that no settled rule contradicts may be a Follow-up (an
   acceptance case or tracked issue for implementation). Design-finding disposition
   follows [Cost and design findings](cost-and-design.md).
+
 Settled-decision disagreements follow [Code canon](../skills/code-canon.md).
 Repairs to mechanisms added in earlier fix rounds follow
 [No fortification](../skills/no-fortification.md).

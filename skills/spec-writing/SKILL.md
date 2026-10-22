@@ -64,6 +64,7 @@ unsettled questions, without reopening a settled choice merely because it is unf
    - Inventory concepts and canonical facts against the primary sources.
    - Assign one editor for manifest and entity-index changes in the round.
    - Assign one responsible owner to each entity home.
+   - Declare the naming conventions ([Declare naming conventions](#declare-naming-conventions)).
    - Identify unresolved contracts and their decision owners.
 3. **Write the assigned sections.**
    - Use disjoint source assignments and generated context when several authors work.
@@ -236,6 +237,58 @@ scale against its supporting constraint or measurement. Follow
 [design-canon](../design-canon/SKILL.md) for pipeline ordering, truth tiers and configurable
 policies. During the final editing pass, consolidate repeated explanations without losing
 rules, values, exceptions or concrete examples, then repeat the reader test.
+
+## Declare naming conventions
+
+Declare each naming convention the [writing rules](../../rules/writing.md#language) require
+as a naming rule in `docs/ENTITIES.json`, so `check` refuses names that break it. A naming
+rule has the fields `id`, `kind`, `field`, `pattern` and `message`. `kind` selects one
+entity kind from the format contract. `field` is `symbols`, the exact code spellings, or
+`forms`, the accepted phrases. `pattern` is a Python regular expression that must match
+each whole value.
+
+Example: public error reasons are lower snake case. The spec registers each error reason
+as an `interface` entity and records the old spelling `QuotaExceeded` as a rejected form.
+
+```json
+{
+  "naming_rules": [
+    {"id": "error-reason-symbol", "kind": "interface", "field": "symbols",
+     "pattern": "[a-z]+(?:_[a-z]+)*",
+     "message": "Error reasons are lower snake case, subject first."}
+  ],
+  "entities": {
+    "example.quota-exceeded": {
+      "kind": "interface",
+      "home": {"section": "example#errors", "anchor": "quota-exceeded"},
+      "scope": ["example"],
+      "forms": ["quota exceeded"],
+      "symbols": ["quota_exceeded"],
+      "rejected_forms": [
+        {"text": "QuotaExceeded", "replacement": "quota_exceeded",
+         "reason": "Error reasons are lower snake case."}
+      ]
+    }
+  }
+}
+```
+
+- `check` reports `D14` when an `interface` symbol breaks the pattern, such as `QuotaExceeded`.
+- `check` reports `D13` wherever `QuotaExceeded` appears in prose, headings or code spans.
+  Fenced code blocks are not searched.
+- A naming rule applies to every entity of its kind; here every `interface` entity is an
+  error reason. When one kind holds names with different conventions, such as types and
+  error reasons, the pattern admits each one, for example
+  `[A-Z][A-Za-z0-9]*|[a-z]+(?:_[a-z]+)*`. Reviewers then check which convention applies.
+- Reviewers check by reading the parts no pattern expresses, such as word order.
+- When you fix a name spelled two ways, add the wrong spelling as a rejected form.
+  A rejected form matches without regard to case. For a spelling that differs from the
+  registered one only in case, such as `QUOTA_EXCEEDED`, set `"case_sensitive": true`;
+  otherwise `D13` also refuses the corrected spelling. List each wrong casing you know.
+- Write a rejected spelling only inside a fenced code block, for example to quote an
+  original passage or show a wrong example; `D13` does not search fenced blocks. When
+  consumers still use an old spelling, state that compatibility requirement in prose and
+  show the old spelling in a fenced block.
 
 ## Duty to critique
 

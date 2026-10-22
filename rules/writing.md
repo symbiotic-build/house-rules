@@ -29,6 +29,21 @@ happened, why it matters and what to do, in that order.
 - Active voice, simple tense. Name who does what.
 - One term per concept and one meaning per term. Define it once at first use, then never
   use a synonym or reuse its accepted form for another concept.
+- The same concept keeps the same name in documents, code and user interfaces.
+- Every specification and every codebase declares one naming convention for each kind of
+  public name it defines: types, fields, error types and error reasons, settings, events
+  and commands.
+- Each convention states casing, required prefixes or suffixes, and word order.
+  Example: "error reasons are lower snake case, subject first: `quota_exceeded`, never
+  `exceeded_quota` or `QuotaExceeded`."
+- Declare the conventions when a specification or codebase starts, and in an existing one
+  before work adds or renames a public name.
+- A codebase records its conventions in its bible. A specification records them as the
+  specification rules require.
+- A name spelled two ways is a defect. Rename every use to the declared convention; never
+  keep both spellings as accepted names. When consumers depend on the old spelling, the
+  project's compatibility rules govern its removal.
+- A name carries meaning without filler words such as `Info`, `Manager`, `Helper` or `Util`.
 - No unexplained acronyms, internal labels or IDs as a replacement for meaning. An ID may
   follow the plain description, never replace it.
 - In newly designed or redesigned internal storage, schemas and protocols, use readable

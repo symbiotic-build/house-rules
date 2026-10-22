@@ -131,6 +131,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/lenses/history.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/lenses/naming-readability.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
@@ -167,6 +172,26 @@
     },
     {
       "path": "prompts/roles/checker.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/audit-gap-check.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/audit-map.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/audit-triager.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/auditor.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
@@ -227,6 +252,11 @@
     },
     {
       "path": "prompts/util/external-writes.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/util/finding-rules.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
