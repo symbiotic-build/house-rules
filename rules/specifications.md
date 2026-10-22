@@ -73,6 +73,11 @@ to [design-flow](../skills/design-flow/SKILL.md).
 - Give each entity one complete home containing its meaning and canonical declarations.
   The entity index owns identity, classification, accepted and rejected forms, and home
   location. The Markdown home owns meaning, facts and operational explanation.
+- Record the document set's naming conventions ([writing rules §Language](writing.md#language))
+  as naming rules in the entity index, so the shared checker enforces them.
+- List each registered entity's exact code spellings as symbols and its known wrong
+  spellings as rejected forms, including spellings that have appeared in its documents,
+  code or consumers.
 - Mark each fact Status as specified, provisional, observed or unresolved. Put provenance
   explanations in Basis or adjacent prose. For provisional or unresolved values, link
   their open question in Basis and state applicability before presenting the table.

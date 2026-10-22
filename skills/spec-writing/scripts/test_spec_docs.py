@@ -1001,6 +1001,24 @@ class CorpusTests(CorpusFixture, unittest.TestCase):
         edit(self.paths, ACCEPTANCE, 'defines the refusal.', 'defines the acceptance gate.')
         self.red_green("D13")
 
+    def test_case_sensitive_rejected_form_keeps_corrected_spelling_accepted(self):
+        edit(self.paths, SETTINGS, "bounds encoded bytes in one log group.",
+             "bounds encoded bytes in one log group; its code spelling is `log_group_max_bytes`.")
+        metadata(self.paths, s.JSON_PATHS[0], lambda v: v["entities"]["example.log-group-limit"]["rejected_forms"].append(
+            dict(text="LOG_GROUP_MAX_BYTES", replacement="log_group_max_bytes", reason="Settings are lower snake case.")))
+        self.assertIn("D13", self.codes(), "a rejected form matches without regard to case by default")
+        metadata(self.paths, s.JSON_PATHS[0], lambda v: v["entities"]["example.log-group-limit"]["rejected_forms"][-1].update(
+            case_sensitive=True))
+        self.assertTrue((result := s.check(refresh(self.paths))).ok, result.errors)
+        edit(self.paths, SETTINGS, "its code spelling is `log_group_max_bytes`.",
+             "its code spelling is `LOG_GROUP_MAX_BYTES`.")
+        self.assertIn("D13", self.codes())
+
+    def test_rejected_form_case_sensitivity_must_be_boolean(self):
+        metadata(self.paths, s.JSON_PATHS[0], lambda v: v["entities"]["example.acceptance"]["rejected_forms"][0].update(
+            case_sensitive="yes"))
+        self.red_green("D02")
+
     def test_structured_symbols_obey_compiled_naming_rule(self):
         metadata(self.paths, s.JSON_PATHS[0], lambda v: v["entities"]["example.call-capacity"].update(symbols=["BadName"]))
         self.red_green("D14")

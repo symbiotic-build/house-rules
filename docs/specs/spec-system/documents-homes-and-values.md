@@ -132,7 +132,9 @@ The index version identifies its JSON shape, while the path identifies the repos
 | <a id="index-version"></a>version | 1 | specified | [docs/ENTITIES.json](../../ENTITIES.json) |
 | <a id="index-path"></a>path | docs/ENTITIES.json | specified | [docs/ENTITIES.json](../../ENTITIES.json) |
 
-Accepted phrases and home titles match whole phrases without regard to case. Symbols match exactly. List plural forms explicitly for both phrases and symbols. Rejected forms supply a replacement and reason. Naming patterns apply to structured forms or symbols of a declared kind; they do not extract arbitrary identifiers from prose.
+Accepted phrases and home titles match whole phrases without regard to case. Symbols match exactly. List plural forms explicitly for both phrases and symbols. Naming patterns apply to structured forms or symbols of a declared kind; they do not extract arbitrary identifiers from prose.
+
+Rejected forms supply a replacement and reason. A rejected form matches without regard to case unless it sets `case_sensitive` to true. A casing-only correction needs that setting: rejecting `QUOTA_EXCEEDED` case-sensitively leaves the corrected `quota_exceeded` accepted.
 
 An accepted form keeps one meaning across chapters, including link labels. For example, reserve `record` for the application object and use `commit-log record` for its encoded log unit. The second concept's index entry lists bare `record` in `rejected_forms`, with replacement `commit-log record` and reason "distinguish the encoded log unit from the application object". A link to the log unit does not make `record` an acceptable label for that second meaning.
 

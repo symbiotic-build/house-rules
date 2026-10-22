@@ -16,6 +16,7 @@ Output: first line "VERDICT: APPROVE" when every accepted High or Medium finding
 @rule house-rules:prompts/util/issue-report.md
 
 @rule house-rules:prompts/util/triage-classes.md
+@rule house-rules:prompts/util/finding-rules.md
 @rule house-rules:prompts/util/cost-defect.md
 @rule house-rules:prompts/util/cost-and-design.md
 @rule house-rules:prompts/util/external-writes.md

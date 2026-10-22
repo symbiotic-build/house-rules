@@ -20,6 +20,7 @@ External-write authority follows [External writes](../util/external-writes.md).
 @rule house-rules:rules/priority-labels.md
 
 @rule house-rules:prompts/util/review-bar.md
+@rule house-rules:prompts/util/finding-rules.md
 @rule house-rules:prompts/util/cost-defect.md
 @rule house-rules:prompts/util/cost-and-design.md
 @rule house-rules:prompts/util/review-report.md

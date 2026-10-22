@@ -163,7 +163,7 @@ The second envelope belongs to [docs/ENTITIES.json](../../ENTITIES.json). Its `e
 
 The `home` selects the batcher's complete heading subtree. `scope` lists document identities where it may be used and includes the home document. `forms` lists accepted phrases, matched without case distinction; `symbols` lists exact code spellings. An empty `symbols` array declares none.
 
-Each rejected form instead has `text`, `replacement` and `reason`, all nonempty strings.
+Each rejected form instead has `text`, `replacement` and `reason`, all nonempty strings. An optional `case_sensitive` boolean, false by default, makes `text` match only with its exact letter case.
 
 Naming rules check a selected entity kind's accepted forms or symbols. Each record has `id`, `kind`, `field`, `pattern` and `message`. `field` is `forms` or `symbols`; `pattern` is a Python regular expression applied with full-match semantics. Invalid expressions fail visibly, and duplicate rule identities are errors.
 
