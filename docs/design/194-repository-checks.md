@@ -127,7 +127,7 @@ Everything in this tour uses House Rules defaults.
    - Writes the [check configuration](#check-configuration), the pre-commit and pre-push [hook blocks](#hook-block) and the CI workflow.
    - Prepares the pinned House Rules revision and the spec checker's environment in the local cache.
 3. **Stage the install and check everything:** `git add` the files the install listed, then `checks.py run --stage ci --index`.
-   - Runs every CI check over the staged snapshot, which already holds the new configuration, so existing failures show before the hook starts refusing commits.
+   - Runs every CI check that reads the snapshot over the staged snapshot, which already holds the new configuration. Existing failures show before the hook starts refusing commits.
    - Here both checks pass.
 4. **Commit the install** through a normal PR. A reviewer reads the configuration, which holds only the pin.
 5. **Edit a chapter and commit:** the change adds "segment id" to `docs/specs/storage/recovery.md`.
@@ -218,8 +218,8 @@ The contract has five parts:
 
 A deleted or renamed-away file selects a `files` check but is not passed to it, because it no longer exists.
 A selection that holds only such files skips the check with the reason "only deleted inputs".
-At every stage `{base}` and `{snapshot}` are commit identities, so a `diff` check runs the same command everywhere.
-At pre-commit `{base}` is `HEAD`; before the first commit it is the empty tree, the one value that is a tree identity instead.
+`{snapshot}` is always a commit identity. `{base}` is a commit identity, except before the first commit, when it is the empty tree's identity. Git accepts both in a comparison, so a `diff` check runs the same command everywhere.
+At pre-commit `{base}` is `HEAD`.
 
 Commands run without a shell, from the repository root, with standard input closed.
 A check must not change files, the index or Git references.
@@ -270,11 +270,11 @@ At pre-commit the runner builds it once, at the start, without touching the real
 
 1. **Copy the index file** into a temporary folder. Git replaces that file by an atomic rename, so the copy is one complete version.
 2. **Write its tree:** `GIT_INDEX_FILE=<copy> git write-tree`. This writes objects only.
-3. **Wrap the tree in a commit:** `git commit-tree <tree> -p HEAD`, without `-p` before the first commit. No branch or reference points to the commit.
+3. **Wrap the tree in a commit:** `git commit-tree <tree> -p HEAD`, without `-p` before the first commit. The runner sets a fixed author and committer, `repository checks <checks@localhost>`, so the step needs no Git identity. No branch or reference points to the commit.
 
 At pre-push the snapshot is `HEAD`, and in CI it is the commit under test.
 The runner reads the configuration, the pin, `requires` and the changed files from the snapshot, and passes it to every check as `{snapshot}`.
-Spec-docs reads it with `--rev {snapshot}`, and whitespace compares it with `git diff --check {base} {snapshot}`.
+Spec-docs reads it with `--rev {snapshot}`. Whitespace compares it with `git --attr-source={snapshot} diff --check {base} {snapshot}`, so the whitespace rules in `.gitattributes` also come from the snapshot.
 
 After the last check the runner builds the tree of the live index again, the same way.
 When it differs from the snapshot's tree, another process staged something during the run. The run then stops with a [preparation failure](#failure-preparation), because the commit Git is about to write is not the content the checks saw.
@@ -364,7 +364,7 @@ Running it again repairs missing pieces and keeps every choice the repository ma
 1. **Preview:** `checks.py install --dry-run`. Lists each file and setting with "create", "update", "unchanged" or "refused", and writes nothing.
 2. **Install:** `checks.py install`. Performs the listed writes.
 3. **Stage the install:** `git add` the configuration and, when written, the CI workflow.
-4. **Check everything:** `checks.py run --stage ci --index`. Every CI check runs over the staged snapshot. Failures in existing files show before the hooks start refusing commits.
+4. **Check everything:** `checks.py run --stage ci --index`. Every CI check that reads `{snapshot}` runs over the staged snapshot, and failures in existing files show before the hooks start refusing commits. A check that reads the working tree is listed as skipped with the reason "reads the working tree; runs in CI on the commit".
 5. **Commit the repository files** through a reviewed PR. CI then runs the same checks on the commit.
 
 > **Detail — what the install writes**
@@ -476,6 +476,8 @@ This refusal keeps a commit from passing without its checks having run.
 
 **Trigger:** The configuration is invalid, the pinned revision cannot be read or fetched, the extracted runner does not match the pin, or no supported interpreter or environment can be prepared.
 The live index's tree differs from the snapshot at the end of a pre-commit run.
+The snapshot cannot be built: the index copy cannot be read, or the index still has unmerged entries.
+The installed Git cannot read attributes from a commit (`--attr-source`).
 
 **Outcome:** The runner exits 2 and prints one error line naming the cause and the command that repairs it. The hook refuses the commit or push.
 
@@ -483,6 +485,8 @@ The live index's tree differs from the snapshot at the end of a pre-commit run.
 
 **Recovery:** The author runs the printed repair: `checks.py prepare` when online, `checks.py install` for a missing setting, or a configuration fix through a reviewed PR.
 For a changed index the author reviews what was staged and commits again.
+For unmerged entries the author resolves the conflicts and stages the result; for an unreadable index the author runs the commit again, and repairs the clone if the error repeats.
+For an old Git the author installs a Git that supports `--attr-source`.
 
 **Authority:** The author repairs the clone; a configuration change needs the repository's normal review.
 
@@ -870,7 +874,7 @@ Glob `**/` matches zero or more folders and `*` matches within one path segment,
 
 > **Detail — built-in commands and inputs**
 >
-> - `whitespace` reads every file and runs `git diff --check {base} {snapshot}` at every stage.
+> - `whitespace` reads every file and runs `git --attr-source={snapshot} diff --check {base} {snapshot}` at every stage. Without `--attr-source`, Git reads `.gitattributes` from the working tree, and an unstaged edit there could turn the check off. The runner checks at preparation that Git supports the option; Git 2.54.0 does.
 > - `spec-docs` declares `**` as its input: every file. The checker classifies every candidate Markdown file in any letter case, resolves links to source files and checks generated attributes, so no narrower list is complete. It runs `{python} {house_rules}/skills/spec-writing/scripts/spec_docs.py check --root . --rev {snapshot}` at every stage.
 > - It passes no `--base`. With a base, the checker also requires review-assignment input for changed requirements, which only the review procedure supplies.
 
@@ -908,13 +912,13 @@ python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage c
    "fix": "apply the remedy for each code in the spec checker's diagnostic table, …",
    "rerun": "… checks.py run --stage pre-commit --only spec-docs",
    "skip_reason": null},
-  {"id": "whitespace", "status": "pass", "seconds": 0.1, "command": ["git", "diff", "--check", "4e1a…", "9f3c…"],
+  {"id": "whitespace", "status": "pass", "seconds": 0.1, "command": ["git", "--attr-source=9f3c…", "diff", "--check", "4e1a…", "9f3c…"],
    "output": "", "fix": null, "rerun": "… --only whitespace", "skip_reason": null}],
  "overrides": [],
  "warnings": ["budget: pre-commit took 40.7 s of 10 s; slowest check spec-docs"]}
 ```
 
-`source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `base` and `snapshot` are the commit identities passed to the checks. `result` is `pass`, `fail` or `error`, matching exit status 0, 1 or 2. Each override has `id`, `change` and `reason`.
+`source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `snapshot` is the commit identity passed to the checks. `base` is a commit identity, or the empty tree's identity before the first commit. `result` is `pass`, `fail` or `error`, matching exit status 0, 1 or 2. Each override has `id`, `change` and `reason`.
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -931,7 +935,7 @@ Until then each is a planned demonstration of the worked example it names; none 
 
 **Inputs:** A fixture clone with a registered specification and no hooks; the tour's install and commits.
 
-**Expected:** The install writes the tour's configuration and both hook blocks. `run --stage ci --index` after staging the install runs both checks. The hook and `run --stage ci` give the same result for the same commit.
+**Expected:** The install writes the tour's configuration and both hook blocks. `run --stage ci --index` after staging the install runs both checks, and lists a configured working-tree check as skipped with its reason. The hook and `run --stage ci` give the same result for the same commit.
 
 Evidence: planned, following the [tour](#tour).
 
@@ -942,9 +946,9 @@ Evidence: planned, following the [tour](#tour).
 
 **Requirements:** [Snapshot](#req-checks-snapshot), [failure output](#req-checks-report).
 
-**Inputs:** The tour's staged "segment id", with an unstaged correction of the same file in the working tree. Separately, a file staged by another process while a check runs, and the same file staged and restored again during the run.
+**Inputs:** The tour's staged "segment id", with an unstaged correction of the same file in the working tree. Staged trailing whitespace with an unstaged `.gitattributes` edit that turns whitespace checks off. Separately, a file staged by another process while a check runs, and the same file staged and restored again during the run.
 
-**Expected:** The commit is refused from the staged content and the report matches the tour's text. The file staged during the run stops the run with a preparation failure. The staged-and-restored file leaves the checks' result unchanged, because they read the snapshot. The working tree, index, stash and references are unchanged.
+**Expected:** The commit is refused from the staged content and the report matches the tour's text. The staged trailing whitespace fails under the snapshot's attributes. The file staged during the run stops the run with a preparation failure. The staged-and-restored file leaves the checks' result unchanged, because they read the snapshot. The working tree, index, stash and references are unchanged.
 
 Evidence: planned, following the [refusal declaration](#failure-check-refused).
 
@@ -1020,7 +1024,7 @@ Evidence: planned, following [Pinning and offline use](#pinning).
 
 **Requirements:** [Failure output](#req-checks-report), [pinned and offline](#req-checks-offline).
 
-**Inputs:** A pin missing from the cache with network access denied; an invalid configuration; no supported interpreter.
+**Inputs:** A pin missing from the cache with network access denied; an invalid configuration; no supported interpreter; an index with unmerged entries; a Git without `--attr-source`.
 
 **Expected:** Each run exits 2 with one line naming the cause and its repair command, and the hook refuses the commit.
 
