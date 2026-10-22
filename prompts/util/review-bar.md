@@ -46,6 +46,14 @@ Place each item honestly:
   edge case or recovery detail that no settled rule contradicts may be a Follow-up (an
   acceptance case or tracked issue for implementation). Design-finding disposition
   follows [Cost and design findings](cost-and-design.md).
+
+A security finding names five things: who has less trust, the input they control, the
+control that should stop them, what they reach, and the concrete result. Example: an
+unauthenticated caller (less trust) sends an order ID (input) to `GET /orders/<id>`; the
+handler skips the tenant check in the authorization helper (control); the caller reads
+another tenant's order (reach and result). A missing extra layer, where another layer
+already blocks the attack, is a hardening note under Non-blocking, not a Blocking defect.
+
 Settled-decision disagreements follow [Code canon](../skills/code-canon.md).
 Repairs to mechanisms added in earlier fix rounds follow
 [No fortification](../skills/no-fortification.md).
