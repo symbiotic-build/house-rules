@@ -24,6 +24,7 @@ Output: first line "VERDICT: APPROVE" when every accepted High or Medium finding
 @rule house-rules:prompts/skills/native-first.md
 @rule house-rules:prompts/skills/no-fortification.md
 @rule house-rules:prompts/skills/test-discipline.md
+@rule house-rules:prompts/skills/naming-defaults.md
 @rule house-rules:prompts/util/issue-form.md
 
 @rule house-rules:rules/writing.md
