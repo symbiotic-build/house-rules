@@ -40,6 +40,7 @@ happened, why it matters and what to do, in that order.
   before work adds or renames a public name.
 - A codebase records its conventions in its bible. A specification records them as the
   specification rules require.
+- A project that adopts the PREFERENCES naming defaults declares only its overrides.
 - A name spelled two ways is a defect. Rename every use to the declared convention; never
   keep both spellings as accepted names. When consumers depend on the old spelling, the
   project's compatibility rules govern its removal.
