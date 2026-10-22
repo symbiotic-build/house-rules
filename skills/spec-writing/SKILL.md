@@ -282,8 +282,9 @@ as an `interface` entity and records the old spelling `QuotaExceeded` as a rejec
   `[A-Z][A-Za-z0-9]*|[a-z]+(?:_[a-z]+)*`. Reviewers then check which convention applies.
 - Reviewers check by reading the parts no pattern expresses, such as word order.
 - When you fix a name spelled two ways, add the wrong spelling as a rejected form.
-  A rejected spelling that differs from a registered one only in case, such as
-  `QUOTA_EXCEEDED`, matches exactly; list each wrong casing you know.
+  A rejected form matches without regard to case. For a spelling that differs from the
+  registered one only in case, such as `QUOTA_EXCEEDED`, set `"case_sensitive": true`;
+  otherwise `D13` also refuses the corrected spelling. List each wrong casing you know.
 - Write a rejected spelling only inside a fenced code block, for example to quote an
   original passage or show a wrong example; `D13` does not search fenced blocks. When
   consumers still use an old spelling, state that compatibility requirement in prose and

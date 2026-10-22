@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
-from functools import cached_property
 import hashlib
 import fcntl
 from html import escape, unescape
@@ -437,21 +436,6 @@ class Corpus:
     assignment: dict | None = None
     base: Corpus | None = None
 
-    @cached_property
-    def rejected_patterns(self):
-        """Compile each rejected spelling's matcher once per corpus.
-
-        A spelling that differs from a registered one only in case matches exactly, so a
-        casing correction keeps the corrected spelling accepted. The case-insensitive
-        matcher itself decides "only in case", so classification and matching agree.
-        """
-        accepted = {a for entity in self.entities.values() for a in (*entity["forms"], *entity["symbols"])}
-        same_letters = re.compile("|".join(map(re.escape, accepted)), re.I) if accepted else None
-        texts = {rejected["text"] for entity in self.entities.values() for rejected in entity["rejected_forms"]
-                 if isinstance(rejected, dict) and isinstance(rejected.get("text"), str)}
-        return {text: phrase_pattern(text, bool(text not in accepted and same_letters and same_letters.fullmatch(text)))
-                for text in texts}
-
     @property
     def registry(self):
         return {"version": 1, "entities": self.entities}
@@ -716,8 +700,11 @@ def load_corpus(source, format_contract=None, *, comparison=False):
         if any(e["path"] == md.path and e["anchor"] == heading.anchor for e in corpus.entities.values()):
             diagnostics.add("D04", f"entity '{identity}' has no complete, unique home", md.path, heading.start + 1)
         for rejected in entity["rejected_forms"]:
-            if shape(rejected, ["text", "replacement", "reason"], [], diagnostics, ep, "rejected form") and not all(isinstance(v, str) and v.strip() for v in rejected.values()):
-                diagnostics.add("D02", "malformed declaration: rejected form fields must be nonempty text", ep)
+            if shape(rejected, ["text", "replacement", "reason"], ["case_sensitive"], diagnostics, ep, "rejected form"):
+                if not all(isinstance(rejected[k], str) and rejected[k].strip() for k in ("text", "replacement", "reason")):
+                    diagnostics.add("D02", "malformed declaration: rejected form fields must be nonempty text", ep)
+                if not isinstance(rejected.get("case_sensitive", False), bool):
+                    diagnostics.add("D02", "malformed declaration: rejected form case_sensitive must be true or false", ep)
         if set(entity["scope"]) - corpus.documents.keys() or section["document"] not in entity["scope"]:
             diagnostics.add("D07", f"entity '{identity}' is used outside its declared document scope", ep)
         corpus.entities[identity] = dict(entity, id=identity, path=md.path, anchor=heading.anchor,
@@ -1383,7 +1370,6 @@ def neighboring_links(md, token):
 
 def check_uses(corpus, md, diagnostics, missing=None):
     seen = set()
-    rejected_patterns = corpus.rejected_patterns
     for token_index, token in enumerate(md.tokens):
         if not token.map or any(a <= token.map[0] < b for a, b in md.generated):
             continue
@@ -1464,7 +1450,7 @@ def check_uses(corpus, md, diagnostics, missing=None):
         if not literal:
             for entity in corpus.entities.values():
                 for rejected in entity["rejected_forms"]:
-                    if isinstance(rejected, dict) and isinstance(rejected.get("text"), str) and rejected_patterns[rejected["text"]].search(text):
+                    if isinstance(rejected, dict) and isinstance(rejected.get("text"), str) and phrase_pattern(rejected["text"], rejected.get("case_sensitive") is True).search(text):
                         diagnostics.add("D13", f"rejected form for entity '{entity['id']}'; use its registered replacement", md.path, line + 1)
 
 
