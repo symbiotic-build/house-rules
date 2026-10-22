@@ -3,9 +3,10 @@
 These defaults supply the naming conventions that the
 [writing rules](../../rules/writing.md#language) require each specification and codebase
 to declare. A project adopts them in its bible; the writing rules say what it then
-declares. When the project's bible adopts them, apply them to every name the change adds
-or renames, together with the overrides the bible lists. A project that has not adopted
-them follows only its own declared conventions.
+declares. When the project's bible adopts them, apply them to every name the project owns
+that the change adds or renames, together with the overrides the bible lists. A name an
+external contract fixes, such as a protocol field `clientId`, keeps that contract's
+spelling. A project that has not adopted them follows only its own declared conventions.
 
 ### Inside code
 
