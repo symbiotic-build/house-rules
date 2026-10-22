@@ -75,7 +75,7 @@ class PromptTest(unittest.TestCase):
 
     def test_every_role_expands_with_all_code_change_rules(self):
         roles = sorted((ROOT / "prompts/roles").glob("*.md"))
-        self.assertEqual(len(roles), 5)
+        self.assertEqual(len(roles), 9)
         for role in roles:
             with self.subTest(role=role.name):
                 result = self.run_prompt(str(role.relative_to(ROOT)))
