@@ -35,6 +35,14 @@ When a second concept borrows the bare form, require a distinct term and index g
 rejecting that bare form for the second concept. Check the sentence's intended meaning,
 not only whether its link resolves.
 
+Check every public name against the naming conventions the writing rules require: types,
+fields, errors and error reasons, settings, events and commands. A kind of public name
+with no declared convention is a finding. A name that breaks its declared convention is a
+finding. One concept spelled two ways anywhere in the document set is a finding, even when
+each chapter is consistent on its own; include code spans, tables and examples. Check the
+parts no naming pattern expresses, such as word order, by reading. A clean checker run
+does not establish that names follow their conventions.
+
 @rule house-rules:rules/specifications.md
 
 Check that identifier and filename links reach their specific defining subsection or row,
