@@ -2255,24 +2255,27 @@ class LiteralAnnotationTests(CorpusFixture, unittest.TestCase):
         self.assertEqual({d.code for d in errors}, {"D12"})
 
     def test_check_time_grows_linearly_with_literal_examples(self):
-        # Protects literal annotation lookups from scanning every link of the document per example. With
-        # 500 and 2000 annotated examples, a linear check takes about 3.5 times as long on the larger
-        # document and a per-link scan about 12 times, so a margin of 8 holds against timing noise, which
-        # the best of three runs reduces further.
+        # Protects literal annotation lookups from work that grows with the whole document per example.
+        # With 1000 and 4000 annotated examples, a linear check takes about 3.8 times as long on the larger
+        # document. A scan of every link per example takes about 14 times as long, and copying the
+        # document's line counts in every lookup about 7.5 times. A margin of 6 keeps the linear check at
+        # two thirds of it and both regressions above it. Each sample checks a freshly parsed corpus, so
+        # the first check, which builds the lookup indexes, is timed; parsing stays outside the timer.
         block = "```text\nwriter\n```\n\n**Entities in this example:** [Writer](#writer).\n\nUnrelated explanation.\n\n"
         def best(count):
             paths = self.clean.copy()
             edit(paths, ACCEPTANCE, "**Procedure: demonstrate", block * count + "**Procedure: demonstrate")
-            candidate, runs = corpus(paths), []
+            runs = []
             for _ in range(3):
+                candidate = corpus(paths)
                 started = time.perf_counter()
                 result = s.check(candidate)
                 runs.append(time.perf_counter() - started)
             self.assertTrue(result.ok, result.errors[:3])
             return min(runs)
-        small, large = best(500), best(2000)
+        small, large = best(1000), best(4000)
         print(f"literal examples: 4x the examples took {large / small:.2f}x as long")
-        self.assertLess(large / small, 8, (small, large))
+        self.assertLess(large / small, 6, (small, large))
 
 
 class DiagnosticCoverageSuite(unittest.TestSuite):
