@@ -1365,8 +1365,19 @@ def neighboring_links(md, token):
             for link in md.inline_links.get(id(neighbor), [])]
 
 
+def rejected_pattern(corpus, text):
+    # A spelling that differs from a registered one only in case matches exactly,
+    # so a casing correction keeps the corrected spelling accepted.
+    exact = any(text != accepted and text.casefold() == accepted.casefold()
+                for entity in corpus.entities.values() for accepted in (*entity["forms"], *entity["symbols"]))
+    return phrase_pattern(text, exact)
+
+
 def check_uses(corpus, md, diagnostics, missing=None):
     seen = set()
+    rejected_patterns = {rejected["text"]: rejected_pattern(corpus, rejected["text"])
+                         for entity in corpus.entities.values() for rejected in entity["rejected_forms"]
+                         if isinstance(rejected, dict) and isinstance(rejected.get("text"), str)}
     for token_index, token in enumerate(md.tokens):
         if not token.map or any(a <= token.map[0] < b for a, b in md.generated):
             continue
@@ -1447,7 +1458,7 @@ def check_uses(corpus, md, diagnostics, missing=None):
         if not literal:
             for entity in corpus.entities.values():
                 for rejected in entity["rejected_forms"]:
-                    if isinstance(rejected, dict) and isinstance(rejected.get("text"), str) and phrase_pattern(rejected["text"]).search(text):
+                    if isinstance(rejected, dict) and isinstance(rejected.get("text"), str) and rejected_patterns[rejected["text"]].search(text):
                         diagnostics.add("D13", f"rejected form for entity '{entity['id']}'; use its registered replacement", md.path, line + 1)
 
 

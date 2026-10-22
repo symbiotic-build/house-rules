@@ -282,6 +282,8 @@ as an `interface` entity and records the old spelling `QuotaExceeded` as a rejec
   `[A-Z][A-Za-z0-9]*|[a-z]+(?:_[a-z]+)*`. Reviewers then check which convention applies.
 - Reviewers check by reading the parts no pattern expresses, such as word order.
 - When you fix a name spelled two ways, add the wrong spelling as a rejected form.
+  A rejected spelling that differs from a registered one only in case, such as
+  `QUOTA_EXCEEDED`, matches exactly; list each wrong casing you know.
 
 ## Duty to critique
 
