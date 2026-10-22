@@ -218,7 +218,7 @@ The contract has five parts:
 
 A deleted or renamed-away file selects a `files` check but is not passed to it, because it no longer exists.
 A selection that holds only such files skips the check with the reason "only deleted inputs".
-`{snapshot}` is always a commit identity. `{base}` is a commit identity, except in two cases where it is the empty tree's identity: before the first commit, and at pre-push when a pushed commit has neither a remote commit nor a remote default branch to compare with. Git accepts both in a comparison, so a `diff` check runs the same command everywhere.
+`{snapshot}` is always a commit identity. `{base}` is a commit identity, except in three cases where it is the empty tree's identity: before the first commit; at pre-push when a pushed commit has neither a remote commit nor a remote default branch to compare with; and at pre-push when the pushed commit shares no ancestor with the commit it is compared with. Git accepts both in a comparison, so a `diff` check runs the same command everywhere.
 At pre-commit `{base}` is `HEAD`.
 
 Commands run without a shell, from the repository root, with standard input closed.
@@ -257,7 +257,8 @@ A `diff` check needs a base. At pre-commit it is `HEAD`, as the check contract s
 At pre-push Git writes one line per pushed reference to the hook's standard input: local reference, local commit, remote reference and remote commit.
 The runner checks each pushed local commit as its own snapshot, so a commit made in the same clone during the push cannot stand in for the one Git sends. A deleted reference, whose local commit is all zeros, has nothing to check.
 
-A pushed commit's push base is its merge base with the remote commit Git names, when that commit is present locally. Otherwise it is the merge base with the remote's default branch, and otherwise the empty tree.
+Before using an object Git names, the runner resolves it to the commit it points at (`<object>^{commit}`), so a pushed annotated tag is checked as its commit. A pushed object that resolves to no commit, such as a tag of a tree, stops the run with a [preparation failure](#failure-preparation) naming the reference.
+A pushed commit's push base is its merge base with the remote commit Git names, when that commit is present locally. Otherwise it is the merge base with the remote's default branch, and otherwise the empty tree. When the two commits share no ancestor, for example a new unrelated branch, the base is the empty tree too, so every file in the pushed commit counts as changed.
 The merge base also gives the right range after a rebase or for a new branch. In CI the base is the PR's base commit, or the previous commit for a push.
 
 <a id="snapshot-handling"></a>
@@ -320,7 +321,9 @@ The hooks refuse the commit or push on any nonzero status.
 ### Check run report
 
 A check run report is the runner's account of one run and of each check in it.
-It names the stage, the snapshot and the House Rules revision. For each check it gives the status, duration, output, fix line and rerun command.
+It names the stage and, for each snapshot the run checked, the snapshot, its base and its House Rules revision. For each check it gives the status, duration, output, fix line and rerun command.
+
+A run checks one snapshot, except at pre-push, where it checks one per pushed commit; each pushed commit can have its own configuration and pin. The run's result is the worst snapshot result, `error` before `fail` before `pass`. A push that only deletes references checks nothing and passes with the line "nothing to check: the push only deletes references".
 It is the one output format for every check, so an agent can act on any failure the same way.
 
 Each check's status is `pass`, `fail`, `error` or `skipped`. A skipped check states why, for example "no staged input", "requires docs/DOCUMENTS.json" or "disabled: <reason>".
@@ -404,15 +407,15 @@ runner=$(git config --get house-rules.checks-runner) || {
   echo "repository checks are not installed in this clone; run: python3 <House Rules>/skills/repository-checks/scripts/checks.py install" >&2
   exit 1
 }
-refs=$(mktemp) || exit 1
-cat > "$refs"
+refs=$(mktemp) || { echo "repository checks: cannot create a temporary file; push refused" >&2; exit 1; }
+cat > "$refs" || { echo "repository checks: cannot save the pushed references; push refused" >&2; rm -f "$refs"; exit 1; }
 "$(git config --get house-rules.checks-python)" -I "$runner" run --stage pre-push --remote "$1" < "$refs" || { status=$?; rm -f "$refs"; exit $status; }
-exec < "$refs"
+exec < "$refs" || { echo "repository checks: cannot reopen the pushed references; push refused" >&2; rm -f "$refs"; exit 1; }
 rm -f "$refs"
 # house-rules:repository-checks:end
 ```
 
-The block saves the reference lines to a temporary file and gives them to the runner. It then reopens the hook's standard input from that file, so another tool's lines after the block read the same lines; a large-file extension's pre-push hook is one such reader. Removing the file after `exec` is safe, because the open input stays readable until the hook exits.
+The block saves the reference lines to a temporary file and gives them to the runner. When creating, writing or reopening that file fails, the block names the failure, removes the file and refuses the push before any check runs, so a partial copy never stands for the whole push. After the runner it reopens the hook's standard input from that file, so another tool's lines after the block read the same lines; a large-file extension's pre-push hook is one such reader. Removing the file after `exec` is safe, because the open input stays readable until the hook exits.
 The block holds no machine paths: both paths come from per-clone Git settings, so the block can also live in a tracked hooks folder.
 
 The install handles each existing hook file one way:
@@ -494,15 +497,19 @@ This refusal keeps a commit from passing without its checks having run.
 The live index's tree differs from the snapshot at the end of a pre-commit run.
 The snapshot cannot be built: the index copy cannot be read, or the index still has unmerged entries.
 The installed Git cannot read attributes from a commit (`--attr-source`).
+A pushed object resolves to no commit, such as a tag of a tree.
+At pre-push, the [hook block](#hook-block) cannot create, write or reopen its temporary copy of the pushed references; the block refuses the push itself, before the runner starts.
 
 **Outcome:** The runner exits 2 and prints one error line naming the cause and the command that repairs it. The hook refuses the commit or push.
 
-**Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used.
+**Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used. A failed temporary copy of the pushed references is removed.
 
 **Recovery:** The author runs the printed repair: `checks.py prepare` when online, `checks.py install` for a missing setting, or a configuration fix through a reviewed PR.
 For a changed index the author reviews what was staged and commits again.
 For unmerged entries the author resolves the conflicts and stages the result; for an unreadable index the author runs the commit again, and repairs the clone if the error repeats.
 For an old Git the author installs a Git that supports `--attr-source`.
+For a pushed object with no commit the author pushes that reference without the hook's check, under the [rule line](#rule-line), or changes the reference.
+For a failed temporary copy the author frees space in, or repairs access to, the temporary folder and pushes again.
 
 **Authority:** The author repairs the clone; a configuration change needs the repository's normal review.
 
@@ -925,10 +932,12 @@ python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage c
 <a id="report-format"></a>
 ### Report format
 
-`run --json` prints one object.
+`run --json` prints one object for the run, with one entry in `snapshots` for each snapshot it checked.
 
 ```json
-{"version": 1, "stage": "pre-commit", "source": "index",
+{"version": 1, "stage": "pre-commit", "result": "fail",
+ "snapshots": [
+ {"reference": null, "source": "index",
  "house_rules": "ebb6b3762d90c7f8ed725b5119eb874325aa6c42",
  "base": "4e1a…", "snapshot": "9f3c…", "result": "fail",
  "checks": [
@@ -941,10 +950,12 @@ python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage c
   {"id": "whitespace", "status": "pass", "seconds": 0.1, "command": ["git", "--attr-source=9f3c…", "diff", "--check", "4e1a…", "9f3c…"],
    "output": "", "fix": null, "rerun": "… --only whitespace", "skip_reason": null}],
  "overrides": [],
- "warnings": ["budget: pre-commit took 40.7 s of 10 s; slowest check spec-docs"]}
+ "warnings": ["budget: pre-commit took 40.7 s of 10 s; slowest check spec-docs"]}]}
 ```
 
-`source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `snapshot` is the commit identity passed to the checks. `base` is a commit identity, or the empty tree's identity in the two cases the [check definition](#check-definition) names. `result` is `pass`, `fail` or `error`, matching exit status 0, 1 or 2. Each override has `id`, `change` and `reason`.
+The run's `result` is the worst snapshot `result`: `error`, then `fail`, then `pass`, matching exit status 2, 1 or 0. `snapshots` is empty for a push that only deletes references, and the run's result is then `pass`.
+
+In each snapshot entry, `reference` is the pushed local reference at pre-push and `null` otherwise. `source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `snapshot` is the commit identity passed to the checks. `base` is a commit identity, or the empty tree's identity in the cases the [check definition](#check-definition) names. Each override has `id`, `change` and `reason`.
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -985,9 +996,9 @@ Evidence: planned, following the [refusal declaration](#failure-check-refused).
 
 **Requirements:** [Run only changed inputs](#req-checks-fast).
 
-**Inputs:** A repository check with `paths: ["src/**/*.ts"]`: one commit staging only a `.py` file, one staging a `.ts` file, one deleting a `.ts` file, and a CI run on the first commit. A one-commit push of a new branch and of a rebased branch with a pre-push check. A push during which another commit is made on the pushed branch. A pre-push hook file with another tool's line after the block that reads standard input. Spec-docs timed on the 1.24 MB corpus.
+**Inputs:** A repository check with `paths: ["src/**/*.ts"]`: one commit staging only a `.py` file, one staging a `.ts` file, one deleting a `.ts` file, and a CI run on the first commit. A one-commit push of a new branch and of a rebased branch with a pre-push check. A push during which another commit is made on the pushed branch. A pre-push hook file with another tool's line after the block that reads standard input. A push of two branches where one fails a check, a push that only deletes a branch, a pushed annotated tag, and a new branch that shares no history with the remote. Spec-docs timed on the 1.24 MB corpus.
 
-**Expected:** The repository check skips with "no staged input" on the first commit, runs on the second, skips with "only deleted inputs" on the third, and runs in CI. Both pushes count the pushed commit's files. The push with a new commit made during it checks the commit Git sends, not the new one. The other tool's line reads the same reference lines as the runner. Spec-docs runs on all three commits within its time target. The budget warning appears when the total exceeds the configured budget.
+**Expected:** The repository check skips with "no staged input" on the first commit, runs on the second, skips with "only deleted inputs" on the third, and runs in CI. Both pushes count the pushed commit's files. The push with a new commit made during it checks the commit Git sends, not the new one. The other tool's line reads the same reference lines as the runner. A push of two branches, one failing, reports both snapshots and fails. A deletion-only push reports "nothing to check" and passes. A pushed annotated tag is checked as its commit. A new unrelated branch counts every file as changed. Spec-docs runs on all three commits within its time target. The budget warning appears when the total exceeds the configured budget.
 
 Evidence: planned, following [Running checks](#running).
 
@@ -1050,8 +1061,8 @@ Evidence: planned, following [Pinning and offline use](#pinning).
 
 **Requirements:** [Failure output](#req-checks-report), [pinned and offline](#req-checks-offline).
 
-**Inputs:** A pin missing from the cache with network access denied; an invalid configuration; no supported interpreter; an index with unmerged entries; a Git without `--attr-source`.
+**Inputs:** A pin missing from the cache with network access denied; an invalid configuration; no supported interpreter; an index with unmerged entries; a Git without `--attr-source`; a pushed tag of a tree; a pre-push whose temporary copy of the references fails to write.
 
-**Expected:** Each run exits 2 with one line naming the cause and its repair command, and the hook refuses the commit.
+**Expected:** Each runner case exits 2 with one line naming the cause and its repair command, and the hook refuses the commit or push. The failed temporary copy makes the [hook block](#hook-block) print its own line and refuse the push with status 1 before the runner starts.
 
 Evidence: planned, following the [preparation declaration](#failure-preparation).
