@@ -4,7 +4,9 @@ from contextlib import redirect_stdout, redirect_stderr
 from dataclasses import replace
 import io
 import json
+import random
 import re
+import string
 from pathlib import Path
 import subprocess
 import tempfile
@@ -2098,6 +2100,182 @@ class SnapshotTests(unittest.TestCase):
 
 
 
+
+
+def scan_every_pattern(corpus, text):
+    """Reference recognizer: every phrase and symbol pattern scans the whole text."""
+    matches = []
+    for identity, entity in corpus.entities.items():
+        for phrase in set([entity["title"], *entity["forms"]]):
+            matches.extend((m.start(), m.end(), identity, phrase, False) for m in s.phrase_pattern(phrase).finditer(text))
+        for symbol in entity["symbols"]:
+            matches.extend((m.start(), m.end(), identity, symbol, True) for m in s.phrase_pattern(symbol, True).finditer(text))
+    matches.sort(key=lambda m: (m[0], -(m[1] - m[0]), m[2]))
+    occupied, output = [], []
+    for match in matches:
+        if not any(a <= match[0] and match[1] <= b and (a, b) != match[:2] for a, b in occupied):
+            output.append(match)
+            occupied.append(match[:2])
+    return output
+
+
+def case_equivalents():
+    """Return each (ASCII letter or digit, other code point) pair that re.IGNORECASE matches."""
+    others = "".join(chr(c) for c in range(0x80, 0x110000) if not 0xD800 <= c < 0xE000)
+    return sorted({(a, m.group()) for a in string.ascii_letters + string.digits
+                   for m in re.finditer(re.escape(a), others, re.I)})
+
+
+def bare_corpus(entities):
+    """Return a corpus holding only the given entities: identity -> (title, forms, symbols)."""
+    corpus = s.Corpus(None, {}, s.Diagnostics())
+    for identity, (title, forms, symbols) in entities.items():
+        corpus.entities[identity] = dict(id=identity, title=title, forms=forms, symbols=symbols, rejected_forms=[])
+    return corpus
+
+
+class RecognitionTests(CorpusFixture, unittest.TestCase):
+    """Recognition and rejected-form diagnostics equal a scan with every pattern."""
+
+    ENTITIES = {
+        "e.log-group": ("Log group", ["log group", "group limit"], ["LOG_GROUP"]),
+        "e.group-limit": ("Group limit", ["group limit", "limit"], ["limit", "Limit"]),
+        "e.kit": ("Kit", ["kit", "ski kit", "sign", "file id"], ["Kit"]),
+        "e.unicode": ("Naïve set", ["naïve set", "Kelvin", "a a"], ["ſet"]),
+        "e.punctuation": (".env", ["x-ray", "c++", "max_bytes", "v2 api", "§"], ["--json"]),
+    }
+    TEXTS = [
+        "Log group limit and LOG_GROUP limit",  # overlapping phrases; one span for two entities
+        "the group limit; Limit, LIMIT and limit",  # phrases beside case-sensitive symbols
+        "KIT and kIt; ſIGN, ſign; fİle İD, FıLE ıd",  # case equivalents of k, s and i
+        "kelvin, Kelvin, KELVIN, Kelvin scale",
+        "NAÏVE SET and naïve ſet; ſet; set",
+        "a a a, a a",  # a phrase overlapping itself
+        ".env, x-ray, C++ code, MAX_BYTES, V2 API, § 2, --json, kits, ski kit",
+        "kits _kit kit_ kit2 2kit",  # word boundaries
+        "",
+    ]
+    SWAPS = {"k": "K", "K": "K", "s": "ſ", "S": "ſ", "i": "ı", "I": "İ", "a": "A", "e": "E"}
+
+    def mixed(self, pieces, separators, count):
+        """Yield seeded texts that join pieces and swap some letters for case equivalents."""
+        rng = random.Random(196)
+        for _ in range(count):
+            text = "".join(rng.choice(pieces) + rng.choice(separators) for _ in range(rng.randint(1, 6)))
+            yield "".join(self.SWAPS.get(c, c) if rng.random() < 0.2 else c for c in text)
+
+    def test_recognition_matches_a_scan_with_every_pattern(self):
+        corpus = bare_corpus(self.ENTITIES)
+        pieces = [*self.TEXTS, *(p for e in self.ENTITIES.values() for group in e for p in ([group] if isinstance(group, str) else group))]
+        hits = 0
+        for text in [*self.mixed(pieces, ["", " ", "_", "-", ".", ", ", "\n", "x"], 3000), *self.TEXTS]:
+            expected = scan_every_pattern(corpus, text)
+            self.assertEqual(s.recognized(corpus, text), expected, text)
+            hits += len(expected)
+        self.assertGreater(hits, 3000)
+        spans = {m[:3] for m in s.recognized(corpus, self.TEXTS[0])}
+        self.assertTrue({(4, 15, "e.log-group"), (4, 15, "e.group-limit"), (0, 9, "e.log-group")} <= spans, spans)
+        self.assertEqual({m[2] for m in s.recognized(corpus, self.TEXTS[2])}, {"e.kit"})
+
+    def test_case_equivalent_code_points_are_recognized_both_ways(self):
+        pairs = case_equivalents()
+        self.assertTrue({("k", "K"), ("s", "ſ"), ("i", "ı"), ("i", "İ")} <= set(pairs), pairs)
+        for ascii_character, other in pairs:
+            with self.subTest(ascii=ascii_character, other=hex(ord(other))):
+                corpus = bare_corpus({
+                    "e.ascii": (ascii_character, [f"{ascii_character}q{ascii_character}", f"q {ascii_character}"], []),
+                    "e.other": (other, [f"{other}q{other}", f"q {other}"], [])})
+                for identity, spelled in (("e.ascii", other), ("e.other", ascii_character)):
+                    text = f"{spelled}, {spelled}q{spelled} and q {spelled}."
+                    found = s.recognized(corpus, text)
+                    self.assertEqual(found, scan_every_pattern(corpus, text), text)
+                    self.assertEqual(len({m[:2] for m in found if m[2] == identity}), 3, (identity, text, found))
+        # A character that cannot continue a word but lowercases to an ASCII letter or digit still bounds a phrase.
+        word = re.compile(r"\w")
+        corpus = bare_corpus({"e.kit": ("Kit", ["kit"], [])})
+        for boundary in (c for c in map(chr, range(0x110000)) if not 0xD800 <= ord(c) < 0xE000
+                         and not word.match(c) and re.search(r"[A-Za-z0-9]", c.lower())):
+            text = f"{boundary}kit{boundary}"
+            self.assertEqual(s.recognized(corpus, text), scan_every_pattern(corpus, text), hex(ord(boundary)))
+
+    def test_rejected_form_diagnostics_match_a_scan_with_every_form(self):
+        rejected = {"example.writer": [("kit maker", False), ("Kelvin gauge", False), ("SIGN off", True)],
+                    "example.acceptance": [("file id", False), ("ſet up", False)]}
+        def add(value):
+            for identity, forms in rejected.items():
+                value["entities"][identity]["rejected_forms"].extend(
+                    dict(text=text, replacement="x", reason="Fixture.", **({"case_sensitive": True} if exact else {}))
+                    for text, exact in forms)
+        metadata(self.paths, s.JSON_PATHS[0], add)
+        forms = [text for group in rejected.values() for text, _ in group]
+        paragraphs = sorted(set(self.mixed([*forms, "plain words", "xkit maker", "kit makers"], [" ", ", ", " and "], 400)))
+        paragraphs = [" ".join(p.split()) for p in paragraphs if p.strip()]
+        lines = self.paths[ACCEPTANCE].decode().count("\n")
+        self.paths[ACCEPTANCE] += "".join(f"\nNote {p}\n" for p in paragraphs).encode()
+        candidate = corpus(self.paths)
+        expected = set()
+        for number, paragraph in enumerate(paragraphs):
+            for identity, entity in candidate.entities.items():
+                for form in entity["rejected_forms"]:
+                    flags = 0 if form.get("case_sensitive") else re.I
+                    if re.search(r"(?<!\w)" + re.escape(form["text"]) + r"(?!\w)", f"Note {paragraph}", flags):
+                        expected.add((lines + 2 + 2 * number, f"rejected form for entity '{identity}'; use its registered replacement"))
+        actual = {(d.line, d.message) for d in s.check(candidate).errors if d.code == "D13"}
+        self.assertEqual(actual, expected)
+        self.assertGreater(len(expected), 100)
+
+
+class LiteralAnnotationTests(CorpusFixture, unittest.TestCase):
+    """Each literal example needs a home link beside it, across only blank container lines."""
+
+    LAYOUTS = {
+        "after": ("```text\nwriter\n```\n\n**Entities in this example:** [Writer](#writer).\n", False),
+        "before": ("**Entities in this example:** [Writer](#writer).\n\n\n```text\nwriter\n```\n", False),
+        "quoted": ("> ```text\n> writer\n> ```\n>\n> **Entities in this example:** [Writer](#writer).\n", False),
+        "separated": ("```text\nwriter\n```\n\nUnrelated explanation.\n\n**Entities in this example:** [Writer](#writer).\n", True),
+        "missing": ("```text\nwriter\n```\n", True),
+    }
+
+    def document(self, count):
+        """Insert count literal examples in rotating layouts; return the lines expected to need a link."""
+        start = self.paths[ACCEPTANCE].decode().split("**Procedure: demonstrate")[0].count("\n")
+        blocks, expected = [], []
+        for number in range(count):
+            block, unlinked = list(self.LAYOUTS.values())[number % len(self.LAYOUTS)]
+            if unlinked:
+                expected.append(start + sum(b.count("\n") for b in blocks) + 1)
+            blocks.append(block + "\nUnrelated explanation.\n\n")
+        edit(self.paths, ACCEPTANCE, "**Procedure: demonstrate", "".join(blocks) + "**Procedure: demonstrate")
+        return corpus(self.paths), expected
+
+    def test_many_examples_each_need_their_own_adjacent_link(self):
+        candidate, expected = self.document(250)
+        errors = s.check(candidate).errors
+        self.assertEqual([d.line for d in errors if d.code == "D12"], expected)
+        self.assertEqual({d.code for d in errors}, {"D12"})
+
+    def test_check_time_grows_linearly_with_literal_examples(self):
+        # Protects literal annotation lookups from work that grows with the whole document per example.
+        # With 1000 and 4000 annotated examples, a linear check takes about 3.8 times as long on the larger
+        # document. A scan of every link per example takes about 14 times as long, and copying the
+        # document's line counts in every lookup about 7.5 times. A margin of 6 keeps the linear check at
+        # two thirds of it and both regressions above it. Each sample checks a freshly parsed corpus, so
+        # the first check, which builds the lookup indexes, is timed; parsing stays outside the timer.
+        block = "```text\nwriter\n```\n\n**Entities in this example:** [Writer](#writer).\n\nUnrelated explanation.\n\n"
+        def best(count):
+            paths = self.clean.copy()
+            edit(paths, ACCEPTANCE, "**Procedure: demonstrate", block * count + "**Procedure: demonstrate")
+            runs = []
+            for _ in range(3):
+                candidate = corpus(paths)
+                started = time.perf_counter()
+                result = s.check(candidate)
+                runs.append(time.perf_counter() - started)
+            self.assertTrue(result.ok, result.errors[:3])
+            return min(runs)
+        small, large = best(1000), best(4000)
+        print(f"literal examples: 4x the examples took {large / small:.2f}x as long")
+        self.assertLess(large / small, 6, (small, large))
 
 
 class DiagnosticCoverageSuite(unittest.TestSuite):
