@@ -30,6 +30,8 @@ jobs:
         run: .tmp/spec-docs-env/bin/python skills/spec-writing/scripts/junit_unittest.py --jobs 4 --report .tmp/test-reports/sync.xml discover -s scripts -p test_sync.py
       - name: Test transcript extraction
         run: .tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/junit_unittest.py --jobs 4 --report .tmp/test-reports/operator-protocol.xml discover -s skills/operator-protocol/scripts
+      - name: Test repository checks runner
+        run: .tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/junit_unittest.py --jobs 4 --report .tmp/test-reports/repository-checks.xml discover -s skills/repository-checks/scripts
       - name: Test pull-request watcher
         run: .tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/junit_unittest.py --jobs 4 --report .tmp/test-reports/agent-lanes.xml discover -s skills/agent-lanes/scripts -p 'test_*.py'
       - name: Prepare every role and lens as the review service does
