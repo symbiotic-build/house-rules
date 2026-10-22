@@ -6,7 +6,7 @@ House Rules ships the runner, a default set of checks and an install procedure.
 A repository keeps the defaults, changes their settings, turns them off with a reason or adds its own commands.
 The same runner runs in the Git hook and in CI, so both give the same result for the same input.
 Readers need Git hooks, a CI workflow and the [spec checker](../../skills/spec-writing/SKILL.md) at the level of "it checks Markdown and metadata".
-This design is a draft for operator approval; nothing in it is implemented yet ([#194](https://github.com/symbiotic-build/house-rules/issues/194)).
+The operator approved this design for implementation on 2026-10-23; the work is tracked in [#194](https://github.com/symbiotic-build/house-rules/issues/194).
 
 How does one configuration reach the commit hook, the push hook and CI?
 
@@ -218,7 +218,7 @@ The contract has five parts:
 
 A deleted or renamed-away file selects a `files` check but is not passed to it, because it no longer exists.
 A selection that holds only such files skips the check with the reason "only deleted inputs".
-`{snapshot}` is always a commit identity. `{base}` is a commit identity, except before the first commit, when it is the empty tree's identity. Git accepts both in a comparison, so a `diff` check runs the same command everywhere.
+`{snapshot}` is always a commit identity. `{base}` is a commit identity, except in two cases where it is the empty tree's identity: before the first commit, and at pre-push when the branch has neither an upstream nor a remote default branch. Git accepts both in a comparison, so a `diff` check runs the same command everywhere.
 At pre-commit `{base}` is `HEAD`.
 
 Commands run without a shell, from the repository root, with standard input closed.
@@ -598,7 +598,7 @@ A repository that wants no whitespace check sets `"whitespace": {"enabled": fals
 ## Requirements
 
 These obligations make the mechanisms above implementable and testable.
-Their status is specified within this draft design; the operator's approval of the design settles them.
+Their status is specified; the operator approved them with the design on 2026-10-23.
 
 <a id="req-checks-one-configuration"></a>
 ### Requirement: one configuration with defaults
@@ -736,9 +736,19 @@ A repository runs the checks of the revision it pinned, and a prepared clone nee
 <a id="decisions"></a>
 ## Decisions and alternatives
 
-Each record below is the lead's proposed choice, made on 2026-10-22 within the operator's direction.
+Each record below states its own authority. The lead made most choices on 2026-10-22 within the operator's direction, and the operator approved the whole design on 2026-10-23.
 The operator's direction, quoted: "We should provide sane defaults but it should be all overridable and the hooks should work with different type of rules than we chose as defaults even if they are good."
-None of these choices is approved until the operator approves the design.
+
+<a id="decision-approval"></a>
+### Decision: implement the design
+
+**Choice:** Approve this design and implement it now, in the work packages under [Rollout and work packages](#rollout).
+
+**Authority:** Operator decision, 2026-10-23, relayed by the lead session. The operator answered "1. 1" to the question "Should the merged enforcement design be implemented now? 1. Go: implement it now (recommended)."
+
+**Reason:** No design choice was open, and [#196](https://github.com/symbiotic-build/house-rules/issues/196) met the spec-docs time target in [#198](https://github.com/symbiotic-build/house-rules/pull/198).
+
+**Rejected alternatives:** Waiting for more review rounds on the draft would delay the gap this design closes: rule checks before a commit still depend on agents remembering to run them.
 
 <a id="decision-configuration-file"></a>
 ### Decision: one JSON file in the repository's rules folder
@@ -756,7 +766,7 @@ None of these choices is approved until the operator approves the design.
 
 **Choice:** Ship one standard-library runner in House Rules; hooks and CI run it from the pinned revision, prepared in a per-user cache.
 
-**Authority:** Lead proposal, 2026-10-22; awaits operator approval.
+**Authority:** Lead proposal, 2026-10-22; approved with the design on 2026-10-23.
 
 **Reason:** One program in both places is what makes hook and CI results agree. Running from the pin means a House Rules change reaches a repository only through a reviewed pin move. The [spec-writing skill](../../skills/spec-writing/SKILL.md) already forbids copying the checker into consuming repositories.
 
@@ -767,7 +777,7 @@ None of these choices is approved until the operator approves the design.
 
 **Choice:** Add a marked [hook block](#hook-block) to the hook files in the folder Git already uses, and never set `core.hooksPath`.
 
-**Authority:** Lead proposal, 2026-10-22; awaits operator approval.
+**Authority:** Lead proposal, 2026-10-22; approved with the design on 2026-10-23.
 
 **Reason:** Setting `core.hooksPath` stopped an existing `.git/hooks/post-commit` from running in the scratch test, and six local clones have such a tool-written hook. Five other clones already set `core.hooksPath` for another tool; writing into the folder Git reports works for both cases. Marked blocks follow the convention other tools already use in these files.
 
@@ -778,7 +788,7 @@ None of these choices is approved until the operator approves the design.
 
 **Choice:** Build one snapshot commit at the start of a pre-commit run from a copy of the index, and give every check that commit. Allow at hook stages only checks that read it; run working-tree checks in CI. Stop when the live index differs from the snapshot at the end. Never modify the working tree.
 
-**Authority:** Lead decision, 2026-10-22, after Warden rounds 1 and 2 asked for one; part of the design that awaits operator approval.
+**Authority:** Lead decision, 2026-10-22, after Warden rounds 1 and 2 asked for one; approved with the design on 2026-10-23.
 
 **Reason:** A pre-commit check must see what the commit contains, or a commit can pass with content no check saw. Several agent sessions can share one working tree and one Git stash. Hiding unstaged changes during a run would change files another session is editing, and a stash entry could be applied by the wrong session. The spec checker and `git diff --check` already read a commit. A scratch test built the snapshot this way and left the index file and every reference byte-identical; the spec checker read the snapshot through `--rev`.
 
@@ -800,7 +810,7 @@ None of these choices is approved until the operator approves the design.
 
 **Choice:** Agents get a session-start status line only; no agent hook runs checks.
 
-**Authority:** Lead proposal, 2026-10-22; awaits operator approval. The lead's brief listed agent session start and stop as possible stages.
+**Authority:** Lead proposal, 2026-10-22; approved with the design on 2026-10-23. The lead's brief listed agent session start and stop as possible stages.
 
 **Reason:** Agents commit with Git, so the Git hook already checks every agent commit. An end-of-turn hook would run the checks on turns that commit nothing and duplicate the hook's result.
 
@@ -811,7 +821,7 @@ None of these choices is approved until the operator approves the design.
 
 **Choice:** CI reads `.agents/checks.json` from the commit under test and lists every active override in its report.
 
-**Authority:** Lead proposal, 2026-10-22; awaits operator approval.
+**Authority:** Lead proposal, 2026-10-22; approved with the design on 2026-10-23.
 
 **Reason:** GitHub documents that a `pull_request` workflow runs the workflow file from the PR's merge commit, so a PR controls its own CI step anyway. A pin-move PR must run the new runner to show what changes.
 
@@ -822,12 +832,12 @@ None of these choices is approved until the operator approves the design.
 
 No design choice is open. The operator answered the build-queue question, and left the file name and the warning budget to the lead.
 Spec-docs runs at pre-commit by default; the operator's answer is to make it fast rather than move it.
-Two things remain before implementation: the operator's approval of this design, and [#196](https://github.com/symbiotic-build/house-rules/issues/196) meeting its time target.
+Both conditions for implementation hold: the operator approved the design on 2026-10-23, and [#196](https://github.com/symbiotic-build/house-rules/issues/196) met its time target in [#198](https://github.com/symbiotic-build/house-rules/pull/198).
 
 <a id="rollout"></a>
 ## Rollout and work packages
 
-The work lands as four implementation PRs after the operator approves this design.
+The work lands as four implementation PRs, which the operator approved on 2026-10-23.
 Each PR follows the normal review and closes nothing until the last one closes [#194](https://github.com/symbiotic-build/house-rules/issues/194).
 
 - **Runner and built-ins:** `skills/repository-checks/scripts/checks.py` with `run`, `prepare` and `status`, the whitespace and spec-docs definitions, and its tests. Depends on [#196](https://github.com/symbiotic-build/house-rules/issues/196) for the spec-docs time target. Gate: the acceptance cases below as unit tests.
@@ -918,7 +928,7 @@ python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage c
  "warnings": ["budget: pre-commit took 40.7 s of 10 s; slowest check spec-docs"]}
 ```
 
-`source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `snapshot` is the commit identity passed to the checks. `base` is a commit identity, or the empty tree's identity before the first commit. `result` is `pass`, `fail` or `error`, matching exit status 0, 1 or 2. Each override has `id`, `change` and `reason`.
+`source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `snapshot` is the commit identity passed to the checks. `base` is a commit identity, or the empty tree's identity in the two cases the [check definition](#check-definition) names. `result` is `pass`, `fail` or `error`, matching exit status 0, 1 or 2. Each override has `id`, `change` and `reason`.
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -933,9 +943,9 @@ Until then each is a planned demonstration of the worked example it names; none 
 
 **Requirements:** [One configuration](#req-checks-one-configuration), [same runner](#req-checks-same-runner).
 
-**Inputs:** A fixture clone with a registered specification and no hooks; the tour's install and commits.
+**Inputs:** A fixture clone with a registered specification and no hooks, whose configuration adds one CI-only repository check that reads the working tree (a stub command without `{snapshot}`); the tour's install and commits.
 
-**Expected:** The install writes the tour's configuration and both hook blocks. `run --stage ci --index` after staging the install runs both checks, and lists a configured working-tree check as skipped with its reason. The hook and `run --stage ci` give the same result for the same commit.
+**Expected:** The install writes the tour's configuration and both hook blocks. `run --stage ci --index` after staging the install runs both default checks and lists the stub check as skipped with the reason "reads the working tree; runs in CI on the commit"; `run --stage ci` on the commit runs the stub. The hook and `run --stage ci` give the same result for the same commit.
 
 Evidence: planned, following the [tour](#tour).
 

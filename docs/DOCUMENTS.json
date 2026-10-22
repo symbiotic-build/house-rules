@@ -912,7 +912,7 @@
     {
       "id": "repository-checks",
       "title": "Repository checks",
-      "status": "draft",
+      "status": "approved",
       "purpose": "Repository checks run a repository's deterministic rule checks before each commit, before each push and in CI, from one declared configuration.",
       "audience": "House Rules maintainers and repository owners familiar with Git hooks and CI workflows.",
       "scope": "The check configuration, the check runner, built-in checks, the install procedure, agent session status and the rule line.",
@@ -1092,7 +1092,11 @@
           "explanatory_dependencies": []
         }
       ],
-      "scenarios": []
+      "scenarios": [],
+      "approval": {
+        "authority": "operator",
+        "decision": "repository-checks#decision-approval"
+      }
     }
   ]
 }
