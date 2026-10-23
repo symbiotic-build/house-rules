@@ -998,17 +998,17 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
     env = dict(os.environ, CHECK_STAGE=args.stage, CHECK_BASE=base, CHECK_SNAPSHOT=snapshot, **NO_REPLACE)
     started, results = time.monotonic(), []
     for check, reason, inputs in plan:
-        result = {"id": check["id"], "status": "skipped", "seconds": None, "command": None,
+        result = {"id": check["id"], "status": "skipped", "seconds": None, "command": None, "version": None,
                   "output": "", "fix": None, "rerun": runner_command(*rerun, "--only", check["id"]),
                   "skip_reason": reason}
         if reason is None:
-            command = expand(check["run"], values, inputs)
+            command, version_arguments = expand(check["run"], values, inputs)
             begin = time.monotonic()
-            status, output = start_check(command, root, env)
+            status, output, version = start_check(command, version_arguments, root, env)
             # A failing check that House Rules does not enforce yet warns and leaves its snapshot passing.
             status = status or ("pass" if output[0] == 0 else "fail" if check["enforced"] else "warn")
             result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
-                          output=output[1], fix=check["fix"] if status != "pass" else None)
+                          version=version, output=output[1], fix=check["fix"] if status != "pass" else None)
         results.append(result)
     total = time.monotonic() - started
     ran = [r for r in results if r["status"] != "skipped"]
@@ -1052,30 +1052,73 @@ def select(check, stage, from_index, target, changed):
     return None, inputs
 
 
-def start_check(command, root, env):
-    """Run the check's command from the repository root; return (status or None, (exit status, output)).
+def start_check(command, version_arguments, root, env):
+    """Read the check's version, then run its command, inside the build queue when the machine declares one.
 
-    The status is "error" when the program was not found or could not start, and None when the command ran; then
-    its exit status decides the result. `subprocess` finds the program on PATH and restores the default signal
-    dispositions, so a check that SIGPIPE ends fails.
+    Returns (status or None, (exit status, output), version). The status is "error" when the program was not
+    found or could not start, and None when the command ran; then its exit status decides the result. Through a
+    queue, the queue's exit status is the command's. A version file that cannot be read is a preparation failure.
     """
+    program = find_program(command[0], root, env)
+    if program is None:
+        return "error", (None, f"cannot start {command[0]!r}: No such file or directory\n"), []
+    files = [program] + [command[i] for i in version_arguments
+                         if i and os.path.isfile(os.path.join(str(root), command[i]))]
+    version = [{"path": path, "sha256": digest(root, path)} for path in files]
+    queue = os.environ.get("HOUSE_RULES_CHECK_QUEUE")
     try:
-        proc = subprocess.run(command, cwd=str(root), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT)
+        proc = subprocess.run([queue, *command] if queue else command, cwd=str(root), env=env,
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     except OSError as exc:
-        return "error", (None, f"cannot start {command[0]!r}: {exc.strerror or exc}\n")
-    return None, (proc.returncode, proc.stdout.decode(errors="surrogateescape"))
+        return "error", (None, f"cannot start {(queue or command[0])!r}: {exc.strerror or exc}\n"), version
+    return None, (proc.returncode, proc.stdout.decode(errors="surrogateescape")), version
+
+
+def find_program(name, root, env):
+    """The program the command's start will run, as far as a lookup before the start can tell, or None.
+
+    A name with a slash is taken from the repository root. Otherwise the first PATH entry that is a folder and holds
+    `name` as an executable regular file wins; a relative entry counts from the repository root, and the path is
+    joined, never normalized, so `link/../bin` resolves through the file system as the start does. The start itself
+    uses the system's lookup, which can pass a candidate that cannot start, such as a script whose first line names
+    a missing interpreter; the version then still names the first candidate.
+    """
+    if "/" in name:
+        return name if os.path.isfile(os.path.join(str(root), name)) else None
+    for entry in os.get_exec_path(env):
+        folder = os.path.join(str(root), entry)  # an absolute entry stays as it is
+        candidate = os.path.join(folder, name)
+        if os.path.isdir(folder) and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def digest(root, path):
+    """The SHA-256 of a version file, read immediately before its command is handed to the queue or started."""
+    hasher = hashlib.sha256()
+    try:
+        with open(os.path.join(str(root), path), "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                hasher.update(block)
+    except OSError as exc:
+        raise Failure(f"cannot read {path} to record the check's version ({exc.strerror or exc})",
+                      "make the file readable, or change the check, and run again")
+    return hasher.hexdigest()
 
 
 def expand(run, values, inputs):
-    """Return the command: each `{files}` argument becomes the check's inputs, and placeholders their values."""
-    command = []
+    """Return (the command, the positions of its arguments that can name a version file).
+
+    `{files}` arguments are the check's inputs, not its version, so their positions are left out.
+    """
+    command, positions = [], []
     for arg in run:
         if arg == "{files}":
             command += inputs
         else:
+            positions.append(len(command))
             command.append(PLACEHOLDER.sub(lambda m: values[m.group(1)], arg))
-    return command
+    return command, positions
 
 
 def check_lines(results):
@@ -1083,6 +1126,9 @@ def check_lines(results):
     for result in results:
         detail = result["skip_reason"] if result["status"] == "skipped" else f"{result['seconds']:.1f} s"
         lines.append(f"{LABELS[result['status']]:<6}{result['id']:<12} {detail}")
+        if result["version"]:
+            items = [f"{shlex.quote(item['path'])}@{item['sha256'][:12]}" for item in result["version"]]
+            lines.append("      version: " + " ".join(items))
         lines += indented(result["output"])
         if result["status"] in ("fail", "warn", "error"):
             if result["fix"]:
