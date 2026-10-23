@@ -66,7 +66,7 @@ def python39():
     for candidate in (shutil.which("python3.9"), "/usr/bin/python3"):
         if candidate and os.path.exists(candidate):
             proc = subprocess.run([candidate, "-c", "import sys; print(sys.version_info[:2] == (3, 9))"],
-                                  capture_output=True, text=True)
+                                  capture_output=True, text=True, stdin=subprocess.DEVNULL)
             if proc.stdout.strip() == "True":
                 return candidate
     return None
@@ -364,7 +364,7 @@ class SnapshotTest(RunnerCase):
         self.repo.stage("f.txt")
         self.repo.commit()
         subprocess.run(["git", "merge", "-q", "main"], cwd=str(self.repo.path), env=self.repo.env,
-                       capture_output=True)
+                       capture_output=True, stdin=subprocess.DEVNULL)
         unmerged = self.repo.run("run", "--stage", "pre-commit")
         self.assertPreparationFailure(unmerged, "the index has unmerged entries (f.txt)",
                                       "resolve the conflicts, stage the result and commit again")
