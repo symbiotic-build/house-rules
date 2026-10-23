@@ -121,12 +121,12 @@ class HouseRules:
 
 
 class Repo:
-    def __init__(self, folder, house_rules, cache, name="repo"):
+    def __init__(self, folder, house_rules, cache, name="repo", object_format=None):
         self.path = folder / name
         self.path.mkdir()
         self.main = house_rules.main
         self.env = dict(base_env(), HOUSE_RULES_CACHE=str(cache), HOUSE_RULES_URL=house_rules.url)
-        git(self.path, "init", "-q", "-b", "main")
+        git(self.path, "init", "-q", "-b", "main", *([f"--object-format={object_format}"] if object_format else []))
         self.root = git(self.path, "rev-parse", "--show-toplevel")
 
     def git(self, *args):
@@ -342,6 +342,8 @@ class DefaultsTest(RunnerCase):
             "reason that cannot be printed": (
                 {"checks": {"whitespace": {"enabled": False, "reason": "off \udbff"}}}, None,
                 "the file holds text that cannot be printed or passed to a program: off \\udbff"),
+            "NUL character in a check identity": ({"checks": {"li\0nt": check(["lint", "{snapshot}"], ["ci"])}}, None,
+                                                  "checks has an identity with a NUL character: li\\x00nt"),
             "repository check without fix": (
                 {"checks": {"lint": {k: v for k, v in check(["lint"], ["ci"]).items() if k != "fix"}}}, None,
                 "checks.lint lacks fix"),
@@ -481,6 +483,27 @@ class DefaultsTest(RunnerCase):
         _, report = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "printer")
         self.assertEqual(report["checks"][0]["output"], "a\rb\r\nc\x0cd\n\n\n")
 
+    def test_text_report_keeps_output_bytes_under_another_output_encoding(self):
+        # A direct run of the cached runner, without -I, inherits PYTHONIOENCODING; the report's bytes stay.
+        self.repo.configure({"printer": check(["sh", "-c", "printf '\\303\\251\\n'", "{snapshot}"], ["pre-commit"])})
+        self.assertEqual(self.repo.run("prepare").returncode, 0)
+        resolved = self.cache / "revisions" / self.repo.main / RUNNER
+        text = subprocess.run([sys.executable, "-B", str(resolved), "run", "--stage", "pre-commit", "--only",
+                               "printer"], cwd=str(self.repo.path), env=dict(self.repo.env, PYTHONIOENCODING="latin-1"),
+                              capture_output=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(text.returncode, 0, text.stdout + text.stderr)
+        self.assertIn(b"\n      \xc3\xa9\nAll 1 selected check passed.\n", text.stdout)
+
+    def test_whitespace_ignores_the_clones_core_whitespace(self):
+        self.repo.git("config", "core.whitespace", "-blank-at-eol")  # would hide trailing spaces from git diff --check
+        self.repo.configure()
+        self.repo.write("notes.txt", "trailing \n")
+        self.repo.stage("notes.txt")
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit")
+        whitespace = {c["id"]: c for c in report["checks"]}["whitespace"]
+        self.assertEqual((proc.returncode, whitespace["status"]), (1, "fail"), proc.stderr)
+        self.assertIn("notes.txt:1: trailing whitespace.", whitespace["output"])
+
 
 class SnapshotTest(RunnerCase):
     def test_file_staged_during_the_run_stops_with_preparation_failure(self):
@@ -552,6 +575,50 @@ class SnapshotTest(RunnerCase):
                                                    "see the content Git would commit")
         self.assertEqual([s["result"] for s in report["snapshots"]], ["pass"])
         self.assertEqual(self.repo.git("ls-tree", "--name-only", report["snapshots"][0]["snapshot"], "late.txt"), "")
+
+    def test_file_staged_during_the_handover_of_a_sha256_repository_stops_with_preparation_failure(self):
+        probe = subprocess.run(["git", "init", "-q", "--object-format=sha256", str(self.repo.path.parent / "probe")],
+                               capture_output=True, stdin=subprocess.DEVNULL, env=base_env())
+        if probe.returncode:
+            self.skipTest("the installed Git cannot create a SHA-256 repository")
+        self.repo = Repo(Path(tempfile.mkdtemp(dir=str(self.folder))), self.house_rules, self.cache,
+                         object_format="sha256")
+        self.repo.configure(NO_SPEC)
+        repo = shlex.quote(str(self.repo.path))
+        path = self.racing_git("ls-remote", f"printf 'late\\n' > {repo}/late.txt && \"$REAL\" -C {repo} add late.txt "
+                                            "|| exit 1")
+        proc, report = self.repo.report("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
+        self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
+        self.assertEqual(report["error"]["cause"], "the staged index changed during the run, so the checks did not "
+                                                   "see the content Git would commit")
+        (snapshot,) = report["snapshots"]
+        self.assertEqual(len(snapshot["snapshot"]), 64)
+        self.assertEqual(self.repo.git("ls-tree", "--name-only", snapshot["snapshot"], "late.txt"), "")
+
+    def test_index_copy_folder_that_cannot_be_removed_is_a_preparation_failure(self):
+        if os.geteuid() == 0:
+            self.skipTest("the superuser removes every file")
+        self.repo.configure(NO_SPEC)
+        cases = [
+            ("removal fails", "", r"cannot remove the temporary folder {tmp}/\S+ of the index copy \(.+\)",
+             "free space in or repair access to the temporary folder, and run again"),
+            ("writing the tree fails, then the removal", "; echo 'fatal: synthetic write failure' >&2; exit 128",
+             r"cannot write the staged tree \(fatal: synthetic write failure\); removing the temporary folder "
+             r"{tmp}/\S+ of the index copy failed too \(.+\)",
+             "run the commit again, and repair the clone if the error repeats"),
+        ]
+        for name, then, cause, repair in cases:
+            with self.subTest(name):
+                tmp = Path(tempfile.mkdtemp(dir=str(self.repo.path.parent)))
+                self.addCleanup(os.chmod, str(tmp), 0o700)
+                # The index copy's folder is made in TMPDIR; once TMPDIR forbids removals, it cannot be removed.
+                path = self.racing_git("write-tree", f"chmod 500 {shlex.quote(str(tmp))}{then}")
+                proc, report = self.repo.report("run", "--stage", "pre-commit",
+                                                env=dict(self.repo.env, PATH=path, TMPDIR=str(tmp)))
+                self.assertEqual((proc.returncode, report["result"], report["snapshots"]), (2, "error", []),
+                                 proc.stderr)
+                self.assertRegex(report["error"]["cause"], r"\A" + cause.format(tmp=re.escape(str(tmp))) + r"\Z")
+                self.assertEqual(report["error"]["repair"], repair)
 
     def test_head_moved_during_the_handover_keeps_the_base(self):
         self.repo.configure({"changes": check(["git", "diff", "--name-only", "{base}", "{snapshot}"], ["pre-commit"],
@@ -650,6 +717,35 @@ class SelectionTest(RunnerCase):
         probe = {c["id"]: c for c in report["checks"]}["probe"]
         self.assertEqual((proc.returncode, probe["status"], probe["skip_reason"]),
                          (0, "skipped", "requires marker"), proc.stderr)
+
+    def test_files_check_never_receives_a_submodule(self):
+        reader = 'for f; do git cat-file -e "$0:$f" || exit 1; printf "%s\\n" "$f"; done'
+        self.repo.configure({"blobs": check(["sh", "-c", reader, "{snapshot}", "{files}"], ["pre-commit", "ci"],
+                                            ["lib/**", "vendor"], scope="files")})
+        self.repo.write("lib/a.txt", "a\n")
+        self.repo.stage("lib/a.txt")
+        first = self.repo.commit()
+        second = self.repo.commit("another commit for the submodule entry to name")
+        steps = [
+            ("pre-commit with a submodule and a file staged", ["lib/b.txt"], first, ["--stage", "pre-commit"],
+             ("pass", None, "lib/b.txt\n")),
+            ("CI on the commit", [], None, ["--stage", "ci", "--head", "HEAD"],
+             ("pass", None, "lib/a.txt\nlib/b.txt\n")),
+            ("pre-commit with only the submodule staged", [], second, ["--stage", "pre-commit"],
+             ("skipped", "no matching input", "")),
+        ]
+        for name, files, gitlink, args, expected in steps:
+            with self.subTest(name):
+                for file in files:
+                    self.repo.write(file, file + "\n")
+                    self.repo.stage(file)
+                if gitlink:  # a gitlink: the path holds a commit of another repository, no file
+                    self.repo.git("update-index", "--add", "--cacheinfo", f"160000,{gitlink},vendor")
+                proc, report = self.repo.snapshot("run", *args)
+                result = {c["id"]: c for c in report["checks"]}["blobs"]
+                self.assertEqual((result["status"], result["skip_reason"], result["output"]), expected, proc.stderr)
+                if args[1] == "pre-commit" and files:
+                    self.repo.commit()
 
     def test_skip_reasons_at_each_stage(self):
         self.repo.configure({
@@ -821,6 +917,17 @@ class PushTest(RunnerCase):
             proc = self.push(deleted, json_report=False)
             self.assertEqual((proc.returncode, proc.stdout),
                              (0, "nothing to check: the push only deletes references\n"), proc.stderr)
+
+    def test_reference_names_with_unicode_spaces_and_separators_are_checked(self):
+        for name in ("refs/heads/no\u00a0break", "refs/heads/line\u2028separator"):
+            with self.subTest(name.encode("unicode_escape").decode()):
+                git(self.repo.path, "check-ref-format", name)  # a valid reference name
+                self.repo.git("checkout", "-q", "-B", "feature", "main")
+                sent = self.commit_file("feature.txt")
+                proc, report = self.push(self.line(name, sent))
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual([(s["reference"], s["snapshot"], s["result"]) for s in report["snapshots"]],
+                                 [(name, sent, "pass")])
 
     def test_empty_push_input_checks_nothing(self):
         proc, report = self.push()
@@ -1029,7 +1136,8 @@ class SpecDocsTest(RunnerCase):
                  "fix": TOUR_FIX, "skip_reason": None,
                  "rerun": shlex.join([sys.executable, runner, "run", "--stage", "pre-commit", "--only", "spec-docs"])},
                 {"id": "whitespace", "status": "pass", "output": "", "fix": None, "skip_reason": None,
-                 "command": ["git", f"--attr-source={snapshot}", "diff", "--check", head, snapshot],
+                 "command": ["git", "-c", "core.whitespace=blank-at-eol,space-before-tab,blank-at-eof",
+                             f"--attr-source={snapshot}", "diff", "--check", head, snapshot],
                  "version": [{"path": shutil.which("git"), "sha256": sha256(shutil.which("git"))}],
                  "rerun": shlex.join([sys.executable, runner, "run", "--stage", "pre-commit", "--only",
                                       "whitespace"])}],
@@ -1505,6 +1613,31 @@ class RevisionTest(RunnerCase):
             proc, report = self.repo.report("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
             self.assertEqual((proc.returncode, report["error"]["repair"]), (2, "run again when online"), proc.stderr)
             self.assertIn("(fatal: the remote hung up); removing the temporary repository ", report["error"]["cause"])
+
+    def test_url_authentication_is_never_printed(self):
+        url, shown = "https://tokenuser:s3cr3tpass@127.0.0.1:9/house-rules", "https://127.0.0.1:9/house-rules"
+        # Git's error repeats the URL and its user name; the runner must print neither the user name nor the password.
+        error = f"fatal: unable to access '{url}/': user tokenuser was refused"
+        fail = f"echo {shlex.quote(error)} >&2; exit 128"
+        override = "3" * 40
+        cases = [("main", "ls-remote", {}, f"cannot fetch House Rules main from {shown} ("),
+                 ("override", "fetch", {"HOUSE_RULES_REVISION": override},
+                  f"cannot fetch House Rules {override} from {shown} (")]
+        self.repo.configure(NO_SPEC)
+        for name, command, extra, start in cases:
+            with self.subTest(name):
+                env = lambda: dict(self.repo.env, HOUSE_RULES_URL=url, PATH=self.racing_git(command, fail),
+                                   HOUSE_RULES_CACHE=str(Path(tempfile.mkdtemp(dir=str(self.repo.path.parent)))),
+                                   **extra)
+                text = self.repo.run("run", "--stage", "pre-commit", env=env())
+                proc, report = self.repo.report("run", "--stage", "pre-commit", env=env())
+                self.assertEqual((text.returncode, proc.returncode), (2, 2), text.stderr + proc.stderr)
+                self.assertEqual(report["error"]["cause"],
+                                 f"{start}fatal: unable to access '{shown}/': user *** was refused)")
+                for output in (text.stdout, text.stderr, proc.stdout, proc.stderr):
+                    self.assertNotIn("s3cr3tpass", output)
+                    self.assertNotIn("tokenuser", output)
+                self.assertIn(start, text.stderr)
 
     def test_failure_cause_and_repair_stay_separate_when_a_path_holds_a_separator(self):
         revision = self.house_rules.variant("Require an interpreter that does not exist", self.IMPOSSIBLE_RUNTIME)
