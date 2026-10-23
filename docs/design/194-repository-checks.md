@@ -154,6 +154,7 @@ Everything in this tour uses House Rules defaults.
 > ```
 >
 > The empty `checks` object means "House Rules defaults at this revision": whitespace and spec-docs.
+> The revision is illustrative: it predates the runner, which refuses a pin without one. A real install writes the revision its runner came from.
 
 > **Detail — report printed in step 5**
 >
@@ -198,8 +199,9 @@ The file has four top-level fields:
 - `checks` maps a check identity to an entry. An entry for a built-in identity changes that built-in; any other identity adds a repository check.
 
 The effective set is every built-in [check definition](#check-definition) at the pinned revision, changed by the repository's entries.
+Only the pinned runner judges the entries. A runner at another revision reads only `version` and `house_rules`, then starts the pinned runner, as [Pinning and offline use](#pinning) describes.
 Entry fields are listed in [Configuration fields](#configuration-fields).
-Unknown fields, unknown built-in placeholders, an unsupported version or a revision that is not 40 hexadecimal characters stop the run with a configuration error.
+Unknown fields, unknown built-in placeholders, a NUL character in a command argument, an unsupported version or a revision that is not 40 hexadecimal characters stop the run with a configuration error.
 
 Every entry that changes a default carries a `reason`, and so does every repository check.
 A field whose value equals the built-in default is no change and needs no reason.
@@ -215,18 +217,19 @@ Both follow one contract, so the runner treats a House Rules check and a reposit
 
 The contract has five parts:
 
-- **Inputs.** `paths` lists the repository-relative globs the check reads. `requires` lists files that must exist in the snapshot for the check to apply; a snapshot without them skips the check with that reason.
-- **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files that exist in the snapshot as arguments; `{files}` must be a whole argument of its command. `diff` runs once with a base and the snapshot. A repository check without `scope` has scope `tree`.
+- **Inputs.** `paths` lists the repository-relative globs the check reads. `requires` lists files that must exist in the snapshot for the check to apply; a snapshot without them skips the check with that reason. A folder of that name does not count.
+- **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files that exist in the snapshot as arguments, in place of its `{files}` argument; a `files` check without a whole `{files}` argument is a configuration error. `diff` runs once with a base and the snapshot. A repository check without `scope` has scope `tree`.
 - **Snapshot.** `run` is one argument list. A check that reads the [snapshot commit](#snapshot-handling) names it with `{snapshot}` and reads files from it, never from the working tree. Only such a check may list a hook stage; a check without `{snapshot}` reads the working tree and runs in CI only.
 - **Result.** Exit status 0 is a pass. Any other status is a failure. A command that cannot start, such as a missing program, is an error.
-- **Output.** The runner shows everything the command printed, unshortened, in its [check run report](#check-run-report). `fix` adds one line telling the reader what to change.
+- **Output.** The runner shows everything the command printed, unshortened, in its [check run report](#check-run-report). `fix` adds one line telling the reader what to change. Every built-in has one, and a repository check without `fix` is a configuration error, so every failure carries a fix line.
 
 A deleted or renamed-away file selects a `files` check but is not passed to it, because it no longer exists.
 A selection that holds only such files skips the check with the reason "only deleted inputs".
 `{snapshot}` is always a commit identity. `{base}` is a commit identity, except in three cases where it is the empty tree's identity: before the first commit; at pre-push when a pushed commit has neither a remote commit nor a remote default branch to compare with; and at pre-push when the pushed commit shares no ancestor with the commit it is compared with. Git accepts both in a comparison, so a `diff` check runs the same command everywhere.
-At pre-commit `{base}` is `HEAD`.
+At pre-commit `{base}` is the commit `HEAD` named when the run started; the runner reads it once, for the snapshot's parent and the base.
 
 Commands run without a shell, from the repository root, with standard input closed.
+The runner and every check run with `GIT_NO_REPLACE_OBJECTS=1`, so a local replacement reference cannot change what a commit contains.
 A check must not change files, the index or Git references.
 The runner adds `CHECK_STAGE`, `CHECK_BASE` and `CHECK_SNAPSHOT` to the environment with the same values as the placeholders, so a check script can read the range the runner chose.
 A configuration that lists a hook stage for a check without `{snapshot}` stops with a configuration error.
@@ -260,7 +263,7 @@ CI therefore also catches a commit made without hooks, such as one from a clone 
 
 A `diff` check needs a base. At pre-commit it is `HEAD`, as the check contract states.
 At pre-push Git writes one line per pushed reference to the hook's standard input: local reference, local commit, remote reference and remote commit.
-The runner checks each pushed local commit as its own snapshot, so a commit made in the same clone during the push cannot stand in for the one Git sends. It checks them in the order of Git's lines. A deleted reference, whose local commit is all zeros, has nothing to check.
+The runner checks each pushed local commit as its own snapshot, so a commit made in the same clone during the push cannot stand in for the one Git sends. It checks them in the order of Git's lines. A deleted reference, whose local commit is all zeros, has nothing to check. Standard input without any reference line also checks nothing, and the runner says so.
 
 Before using an object Git names, the runner resolves it to the commit it points at (`<object>^{commit}`), so a pushed annotated tag is checked as its commit. A pushed object that resolves to no commit, such as a tag of a tree, stops the run with a [preparation failure](#failure-preparation) naming the reference. A remote object that resolves to no commit counts as absent, so the base falls back to the remote's default branch.
 
@@ -290,8 +293,9 @@ At pre-commit the runner builds it once, at the start, without touching the real
 At pre-push the snapshot is each pushed commit that Git names on the hook's standard input, and in CI it is the commit under test.
 The runner reads the configuration, the pin, `requires` and the changed files from the snapshot, and passes it to every check as `{snapshot}`.
 Spec-docs reads it with `--rev {snapshot}`. Whitespace compares it with `git --attr-source={snapshot} diff --check {base} {snapshot}`, so the whitespace rules in `.gitattributes` also come from the snapshot.
+The clone's own Git configuration, such as `core.whitespace`, still applies to that command. A clone that sets it can therefore get another whitespace result than CI, whose fresh clone has no such setting; CI's result decides the PR.
 
-After the last check the runner builds the tree of the live index again, the same way.
+After the last check the runner builds the tree of the live index again, the same way. It does so also for a snapshot without a configuration, which ran no check.
 When it differs from the snapshot's tree, another process staged something during the run. The run then stops with a [preparation failure](#failure-preparation), because the commit Git is about to write is not the content the checks saw.
 Git writes the commit from the live index after the hook exits. A change in that last moment is not detected; CI checks the commit that results.
 
@@ -336,7 +340,7 @@ The hooks refuse the commit or push on any nonzero status.
 ### Check run report
 
 A check run report is the runner's account of one run and of each check in it.
-It names the stage and, for each snapshot the run checked, the snapshot, its base and its House Rules revision. For each check it gives the status, duration, output, fix line and rerun command.
+It names the stage and, for each snapshot the run checked, the snapshot, its base and its House Rules revision. The JSON report holds each identity in full. The text report names where the snapshot came from, "the staged index" or the commit's short identity, and shows the base only at pre-push. For each check it gives the status, duration, output, fix line and rerun command.
 
 A run checks one snapshot, except at pre-push, where it checks one per pushed commit. Each pushed commit is checked with its own configuration. Pushed commits that pin different House Rules revisions stop the run with a [preparation failure](#failure-preparation); the author pushes them separately.
 
@@ -474,7 +478,7 @@ The agent side only needs to notice a clone where the hooks are missing.
 It runs `checks.py status --session` from the House Rules main checkout. In a repository with a [check configuration](#check-configuration) it prints one line:
 
 - `repository checks: ready (House Rules ebb6b37, hooks installed)`, or
-- what is missing, with the command that fixes it: no hook block, the pinned revision not in the cache, or the spec checker's environment not built.
+- what is missing, with the command that fixes it: no hook block, a hook file that is not executable, the pinned revision not in the cache, or the spec checker's environment not built.
 
 In a managed repository, one that has `.agents/rules.md`, without a configuration it prints the install command. Elsewhere it prints nothing.
 It always exits 0. A configuration error becomes its one line, so a broken file never stops a session from starting.
@@ -500,11 +504,13 @@ The runner prepares a revision once and reuses it:
 > **Detail — cache layout**
 >
 > - The cache root is `HOUSE_RULES_CACHE`, or `$XDG_CACHE_HOME/house-rules`, or `~/.cache/house-rules`.
-> - `source.git` is a bare repository. It fetches each pinned commit from the pinned `url` into `refs/pins/<commit>`, not the whole history. `HOUSE_RULES_CLONE` names an existing House Rules clone to read objects from instead.
+> - `source.git` is a bare repository. It fetches each pinned commit from the pinned `url` into `refs/pins/<commit>` with depth 1, not the whole history. When a fetch fails while another process fetches the same pin, the runner uses the pin once it is present. `HOUSE_RULES_CLONE` names an existing House Rules clone to read objects from instead.
 > - `revisions/<commit>/` holds that commit's files, extracted with `git archive`. Files are read-only; folders stay writable, so the cache can be removed.
 > - `environments/<digest>/` holds one virtual environment per requirements lock and interpreter version. The digest is SHA-256 over the lock file and `CPython <major>.<minor>`.
 > - The environment's interpreter is the running one when the spec checker supports it, and otherwise the newest supported `python3.<minor>` on `PATH`.
 > - A revision or environment is built in a temporary folder and renamed into place. Two hooks that prepare the same revision at once both end with one complete copy.
+> - The cache survives an interrupted process, because nothing uses an entry before its rename. It is not built to survive a host power loss: an entry can then be incomplete, and the repair is to delete the cache folder.
+> - Extracting a revision from its commit makes its files the pin's files; the runner trusts a cache entry after that and checks only that the runner file exists.
 
 The runner in a hook is the one at the path in `house-rules.checks-runner`.
 A pull can move the pin, so that runner's revision can differ from the configuration's pin. It then prepares the pinned revision and runs the runner from it.
@@ -525,7 +531,7 @@ That pin and the repository's pin are independent; the report names the revision
 
 This refusal keeps a commit from passing without its checks having run.
 
-**Trigger:** The configuration is invalid, the pinned revision cannot be read or fetched, the pinned revision has no runner, or no supported interpreter or environment can be prepared.
+**Trigger:** The configuration is invalid, the pinned revision cannot be read or fetched, the pinned revision has no runner, the cache cannot be written, or no supported interpreter or environment can be prepared.
 Pushed commits pin different House Rules revisions.
 The live index's tree differs from the snapshot at the end of a pre-commit run.
 The snapshot cannot be built: the index copy cannot be read, or the index still has unmerged entries.
@@ -539,6 +545,7 @@ The report's `error` names the pushed reference the failure concerns: the refere
 **Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used. A failed temporary copy of the pushed references is removed, except when a plain `/bin/sh` exits at a failed reopening; the file then stays in the temporary folder.
 
 **Recovery:** The author runs the printed repair: `checks.py prepare` when online, `checks.py install` for a missing setting, or a configuration fix through a reviewed PR.
+`prepare` reads the index's configuration. For a pushed commit whose pin is missing, the repair is to push again when online, because the run fetches that commit's pin itself.
 For a changed index the author reviews what was staged and commits again.
 For unmerged entries the author resolves the conflicts and stages the result; for an unreadable index the author runs the commit again, and repairs the clone if the error repeats.
 For an old Git the author installs a Git that supports `--attr-source`.
@@ -914,7 +921,7 @@ This chapter lists the exact fields, built-ins, commands and report format for t
 <a id="configuration-fields"></a>
 ### Configuration fields
 
-Fields of one entry in `checks`. A built-in entry may set any field; a repository check needs `run`, `stages`, `paths` and `reason`.
+Fields of one entry in `checks`. A built-in entry may set any field; a repository check needs `run`, `stages`, `paths`, `fix` and `reason`.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -931,6 +938,20 @@ A `budgets` entry has `seconds`, a positive number, and `reason`. The default pr
 
 Placeholders in `run`: `{files}` (one argument per selected file; `files` scope only), `{base}`, `{snapshot}`, `{house_rules}` (the pinned tree) and `{python}` (the pinned spec checker environment's interpreter). `{base}` and `{snapshot}` hold the same values at every stage that the [snapshot handling](#snapshot-handling) defines.
 Glob `**/` matches zero or more folders and `*` matches within one path segment, as in the `.rule-changes.json` file of the [rule-changes specification](../specs/rule-changes/rule-changes.md).
+
+<a id="naming-conventions"></a>
+### Naming conventions
+
+Each kind of public name in this design follows one convention:
+
+- Configuration fields, report fields and Git setting keys after their section are lower snake case: `skip_reason`, `house_rules`. Git settings sit in the `house-rules` section in kebab case: `house-rules.checks-runner`.
+- Check identities, stages and command options are lower kebab case, noun first for identities: `spec-docs`, `pre-commit`, `--update-pin`.
+- Runner commands are one lower-case verb: `run`, `install`, `prepare`, `status`.
+- Placeholders are a lower snake-case noun in braces: `{snapshot}`, `{house_rules}`.
+- Environment variables are upper snake case; those the runner reads start with `HOUSE_RULES_`, and those it sets for checks start with `CHECK_`.
+- Statuses, results and scopes are one lower-case word: `pass`, `error`, `files`.
+
+A new name follows the convention of its kind. Repositories that adopt the checks name their own repository checks; they follow these conventions only for the fields and options the runner defines.
 
 <a id="built-in-checks"></a>
 ### Built-in checks
@@ -956,7 +977,7 @@ checks.py prepare
 checks.py status [--session]
 ```
 
-`--remote NAME` names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. `--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--house-rules PATH` runs from an existing House Rules checkout, which must be at the pinned revision; the CI step uses it. `--only` limits the run to named checks and is what the report's rerun line uses.
+`--remote NAME` names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. `--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--house-rules PATH` names an existing House Rules clone to read the pinned commit from, which must contain it; the runner extracts the pin into the cache as with `HOUSE_RULES_CLONE`, so a later checkout in that clone cannot change the checks. The CI step uses it. `--only` limits the run to named checks and is what the report's rerun line uses. `--base` accepts a commit or the empty tree's identity, so a rerun line can repeat any base the runner chose.
 
 A pre-push rerun line also names the snapshot and its base, `--head <commit> --base <base>`. With `--head` the runner checks that one commit and reads no standard input.
 A CI rerun line holds the CI machine's paths, such as `.tmp/house-rules`. To rerun it locally, the reader replaces them with the local runner and drops `--house-rules`.
