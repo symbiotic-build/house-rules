@@ -69,7 +69,11 @@ Each technical term below links to its defining Markdown section.
 - [Check run report](194-repository-checks.md#check-run-report) (`repository-checks.check-run-report`) — A check run report is the runner's account of one run and of each check in it.
 - [Check runner](194-repository-checks.md#check-runner) (`repository-checks.check-runner`) — The check runner is skills/repository-checks/scripts/checks.py, one standard-library Python file that reads the configuration, selects checks, runs them and prints the report.
 - [Check stage](194-repository-checks.md#check-stage) (`repository-checks.check-stage`) — A check stage is one point in the change loop where the runner runs checks: pre-commit, pre-push or ci.
+- [Clone settings](194-repository-checks.md#clone-settings) (`repository-checks.clone-setting`) — A clone setting is a per-clone Git setting that the install writes and the hook blocks read.
 - [Hook block](194-repository-checks.md#hook-block) (`repository-checks.hook-block`) — A hook block is the marked shell fragment the install puts into a Git hook file to call the runner.
+- [Run placeholders](194-repository-checks.md#run-placeholders) (`repository-checks.run-placeholder`) — A run placeholder is a name in braces in a check's run that the runner replaces with a value of the run before the command starts.
+- [Runner environment variables](194-repository-checks.md#runner-environment-variables) (`repository-checks.runner-environment-variable`) — A runner environment variable is an environment variable whose name the runner defines.
+- [Runner options](194-repository-checks.md#runner-options) (`repository-checks.runner-option`) — A runner option is one of the double-dash options of the runner's commands, such as --stage and --dry-run.
 <!-- /spec-docs:navigation -->
 
 <a id="evidence"></a>
@@ -123,13 +127,13 @@ Everything in this tour uses House Rules defaults.
 
 **Procedure: install, commit, fix and commit again**
 
-1. **Preview the install:** `python3 <House Rules>/skills/repository-checks/scripts/checks.py install --dry-run`.
+1. **Preview the install:** [`python3 <House Rules>/skills/repository-checks/scripts/checks.py install --dry-run`](#runner-options).
    - Lists the four files it would write and the two per-clone Git settings.
    - Writes nothing.
-2. **Install:** the same command without `--dry-run`.
+2. **Install:** the same command without [`--dry-run`](#runner-options).
    - Writes the [check configuration](#check-configuration), the pre-commit and pre-push [hook blocks](#hook-block) and the CI workflow.
    - Fetches House Rules main and builds the spec checker's environment in the local cache.
-3. **Stage the install and check everything:** `git add` the files the install listed, then `checks.py run --stage ci --index`.
+3. **Stage the install and check everything:** `git add` the files the install listed, then [`checks.py run --stage ci --index`](#runner-options).
    - Runs every CI check that reads the snapshot over the staged snapshot, which already holds the new configuration. Existing failures show before the hook starts refusing commits.
    - Here both checks pass.
 4. **Commit the install** through a normal PR. A reviewer reads the configuration, which changes no default.
@@ -166,6 +170,8 @@ Everything in this tour uses House Rules defaults.
 >       version: /usr/bin/git@9b04e1c7d2aa
 > Commit refused: 1 of 2 checks failed. Fix the findings, stage the fixes and commit again.
 > ```
+>
+> Entities in this example: [runner options](#runner-options).
 >
 > The header names the full House Rules revision and its source, `main`, with the time the cache fetched it. Each `version:` line names the program and the script files the check ran, each with the first 12 hexadecimal digits of its SHA-256.
 > The 1.8 s, the revision, the fetch time and the digests are illustrative; the 1.8 s assumes [#196](https://github.com/symbiotic-build/house-rules/issues/196) meets its target of 2 s or less on the large corpus. The version and rerun lines hold full paths; they are shortened here.
@@ -221,22 +227,22 @@ Both follow one contract, so the runner treats a House Rules check and a reposit
 The contract has six parts:
 
 - **Inputs.** `paths` lists the repository-relative globs the check reads. `requires` lists files that must exist in the snapshot for the check to apply; a snapshot without them skips the check with that reason. Only a regular file or a symbolic link counts; a folder or a submodule of that name does not.
-- **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files that exist in the snapshot as arguments, in place of its `{files}` argument; a `files` check without a whole `{files}` argument is a configuration error. `diff` runs once with a base and the snapshot. A repository check without `scope` has scope `tree`.
-- **Snapshot.** `run` is one argument list. A check that reads the [snapshot commit](#snapshot-handling) names it with `{snapshot}` and reads files from it, never from the working tree. Only such a check may list a hook stage; a check without `{snapshot}` reads the working tree and runs in CI only.
+- **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files that exist in the snapshot as arguments, in place of its [`{files}`](#run-placeholders) argument; a `files` check without a whole [`{files}`](#run-placeholders) argument is a configuration error. `diff` runs once with a base and the snapshot. A repository check without `scope` has scope `tree`.
+- **Snapshot.** `run` is one argument list. A check that reads the [snapshot commit](#snapshot-handling) names it with [`{snapshot}`](#run-placeholders) and reads files from it, never from the working tree. Only such a check may list a hook stage; a check without [`{snapshot}`](#run-placeholders) reads the working tree and runs in CI only.
 - **Result.** Exit status 0 is a pass. Any other status is a failure. For a built-in that House Rules does not enforce yet, it is a warning instead, as [New built-in checks warn first](#warning-first) explains. A command that cannot start, such as a missing program, is an error, also when it waits in the [build queue](#build-queue).
 - **Output.** The runner shows everything the command printed, unshortened and unchanged, in its [check run report](#check-run-report). `fix` adds one line telling the reader what to change. Every built-in has one, and a repository check without `fix` is a configuration error, so every failure carries a fix line.
 - **Version.** The runner records which program and script files the check ran, with their SHA-256, as [What each run logs](#logged-versions) defines. A check needs nothing for this. A check that uses prompts names their versions in its own output.
 
 A deleted or renamed-away file selects a `files` check but is not passed to it, because it no longer exists.
 A selection that holds only such files skips the check with the reason "only deleted inputs".
-`{snapshot}` is always a commit identity. `{base}` is a commit identity, except in three cases where it is the empty tree's identity: before the first commit; at pre-push when a pushed commit has neither a remote commit nor a remote default branch to compare with; and at pre-push when the pushed commit shares no ancestor with the commit it is compared with. Git accepts both in a comparison, so a `diff` check runs the same command everywhere.
-At pre-commit `{base}` is the commit `HEAD` named when the run started; the runner reads it once, for the snapshot's parent and the base.
+[`{snapshot}`](#run-placeholders) is always a commit identity. [`{base}`](#run-placeholders) is a commit identity, except in three cases where it is the empty tree's identity: before the first commit; at pre-push when a pushed commit has neither a remote commit nor a remote default branch to compare with; and at pre-push when the pushed commit shares no ancestor with the commit it is compared with. Git accepts both in a comparison, so a `diff` check runs the same command everywhere.
+At pre-commit [`{base}`](#run-placeholders) is the commit `HEAD` named when the run started; the runner reads it once, for the snapshot's parent and the base.
 
 Commands run without a shell, from the repository root, with standard input closed. A repository check keeps the environment the runner was started with. Only the built-in spec-docs isolates its interpreter, with Python's `-I` option, as [Built-in checks](#built-in-checks) states.
 The runner and every check run with `GIT_NO_REPLACE_OBJECTS=1`, so a local replacement reference cannot change what a commit contains.
 A check must not change files, the index or Git references.
-The runner adds `CHECK_STAGE`, `CHECK_BASE` and `CHECK_SNAPSHOT` to the environment with the same values as the placeholders, so a check script can read the range the runner chose.
-A configuration that lists a hook stage for a check without `{snapshot}` stops with a configuration error.
+The runner adds [`CHECK_STAGE`](#runner-environment-variables), [`CHECK_BASE`](#runner-environment-variables) and [`CHECK_SNAPSHOT`](#runner-environment-variables) to the environment with the same values as the placeholders, so a check script can read the range the runner chose.
+A configuration that lists a hook stage for a check without [`{snapshot}`](#run-placeholders) stops with a configuration error.
 
 The built-in definitions at the first implemented revision are whitespace and spec-docs, listed in [Built-in checks](#built-in-checks). Both are enforced.
 Spec-docs reads its naming style from the repository's own `docs/ENTITIES.json`.
@@ -313,8 +319,8 @@ At pre-commit the runner builds it once, at the start, without touching the real
 3. **Wrap the tree in a commit:** `git commit-tree <tree> -p HEAD`, without `-p` before the first commit. The runner sets a fixed author and committer, `repository checks <checks@localhost>`, so the step needs no Git identity. No branch or reference points to the commit.
 
 At pre-push the snapshot is each pushed commit that Git names on the hook's standard input, and in CI it is the commit under test.
-The runner reads the configuration, `requires` and the changed files from the snapshot, and passes it to every check as `{snapshot}`.
-Spec-docs reads it with `--rev {snapshot}`. Whitespace compares it with `git --attr-source={snapshot} diff --check {base} {snapshot}`, so the whitespace rules in `.gitattributes` also come from the snapshot.
+The runner reads the configuration, `requires` and the changed files from the snapshot, and passes it to every check as [`{snapshot}`](#run-placeholders).
+Spec-docs reads it with [`--rev {snapshot}`](#run-placeholders). Whitespace compares it with [`git --attr-source={snapshot} diff --check {base} {snapshot}`](#run-placeholders), so the whitespace rules in `.gitattributes` also come from the snapshot.
 The clone's own Git configuration, such as `core.whitespace`, still applies to that command. A clone that sets it can therefore get another whitespace result than CI, whose fresh clone has no such setting; CI's result decides the PR.
 
 A runner at another revision builds the snapshot before it resolves House Rules. It then hands over to the runner at the resolved revision, as [House Rules revision and offline use](#revision) describes. It passes the snapshot commit, its tree and its parent to the started runner, which checks that snapshot instead of building another. A file staged, or `HEAD` moved, while the first runner resolves and hands over therefore changes neither the snapshot nor its base.
@@ -324,7 +330,7 @@ When it differs from the snapshot's tree, the tree the first runner built, anoth
 Git writes the commit from the live index after the hook exits. A change in that last moment is not detected; CI checks the commit that results.
 
 A check that reads the working tree, such as a linter run on its files, cannot see the snapshot. It runs in CI, on a clean checkout of the commit.
-A repository that wants it at pre-commit wraps it to read the files from `{snapshot}`, for example with `git show {snapshot}:<path>` piped to the tool.
+A repository that wants it at pre-commit wraps it to read the files from [`{snapshot}`](#run-placeholders), for example with [`git show {snapshot}:<path>`](#run-placeholders) piped to the tool.
 
 ### Keeping pre-commit fast
 
@@ -346,7 +352,7 @@ Parallel checks would add load on a shared machine. A repository with many slow 
 ### Build queue
 
 A machine can declare a build queue: one shared queue in which builds and test runs wait, one at a time.
-When the environment variable `HOUSE_RULES_CHECK_QUEUE` names the machine's queue command, the runner starts every check through it.
+When the environment variable [`HOUSE_RULES_CHECK_QUEUE`](#runner-environment-variables) names the machine's queue command, the runner starts every check through it.
 The queue starts the runner's internal `launch` mode, and that mode starts the check's program, as [What each run logs](#logged-versions) describes. The mode writes a start record to a file the runner names. The runner reads from it whether the program started, so a queue's own exit status never makes a program that could not start a finding.
 The queue must let a queued tool started inside a queued command, such as a build tool inside a check, run straight through. The queue on the measured machine does this, so a check never waits for itself.
 A commit can therefore wait behind another session's build. The [queue decision](#decision-build-queue) records why.
@@ -366,7 +372,7 @@ The hooks refuse the commit or push on any nonzero status.
 ### Check run report
 
 A check run report is the runner's account of one run and of each check in it.
-It names the stage, the run's House Rules revision with its source, and, for each snapshot the run checked, the snapshot and its base. The JSON report holds each identity in full. The text report names where the snapshot came from, "the staged index" or the commit's short identity, and shows the base only at pre-push. Its header line names the full House Rules revision and, in brackets, its source and when the cache fetched it: `main, fetched <time>`, `cached main, fetched <time>` or `override HOUSE_RULES_REVISION, fetched <time>`. For each check it gives the status, duration, version, output, fix line and rerun command.
+It names the stage, the run's House Rules revision with its source, and, for each snapshot the run checked, the snapshot and its base. The JSON report holds each identity in full. The text report names where the snapshot came from, "the staged index" or the commit's short identity, and shows the base only at pre-push. Its header line names the full House Rules revision and, in brackets, its source and when the cache fetched it: `main, fetched <time>`, `cached main, fetched <time>` or [`override HOUSE_RULES_REVISION, fetched <time>`](#runner-environment-variables). For each check it gives the status, duration, version, output, fix line and rerun command.
 
 A run checks one snapshot, except at pre-push, where it checks one per pushed commit. Each pushed commit is checked with its own configuration, and every snapshot of the run uses the one House Rules revision the run resolved.
 
@@ -380,7 +386,7 @@ Each check's status is `pass`, `fail`, `warn`, `error` or `skipped`. `warn` is a
 - "no staged input" at pre-commit and "no changed input" at pre-push, when no changed file matches;
 - "no matching input" in CI, for a `files` check without a matching file;
 - "only deleted inputs" for a `files` check whose matching files were all deleted;
-- "reads the working tree; runs in CI on the commit" for a check without `{snapshot}` in a run on the index;
+- "reads the working tree; runs in CI on the commit" for a check without [`{snapshot}`](#run-placeholders) in a run on the index;
 - "not configured for <stage>" for a check named with `--only` that does not list the stage.
 
 The report then lists every override of a default with its reason, and any warnings. A run that could not fetch House Rules main and used the main last fetched adds one warning. That warning names the revision and when it was fetched.
@@ -424,21 +430,21 @@ Running it again repairs missing pieces and keeps every choice the repository ma
 
 **Procedure: install repository checks in one clone**
 
-1. **Preview:** `checks.py install --dry-run`. Lists each file and setting with "create", "update", "unchanged" or "refused", and writes nothing.
+1. **Preview:** [`checks.py install --dry-run`](#runner-options). Lists each file and setting with "create", "update", "unchanged" or "refused", and writes nothing.
 2. **Install:** `checks.py install`. Performs the listed writes.
 3. **Stage the install:** `git add` the configuration and, when written, the CI workflow.
-4. **Check everything:** `checks.py run --stage ci --index`. Every CI check that reads `{snapshot}` runs over the staged snapshot, and failures in existing files show before the hooks start refusing commits. A check that reads the working tree is listed as skipped with the reason "reads the working tree; runs in CI on the commit".
+4. **Check everything:** [`checks.py run --stage ci --index`](#runner-options). Every CI check that reads [`{snapshot}`](#run-placeholders) runs over the staged snapshot, and failures in existing files show before the hooks start refusing commits. A check that reads the working tree is listed as skipped with the reason "reads the working tree; runs in CI on the commit".
 5. **Commit the repository files** through a reviewed PR. CI then runs the same checks on the commit.
 
 > **Detail — what the install writes**
 >
 > - `.agents/checks.json`: created only when absent, with `version` 1 and an empty `checks` object. An existing file is never rewritten.
 > - The `pre-commit` and `pre-push` hook files in the folder `git rev-parse --git-path hooks` prints: the [hook block](#hook-block) is added or refreshed.
-> - Two per-clone Git settings: `house-rules.checks-runner`, the runner's absolute path in the cache, and `house-rules.checks-python`, an absolute interpreter path.
-> - `.github/workflows/repository-checks.yml`, when the repository has `.github/workflows/` or the caller passes `--ci github`. A rerun never rewrites an existing workflow file. It reports when the runner step differs from the current template, so a repository's own setup steps stay.
+> - Two per-clone Git settings: [`house-rules.checks-runner`](#clone-settings), the runner's absolute path in the cache, and [`house-rules.checks-python`](#clone-settings), an absolute interpreter path.
+> - `.github/workflows/repository-checks.yml`, when the repository has `.github/workflows/` or the caller passes [`--ci github`](#runner-options). A rerun never rewrites an existing workflow file. It reports when the runner step differs from the current template, so a repository's own setup steps stay.
 > - Cache contents: the tree of House Rules main and the spec checker's environment, built from its hash-locked requirements.
 
-The installer chooses `house-rules.checks-python` as the newest interpreter on `PATH` that every enabled built-in supports.
+The installer chooses [`house-rules.checks-python`](#clone-settings) as the newest interpreter on `PATH` that every enabled built-in supports.
 With spec-docs enabled that range is CPython 3.11 to 3.14. On the measured machine it chooses `python3.14`, not `python3` 3.15.0.
 
 For another CI system the install writes no file and prints the one command the CI job runs.
@@ -459,7 +465,9 @@ runner=$(git config --get house-rules.checks-runner) || {
 # house-rules:repository-checks:end
 ```
 
-The pre-push block runs `--stage pre-push` instead, and also handles the pushed references that Git writes once to the hook's standard input:
+Entities in this example: [clone settings](#clone-settings), [runner options](#runner-options).
+
+The pre-push block runs [`--stage pre-push`](#runner-options) instead, and also handles the pushed references that Git writes once to the hook's standard input:
 
 ```sh
 # house-rules:repository-checks:begin
@@ -474,6 +482,8 @@ exec < "$refs" || { echo "repository checks: cannot reopen the pushed references
 rm -f "$refs"
 # house-rules:repository-checks:end
 ```
+
+Entities in this example: [clone settings](#clone-settings), [runner options](#runner-options).
 
 The block saves the reference lines to a temporary file and gives them to the runner. When creating or writing that file fails, the block names the failure, removes the file and refuses the push before any check runs, so a partial copy never stands for the whole push. After the runner passes, the block reopens the hook's standard input from that file, so another tool's lines after the block read the same lines; a large-file extension's pre-push hook is one such reader. Removing the file after `exec` is safe, because the open input stays readable until the hook exits.
 
@@ -503,7 +513,7 @@ Agents commit with Git, so the Git hooks check their commits without any agent-s
 The agent side only needs to notice a clone where the hooks are missing.
 
 `scripts/sync.py --install-hooks` registers one more session-start handler beside the House Rules context and the approved-work listing.
-It runs `checks.py status --session` from the House Rules main checkout. In a repository with a [check configuration](#check-configuration) it prints one line:
+It runs [`checks.py status --session`](#runner-options) from the House Rules main checkout. In a repository with a [check configuration](#check-configuration) it prints one line:
 
 - `repository checks: ready (House Rules ebb6b37, main fetched 2026-10-23T14:05:00Z, hooks installed)`, or
 - what is missing, with the command that fixes it: no hook block, a hook file that is not executable, "House Rules main not fetched yet", or the spec checker's environment not built.
@@ -530,19 +540,19 @@ An older revision runs only for a deliberate test, through the [revision overrid
 
 **Procedure: resolve the House Rules revision of one run**
 
-1. **Read the override:** when `HOUSE_RULES_REVISION` is set, the run uses that commit and skips the next step.
+1. **Read the override:** when [`HOUSE_RULES_REVISION`](#runner-environment-variables) is set, the run uses that commit and skips the next step.
 2. **Ask for main:** `git ls-remote <url> refs/heads/main` names main's commit.
 3. **Fetch the tree:** unless the cache already holds that commit's files, the runner fetches the commit and extracts it into the cache.
 4. **Hand over:** a runner at another revision starts the runner at the resolved one and passes it the result and the run's snapshot, so the started runner neither resolves again nor builds another snapshot.
 
 > **Detail — resolution**
 >
-> - The URL is `https://github.com/symbiotic-build/house-rules`, unless `HOUSE_RULES_URL` names another, such as a fork or a test fixture.
+> - The URL is `https://github.com/symbiotic-build/house-rules`, unless [`HOUSE_RULES_URL`](#runner-environment-variables) names another, such as a fork or a test fixture.
 > - Each fetch creates a new temporary bare repository in the cache and fetches the one commit into it with depth 1. It extracts the commit into a temporary revision folder, renames that folder into place and deletes the repository. A commit whose files the cache already holds needs no fetch. The override's commit is fetched the same way.
 > - It asks for main with `ls-remote` and then fetches by commit, instead of fetching the branch.
 > - One process at a time asks for main, fetches it and writes `main.json`. It holds an advisory lock (`flock`) on `main.lock` in the cache for those steps. The system releases the lock when the process ends, however it ends. A run never replaces the record of a later fetch, so the main last fetched never goes back to an earlier one.
 > - Every fetch and `ls-remote` passes `-c http.lowSpeedLimit=1 -c http.lowSpeedTime=30`: Git stops a transfer that moves less than 1 byte per second for 30 s. The runner adds no timer, because the [verification rules](../../rules/delivery.md) (§Verification) fail long-running steps on lack of progress, not on elapsed time. These settings cover HTTP URLs, such as the default; another transport keeps Git's own behaviour.
-> - The handing runner passes the resolution in the environment variable `HOUSE_RULES_RESOLVED`, and the snapshot it built, its commit, tree and parent, in `HOUSE_RULES_SNAPSHOT`. The started runner accepts both only when the resolution names that runner's own revision, and removes both, so no check inherits them.
+> - The handing runner passes the resolution in the environment variable [`HOUSE_RULES_RESOLVED`](#runner-environment-variables), and the snapshot it built, its commit, tree and parent, in [`HOUSE_RULES_SNAPSHOT`](#runner-environment-variables). The started runner accepts both only when the resolution names that runner's own revision, and removes both, so no check inherits them.
 
 A run resolves once, at its first snapshot that has a configuration, before that snapshot's checks. Every later snapshot of the run uses the same revision, so two commits of one push always run at one revision.
 A run whose snapshots have no configuration checks nothing and resolves nothing, so it needs no network.
@@ -551,7 +561,7 @@ The runner prepares a revision once and reuses it:
 
 > **Detail — cache layout**
 >
-> - The cache root is `HOUSE_RULES_CACHE`, or `$XDG_CACHE_HOME/house-rules`, or `~/.cache/house-rules`.
+> - The cache root is [`HOUSE_RULES_CACHE`](#runner-environment-variables), or `$XDG_CACHE_HOME/house-rules`, or `~/.cache/house-rules`.
 > - `main.json` records the main last fetched: its URL, its commit and the UTC time of the fetch, such as `2026-10-23T14:05:00Z`. A successful resolution of main from another URL replaces it.
 > - `main.lock` is the empty file whose lock serializes asking for main, fetching it and writing `main.json`.
 > - `revisions/<commit>/` holds that commit's files, extracted with `git archive`. Files are read-only; folders stay writable, so the cache can be removed.
@@ -560,10 +570,10 @@ The runner prepares a revision once and reuses it:
 > - The environment's interpreter is the running one when the spec checker supports it, and otherwise the newest supported `python3.<minor>` on `PATH`.
 > - A revision or environment is built in a temporary folder whose name starts with `.partial-`, and renamed into place. Two hooks that prepare the same revision at once both end with one complete copy.
 > - The cache survives an interrupted process, because nothing uses an entry before its rename and no run reuses anything Git locks. An interrupted fetch leaves only its temporary repository, with any lock file Git left in it. No run ever uses a `.partial-` folder, so any of them may be deleted when no run is active.
-> - The cache is not built to survive a host power loss: an entry can then be incomplete. The repair has two steps: delete the cache folder, then run the install again from a House Rules checkout. The install prepares the cache and points `house-rules.checks-runner` at the runner of the current main, and the hooks work again after it. `checks.py prepare` alone is not enough when main moved since the install, because the hooks still name the earlier revision's runner.
+> - The cache is not built to survive a host power loss: an entry can then be incomplete. The repair has two steps: delete the cache folder, then run the install again from a House Rules checkout. The install prepares the cache and points [`house-rules.checks-runner`](#clone-settings) at the runner of the current main, and the hooks work again after it. `checks.py prepare` alone is not enough when main moved since the install, because the hooks still name the earlier revision's runner.
 > - Extracting a revision from its commit makes its files the commit's files; the runner trusts a cache entry after that and checks only that the runner file exists.
 
-The runner in a hook is the one at the path in `house-rules.checks-runner`, at the revision the install prepared.
+The runner in a hook is the one at the path in [`house-rules.checks-runner`](#clone-settings), at the revision the install prepared.
 After House Rules main moves, that runner resolves the new main, prepares it and hands over. The runner that runs the checks is therefore always at the run's resolved revision.
 
 Offline use works as follows:
@@ -586,7 +596,7 @@ That choice is independent of the revision a check run uses; the report names th
 <a id="revision-override"></a>
 ### Revision override
 
-A revision override is the environment variable `HOUSE_RULES_REVISION`, a full 40-character commit, that runs that House Rules commit instead of main for one run.
+A revision override is the environment variable [`HOUSE_RULES_REVISION`](#runner-environment-variables), a full 40-character commit, that runs that House Rules commit instead of main for one run.
 It exists for deliberate tests, such as checking a repository against the revision before a House Rules change.
 
 The variable works for direct runs and for hooks alike. A Git hook inherits the environment of the `git commit` or `git push` that starts it.
@@ -601,6 +611,8 @@ The revision in the example below is illustrative and holds no runner. To follow
 > HOUSE_RULES_REVISION=ebb6b3762d90c7f8ed725b5119eb874325aa6c42 checks.py run --stage ci --head HEAD
 > repository checks: ci on commit 9f3c2a1, House Rules ebb6b3762d90c7f8ed725b5119eb874325aa6c42 (override HOUSE_RULES_REVISION, fetched 2026-10-23T14:05:00Z)
 > ```
+>
+> Entities in this example: [runner environment variables](#runner-environment-variables), [runner options](#runner-options).
 
 A value that is not a full commit identity, or a commit the House Rules URL does not have, stops the run with a [preparation failure](#failure-preparation).
 
@@ -610,7 +622,7 @@ A value that is not a full commit identity, or a commit the House Rules URL does
 Each run records what it ran, so a reader of any report or CI log can tell which rules produced a result.
 
 - **House Rules revision.** The run object's `house_rules` holds three fields. `revision` is the full commit. `source` is `main`, `cached main` or `override`. `fetched` is an ISO 8601 UTC time. For `main` it is the time of this run's fetch, and for `cached main` the time of the last fetch. For an override it is the time the commit's folder was renamed into the cache, at the end of the fetch that first put it there.
-- **Check versions.** Each check result that ran holds `version`, a list of `path` and `sha256` pairs. The first pair is the program, the first argument after placeholder expansion. A program without a slash is resolved on `PATH` and listed by its absolute path; one with a slash is read from the repository root. Relative `PATH` entries count from the repository root, the check's working folder, as they do when the program starts. One pair follows for every other argument that names an existing regular file when the check starts, in argument order. A `{files}` argument is the check's input, not its version, so its files are left out.
+- **Check versions.** Each check result that ran holds `version`, a list of `path` and `sha256` pairs. The first pair is the program, the first argument after placeholder expansion. A program without a slash is resolved on `PATH` and listed by its absolute path; one with a slash is read from the repository root. Relative `PATH` entries count from the repository root, the check's working folder, as they do when the program starts. One pair follows for every other argument that names an existing regular file when the check starts, in argument order. A [`{files}`](#run-placeholders) argument is the check's input, not its version, so its files are left out.
 - **Versions of checks that did not run.** A skipped check has `version` set to `null`. A check whose program could not start lists only the files it read before that.
 - **Prompt versions.** No built-in check uses a prompt. A repository check that uses prompts names their versions in its own output, which the report shows unchanged; the runner does not parse it.
 
@@ -641,7 +653,7 @@ The report's `error` names the pushed reference the failure concerns: the refere
 
 **Recovery:** The author runs the printed repair: the same run again when online, `checks.py prepare` when online for an environment, `checks.py install` for a missing setting, or a configuration fix through a reviewed PR.
 At pre-push the offline repair is to push again when online, because the push fetches House Rules main and builds its environment itself.
-For an invalid revision override the author corrects `HOUSE_RULES_REVISION` or unsets it; for a revision without a runner the author names another revision or URL.
+For an invalid revision override the author corrects [`HOUSE_RULES_REVISION`](#runner-environment-variables) or unsets it; for a revision without a runner the author names another revision or URL.
 For a changed index the author reviews what was staged and commits again.
 For unmerged entries the author resolves the conflicts and stages the result; for an unreadable index the author runs the commit again, and repairs the clone if the error repeats.
 For an old Git the author installs a Git that supports `--attr-source`.
@@ -732,10 +744,10 @@ It keeps every default check and adds its own linter for code names.
 > }
 > ```
 >
-> The linter's own configuration holds its naming rule. The command has no `{snapshot}`, so it reads the working tree and runs in CI only, with every matching file.
+> The linter's own configuration holds its naming rule. The command has no [`{snapshot}`](#run-placeholders), so it reads the working tree and runs in CI only, with every matching file.
 
 The default spec-docs check needed no change, because its naming style is data in `docs/ENTITIES.json`.
-A repository that wants the linter before each commit wraps it to read each file from `{snapshot}` and adds `pre-commit` to its stages, as [Running checks](#running) explains.
+A repository that wants the linter before each commit wraps it to read each file from [`{snapshot}`](#run-placeholders) and adds `pre-commit` to its stages, as [Running checks](#running) explains.
 
 ### A repository with no specifications
 
@@ -790,7 +802,7 @@ A check gives the same result in the hook and in CI when both runs have the same
 
 **Condition:** A hook or a CI step runs repository checks.
 
-**Result:** Both run `checks.py run` at the House Rules revision the run resolves, with the same configuration. A runner at another revision prepares and runs the runner at the resolved revision. Two runs resolve different revisions when House Rules main moves between them; the [latest House Rules decision](#decision-latest-house-rules) accepts that, and each report names its revision and each check's version, so a reader can tell which input differed. A clone setting such as `core.whitespace` is an execution input that CI's fresh clone does not have.
+**Result:** Both run `checks.py run` at the House Rules revision the run resolves, with the same configuration. A runner at another revision prepares and runs the runner at the resolved revision. Two runs resolve different revisions when House Rules main moves between them; the [latest House Rules decision](#decision-latest-house-rules) accepts that, and each report names its revision and each check's version, so a reader can tell which input differed. A Git setting of the clone, such as `core.whitespace`, is an execution input that CI's fresh clone does not have.
 
 **Verification:** Fixture House Rules whose main moves between runs.
 
@@ -809,7 +821,7 @@ A pre-commit check sees what the commit contains, and no run disturbs other work
 
 **Condition:** Any stage.
 
-**Result:** Every check of a snapshot reads that snapshot's commit; at pre-commit the run's one snapshot is built from a copy of the index. A runner that hands over passes its snapshot to the started runner, which checks that snapshot and compares the final index with its tree. The configuration and `requires` come from it. A hook stage accepts only checks that read `{snapshot}`. A pre-commit run whose live index no longer matches the snapshot at the end stops. The runner never writes the working tree, the index, the stash or references.
+**Result:** Every check of a snapshot reads that snapshot's commit; at pre-commit the run's one snapshot is built from a copy of the index. A runner that hands over passes its snapshot to the started runner, which checks that snapshot and compares the final index with its tree. The configuration and `requires` come from it. A hook stage accepts only checks that read [`{snapshot}`](#run-placeholders). A pre-commit run whose live index no longer matches the snapshot at the end stops. The runner never writes the working tree, the index, the stash or references.
 
 **Verification:** Fixtures with partly staged files and with a file staged by another process during a run.
 
@@ -866,7 +878,7 @@ A rerun of the install repairs what is missing and changes nothing the repositor
 
 **Condition:** Any clone, with or without existing hooks, `core.hooksPath` or configuration.
 
-**Result:** The install writes only the items listed in check installation, never sets `core.hooksPath`, keeps hook lines outside its markers, refuses hook files it cannot edit safely or that are not executable, and never rewrites an existing configuration. `--dry-run` writes nothing.
+**Result:** The install writes only the items listed in check installation, never sets `core.hooksPath`, keeps hook lines outside its markers, refuses hook files it cannot edit safely or that are not executable, and never rewrites an existing configuration. [`--dry-run`](#runner-options) writes nothing.
 
 **Verification:** Fixture clones with existing hooks, a non-executable hook, a Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook and an existing configuration.
 
@@ -1055,7 +1067,7 @@ Each PR follows the normal review and closes nothing until the last one closes [
 
 Repositories adopt by running the install; nothing changes in a repository that has not.
 After adoption, each House Rules merge reaches the repository at its next run. A new default check warns until a later House Rules PR enforces it.
-Removing adoption is deleting the configuration, the hook blocks and the workflow file; the install's `--dry-run` lists them.
+Removing adoption is deleting the configuration, the hook blocks and the workflow file; the install's [`--dry-run`](#runner-options) lists them.
 
 <a id="reference"></a>
 ## Reference
@@ -1082,8 +1094,52 @@ Fields of one entry in `checks`. A built-in entry may set any field; a repositor
 
 A `budgets` entry has `seconds`, a positive number, and `reason`. The default pre-commit budget is 10 s and needs no entry. Pre-push has no default budget, and CI has no budget.
 
-Placeholders in `run`: `{files}` (one argument per selected file; `files` scope only), `{base}`, `{snapshot}`, `{house_rules}` (the tree of the run's House Rules revision) and `{python}` (the interpreter of that revision's spec checker environment). `{base}` and `{snapshot}` hold the same values at every stage that the [snapshot handling](#snapshot-handling) defines.
 Glob `**/` matches zero or more folders and `*` matches within one path segment, as in the `.rule-changes.json` file of the [rule-changes specification](../specs/rule-changes/rule-changes.md).
+
+<a id="run-placeholders"></a>
+### Run placeholders
+
+A run placeholder is a name in braces in a check's `run` that the runner replaces with a value of the run before the command starts.
+A placeholder lets one definition run unchanged at every stage, because the runner supplies the snapshot, the base and the House Rules paths.
+
+| Placeholder | Value |
+|---|---|
+| [`{files}`](#run-placeholders) | one argument per selected file; `files` scope only |
+| [`{base}`](#run-placeholders) | the base commit, or the empty tree's identity |
+| [`{snapshot}`](#run-placeholders) | the snapshot commit |
+| [`{house_rules}`](#run-placeholders) | the tree of the run's House Rules revision |
+| [`{python}`](#run-placeholders) | the interpreter of that revision's spec checker environment |
+
+[`{base}`](#run-placeholders) and [`{snapshot}`](#run-placeholders) hold the same values at every stage that the [snapshot handling](#snapshot-handling) defines.
+
+<a id="runner-environment-variables"></a>
+### Runner environment variables
+
+A runner environment variable is an environment variable whose name the runner defines.
+The runner reads those whose names start with `HOUSE_RULES_` and sets those whose names start with `CHECK_` for each check, so a reader can tell from its name which side owns a variable.
+
+| Variable | Meaning |
+|---|---|
+| [`HOUSE_RULES_URL`](#runner-environment-variables) | House Rules repository; default `https://github.com/symbiotic-build/house-rules` |
+| [`HOUSE_RULES_REVISION`](#runner-environment-variables) | revision override for one run |
+| [`HOUSE_RULES_CACHE`](#runner-environment-variables) | cache root |
+| [`HOUSE_RULES_CHECK_QUEUE`](#runner-environment-variables) | build-queue command |
+| [`HOUSE_RULES_RESOLVED`](#runner-environment-variables) | set only by a handing runner |
+| [`HOUSE_RULES_SNAPSHOT`](#runner-environment-variables) | set only by a handing runner |
+| [`CHECK_STAGE`](#runner-environment-variables) | set for each check: the stage |
+| [`CHECK_BASE`](#runner-environment-variables) | set for each check: the value of [`{base}`](#run-placeholders) |
+| [`CHECK_SNAPSHOT`](#runner-environment-variables) | set for each check: the value of [`{snapshot}`](#run-placeholders) |
+
+<a id="clone-settings"></a>
+### Clone settings
+
+A clone setting is a per-clone Git setting that the install writes and the hook blocks read.
+Clone settings keep machine paths out of the hook blocks, so a block can also live in a tracked hooks folder.
+
+| Setting | Value |
+|---|---|
+| [`house-rules.checks-runner`](#clone-settings) | the runner's absolute path in the cache |
+| [`house-rules.checks-python`](#clone-settings) | an absolute interpreter path |
 
 <a id="naming-conventions"></a>
 ### Naming conventions
@@ -1091,15 +1147,29 @@ Glob `**/` matches zero or more folders and `*` matches within one path segment,
 Each kind of public name in this design follows one convention:
 
 - Configuration fields, built-in definition fields and report fields are lower snake case: `skip_reason`, `house_rules`, `enforced`.
-- Git settings sit in the `house-rules` section, and the key after it is lower kebab case, subject first: `house-rules.checks-runner`.
-- Check identities, stages and command options are lower kebab case, noun first for identities: `spec-docs`, `pre-commit`, `--dry-run`.
+- Git settings sit in the `house-rules` section, and the key after it is lower kebab case, subject first: [`house-rules.checks-runner`](#clone-settings).
+- Check identities, stages and command options are lower kebab case, noun first for identities: `spec-docs`, `pre-commit`, [`--dry-run`](#runner-options).
 - Runner commands are one lower-case verb: `run`, `install`, `prepare`, `status`.
-- Placeholders are a lower snake-case noun in braces: `{snapshot}`, `{house_rules}`.
-- Environment variables are upper snake case. Those the runner reads start with `HOUSE_RULES_`, such as `HOUSE_RULES_URL` and `HOUSE_RULES_REVISION`. Those it sets for checks start with `CHECK_`.
+- Placeholders are a lower snake-case noun in braces: [`{snapshot}`](#run-placeholders), [`{house_rules}`](#run-placeholders).
+- Environment variables are upper snake case. Those the runner reads start with `HOUSE_RULES_`, such as [`HOUSE_RULES_URL`](#runner-environment-variables) and [`HOUSE_RULES_REVISION`](#runner-environment-variables). Those it sets for checks start with `CHECK_`.
 - Statuses, results and scopes are one lower-case word: `pass`, `warn`, `error`, `files`.
 - Revision sources are lower-case words separated by a space: `main`, `cached main`, `override`.
 
 A new name follows the convention of its kind. Repositories that adopt the checks name their own repository checks; they follow these conventions only for the fields and options the runner defines.
+
+The spec checker enforces four of these conventions. `docs/ENTITIES.json` registers the [runner environment variables](#runner-environment-variables), [clone settings](#clone-settings), [run placeholders](#run-placeholders) and [runner options](#runner-options) as entity symbols, with one naming rule for the `setting` kind and one for the `interface` kind. `spec_docs.py check` then refuses a registered symbol that breaks its pattern, such as `HouseRulesCache` or `--dryRun`.
+
+> **Detail — the two naming rules**
+>
+> - `repository-checks-setting-symbol`: `(?:HOUSE_RULES|CHECK)(?:_[A-Z]+)+|house-rules\.[a-z]+(?:-[a-z]+)*`.
+> - `repository-checks-interface-symbol`: `\{[a-z]+(?:_[a-z]+)*\}|--[a-z]+(?:-[a-z]+)*`.
+> - Each rule applies to every entity of its kind that `docs/ENTITIES.json` registers, for every House Rules document. No other entity of those kinds registers symbols today; one that does later must fit the pattern, or the rule gains an alternative for it.
+
+Reviewers check the rest of the list:
+
+- **Word order and prefixes**, such as noun first for identities and subject first for Git setting keys, which no pattern can tell apart.
+- **Names that are ordinary words**: configuration and report fields, check identities, stages, runner commands, statuses and revision sources. The checker matches a registered symbol in prose too, so registering `run` or `pass` would turn every use of the word into a technical use.
+- **`--base`, `--only` and `--json`**, which other House Rules documents use for the spec checker's own options. Registered here, those uses would count as uses of a runner option outside this design.
 
 <a id="built-in-checks"></a>
 ### Built-in checks
@@ -1111,13 +1181,15 @@ A new name follows the convention of its kind. Repositories that adopt the check
 
 > **Detail — built-in commands and inputs**
 >
-> - `whitespace` reads every file and runs `git --attr-source={snapshot} diff --check {base} {snapshot}` at every stage. Without `--attr-source`, Git reads `.gitattributes` from the working tree, and an unstaged edit there could turn the check off. The runner checks at preparation that Git supports the option; Git 2.54.0 does.
-> - `spec-docs` declares `**` as its input: every file. The checker classifies every candidate Markdown file in any letter case, resolves links to source files and checks generated attributes, so no narrower list is complete. It runs `{python} -I {house_rules}/skills/spec-writing/scripts/spec_docs.py check --root . --rev {snapshot}` at every stage.
+> - `whitespace` reads every file and runs [`git --attr-source={snapshot} diff --check {base} {snapshot}`](#run-placeholders) at every stage. Without `--attr-source`, Git reads `.gitattributes` from the working tree, and an unstaged edit there could turn the check off. The runner checks at preparation that Git supports the option; Git 2.54.0 does.
+> - `spec-docs` declares `**` as its input: every file. The checker classifies every candidate Markdown file in any letter case, resolves links to source files and checks generated attributes, so no narrower list is complete. It runs [`{python} -I {house_rules}/skills/spec-writing/scripts/spec_docs.py check --root . --rev {snapshot}`](#run-placeholders) at every stage.
 > - `-I` runs that interpreter isolated from inherited Python settings: a `PYTHONPATH` that names another parser package cannot change what the checker imports. The runner builds the environment the same way, with `python -I -m venv` and `<environment>/bin/python -I -m pip install`. Repository checks keep the environment they inherit.
 > - It passes no `--base`. With a base, the checker also requires review-assignment input for changed requirements, which only the review procedure supplies.
 
 <a id="runner-commands"></a>
 ### Runner commands
+
+The runner has four commands, each with its [runner options](#runner-options).
 
 ```text
 checks.py run --stage pre-commit|pre-push|ci [--base REV] [--head REV | --index] [--remote NAME] [--only ID]... [--json]
@@ -1126,25 +1198,16 @@ checks.py prepare
 checks.py status [--session]
 ```
 
-`launch` is an internal mode, not a command: the runner starts each check through it, as [What each run logs](#logged-versions) describes.
+Entities in this example: [runner options](#runner-options).
 
-`--remote NAME` names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. `--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--only` limits the run to named checks and is what the report's rerun line uses. `--base` accepts a commit or the empty tree's identity, so a rerun line can repeat any base the runner chose.
+`launch` is an internal mode, not a command: the runner starts each check through it, as [What each run logs](#logged-versions) describes.
 
 `prepare` fetches House Rules main, or the revision override's commit. It then builds the environment that the index's configuration needs.
 `status` never fetches. It prints the effective set from the runner at the revision a run would use offline: the revision override when set, else the main last fetched. A check that warns first is listed with "(warning only)". With no main fetched it prints "House Rules main not fetched yet" and that the effective set is unavailable until `prepare`, because that revision's runner defines it.
 
-The runner reads these environment variables:
+The runner reads the [runner environment variables](#runner-environment-variables) whose names start with `HOUSE_RULES_`.
 
-| Variable | Meaning |
-|---|---|
-| `HOUSE_RULES_URL` | House Rules repository; default `https://github.com/symbiotic-build/house-rules` |
-| `HOUSE_RULES_REVISION` | revision override for one run |
-| `HOUSE_RULES_CACHE` | cache root |
-| `HOUSE_RULES_CHECK_QUEUE` | build-queue command |
-| `HOUSE_RULES_RESOLVED` | set only by a handing runner |
-| `HOUSE_RULES_SNAPSHOT` | set only by a handing runner |
-
-A pre-push rerun line also names the snapshot and its base, `--head <commit> --base <base>`. With `--head` the runner checks that one commit and reads no standard input.
+A pre-push rerun line also names the snapshot and its base, [`--head <commit> --base <base>`](#runner-options). With [`--head`](#runner-options) the runner checks that one commit and reads no standard input.
 A CI rerun line holds the CI machine's paths, such as `.tmp/house-rules`. To rerun it locally, the reader replaces them with the local runner.
 
 The workflow the install writes for GitHub Actions has four steps. It checks out the repository with full history and sets up Python 3.13. It checks out nothing of House Rules; it clones House Rules main and runs that runner:
@@ -1154,7 +1217,16 @@ git clone --depth 1 https://github.com/symbiotic-build/house-rules .tmp/house-ru
 python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage ci --base <PR base or previous commit> --head <commit>
 ```
 
+Entities in this example: [runner options](#runner-options).
+
 The runner then resolves House Rules main itself. It normally equals the clone's revision; after a House Rules merge between the two steps, the cloned runner hands over to the newer one. The job log holds the text report with the revision and each check's version.
+
+<a id="runner-options"></a>
+#### Runner options
+
+A runner option is one of the double-dash options of the runner's commands, such as `--stage` and `--dry-run`.
+
+[`--remote NAME`](#runner-options) names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. [`--index`](#runner-options) builds the snapshot from the staged index, as pre-commit does, for the install's preflight; [`--head`](#runner-options) names a commit instead. `--only` limits the run to named checks and is what the report's rerun line uses. `--base` accepts a commit or the empty tree's identity, so a rerun line can repeat any base the runner chose.
 
 <a id="report-format"></a>
 ### Report format
@@ -1185,6 +1257,8 @@ The report's `version` is 2: version 1 had a `house_rules` revision in each snap
  "warnings": ["budget: pre-commit took 40.7 s of 10 s; slowest check spec-docs"]}]}
 ```
 
+Entities in this example: [runner options](#runner-options).
+
 The run's `house_rules` object is defined in [What each run logs](#logged-versions). It is `null` when no snapshot had a configuration, or when the run failed before it resolved a revision. The run's `warnings` hold warnings about the whole run, such as the use of the main last fetched.
 
 The run's `result` is `error` after a preparation failure, matching exit status 2. Otherwise it is `fail` when any snapshot `result` is `fail`, matching exit status 1, and `pass` with exit status 0. A check that could not start has check status `error` and makes its snapshot's result `fail`. A check with status `warn` leaves its snapshot's result `pass`.
@@ -1207,9 +1281,9 @@ Cases that need the install, its hook blocks or a private corpus are demonstrati
 
 **Requirements:** [One configuration](#req-checks-one-configuration), [same runner](#req-checks-same-runner).
 
-**Inputs:** A fixture clone with a registered specification, no hooks and no configuration; the tour's install and commits. After the install, the fixture adds one CI-only repository check that reads the working tree (a stub command without `{snapshot}`) to the configuration and stages it.
+**Inputs:** A fixture clone with a registered specification, no hooks and no configuration; the tour's install and commits. After the install, the fixture adds one CI-only repository check that reads the working tree (a stub command without [`{snapshot}`](#run-placeholders)) to the configuration and stages it.
 
-**Expected:** The install writes the tour's configuration and both hook blocks. After the stub is added and staged, `run --stage ci --index` runs both default checks and lists the stub check as skipped with the reason "reads the working tree; runs in CI on the commit"; `run --stage ci` on the commit runs the stub. The hook and `run --stage ci` give the same result for the same commit.
+**Expected:** The install writes the tour's configuration and both hook blocks. After the stub is added and staged, [`run --stage ci --index`](#runner-options) runs both default checks and lists the stub check as skipped with the reason "reads the working tree; runs in CI on the commit"; [`run --stage ci`](#runner-options) on the commit runs the stub. The hook and [`run --stage ci`](#runner-options) give the same result for the same commit.
 
 Evidence: planned for the install work package, following the [tour](#tour). The runner's part, with a hand-written configuration and hook, is `test_default_install_preflight_and_hook_match_ci`.
 
@@ -1259,7 +1333,7 @@ Evidence: the [measurement after #198](#evidence), about 1.2 s.
 
 **Requirements:** [One configuration](#req-checks-one-configuration), [snapshot](#req-checks-snapshot).
 
-**Inputs:** The camel-case repository from [Worked examples](#examples), with a stub command in place of the linter. The same entry without a reason, and with `pre-commit` but no `{snapshot}`. Other invalid configurations: an unknown field, an unknown placeholder, an unsupported version, a `house_rules` field, an entry that sets `enforced`, a changed default without a reason, an argument with an unpaired surrogate escape. Separately, an argument that holds a filename byte that is not UTF-8.
+**Inputs:** The camel-case repository from [Worked examples](#examples), with a stub command in place of the linter. The same entry without a reason, and with `pre-commit` but no [`{snapshot}`](#run-placeholders). Other invalid configurations: an unknown field, an unknown placeholder, an unsupported version, a `house_rules` field, an entry that sets `enforced`, a changed default without a reason, an argument with an unpaired surrogate escape. Separately, an argument that holds a filename byte that is not UTF-8.
 
 **Expected:** Spec-docs applies the repository's naming rule; the repository check runs in CI with every matching `.ts` file. Each invalid configuration is refused with a configuration error and exit status 2. The filename byte reaches the check unchanged.
 
@@ -1324,7 +1398,7 @@ Evidence: planned for the install work package, following [Check installation](#
 
 **Requirements:** [Latest House Rules and offline](#req-checks-offline).
 
-**Inputs:** `HOUSE_RULES_REVISION` set to a fixture commit off main, for a direct run and for a `git commit` through a pre-commit hook; then a run without it. Separately, an override whose runner adds a built-in and lists whitespace at pre-push, with a configuration that fits only that runner.
+**Inputs:** [`HOUSE_RULES_REVISION`](#runner-environment-variables) set to a fixture commit off main, for a direct run and for a `git commit` through a pre-commit hook; then a run without it. Separately, an override whose runner adds a built-in and lists whitespace at pre-push, with a configuration that fits only that runner.
 
 **Expected:** The direct run reports that commit with source `override`, and its rerun line starts that commit's runner. The hook's text header ends with "(override HOUSE_RULES_REVISION, fetched <time>)", with the time the JSON report holds. The run without the variable reports main again. The override's runner judges the configuration with its own built-ins, and `status` prints its effective set. Invalid overrides are in [Preparation failure](#test-checks-preparation-failure).
 
@@ -1350,9 +1424,9 @@ Evidence: planned for the install work package, following [Check installation](#
 
 **Requirements:** [Failure output](#req-checks-report).
 
-**Inputs:** A repository check that runs `sh tools/lint.sh {snapshot}`, a `files` check that runs the same script with `{files}` over a staged `notes.txt`, the whitespace built-in and, in the tour, spec-docs. Separately, a build queue that replaces `tools/lint.sh` before it starts the check, and a program found through the relative `PATH` entry `bin` in a run started from a subfolder.
+**Inputs:** A repository check that runs [`sh tools/lint.sh {snapshot}`](#run-placeholders), a `files` check that runs the same script with [`{files}`](#run-placeholders) over a staged `notes.txt`, the whitespace built-in and, in the tour, spec-docs. Separately, a build queue that replaces `tools/lint.sh` before it starts the check, and a program found through the relative `PATH` entry `bin` in a run started from a subfolder.
 
-**Expected:** Each check that ran lists its program resolved on `PATH` and the script, each with its SHA-256; `notes.txt`, a `{files}` input, is not listed. Whitespace lists `git`; spec-docs lists the environment's interpreter and `spec_docs.py`; a skipped check has `version` `null`. The text report prints one matching `version:` line under each check that ran. The queued check's version holds the checksum of the script it ran, the replacement. The program on the relative `PATH` entry is listed by its absolute path under the repository root.
+**Expected:** Each check that ran lists its program resolved on `PATH` and the script, each with its SHA-256; `notes.txt`, a [`{files}`](#run-placeholders) input, is not listed. Whitespace lists `git`; spec-docs lists the environment's interpreter and `spec_docs.py`; a skipped check has `version` `null`. The text report prints one matching `version:` line under each check that ran. The queued check's version holds the checksum of the script it ran, the replacement. The program on the relative `PATH` entry is listed by its absolute path under the repository root.
 
 **Implementation:** [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_versions_name_each_program_and_script_but_not_file_inputs](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SpecDocsTest::test_refused_commit_json_report](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_queued_check_records_the_version_that_starts](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_program_on_a_relative_path_entry_is_versioned_from_the_repository_root](../../skills/repository-checks/scripts/test_checks.py)
 
