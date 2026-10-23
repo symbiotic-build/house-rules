@@ -5,6 +5,9 @@ The contract is docs/design/194-repository-checks.md. This file uses only the
 standard library and runs on CPython 3.9 or later.
 """
 import argparse
+import contextlib
+import errno
+import fcntl
 import hashlib
 import json
 import os
@@ -32,8 +35,12 @@ DEFAULT_BUDGET = 10
 DEFAULT_URL = "https://github.com/symbiotic-build/house-rules"
 # A House Rules fetch fails on lack of progress, never on elapsed time: below 1 byte/s for 30 s over HTTP.
 PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
-# The handing runner passes the run's resolved House Rules revision to the runner it starts.
+# The handing runner passes the run's resolved House Rules revision to the runner it starts,
 RESOLVED = "HOUSE_RULES_RESOLVED"
+# and the snapshot it built before resolving, so the started runner checks that same snapshot.
+SNAPSHOT = "HOUSE_RULES_SNAPSHOT"
+# The internal mode that starts one check: it records the check's version, then becomes the check's program.
+LAUNCH = "launch"
 SOURCES = ("main", "cached main", "override")
 IDENTITY = {"GIT_AUTHOR_NAME": "repository checks", "GIT_AUTHOR_EMAIL": "checks@localhost",
             "GIT_COMMITTER_NAME": "repository checks", "GIT_COMMITTER_EMAIL": "checks@localhost"}
@@ -53,12 +60,14 @@ BUILTINS = {
     "spec-docs": {
         "enabled": True, "enforced": True, "scope": "tree", "stages": ["pre-commit", "ci"], "paths": ["**"],
         "requires": ["docs/DOCUMENTS.json"],
-        "run": ["{python}", "{house_rules}/" + SPEC_SCRIPTS + "/spec_docs.py", "check", "--root", ".",
+        # -I: inherited Python settings, such as PYTHONPATH, cannot replace the environment's parser.
+        "run": ["{python}", "-I", "{house_rules}/" + SPEC_SCRIPTS + "/spec_docs.py", "check", "--root", ".",
                 "--rev", "{snapshot}"],
         "fix": "apply the remedy for each code in the spec checker's diagnostic table, "
                "run spec_docs.py generate, stage the result"},
 }
-REPOSITORY_DEFAULTS = {"enabled": True, "enforced": True, "scope": "tree", "requires": []}
+# Every effective definition, built-in or repository, starts from these values for the fields it omits.
+DEFINITION_DEFAULTS = {"enabled": True, "enforced": True, "scope": "tree", "requires": []}
 REPOSITORY_REQUIRED = ("run", "stages", "paths", "fix", "reason")
 REFUSAL = {"pre-commit": ("Commit refused", "stage the fixes and commit again"),
            "pre-push": ("Push refused", "commit the fixes and push again"),
@@ -97,9 +106,15 @@ def git(cwd, *args, env=None, foreign=False, check=True):
     return proc
 
 
+def output_text(data):
+    """Git's output as text without its terminating newline; every other character, such as a path's trailing
+    space, stays. Bytes that are not UTF-8, such as in a path, survive as surrogate escapes."""
+    text = os.fsdecode(data)
+    return text[:-1] if text.endswith("\n") else text
+
+
 def out(cwd, *args, **kwargs):
-    """Git's output as text; bytes that are not UTF-8, such as in a path, survive as surrogate escapes."""
-    return os.fsdecode(git(cwd, *args, **kwargs).stdout).strip()
+    return output_text(git(cwd, *args, **kwargs).stdout)
 
 
 def last_line(data):
@@ -111,7 +126,7 @@ def find_root():
     proc = git(".", "rev-parse", "--show-toplevel", check=False)
     if proc.returncode:
         raise Failure("not inside a Git working tree", "run the command from a clone")
-    return Path(os.fsdecode(proc.stdout).strip())
+    return Path(output_text(proc.stdout))
 
 
 def commit_id(root, rev):
@@ -157,12 +172,20 @@ def index_tree(root):
         return proc.stdout.decode().strip()
 
 
-def build_snapshot(root, head, from_index):
+def build_snapshot(root, head, from_index, handed=None):
     """Return (commit, tree, parent) of one snapshot: a commit, or a new commit of the staged index.
 
     For an index snapshot, `parent` is the commit HEAD named when the run read it, or None before the first
-    commit; HEAD is read once, so the snapshot's parent and its base are the same commit.
+    commit; HEAD is read once, so the snapshot's parent and its base are the same commit. `handed` is the
+    snapshot the handing runner built before it resolved House Rules; it is used as it is, never built again.
     """
+    if handed:
+        snapshot, tree, parent = handed["snapshot"], handed["tree"], handed["parent"]
+        if (commit_id(root, snapshot) != snapshot or out(root, "rev-parse", snapshot + "^{tree}") != tree
+                or (from_index and commit_id(root, snapshot + "^1") != parent)):
+            raise Failure(f"the handing runner passed snapshot {snapshot[:7]}, which this clone does not hold as "
+                          "passed", "run again")
+        return snapshot, tree, parent
     if not from_index:
         commit = commit_id(root, head or "HEAD")
         if commit is None:
@@ -199,7 +222,7 @@ def push_base(root, remote, snapshot, remote_commit):
     compare = commit_id(root, remote_commit) if remote_commit else None
     if compare is None and remote:
         default = git(root, "symbolic-ref", "--quiet", f"refs/remotes/{remote}/HEAD", check=False)
-        compare = commit_id(root, os.fsdecode(default.stdout).strip()) if default.returncode == 0 else None
+        compare = commit_id(root, output_text(default.stdout)) if default.returncode == 0 else None
     if compare is None:
         return empty_tree(root)
     proc = git(root, "merge-base", snapshot, compare, check=False)
@@ -225,8 +248,18 @@ def pushed_references(data):
 
 
 def tree_files(root, rev):
-    return {os.fsdecode(p) for p in git(root, "ls-tree", "-r", "-z", "--name-only", "--full-tree", rev).stdout
-            .split(b"\0") if p}
+    """Return (every path in the snapshot, the paths that hold a file: a regular file or a symbolic link).
+
+    A submodule's path holds a commit of another repository (a gitlink), so it is a path but no file.
+    """
+    files, blobs = set(), set()
+    for entry in git(root, "ls-tree", "-r", "-z", "--full-tree", rev).stdout.split(b"\0"):
+        if entry:
+            meta, _, path = entry.partition(b"\t")
+            files.add(os.fsdecode(path))
+            if meta.split()[1] == b"blob":
+                blobs.add(os.fsdecode(path))
+    return files, blobs
 
 
 def changed_files(root, base, snapshot):
@@ -289,6 +322,12 @@ def check_entry(where, entry):
             raise config_error(f"{where}.run must be a nonempty list of arguments")
         if any("\0" in v for v in entry["run"]):
             raise config_error(f"{where}.run has an argument with a NUL character")
+        for value in entry["run"]:
+            try:
+                os.fsencode(value)  # a surrogate escape of a filename byte encodes; an unpaired surrogate does not
+            except UnicodeEncodeError:
+                raise config_error(f"{where}.run has an argument that cannot be passed to a program: "
+                                   f"{value.encode('unicode_escape').decode()}")
     if "stages" in entry:
         strings("stages", lambda v: v in STAGES)
         if len(set(entry["stages"])) != len(entry["stages"]):
@@ -368,9 +407,10 @@ def parse_config(data):
                                "to turn the check off, set enabled: false with a reason")
         fields(entry, where, required, [f for f in FIELDS if f not in required])
         check_entry(where, entry)
-        definition = dict(default or REPOSITORY_DEFAULTS, **entry)
+        base = dict(DEFINITION_DEFAULTS, **(default or {}))
+        definition = dict(base, **entry)
         if default:
-            changed = [k for k in entry if k != "reason" and entry[k] != default[k]]
+            changed = [k for k in entry if k != "reason" and entry[k] != base.get(k)]
             if changed and "reason" not in entry:
                 raise config_error(f"{where} changes {', '.join(changed)} without a reason")
             if changed:
@@ -381,8 +421,8 @@ def parse_config(data):
     return {"checks": checks, "overrides": overrides, "budgets": budgets}
 
 
-def config_data(root, rev, files):
-    if CONFIG not in files:
+def config_data(root, rev, blobs):
+    if CONFIG not in blobs:
         return None
     return git(root, "cat-file", "blob", f"{rev}:{CONFIG}").stdout
 
@@ -434,10 +474,6 @@ def place(temporary, final, complete):
     return final
 
 
-def has_commit(repository, revision):
-    return git(repository, "cat-file", "-e", revision + "^{commit}", foreign=True, check=False).returncode == 0
-
-
 def utc(seconds=None):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
 
@@ -446,39 +482,72 @@ def house_rules_url():
     return os.environ.get("HOUSE_RULES_URL") or DEFAULT_URL
 
 
-def source_repository():
-    """The cache's bare repository, which holds every fetched House Rules commit with depth 1."""
-    source = cache_root() / "source.git"
-    if not source.exists():
-        temporary = partial(cache_root())
-        git(temporary, "init", "--quiet", "--bare", ".", foreign=True)
-        place(temporary, source, lambda path: (path / "HEAD").exists())
-    return source
+def revision_folder(revision):
+    return cache_root() / "revisions" / revision
 
 
-def fetch_commit(source, url, revision):
-    """Fetch one commit with depth 1 unless the cache has it; return None, or Git's error when it is still missing."""
-    if has_commit(source, revision):
-        return None  # Git would transfer nothing
-    proc = git(source, *PROGRESS, "fetch", "--quiet", "--depth=1", "--no-tags", url,
-               f"{revision}:refs/pins/{revision}", foreign=True, check=False)
-    # A fetch can fail because another process fetched the same commit at once; then the commit is present.
-    if proc.returncode and not has_commit(source, revision):
-        return last_line(proc.stderr)
-    return None
+def prepared(revision):
+    return (revision_folder(revision) / RUNNER).is_file()
 
 
-def fetch_main(source, url):
-    """Return (House Rules main's commit, None) once the cache holds it, or (None, Git's error)."""
-    proc = git(source, *PROGRESS, "ls-remote", url, "refs/heads/main", foreign=True, check=False)
+@contextlib.contextmanager
+def main_lock():
+    """Hold the cache's main lock: one process at a time asks for main, fetches it and writes its record.
+
+    The lock is advisory (flock) and the system releases it when its process ends, however it ends.
+    """
+    cache_root().mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(str(cache_root() / "main.lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        yield
+    finally:
+        os.close(descriptor)
+
+
+def fetch_revision(url, revision):
+    """Put one House Rules commit into the cache unless it is there; return None, or Git's error.
+
+    Each fetch uses its own new bare repository in the cache, fetches the commit with depth 1, extracts it into a
+    temporary revision folder, renames that folder into place and deletes the repository. Nothing Git locks is
+    ever used again, so an interrupted fetch leaves only a temporary folder that no run uses.
+    """
+    if prepared(revision):
+        return None
+    repository = partial(cache_root())
+    try:
+        git(repository, "init", "--quiet", "--bare", ".", foreign=True)
+        proc = git(repository, *PROGRESS, "fetch", "--quiet", "--depth=1", "--no-tags", url,
+                   f"{revision}:refs/pins/{revision}", foreign=True, check=False)
+        if proc.returncode:
+            return last_line(proc.stderr)
+        temporary = partial(revision_folder(revision).parent)
+        extract(repository, revision, temporary)
+        if not (temporary / RUNNER).is_file():
+            raise Failure(f"House Rules {revision} has no repository checks runner ({RUNNER})",
+                          "set HOUSE_RULES_URL to a House Rules repository whose main has one, "
+                          "or HOUSE_RULES_REVISION to a revision that has one")
+        for folder, _, names in os.walk(str(temporary)):
+            for name in names:
+                path = os.path.join(folder, name)
+                if not os.path.islink(path):
+                    os.chmod(path, os.stat(path).st_mode & ~0o222)
+        place(temporary, revision_folder(revision), lambda path: (path / RUNNER).is_file())
+        return None
+    finally:
+        shutil.rmtree(str(repository), ignore_errors=True)  # a leftover is never used and may be deleted
+
+
+def ask_main(url):
+    """Return (House Rules main's commit, None), or (None, Git's error)."""
+    proc = git(cache_root(), *PROGRESS, "ls-remote", url, "refs/heads/main", foreign=True, check=False)
     if proc.returncode:
         return None, last_line(proc.stderr)
     heads = [line.split("\t") for line in proc.stdout.decode(errors="replace").splitlines()]
     revision = next((head[0] for head in heads if head[1:] == ["refs/heads/main"]), None)
     if revision is None or not COMMIT.fullmatch(revision):
         return None, "the repository has no main branch"
-    error = fetch_commit(source, url, revision)
-    return (None, error) if error else (revision, None)
+    return revision, None
 
 
 def main_record(url):
@@ -494,6 +563,10 @@ def main_record(url):
 
 
 def write_main_record(record):
+    """Publish `record` as the main last fetched, unless the cache records a later fetch from its URL."""
+    current = main_record(record["url"])
+    if current and current["fetched"] > record["fetched"]:
+        return
     descriptor, temporary = tempfile.mkstemp(prefix=".main-", dir=str(cache_root()))
     with os.fdopen(descriptor, "w") as handle:
         json.dump(record, handle)
@@ -523,10 +596,27 @@ def handed_resolution():
     return None
 
 
+def handed_snapshot():
+    """The snapshot the handing runner built, accepted only together with its resolution."""
+    if handed_resolution() is None:
+        return None
+    try:
+        snapshot = json.loads(HANDED_SNAPSHOT or "null")
+    except ValueError:
+        return None
+    if (isinstance(snapshot, dict) and snapshot.get("source") in ("index", "commit")
+            and all(isinstance(snapshot.get(k), str) and COMMIT.fullmatch(snapshot[k]) for k in ("snapshot", "tree"))
+            and (snapshot.get("parent") is None or (isinstance(snapshot["parent"], str)
+                                                    and COMMIT.fullmatch(snapshot["parent"])))):
+        return snapshot
+    return None
+
+
 def resolve(offline_repair=None):
     """Resolve the House Rules revision for this run: the override, else main fetched now, else the cached main.
 
-    Returns {"revision", "source", "fetched"}, plus "warning" for a cached main. Called once per run.
+    Returns {"revision", "source", "fetched"}, plus "warning" for a cached main. Called once per run; the
+    revision it returns is prepared in the cache.
     """
     resolution = handed_resolution()
     if resolution:
@@ -534,46 +624,26 @@ def resolve(offline_repair=None):
     url = house_rules_url()
     try:
         override = override_revision()
-        source = source_repository()
         if override:
-            error = fetch_commit(source, url, override)
+            error = fetch_revision(url, override)
             if error:
                 raise Failure(f"cannot fetch House Rules {override} from {url} ({error})",
                               "run again when online, or set HOUSE_RULES_REVISION to a commit that exists there")
             return {"revision": override, "source": "override", "fetched": None}
-        revision, error = fetch_main(source, url)
-        if revision:
-            record = {"url": url, "revision": revision, "fetched": utc()}
-            write_main_record(record)
-            return {"revision": revision, "source": "main", "fetched": record["fetched"]}
-        record = main_record(url)
-        if record is None or not has_commit(source, record["revision"]):
+        with main_lock():
+            fetched = utc()
+            revision, error = ask_main(url)
+            error = error or fetch_revision(url, revision)
+            if not error:
+                write_main_record({"url": url, "revision": revision, "fetched": fetched})
+                return {"revision": revision, "source": "main", "fetched": fetched}
+            record = main_record(url)
+        if record is None or not prepared(record["revision"]):
             raise Failure(f"cannot fetch House Rules main from {url} ({error})",
                           offline_repair or "run again when online")
         return {"revision": record["revision"], "source": "cached main", "fetched": record["fetched"],
                 "warning": f"cannot fetch House Rules main from {url} ({error}); using the main last fetched, "
                            f"{record['revision']}, fetched {record['fetched']}"}
-    except OSError as exc:
-        raise cache_failure(exc)
-
-
-def prepare_revision(revision):
-    final = cache_root() / "revisions" / revision
-    if (final / RUNNER).is_file():
-        return final
-    try:
-        temporary = partial(final.parent)
-        extract(source_repository(), revision, temporary)
-        if not (temporary / RUNNER).is_file():
-            raise Failure(f"House Rules {revision} has no repository checks runner ({RUNNER})",
-                          "set HOUSE_RULES_URL to a House Rules repository whose main has one, "
-                          "or HOUSE_RULES_REVISION to a revision that has one")
-        for folder, _, names in os.walk(str(temporary)):
-            for name in names:
-                path = os.path.join(folder, name)
-                if not os.path.islink(path):
-                    os.chmod(path, os.stat(path).st_mode & ~0o222)
-        return place(temporary, final, lambda path: (path / RUNNER).is_file())
     except OSError as exc:
         raise cache_failure(exc)
 
@@ -597,15 +667,16 @@ def extract(source, revision, folder):
 
 
 def prepared_at(tree):
-    """When the cache prepared a revision: the time its folder was renamed into place."""
+    """When the cache fetched a revision: the time its folder was renamed into place."""
     return utc(os.stat(str(tree)).st_mtime)
 
 
-def dispatch(tree, argv, resolution, stdin=None):
+def dispatch(tree, argv, resolution, stdin=None, snapshot=None):
     """Replace this process by the runner in `tree`, unless this file is that runner.
 
-    The started runner receives `resolution`, so it uses the same revision without resolving again, and
-    `stdin`, the input this process already read, as its standard input.
+    The started runner receives `resolution`, so it uses the same revision without resolving again,
+    `snapshot`, the snapshot this process built, so it checks that same content, and `stdin`, the input this
+    process already read, as its standard input.
     """
     runner = tree / RUNNER
     if runner.resolve() == Path(__file__).resolve():
@@ -621,23 +692,25 @@ def dispatch(tree, argv, resolution, stdin=None):
             raise Failure(f"cannot save standard input for the resolved runner ({exc})",
                           "free space in or repair access to the temporary folder, and run again")
     os.environ[RESOLVED] = json.dumps(resolution)
+    if snapshot is not None:
+        os.environ[SNAPSHOT] = json.dumps(snapshot)
     try:
         os.execv(sys.executable, [sys.executable, "-I", str(runner), *argv])
     except OSError as exc:
         raise Failure(f"cannot start the resolved runner {runner} ({exc})", f"run `{runner_command('prepare')}` again")
 
 
-def resolved_tree(argv, stdin=None, offline_repair=None):
+def resolved_tree(argv, stdin=None, offline_repair=None, snapshot=None):
     """Resolve the run's House Rules revision; return (its tree, the resolution), or start the runner there.
 
-    The started runner replaces this process and receives the same resolution.
+    The started runner replaces this process and receives the same resolution and `snapshot`.
     """
     resolution = resolve(offline_repair)
     revision = resolution["revision"]
-    tree = own_tree() if own_revision() == revision else prepare_revision(revision)
+    tree = own_tree() if own_revision() == revision else revision_folder(revision)
     if resolution["fetched"] is None:
-        resolution["fetched"] = prepared_at(tree)  # an override: when the cache first prepared that commit
-    dispatch(tree, argv, resolution, stdin)
+        resolution["fetched"] = prepared_at(tree)  # an override: when the cache fetched that commit
+    dispatch(tree, argv, resolution, stdin, snapshot)
     return tree, resolution
 
 
@@ -657,7 +730,7 @@ def cached_resolution():
                 return None, None
             resolution = {"revision": record["revision"], "source": "cached main", "fetched": record["fetched"]}
     revision = resolution["revision"]
-    tree = own_tree() if own_revision() == revision else cache_root() / "revisions" / revision
+    tree = own_tree() if own_revision() == revision else revision_folder(revision)
     if not (tree / RUNNER).is_file():
         return resolution, None
     if resolution["fetched"] is None:
@@ -666,12 +739,9 @@ def cached_resolution():
 
 
 def label(resolution):
-    """How a report names the source of its House Rules revision."""
-    if resolution["source"] == "override":
-        return "override HOUSE_RULES_REVISION"
-    if resolution["source"] == "cached main":
-        return f"cached main, fetched {resolution['fetched']}"
-    return "main"
+    """How a report names the source of its House Rules revision and when the cache fetched it."""
+    source = "override HOUSE_RULES_REVISION" if resolution["source"] == "override" else resolution["source"]
+    return f"{source}, fetched {resolution['fetched']}" if resolution["fetched"] else f"{source}, not fetched yet"
 
 
 def runtime_interpreter(tree):
@@ -720,8 +790,9 @@ def prepare_environment(tree, offline_repair=None):
     lock = tree / SPEC_SCRIPTS / "requirements.lock"
     try:
         temporary = partial(final.parent)
-        for step, command in (("venv", [python, "-m", "venv", str(temporary)]),
-                              ("pip", [str(temporary / "bin" / "python"), "-m", "pip", "install", "--quiet",
+        # -I: inherited Python settings, such as PYTHONPATH, cannot replace venv or pip.
+        for step, command in (("venv", [python, "-I", "-m", "venv", str(temporary)]),
+                              ("pip", [str(temporary / "bin" / "python"), "-I", "-m", "pip", "install", "--quiet",
                                        "--disable-pip-version-check", "--require-hashes", "--only-binary=:all:",
                                        "--no-deps", "-r", str(lock)])):
             proc = subprocess.run(command, capture_output=True, stdin=subprocess.DEVNULL)
@@ -799,6 +870,8 @@ def check_stage(args, argv, run):
             return "the push only deletes references"
     offline = PUSH_AGAIN if pushing else None
     house_rules = None
+    # A run that one runner handed over checks the snapshot that runner built; a push names its own commits.
+    handed = None if pushing else handed_snapshot()
     for ref, head, remote_commit in items:
         try:
             if pushing:
@@ -806,14 +879,15 @@ def check_stage(args, argv, run):
                 if head is None:
                     raise Failure(f"the pushed reference {ref} points at {pushed[:7]}, which resolves to no commit",
                                   "change the reference, or push it without the hook's check under the rule line")
-            target = snapshot_target(root, ref, head, from_index, remote_commit)
+            target = snapshot_target(root, ref, head, from_index, remote_commit, handed)
             if target["data"] is None:
                 snapshots.append(unadopted(target))
             else:
                 # Read only the version before handing over: the resolved runner judges the check entries.
                 load_document(target["data"])
                 if house_rules is None:
-                    house_rules, resolution = resolved_tree(argv, stdin, offline)
+                    passed = None if pushing else {k: target[k] for k in ("snapshot", "tree", "parent", "source")}
+                    house_rules, resolution = resolved_tree(argv, stdin, offline, passed)
                     run["house_rules"] = {k: resolution[k] for k in ("revision", "source", "fetched")}
                     run["warnings"] += [resolution["warning"]] if resolution.get("warning") else []
                 config = parse_config(target["data"])
@@ -831,12 +905,12 @@ def check_stage(args, argv, run):
     return None
 
 
-def snapshot_target(root, ref, head, from_index, remote_commit):
-    snapshot, tree, parent = build_snapshot(root, head, from_index)
-    files = tree_files(root, snapshot)
-    return {"ref": ref, "snapshot": snapshot, "tree": tree, "parent": parent, "files": files,
+def snapshot_target(root, ref, head, from_index, remote_commit, handed=None):
+    snapshot, tree, parent = build_snapshot(root, head, from_index, handed)
+    files, blobs = tree_files(root, snapshot)
+    return {"ref": ref, "snapshot": snapshot, "tree": tree, "parent": parent, "files": files, "blobs": blobs,
             "remote_commit": remote_commit, "source": "index" if from_index else "commit",
-            "data": config_data(root, snapshot, files)}
+            "data": config_data(root, snapshot, blobs)}
 
 
 def snapshot_entry(target, config, base, result, checks, warnings):
@@ -868,7 +942,7 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
             if args.only:
                 plan.append((check, f"not configured for {args.stage}", None))
             continue
-        plan.append((check, *select(check, args.stage, from_index, target["files"], changed)))
+        plan.append((check, *select(check, args.stage, from_index, target, changed)))
     running = [check for check, reason, _ in plan if reason is None]
     values = {"base": base, "snapshot": snapshot, "house_rules": str(house_rules), "python": None}
     if any(uses(check, "python") for check in running):
@@ -878,28 +952,28 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
             raise Failure(f"the installed Git ({out(root, '--version')}) cannot read attributes from a commit "
                           "(--attr-source)", "install a Git that supports it")
 
-    queue = os.environ.get("HOUSE_RULES_CHECK_QUEUE")
     env = dict(os.environ, CHECK_STAGE=args.stage, CHECK_BASE=base, CHECK_SNAPSHOT=snapshot, **NO_REPLACE)
+    try:
+        records = tempfile.TemporaryDirectory(prefix="checks-launch-")
+    except OSError as exc:
+        raise Failure(f"cannot create a temporary folder for the checks' start records ({exc})",
+                      "free space in or repair access to the temporary folder, and run again")
     started, results = time.monotonic(), []
-    for check, reason, inputs in plan:
-        result = {"id": check["id"], "status": "skipped", "seconds": None, "command": None, "version": None,
-                  "output": "", "fix": None, "rerun": runner_command(*rerun, "--only", check["id"]),
-                  "skip_reason": reason}
-        if reason is None:
-            command = expand(check["run"], values, inputs)
-            result["version"] = versions(check["run"], values, root, env)
-            begin = time.monotonic()
-            try:
-                proc = subprocess.run([queue, *command] if queue else command, cwd=str(root), env=env,
-                                      stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    with records as folder:
+        for number, (check, reason, inputs) in enumerate(plan):
+            result = {"id": check["id"], "status": "skipped", "seconds": None, "command": None, "version": None,
+                      "output": "", "fix": None, "rerun": runner_command(*rerun, "--only", check["id"]),
+                      "skip_reason": reason}
+            if reason is None:
+                command, version_arguments = expand(check["run"], values, inputs)
+                begin = time.monotonic()
+                status, output, version = start_check(command, version_arguments, root, env,
+                                                      Path(folder) / f"{number}.json")
                 # A failing check that House Rules does not enforce yet warns and leaves its snapshot passing.
-                status = "pass" if proc.returncode == 0 else "fail" if check["enforced"] else "warn"
-                output = proc.stdout.decode(errors="surrogateescape")
-            except OSError as exc:
-                status, output = "error", f"cannot start {(queue or command[0])!r}: {exc.strerror or exc}\n"
-            result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
-                          output=output, fix=check["fix"] if status != "pass" else None)
-        results.append(result)
+                status = status or ("pass" if output[0] == 0 else "fail" if check["enforced"] else "warn")
+                result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
+                              version=version, output=output[1], fix=check["fix"] if status != "pass" else None)
+            results.append(result)
     total = time.monotonic() - started
     ran = [r for r in results if r["status"] != "skipped"]
     warnings = []
@@ -915,13 +989,15 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
     return snapshot_entry(target, config, base, outcome, results, warnings)
 
 
-def select(check, stage, from_index, files, changed):
+def select(check, stage, from_index, target, changed):
     """Return (skip reason or None, inputs for a files-scope check)."""
+    files = target["files"]
     if not check["enabled"]:
         return f"disabled: {check['reason']}", None
     if from_index and not uses(check, "snapshot"):
         return "reads the working tree; runs in CI on the commit", None
-    missing = [p for p in check["requires"] if p not in files]  # a folder of that name is no such file
+    # A required file is a regular file or a symbolic link; a folder or a submodule of that name is none.
+    missing = [p for p in check["requires"] if p not in target["blobs"]]
     if missing:
         return "requires " + ", ".join(missing), None
     patterns = [glob(p) for p in check["paths"]]
@@ -940,45 +1016,102 @@ def select(check, stage, from_index, files, changed):
     return None, inputs
 
 
+def start_check(command, version_arguments, root, env, record_path):
+    """Run one check through the launch mode, inside the build queue when the machine declares one.
+
+    Returns (status or None, (exit status, output), version). The status is "error" when the program could not
+    start, and None when it ran; only then does its exit status decide the result. The launch mode records the
+    version at the moment the program starts, and a start failure, in its start record, so a queue's own exit
+    status never stands for either. A version that cannot be read stops the run with a preparation failure.
+    """
+    queue = os.environ.get("HOUSE_RULES_CHECK_QUEUE")
+    launch = [sys.executable, "-I", str(Path(__file__).resolve()), LAUNCH, str(record_path),
+              ",".join(str(i) for i in version_arguments), *command]
+    try:
+        proc = subprocess.run([queue, *launch] if queue else launch, cwd=str(root), env=env,
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    except OSError as exc:
+        return "error", (None, f"cannot start {(queue or sys.executable)!r}: {exc.strerror or exc}\n"), None
+    output = proc.stdout.decode(errors="surrogateescape")
+    try:
+        record = json.loads(record_path.read_text())
+    except (OSError, ValueError):
+        return "error", (proc.returncode, output + f"cannot start {command[0]!r}: the launch recorded no start "
+                                                   f"(exit status {proc.returncode})\n"), None
+    if "failure" in record:
+        raise Failure(record["failure"]["cause"], record["failure"]["repair"])
+    if "error" in record:
+        return "error", (proc.returncode, output + f"cannot start {command[0]!r}: {record['error']}\n"), \
+            record["version"]
+    return None, (proc.returncode, output), record["version"]
+
+
 def digest(path):
     hasher = hashlib.sha256()
-    try:
-        with open(path, "rb") as handle:
-            for block in iter(lambda: handle.read(1 << 20), b""):
-                hasher.update(block)
-    except OSError:
-        return None  # listed with no digest, never dropped
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            hasher.update(block)
     return hasher.hexdigest()
 
 
-def versions(run, values, root, env):
-    """The check's version: the program and every other argument naming an existing regular file, with SHA-256.
+def launch(argv):
+    """The launch mode: record the check's version in the start record, then replace this process by the check.
 
-    The program is resolved on the check's PATH, or from the repository root when it holds a slash.
-    `{files}` arguments are the check's inputs, not its version, and are left out.
+    `argv` is the start record's path, the comma-separated positions of the arguments that can name a version
+    file, and the command. The process runs in the check's folder, the repository root, with the check's
+    environment. The program is the first argument, resolved on PATH, with relative PATH entries counted from
+    that folder, or the path itself when it holds a slash; the launch starts exactly that file. Each other listed
+    argument that names an existing regular file joins the version. A file that cannot be read writes a failure,
+    and the program does not start. A program that cannot start writes its error instead.
     """
+    record_path, positions, command = argv[0], [int(i) for i in argv[1].split(",") if i], argv[2:]
+
+    def record(value):
+        with open(record_path, "w") as handle:
+            json.dump(value, handle)
+
+    program = shutil.which(command[0]) if "/" not in command[0] else command[0]
     found = []
-    for index, template in enumerate(run):
-        if template == "{files}":
-            continue
-        value = PLACEHOLDER.sub(lambda m: values[m.group(1)], template)
-        if index == 0 and "/" not in value:
-            path = shutil.which(value, path=env.get("PATH"))
+    for position in positions:
+        if position == 0:
+            path = os.path.abspath(program) if program and "/" not in command[0] else program
+            if not (path and os.path.isfile(path)):
+                continue  # nothing to read: the start below fails and says why
+        elif os.path.isfile(command[position]):
+            path = command[position]
         else:
-            path = value if os.path.isfile(os.path.join(str(root), value)) else None
-        if path:
-            found.append({"path": path, "sha256": digest(os.path.join(str(root), path))})
-    return found
+            continue
+        try:
+            found.append({"path": path, "sha256": digest(path)})
+        except OSError as exc:
+            record({"failure": {"cause": f"cannot read {path} to record the check's version "
+                                         f"({exc.strerror or exc})",
+                                "repair": "make the file readable, or change the check, and run again"}})
+            return 2
+    record({"version": found})
+    if program is None:
+        record({"version": found, "error": os.strerror(errno.ENOENT)})
+        return 127
+    try:
+        os.execv(program, command)
+    except OSError as exc:
+        record({"version": found, "error": exc.strerror or str(exc)})
+        return 127
 
 
 def expand(run, values, inputs):
-    command = []
+    """Return (the command, the positions of its arguments that can name a version file).
+
+    `{files}` arguments are the check's inputs, not its version, so their positions are left out.
+    """
+    command, positions = [], []
     for arg in run:
         if arg == "{files}":
             command += inputs
         else:
+            positions.append(len(command))
             command.append(PLACEHOLDER.sub(lambda m: values[m.group(1)], arg))
-    return command
+    return command, positions
 
 
 def check_lines(results):
@@ -986,16 +1119,26 @@ def check_lines(results):
     for result in results:
         detail = result["skip_reason"] if result["status"] == "skipped" else f"{result['seconds']:.1f} s"
         lines.append(f"{LABELS[result['status']]:<6}{result['id']:<12} {detail}")
-        if result["version"] is not None:
-            items = [f"{shlex.quote(item['path'])}@{(item['sha256'] or 'unreadable')[:12]}"
-                     for item in result["version"]]
+        if result["version"]:
+            items = [f"{shlex.quote(item['path'])}@{item['sha256'][:12]}" for item in result["version"]]
             lines.append("      version: " + " ".join(items))
-        lines += ["      " + line for line in result["output"].rstrip("\n").splitlines()]
+        lines += indented(result["output"])
         if result["status"] in ("fail", "warn", "error"):
             if result["fix"]:
                 lines.append("      fix: " + result["fix"])
             lines.append("      rerun: " + result["rerun"])
     return lines
+
+
+def indented(output):
+    """The output's lines, each after six spaces; only line feeds separate lines, and nothing else changes.
+
+    The line feed that ends the output ends its last line; output without one still ends its last line.
+    """
+    lines = output.split("\n")
+    if lines[-1] == "":
+        lines.pop()
+    return ["      " + line for line in lines]
 
 
 def render(report):
@@ -1099,7 +1242,7 @@ def session_line(argv):
     proc = git(".", "rev-parse", "--show-toplevel", check=False)
     if proc.returncode:
         return None
-    root = Path(os.fsdecode(proc.stdout).strip())
+    root = Path(output_text(proc.stdout))
     data = staged_data(root)
     if data is None:
         if (root / ".agents" / "rules.md").is_file():
@@ -1143,12 +1286,16 @@ def has_block(path):
 
 
 HANDED = None  # the resolution the handing runner passed, read once at start
+HANDED_SNAPSHOT = None  # the snapshot the handing runner passed with it
 
 
 def main(argv=None):
-    global HANDED
+    global HANDED, HANDED_SNAPSHOT
     argv = sys.argv[1:] if argv is None else argv
     HANDED = os.environ.pop(RESOLVED, None)  # so no check inherits it
+    HANDED_SNAPSHOT = os.environ.pop(SNAPSHOT, None)
+    if argv[:1] == [LAUNCH]:
+        return launch(argv[1:])
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(errors="surrogateescape")  # paths with bytes that are not UTF-8 print unchanged
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])

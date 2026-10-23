@@ -5,6 +5,7 @@ revision the runner reads comes from a synthetic local clone named by a file:// 
 needs a network.
 """
 import ast
+import fcntl
 import hashlib
 import importlib.metadata
 import importlib.util
@@ -17,6 +18,7 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -28,6 +30,7 @@ RUNNER = "skills/repository-checks/scripts/checks.py"
 OFFLINE = "file:///nonexistent/house-rules"  # an unreachable source stands for a denied network
 NO_SPEC = {"spec-docs": {"enabled": False, "reason": "No specifications in this fixture."}}
 TIME = r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"
+FETCHED = r", fetched " + TIME + r"\)"  # the end of a text header after its revision source
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 TOUR_FIX = ("apply the remedy for each code in the spec checker's diagnostic table, "
             "run spec_docs.py generate, stage the result")
@@ -118,8 +121,8 @@ class HouseRules:
 
 
 class Repo:
-    def __init__(self, folder, house_rules, cache):
-        self.path = folder / "repo"
+    def __init__(self, folder, house_rules, cache, name="repo"):
+        self.path = folder / name
         self.path.mkdir()
         self.main = house_rules.main
         self.env = dict(base_env(), HOUSE_RULES_CACHE=str(cache), HOUSE_RULES_URL=house_rules.url)
@@ -248,7 +251,8 @@ class RunnerCase(unittest.TestCase):
             os.symlink(sys.prefix, match[1])
 
     def assertLines(self, text, patterns):
-        lines = text.rstrip("\n").split("\n")
+        """Match each line; a budget warning depends on the machine's load, and its own test covers it."""
+        lines = [line for line in text.rstrip("\n").split("\n") if not line.startswith("warning: budget: ")]
         self.assertEqual(len(lines), len(patterns), text)
         for line, pattern in zip(lines, patterns):
             self.assertRegex(line, r"\A" + pattern + r"\Z")
@@ -281,7 +285,8 @@ class DefaultsTest(RunnerCase):
         proc = self.repo.run("run", "--stage", "pre-commit")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertLines(proc.stdout, [
-            re.escape(f"repository checks: pre-commit on the staged index, House Rules {self.repo.main} (main)"),
+            re.escape(f"repository checks: pre-commit on the staged index, House Rules {self.repo.main} (main")
+            + FETCHED,
             "PASS  whitespace   " + DURATION,
             VERSION,
             re.escape("SKIP  spec-docs    requires docs/DOCUMENTS.json"),
@@ -331,6 +336,9 @@ class DefaultsTest(RunnerCase):
             "files scope without a whole {files} argument": (
                 {"checks": {"lint": check(["lint", "{snapshot}"], ["ci"], scope="files")}}, None,
                 "checks.lint has scope files but its run has no whole {files} argument"),
+            "argument that cannot be passed to a program": (
+                {"checks": {"lint": check(["lint", "\ud800", "{snapshot}"], ["ci"])}}, None,
+                "checks.lint.run has an argument that cannot be passed to a program: \\ud800"),
             "repository check without fix": (
                 {"checks": {"lint": {k: v for k, v in check(["lint"], ["ci"]).items() if k != "fix"}}}, None,
                 "checks.lint lacks fix"),
@@ -412,7 +420,80 @@ class DefaultsTest(RunnerCase):
         proc, report = self.repo.snapshot("run", "--stage", "pre-commit",
                                         env=dict(self.repo.env, HOUSE_RULES_CHECK_QUEUE=str(queue)))
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(report["checks"][0]["output"], "queued: git\n")
+        self.assertEqual(report["checks"][0]["output"], f"queued: {sys.executable}\n")  # it starts the launch
+
+
+    def test_queued_check_records_the_version_that_starts(self):
+        # Another session replaces the script while the check waits in the queue.
+        self.repo.write("tools/lint.sh", 'echo "version A"\n')
+        self.repo.stage("tools/lint.sh")
+        self.repo.configure({"lint": check(["sh", "tools/lint.sh", "{snapshot}"], ["pre-commit"])})
+        queue = self.repo.path.parent / "queue"
+        queue.write_text("#!/bin/sh\nprintf 'echo \"version B\"\\n' > tools/lint.sh || exit 1\nexec \"$@\"\n")
+        queue.chmod(0o755)
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint",
+                                          env=dict(self.repo.env, HOUSE_RULES_CHECK_QUEUE=str(queue)))
+        lint = {c["id"]: c for c in report["checks"]}["lint"]
+        shell = shutil.which("sh")
+        self.assertEqual((proc.returncode, lint["output"]), (0, "version B\n"), proc.stderr)
+        self.assertEqual(lint["version"], [{"path": shell, "sha256": sha256(shell)},
+                                           {"path": "tools/lint.sh",
+                                            "sha256": hashlib.sha256(b'echo "version B"\n').hexdigest()}])
+
+    def test_program_on_a_relative_path_entry_is_versioned_from_the_repository_root(self):
+        self.repo.write("bin/lint", "#!/bin/sh\necho linted\n")
+        (self.repo.path / "bin/lint").chmod(0o755)
+        self.repo.write("sub/file.txt", "text\n")
+        self.repo.stage("bin/lint", "sub/file.txt")
+        self.repo.configure({"lint": check(["lint", "{snapshot}"], ["pre-commit"])})
+        env = dict(self.repo.env, PATH=f"bin{os.pathsep}{os.environ['PATH']}")
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint", cwd=self.repo.path / "sub",
+                                          env=env)
+        lint = {c["id"]: c for c in report["checks"]}["lint"]
+        program = os.path.join(self.repo.root, "bin", "lint")
+        self.assertEqual((proc.returncode, lint["status"], lint["output"], lint["version"]),
+                         (0, "pass", "linted\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
+
+    def test_version_file_that_cannot_be_read_is_a_preparation_failure(self):
+        if os.geteuid() == 0:
+            self.skipTest("the superuser reads every file")
+        self.repo.write("tools/lint.sh", "echo linted\n")
+        script = self.repo.path / "tools/lint.sh"
+        script.chmod(0)
+        self.addCleanup(script.chmod, 0o644)
+        self.repo.configure({"lint": check(["sh", "tools/lint.sh", "{snapshot}"], ["pre-commit"])})
+        proc, report = self.repo.report("run", "--stage", "pre-commit")
+        self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
+        self.assertEqual(report["error"], {
+            "reference": None, "cause": "cannot read tools/lint.sh to record the check's version (Permission denied)",
+            "repair": "make the file readable, or change the check, and run again"})
+
+    def test_repository_whose_path_ends_in_a_space_is_checked(self):
+        repo = Repo(Path(tempfile.mkdtemp(dir=str(self.folder))), self.house_rules, self.cache, name="repo ")
+        repo.write("notes.txt", "trailing \n")
+        repo.stage("notes.txt")
+        repo.configure()
+        proc, report = repo.snapshot("run", "--stage", "pre-commit")
+        whitespace = {c["id"]: c for c in report["checks"]}["whitespace"]
+        self.assertEqual((proc.returncode, whitespace["status"]), (1, "fail"), proc.stderr)
+        self.assertIn("notes.txt:1: trailing whitespace.", whitespace["output"])
+
+    def test_argument_with_a_filename_byte_reaches_the_check(self):
+        name = os.fsdecode(b"caf\xff")  # a surrogate escape, as Python holds a filename byte that is not UTF-8
+        printer = [sys.executable, "-c", "import os, sys; print(os.fsencode(sys.argv[1]).hex())", name, "{snapshot}"]
+        self.repo.configure({"bytes": check(printer, ["pre-commit"])})
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "bytes")
+        self.assertEqual((proc.returncode, report["checks"][0]["output"]), (0, "636166ff\n"), proc.stderr)
+
+    def test_text_report_keeps_check_output_byte_for_byte(self):
+        printer = check(["sh", "-c", "printf 'a\\rb\\r\\nc\\fd\\n\\n\\n'", "{snapshot}"], ["pre-commit"])
+        self.repo.configure({"printer": printer})
+        text = subprocess.run([sys.executable, "-B", str(SCRIPT), "run", "--stage", "pre-commit", "--only", "printer"],
+                              cwd=str(self.repo.path), env=self.repo.env, capture_output=True, stdin=subprocess.DEVNULL)
+        self.assertEqual(text.returncode, 0, text.stdout + text.stderr)
+        self.assertIn(b"\n      a\rb\r\n      c\x0cd\n      \n      \nAll 1 selected check passed.\n", text.stdout)
+        _, report = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "printer")
+        self.assertEqual(report["checks"][0]["output"], "a\rb\r\nc\x0cd\n\n\n")
 
 
 class SnapshotTest(RunnerCase):
@@ -439,7 +520,7 @@ class SnapshotTest(RunnerCase):
                              ["pre-commit"]),
         })
         proc, report = self.repo.snapshot("run", "--stage", "pre-commit")
-        self.assertEqual((proc.returncode, report["result"], report["warnings"]), (0, "pass", []), proc.stderr)
+        self.assertEqual((proc.returncode, report["result"]), (0, "pass"), proc.stderr)
         self.assertEqual({c["id"]: c["output"] for c in report["checks"]}["reader"], "original\n")
 
     def test_file_staged_during_an_unadopted_run_stops_with_preparation_failure(self):
@@ -468,6 +549,38 @@ class SnapshotTest(RunnerCase):
         resolved = self.cache / "revisions" / self.repo.main / RUNNER  # the resolved runner: no handover rereads HEAD
         proc, report = self.repo.snapshot("run", "--stage", "pre-commit", script=resolved,
                                           env=dict(self.repo.env, PATH=path))
+        self.assertEqual(self.repo.git("rev-parse", "HEAD"), twin)
+        self.assertEqual((proc.returncode, report["base"], self.repo.git("rev-parse", report["snapshot"] + "^1")),
+                         (0, first, first), proc.stderr)
+        self.assertEqual({c["id"]: c for c in report["checks"]}["changes"]["output"], "f.txt\n")
+
+    def test_file_staged_during_the_handover_stops_with_preparation_failure(self):
+        # Another session stages a file while the installed runner resolves House Rules, before it hands over.
+        self.repo.configure(NO_SPEC)
+        repo = shlex.quote(str(self.repo.path))
+        path = self.racing_git("ls-remote", f"printf 'late\\n' > {repo}/late.txt && \"$REAL\" -C {repo} add late.txt "
+                                            "|| exit 1")
+        proc, report = self.repo.report("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
+        self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
+        self.assertEqual(report["error"]["cause"], "the staged index changed during the run, so the checks did not "
+                                                   "see the content Git would commit")
+        self.assertEqual([s["result"] for s in report["snapshots"]], ["pass"])
+        self.assertEqual(self.repo.git("ls-tree", "--name-only", report["snapshots"][0]["snapshot"], "late.txt"), "")
+
+    def test_head_moved_during_the_handover_keeps_the_base(self):
+        self.repo.configure({"changes": check(["git", "diff", "--name-only", "{base}", "{snapshot}"], ["pre-commit"],
+                                              scope="diff")})
+        self.repo.write("f.txt", "one\n")
+        self.repo.stage("f.txt")
+        first = self.repo.commit()
+        self.repo.write("f.txt", "two\n")
+        self.repo.stage("f.txt")
+        twin = self.repo.commit()  # its tree equals what stays staged after the reset
+        self.repo.git("reset", "-q", "--soft", first)
+        # Another session moves HEAD to the twin while the installed runner resolves House Rules.
+        path = self.racing_git("ls-remote", f'"$REAL" -C {shlex.quote(str(self.repo.path))} update-ref HEAD {twin} '
+                                            "|| exit 1")
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
         self.assertEqual(self.repo.git("rev-parse", "HEAD"), twin)
         self.assertEqual((proc.returncode, report["base"], self.repo.git("rev-parse", report["snapshot"] + "^1")),
                          (0, first, first), proc.stderr)
@@ -543,6 +656,15 @@ class SelectionTest(RunnerCase):
         self.assertEqual((proc.returncode, probe["status"], probe["skip_reason"]),
                          (0, "skipped", "requires marker.txt"), proc.stderr)
 
+    def test_required_file_is_not_satisfied_by_a_submodule(self):
+        self.repo.configure({"probe": check(["git", "rev-parse", "{snapshot}"], ["pre-commit"], requires=["marker"])})
+        named = self.repo.commit("a commit the submodule entry names")
+        self.repo.git("update-index", "--add", "--cacheinfo", f"160000,{named},marker")  # a gitlink, no file
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit")
+        probe = {c["id"]: c for c in report["checks"]}["probe"]
+        self.assertEqual((proc.returncode, probe["status"], probe["skip_reason"]),
+                         (0, "skipped", "requires marker"), proc.stderr)
+
     def test_skip_reasons_at_each_stage(self):
         self.repo.configure({
             "whitespace": {"enabled": False, "reason": "Whitespace is checked elsewhere."},
@@ -572,18 +694,19 @@ class SelectionTest(RunnerCase):
                                  proc.stderr)
 
     def test_budget_warning_when_the_run_exceeds_the_stage_budget(self):
-        self.repo.write("tool.sh", "echo ok\n")
-        self.repo.stage("tool.sh")
-        cases = [("default 10 s budget", None, []),
-                 ("configured budget", {"pre-commit": {"seconds": 0.001, "reason": "Synthetic tight budget."}},
-                  [r"budget: pre-commit took \d+\.\d s of 0\.001 s; slowest check whitespace"])]
-        for name, budgets, expected in cases:
+        # Each check sleeps past its budget, so every case warns however loaded the machine is.
+        cases = [("configured budget", 0.3, {"pre-commit": {"seconds": 0.05, "reason": "Synthetic tight budget."}},
+                  r"budget: pre-commit took \d+\.\d s of 0\.05 s; slowest check sleeper"),
+                 ("default 10 s budget", 10.3, None,
+                  r"budget: pre-commit took \d+\.\d s of 10 s; slowest check sleeper")]
+        for name, seconds, budgets, pattern in cases:
             with self.subTest(name):
-                self.repo.configure(budgets=budgets)
-                _, report = self.repo.snapshot("run", "--stage", "pre-commit")
-                self.assertEqual(len(report["warnings"]), len(expected), report["warnings"])
-                for warning, pattern in zip(report["warnings"], expected):
-                    self.assertRegex(warning, r"\A" + pattern + r"\Z")
+                self.repo.configure({"sleeper": check(["sh", "-c", f"sleep {seconds}", "{snapshot}"], ["pre-commit"])},
+                                    budgets=budgets)
+                proc, report = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "sleeper")
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(len(report["warnings"]), 1, report["warnings"])
+                self.assertRegex(report["warnings"][0], r"\A" + pattern + r"\Z")
 
 
 class PushTest(RunnerCase):
@@ -621,8 +744,9 @@ class PushTest(RunnerCase):
         return {c["id"]: c for c in commit["checks"]}["changes"]["output"]
 
     def header(self, ref, commit, base):
-        return (f"repository checks: pre-push on {ref} at commit {commit[:7]}, base {base[:7]}, "
-                f"House Rules {self.repo.main} (main)")
+        """The pattern of one pushed snapshot's text header."""
+        return re.escape(f"repository checks: pre-push on {ref} at commit {commit[:7]}, base {base[:7]}, "
+                         f"House Rules {self.repo.main} (main") + FETCHED
 
     def test_push_base_is_chosen_per_pushed_commit(self):
         def new_branch():
@@ -689,7 +813,7 @@ class PushTest(RunnerCase):
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, stdin=subprocess.DEVNULL)
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertNotEqual(self.repo.git("rev-parse", "HEAD"), sent)
-        self.assertIn(self.header("refs/heads/feature", sent, self.main) + "\n", proc.stdout)
+        self.assertRegex(proc.stdout, "(?m)^" + self.header("refs/heads/feature", sent, self.main) + "$")
         self.assertIn("\n      feature.txt\n", proc.stdout)
         self.assertNotIn("late.txt", proc.stdout)
 
@@ -821,8 +945,9 @@ class PushTest(RunnerCase):
                           ("refs/heads/bad", bad, self.main, "fail", {"whitespace": "fail", "changes": "pass"})])
         text = self.push(*lines, json_report=False).stdout.splitlines()
         sections = [i for i, line in enumerate(text) if line.startswith("repository checks:")]
-        self.assertEqual([text[i] for i in sections], [self.header("refs/heads/good", good, self.main),
-                                                       self.header("refs/heads/bad", bad, self.main)])
+        self.assertEqual(len(sections), 2, text)
+        for line, ref, commit in zip([text[i] for i in sections], ("refs/heads/good", "refs/heads/bad"), (good, bad)):
+            self.assertRegex(line, r"\A" + self.header(ref, commit, self.main) + r"\Z")
         self.assertEqual(text[sections[1] + 1][:16], "FAIL  whitespace")
         self.assertEqual(text[-1], "Push refused: 1 of 4 checks failed. "
                                    "Fix the findings, commit the fixes and push again.")
@@ -871,7 +996,8 @@ class SpecDocsTest(RunnerCase):
         rerun = shlex.join([sys.executable, str(self.cache / "revisions" / self.repo.main / RUNNER), "run",
                             "--stage", "pre-commit", "--only", "spec-docs"])
         self.assertLines(proc.stdout, [
-            re.escape(f"repository checks: pre-commit on the staged index, House Rules {self.repo.main} (main)"),
+            re.escape(f"repository checks: pre-commit on the staged index, House Rules {self.repo.main} (main")
+            + FETCHED,
             "FAIL  spec-docs    " + DURATION,
             VERSION,
             re.escape("      spec-docs: error D13 docs/example.md:") + r"\d+" + re.escape(
@@ -903,13 +1029,15 @@ class SpecDocsTest(RunnerCase):
             self.assertGreaterEqual(result.pop("seconds"), 0)
         fetched = report["house_rules"].pop("fetched")
         self.assertRegex(fetched, r"\A" + TIME + r"\Z")
+        for warning in report["snapshots"][0].pop("warnings"):  # only a budget warning, which depends on load
+            self.assertTrue(warning.startswith("budget: pre-commit took "), warning)
         self.assertEqual(report, {"version": 2, "stage": "pre-commit", "result": "fail",
                                   "house_rules": {"revision": self.repo.main, "source": "main"}, "warnings": [],
                                   "snapshots": [{
             "reference": None, "source": "index", "base": head, "snapshot": snapshot, "result": "fail",
             "checks": [
                 {"id": "spec-docs", "status": "fail",
-                 "command": [str(python), checker, "check", "--root", ".", "--rev", snapshot],
+                 "command": [str(python), "-I", checker, "check", "--root", ".", "--rev", snapshot],
                  "version": [{"path": str(python), "sha256": sha256(python)},
                              {"path": checker, "sha256": sha256(checker)}],
                  "fix": TOUR_FIX, "skip_reason": None,
@@ -919,7 +1047,7 @@ class SpecDocsTest(RunnerCase):
                  "version": [{"path": shutil.which("git"), "sha256": sha256(shutil.which("git"))}],
                  "rerun": shlex.join([sys.executable, runner, "run", "--stage", "pre-commit", "--only",
                                       "whitespace"])}],
-            "overrides": [], "warnings": []}]})
+            "overrides": []}]})
 
     def test_printed_rerun_runs_only_that_check_and_passes_after_the_fix(self):
         self.tour_commit_refused()
@@ -967,6 +1095,41 @@ class SpecDocsTest(RunnerCase):
         self.assertEqual(results["code-names"]["output"], "src/a.ts\nsrc/lib/b.ts\n")
         self.assertIn("error D14 docs/ENTITIES.json", results["spec-docs"]["output"])
         self.assertIn("violating naming rule 'component-symbol'", results["spec-docs"]["output"])
+
+
+    def planted(self, modules):
+        """A folder of Python packages named `modules`, each of which fails as soon as it runs; return its path."""
+        folder = Path(tempfile.mkdtemp(dir=str(self.repo.path.parent)))
+        for name in modules:
+            (folder / name).mkdir()
+            failing = f"import sys\nprint('planted {name}', file=sys.stderr)\nsys.exit(3)\n"
+            (folder / name / "__init__.py").write_text(failing)
+            (folder / name / "__main__.py").write_text(failing)
+        return folder
+
+    def test_spec_checker_ignores_inherited_python_settings(self):
+        self.repo.spec()
+        self.repo.configure()
+        self.seed_environment()
+        env = dict(self.repo.env, PYTHONPATH=str(self.planted(["markdown_it"])))
+        proc, report = self.repo.snapshot("run", "--stage", "ci", "--index", "--only", "spec-docs", env=env)
+        spec = report["checks"][0]
+        self.assertEqual((proc.returncode, spec["status"]), (0, "pass"), spec["output"])
+
+    def test_environment_preparation_ignores_inherited_python_settings(self):
+        reason = spec_environment_reason()
+        if reason:
+            self.skipTest(reason)
+        self.repo.spec()
+        self.repo.configure()
+        # Without an index pip cannot install, so a run that ignores the planted modules stops at pip.
+        env = dict(self.repo.env, PYTHONPATH=str(self.planted(["venv", "pip"])), PIP_NO_INDEX="1",
+                   PIP_CONFIG_FILE=os.devnull, HOUSE_RULES_CACHE=str(self.repo.path.parent / "isolated-cache"))
+        proc, report = self.repo.report("run", "--stage", "ci", "--index", "--only", "spec-docs", env=env)
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        cause = report["error"]["cause"]
+        self.assertTrue(cause.startswith("cannot build the spec checker's environment (pip exited "), cause)
+        self.assertNotIn("planted", cause)
 
 
 class RevisionTest(RunnerCase):
@@ -1033,8 +1196,9 @@ class RevisionTest(RunnerCase):
         hooked = subprocess.run(["git", "commit", "-q", "-m", "through the hook"], cwd=str(self.repo.path), env=env,
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, stdin=subprocess.DEVNULL)
         self.assertEqual(hooked.returncode, 0, hooked.stdout)
-        self.assertIn("repository checks: pre-commit on the staged index, "
-                      f"House Rules {revision} (override HOUSE_RULES_REVISION)\n", hooked.stdout)
+        self.assertRegex(hooked.stdout, "(?m)^" + re.escape(
+            f"repository checks: pre-commit on the staged index, House Rules {revision} (override "
+            f"HOUSE_RULES_REVISION, fetched {house_rules['fetched']})") + "$")
         proc, _, later = self.repo.checked("run", "--stage", "ci", "--head", "HEAD")  # nothing kept the override
         self.assertEqual((proc.returncode, later["revision"], later["source"]), (0, self.repo.main, "main"),
                          proc.stderr)
@@ -1080,7 +1244,7 @@ class RevisionTest(RunnerCase):
         self.assertEqual(text.returncode, 0, text.stderr)
         self.assertLines(text.stdout, [
             re.escape("repository checks: pre-commit on the staged index, "
-                      f"House Rules {revision} (override HOUSE_RULES_REVISION)"),
+                      f"House Rules {revision} (override HOUSE_RULES_REVISION") + FETCHED,
             "WARN  draft        " + DURATION, VERSION, re.escape("      draft finding"),
             re.escape("      fix: Fix the draft finding."), r"      rerun: .* --only draft",
             "PASS  whitespace   " + DURATION, VERSION,
@@ -1089,6 +1253,38 @@ class RevisionTest(RunnerCase):
                       "enforce them yet; 1 skipped.")])
         stages = [line for line in self.repo.run("status").stdout.splitlines() if line.startswith("pre-commit:")]
         self.assertEqual(stages, ["pre-commit: draft (warning only), whitespace, spec-docs"])
+
+    def test_queued_check_whose_program_is_missing_is_an_error_even_when_not_enforced(self):
+        missing = ["no-such-program-for-checks", "{snapshot}"]
+        draft = ('    "draft": {"enabled": True, "enforced": False, "scope": "tree", "stages": ["pre-commit", "ci"], '
+                 f'"paths": ["**"], "requires": [], "run": {json.dumps(missing)}, "fix": "Fix the draft finding."}},\n')
+        revision = self.house_rules.runner_variant("Add a check whose program is missing",
+                                                   [("BUILTINS = {\n", "BUILTINS = {\n" + draft)])
+        queue = self.repo.path.parent / "queue"
+        queue.write_text('#!/bin/sh\nexec "$@"\n')
+        queue.chmod(0o755)
+        self.repo.configure({"lint": check(missing, ["pre-commit"])})
+        env = dict(self.repo.env, HOUSE_RULES_REVISION=revision, HOUSE_RULES_CHECK_QUEUE=str(queue))
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit", env=env)
+        results = {c["id"]: c for c in entry["checks"]}
+        self.assertEqual((proc.returncode, entry["result"]), (1, "fail"), proc.stderr)
+        for name in ("draft", "lint"):
+            self.assertEqual((results[name]["status"], results[name]["output"]),
+                             ("error", "cannot start 'no-such-program-for-checks': No such file or directory\n"))
+
+    def test_built_in_that_omits_enforced_is_enforced(self):
+        plain = ('    "plain": {"enabled": True, "scope": "tree", "stages": ["pre-commit", "ci"], "paths": ["**"], '
+                 '"requires": [], "run": ["sh", "-c", "echo plain finding; exit 1", "{snapshot}"], '
+                 '"fix": "Fix the plain finding."},\n')
+        revision = self.house_rules.runner_variant("Add a built-in without enforced",
+                                                   [("BUILTINS = {\n", "BUILTINS = {\n" + plain)])
+        self.repo.env["HOUSE_RULES_REVISION"] = revision
+        self.repo.configure()
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit")
+        self.assertEqual((proc.returncode, entry["result"], statuses(entry)["plain"]), (1, "fail", "fail"), proc.stderr)
+        status = self.repo.run("status")
+        self.assertEqual(status.returncode, 0, status.stderr)
+        self.assertIn("pre-commit: plain, whitespace, spec-docs", status.stdout.splitlines())
 
     def test_versions_name_each_program_and_script_but_not_file_inputs(self):
         self.repo.write("tools/lint.sh", 'echo "linted $1"\n')
@@ -1111,31 +1307,60 @@ class RevisionTest(RunnerCase):
         line = f"      version: {shell}@{sha256(shell)[:12]} tools/lint.sh@{script['sha256'][:12]}"
         self.assertEqual(text.count(line), 2, text)
 
-    def test_main_and_override_are_fetched_with_depth_1(self):
-        house_rules = self.own_house_rules()
-        older = house_rules.main
-        newer = house_rules.commit("Main with history")
-        cache = self.fresh_cache("fetch-cache")
+    def test_interrupted_fetch_does_not_block_the_next_run(self):
+        # The fetch stops as an interrupted one does: its lock file stays in the repository it fetched into.
+        path = self.racing_git("fetch", ': > shallow.lock; echo "fatal: the fetch was interrupted" >&2; exit 128')
+        cache = self.fresh_cache("interrupted-cache")
         self.repo.configure(NO_SPEC)
+        interrupted = self.repo.run("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
+        self.assertPreparationFailure(interrupted, "cannot fetch House Rules main from",
+                                      "fatal: the fetch was interrupted", "run again when online")
         proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit")
-        self.assertEqual((proc.returncode, resolved["revision"]), (0, newer), proc.stderr)
-        source = cache / "source.git"
-        self.assertEqual((git(source, "rev-parse", "--is-shallow-repository"),
-                          git(source, "rev-list", "--count", newer)), ("true", "1"))
-        proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit",
-                                              env=dict(self.repo.env, HOUSE_RULES_REVISION=older))
-        self.assertEqual((proc.returncode, resolved["revision"], git(source, "rev-list", "--count", older)),
-                         (0, older, "1"), proc.stderr)
-
-    def test_failed_fetch_continues_when_the_commit_arrived_meanwhile(self):
-        # The fetch fails after the commit arrived, as when another process fetched the same commit at once.
-        path = self.racing_git("fetch", '"$REAL" "$@"; echo "error: cannot lock ref: another fetch has it" >&2; '
-                                        'exit 1')
-        self.fresh_cache("race-cache")
-        self.repo.configure()
-        proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
         self.assertEqual((proc.returncode, resolved["revision"], resolved["source"]), (0, self.repo.main, "main"),
                          proc.stderr)
+        self.assertTrue((cache / "revisions" / self.repo.main / RUNNER).is_file())
+
+    def test_main_lock_is_held_from_asking_for_main_to_its_record(self):
+        # The run pauses inside its last Git command before the record, the extraction of main; meanwhile the
+        # lock must be taken, so no other run can ask for main, and the record must not exist yet.
+        folder = Path(tempfile.mkdtemp(dir=str(self.repo.path.parent)))
+        paused, go = folder / "paused", folder / "go"
+        pause = (f": > {shlex.quote(str(paused))}; i=0; until [ -e {shlex.quote(str(go))} ]; do sleep 0.1; "
+                 "i=$((i+1)); [ $i -lt 600 ] || exit 1; done")
+        cache = self.fresh_cache("locked-cache")
+        self.repo.configure(NO_SPEC)
+        run = subprocess.Popen([sys.executable, "-B", str(SCRIPT), "run", "--stage", "pre-commit", "--json"],
+                               cwd=str(self.repo.path), env=dict(self.repo.env, PATH=self.racing_git("archive", pause)),
+                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        try:
+            for _ in range(600):
+                if paused.exists() or run.poll() is not None:
+                    break
+                time.sleep(0.1)
+            self.assertTrue(paused.exists(), run.poll())
+            self.assertFalse((cache / "main.json").exists())
+            descriptor = os.open(str(cache / "main.lock"), os.O_RDWR)
+            try:
+                with self.assertRaises(BlockingIOError):
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                os.close(descriptor)
+        finally:
+            go.write_text("")
+            stdout, stderr = run.communicate()
+        self.assertEqual(run.returncode, 0, stderr)
+        self.assertEqual(json.loads((cache / "main.json").read_text())["revision"], self.repo.main)
+
+    def test_record_of_a_later_fetch_is_never_replaced(self):
+        cache = self.fresh_cache("later-record-cache")
+        cache.mkdir()
+        later = {"url": self.house_rules.url, "revision": "1" * 40, "fetched": "2999-01-01T00:00:00Z"}
+        (cache / "main.json").write_text(json.dumps(later))
+        self.repo.configure(NO_SPEC)
+        proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit")
+        self.assertEqual((proc.returncode, resolved["revision"], resolved["source"]), (0, self.repo.main, "main"),
+                         proc.stderr)
+        self.assertEqual(json.loads((cache / "main.json").read_text()), later)
 
     def test_failure_cause_and_repair_stay_separate_when_a_path_holds_a_separator(self):
         revision = self.house_rules.variant("Require an interpreter that does not exist", self.IMPOSSIBLE_RUNTIME)
