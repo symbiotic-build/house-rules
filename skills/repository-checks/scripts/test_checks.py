@@ -170,6 +170,14 @@ class Repo:
         except ValueError:
             raise AssertionError(f"no JSON report (exit {proc.returncode}): {proc.stdout}{proc.stderr}")
 
+    def snapshot(self, *args, **kwargs):
+        """Run a stage that checks one snapshot; return the process and that snapshot's report entry."""
+        proc, report = self.report(*args, **kwargs)
+        (entry,) = report["snapshots"]
+        if report["result"] != entry["result"]:
+            raise AssertionError(f"run result {report['result']} differs from its one snapshot's: {report}")
+        return proc, entry
+
     def hook(self):
         path = self.path / ".git/hooks/pre-commit"
         path.write_text(f"#!/bin/sh\nexec {shlex.quote(sys.executable)} -I {shlex.quote(str(SCRIPT))} "
@@ -241,7 +249,7 @@ class DefaultsTest(RunnerCase):
             re.escape("SKIP  spec-docs    requires docs/DOCUMENTS.json"),
             re.escape("All 1 selected check passed; 1 skipped."),
         ])
-        _, report = self.repo.report("run", "--stage", "pre-commit")
+        _, report = self.repo.snapshot("run", "--stage", "pre-commit")
         self.assertEqual((report["base"], report["overrides"], report["result"]), (EMPTY_TREE, [], "pass"))
 
     def test_whitespace_reads_attributes_from_the_snapshot(self):
@@ -250,7 +258,7 @@ class DefaultsTest(RunnerCase):
         self.repo.write("notes.txt", "trailing \n")
         self.repo.stage("notes.txt")
         self.repo.write(".gitattributes", "* -whitespace\n")  # unstaged: must not turn the check off
-        proc, report = self.repo.report("run", "--stage", "pre-commit")
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit")
         self.assertEqual(proc.returncode, 1)
         whitespace = report["checks"][0]
         self.assertEqual((whitespace["id"], whitespace["status"]), ("whitespace", "fail"))
@@ -292,18 +300,28 @@ class DefaultsTest(RunnerCase):
         self.repo.configure({"probe": check(["sh", "-c", probe, "{snapshot}"], ["pre-commit"])})
         self.repo.write("sub/file.txt", "text\n")
         self.repo.stage("sub/file.txt")
-        proc, report = self.repo.report("run", "--stage", "pre-commit", "--only", "probe",
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "probe",
                                         cwd=self.repo.path / "sub", input="leaked standard input\n")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(report["checks"][0]["output"],
                          f"{self.repo.root}\npre-commit {report['base']} {report['snapshot']} {report['snapshot']}\n")
+
+    def test_check_whose_program_is_missing_is_an_error_and_fails_the_run(self):
+        self.repo.configure({"lint": check(["no-such-program-for-checks", "{snapshot}"], ["pre-commit"])})
+        proc, report = self.repo.report("run", "--stage", "pre-commit")
+        self.assertEqual(proc.returncode, 1, proc.stderr)
+        (snapshot,) = report["snapshots"]
+        lint = {c["id"]: c for c in snapshot["checks"]}["lint"]
+        self.assertEqual((report["result"], snapshot["result"], lint["status"], lint["output"]),
+                         ("fail", "fail", "error",
+                          "cannot start 'no-such-program-for-checks': No such file or directory\n"))
 
     def test_check_queue_command_starts_each_check(self):
         queue = self.repo.path.parent / "queue"
         queue.write_text('#!/bin/sh\necho "queued: $1"\nexec "$@"\n')
         queue.chmod(0o755)
         self.repo.configure()
-        proc, report = self.repo.report("run", "--stage", "pre-commit",
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit",
                                         env=dict(self.repo.env, HOUSE_RULES_CHECK_QUEUE=str(queue)))
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(report["checks"][0]["output"], "queued: git\n")
@@ -313,13 +331,14 @@ class SnapshotTest(RunnerCase):
     def test_file_staged_during_the_run_stops_with_preparation_failure(self):
         stager = "printf 'late\\n' > late.txt && git add late.txt"
         self.repo.configure({"stager": check(["sh", "-c", stager, "{snapshot}"], ["pre-commit"])})
-        proc = self.repo.run("run", "--stage", "pre-commit")
-        self.assertEqual(proc.returncode, 2, proc.stdout + proc.stderr)
-        lines = proc.stdout.splitlines()
-        self.assertEqual(lines[-2:], [
-            "warning: snapshot: the staged index changed during the run, so the checks did not see the content "
-            "Git would commit",
-            "Commit refused: the staged index changed during the run. Review what was staged and commit again."])
+        proc, report = self.repo.report("run", "--stage", "pre-commit")
+        self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
+        self.assertEqual(report["error"], {
+            "reference": None, "repair": "review what was staged and commit again",
+            "cause": "the staged index changed during the run, so the checks did not see the content Git would commit"})
+        self.assertEqual([s["result"] for s in report["snapshots"]], ["pass"])
+        self.assertEqual(proc.stderr.splitlines(), [f"repository checks: {report['error']['cause']}; "
+                                                    f"{report['error']['repair']}"])
 
     def test_file_staged_and_restored_during_the_run_keeps_the_snapshot_result(self):
         self.repo.write("f.txt", "original\n")
@@ -331,7 +350,7 @@ class SnapshotTest(RunnerCase):
             "restore": check(["sh", "-c", "printf 'original\\n' > f.txt && git add f.txt", "{snapshot}"],
                              ["pre-commit"]),
         })
-        proc, report = self.repo.report("run", "--stage", "pre-commit")
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit")
         self.assertEqual((proc.returncode, report["result"], report["warnings"]), (0, "pass", []), proc.stderr)
         self.assertEqual({c["id"]: c["output"] for c in report["checks"]}["reader"], "original\n")
 
@@ -389,7 +408,8 @@ class SelectionTest(RunnerCase):
                 self.repo.stage(*names)
                 if stage == "ci":
                     self.repo.commit()
-                proc, report = self.repo.report("run", "--stage", stage, *(["--head", "HEAD"] if stage == "ci" else []))
+                head = ["--head", "HEAD"] if stage == "ci" else []
+                proc, report = self.repo.snapshot("run", "--stage", stage, *head)
                 result = {c["id"]: c for c in report["checks"]}["ts"]
                 self.assertEqual((result["status"], result["skip_reason"], result["output"]), expected, proc.stderr)
                 self.repo.commit()
@@ -403,7 +423,7 @@ class SelectionTest(RunnerCase):
         for name, budgets, expected in cases:
             with self.subTest(name):
                 self.repo.configure(budgets=budgets)
-                _, report = self.repo.report("run", "--stage", "pre-commit")
+                _, report = self.repo.snapshot("run", "--stage", "pre-commit")
                 self.assertEqual(len(report["warnings"]), len(expected), report["warnings"])
                 for warning, pattern in zip(report["warnings"], expected):
                     self.assertRegex(warning, r"\A" + pattern + r"\Z")
@@ -443,16 +463,21 @@ class PushTest(RunnerCase):
     def changes(commit):
         return {c["id"]: c for c in commit["checks"]}["changes"]["output"]
 
+    def header(self, ref, commit, base, pin=None):
+        return (f"repository checks: pre-push on {ref} at commit {commit[:7]}, base {base[:7]}, "
+                f"House Rules {(pin or self.repo.pin)[:7]} (pinned)")
+
     def test_push_base_is_chosen_per_pushed_commit(self):
         def new_branch():
             self.repo.git("checkout", "-q", "-b", "feature", "main")
-            return [self.line("refs/heads/feature", self.commit_file("feature.txt"))], "origin", "feature.txt\n"
+            sent = self.commit_file("feature.txt")
+            return [self.line("refs/heads/feature", sent)], "origin", "feature.txt\n", sent
 
         def update_of_a_pushed_branch():
-            sent = self.repo.git("rev-parse", "feature")
+            pushed = self.repo.git("rev-parse", "feature")
             self.repo.git("push", "-q", "origin", "feature")
-            return ([self.line("refs/heads/feature", self.commit_file("second.txt"), sent)], "origin",
-                    "second.txt\n")
+            sent = self.commit_file("second.txt")
+            return [self.line("refs/heads/feature", sent, pushed)], "origin", "second.txt\n", sent
 
         def rebased_branch():
             self.repo.git("checkout", "-q", "-b", "topic", "main")
@@ -462,29 +487,44 @@ class PushTest(RunnerCase):
             self.repo.git("push", "-q", "origin", "main")
             self.repo.git("checkout", "-q", "topic")
             self.repo.git("rebase", "-q", "origin/main")
-            return [self.line("refs/heads/topic", self.repo.git("rev-parse", "HEAD"))], "origin", "topic.txt\n"
+            sent = self.repo.git("rev-parse", "HEAD")
+            return [self.line("refs/heads/topic", sent)], "origin", "topic.txt\n", sent
+
+        def annotated_tag():
+            sent = self.commit_file("tagged.txt")
+            self.repo.git("tag", "-a", "v1", "-m", "Release one", sent)
+            tag = self.repo.git("rev-parse", "v1")
+            return [self.line("refs/tags/v1", tag)], "origin", "tagged.txt\ntopic.txt\n", sent
+
+        def orphan_branch():
+            self.repo.git("checkout", "-q", "--orphan", "lonely")
+            sent = self.commit_file("lonely.txt")
+            every_file = self.repo.git("ls-tree", "-r", "--name-only", sent) + "\n"
+            return [self.line("refs/heads/lonely", sent, self.main)], "origin", every_file, sent
 
         def no_remote_default_branch():
             sent = self.commit_file("solo.txt")
             every_file = self.repo.git("ls-tree", "-r", "--name-only", sent) + "\n"
-            return [self.line("refs/heads/topic", sent)], None, every_file
+            return [self.line("refs/heads/lonely", sent)], None, every_file, sent
 
-        for setup in (new_branch, update_of_a_pushed_branch, rebased_branch, no_remote_default_branch):
+        for setup in (new_branch, update_of_a_pushed_branch, rebased_branch, annotated_tag, orphan_branch,
+                      no_remote_default_branch):
             with self.subTest(setup.__name__):
-                lines, remote, expected = setup()
+                lines, remote, expected, sent = setup()
                 proc, report = self.push(*lines, remote=remote)
                 self.assertEqual(proc.returncode, 0, proc.stderr)
-                self.assertEqual(self.changes(report["commits"][0]), expected)
+                (snapshot,) = report["snapshots"]
+                self.assertEqual((snapshot["snapshot"], self.changes(snapshot)), (sent, expected))
 
     def test_commit_made_during_the_push_is_not_checked(self):
         hook = self.repo.path / ".git/hooks/pre-push"
         hook.write_text(
             "#!/bin/sh\n"
             "printf 'late\\n' > late.txt && git add late.txt && git commit -q -m late\n"  # another session commits
-            'refs=$(mktemp) || exit 1\ncat > "$refs"\n'
+            'refs=$(mktemp) || exit 1\ncat > "$refs" || { rm -f "$refs"; exit 1; }\n'
             f'{shlex.quote(sys.executable)} -I {shlex.quote(str(SCRIPT))} run --stage pre-push --remote "$1" '
             '< "$refs" || { status=$?; rm -f "$refs"; exit $status; }\n'
-            'exec < "$refs"\nrm -f "$refs"\n')
+            'exec < "$refs" || { rm -f "$refs"; exit 1; }\nrm -f "$refs"\n')
         hook.chmod(0o755)
         self.repo.git("checkout", "-q", "-b", "feature")
         sent = self.commit_file("feature.txt")
@@ -492,26 +532,33 @@ class PushTest(RunnerCase):
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, stdin=subprocess.DEVNULL)
         self.assertEqual(proc.returncode, 0, proc.stdout)
         self.assertNotEqual(self.repo.git("rev-parse", "HEAD"), sent)
-        self.assertIn(f"commit {sent[:7]} refs/heads/feature, base {self.main[:7]}\n", proc.stdout)
+        self.assertIn(self.header("refs/heads/feature", sent, self.main) + "\n", proc.stdout)
         self.assertIn("\n      feature.txt\n", proc.stdout)
         self.assertNotIn("late.txt", proc.stdout)
 
     def test_deleted_reference_is_skipped(self):
         self.repo.git("push", "-q", "origin", "main:old")
-        old = self.repo.git("rev-parse", "origin/old")
-        deleted = f"(delete) {self.ZERO} refs/heads/old {old}\n"
+        deleted = f"(delete) {self.ZERO} refs/heads/old {self.repo.git('rev-parse', 'origin/old')}\n"
         with self.subTest("deletion beside a pushed branch"):
             self.repo.git("checkout", "-q", "-b", "feature")
-            proc, report = self.push(deleted, self.line("refs/heads/feature", self.commit_file("feature.txt")))
+            sent = self.commit_file("feature.txt")
+            proc, report = self.push(deleted, self.line("refs/heads/feature", sent))
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            self.assertEqual(report["commits"][0], {"ref": "refs/heads/old", "snapshot": None, "base": None,
-                                                    "skip_reason": "deleted reference; nothing to check",
-                                                    "checks": []})
-            self.assertEqual(self.changes(report["commits"][1]), "feature.txt\n")
-        with self.subTest("deletion only"):
+            self.assertEqual([(s["reference"], s["snapshot"], self.changes(s)) for s in report["snapshots"]],
+                             [("refs/heads/feature", sent, "feature.txt\n")])
+        with self.subTest("deletion-only push"):
+            proc, report = self.push(deleted)
+            self.assertEqual((proc.returncode, report), (0, {"version": 1, "stage": "pre-push", "result": "pass",
+                                                             "snapshots": []}), proc.stderr)
             proc = self.push(deleted, json_report=False)
             self.assertEqual((proc.returncode, proc.stdout),
-                             (0, "repository checks: the push sends no commit to check\n"), proc.stderr)
+                             (0, "nothing to check: the push only deletes references\n"), proc.stderr)
+
+    def test_pushed_tag_of_a_tree_is_a_preparation_failure(self):
+        self.repo.git("tag", "-a", "tree-tag", "-m", "A tagged tree", "HEAD^{tree}")
+        proc = self.push(self.line("refs/tags/tree-tag", self.repo.git("rev-parse", "tree-tag")), json_report=False)
+        self.assertPreparationFailure(proc, "the pushed reference refs/tags/tree-tag points at",
+                                      "resolves to no commit", "change the reference")
 
     def test_push_of_a_branch_other_than_the_checked_out_one_is_checked(self):
         self.repo.git("checkout", "-q", "-b", "other")
@@ -519,10 +566,11 @@ class PushTest(RunnerCase):
         self.repo.git("checkout", "-q", "main")
         proc, report = self.push(self.line("refs/heads/other", other))
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual((report["commits"][0]["snapshot"], self.changes(report["commits"][0])),
-                         (other, "other.txt\n"))
+        (snapshot,) = report["snapshots"]
+        self.assertEqual((snapshot["reference"], snapshot["snapshot"], self.changes(snapshot)),
+                         ("refs/heads/other", other, "other.txt\n"))
 
-    def test_push_fails_when_any_pushed_commit_fails_and_names_it(self):
+    def test_push_of_two_branches_reports_both_snapshots_and_fails_when_one_fails(self):
         self.repo.git("checkout", "-q", "-b", "good", "main")
         good = self.commit_file("good.txt")
         self.repo.git("checkout", "-q", "-b", "bad", "main")
@@ -530,21 +578,56 @@ class PushTest(RunnerCase):
         lines = [self.line("refs/heads/good", good), self.line("refs/heads/bad", bad)]
         proc, report = self.push(*lines)
         self.assertEqual((proc.returncode, report["result"]), (1, "fail"))
-        self.assertEqual([(c["snapshot"], {r["id"]: r["status"] for r in c["checks"]}) for c in report["commits"]],
-                         [(good, {"whitespace": "pass", "changes": "pass"}),
-                          (bad, {"whitespace": "fail", "changes": "pass"})])
+        self.assertEqual([(s["reference"], s["snapshot"], s["base"], s["house_rules"], s["result"],
+                           {r["id"]: r["status"] for r in s["checks"]}) for s in report["snapshots"]],
+                         [("refs/heads/good", good, self.main, self.repo.pin, "pass",
+                           {"whitespace": "pass", "changes": "pass"}),
+                          ("refs/heads/bad", bad, self.main, self.repo.pin, "fail",
+                           {"whitespace": "fail", "changes": "pass"})])
         text = self.push(*lines, json_report=False).stdout.splitlines()
-        self.assertIn(f"commit {bad[:7]} refs/heads/bad, base {self.main[:7]}", text)
-        self.assertEqual(text[text.index(f"commit {bad[:7]} refs/heads/bad, base {self.main[:7]}") + 1][:16],
-                         "FAIL  whitespace")
+        sections = [i for i, line in enumerate(text) if line.startswith("repository checks:")]
+        self.assertEqual([text[i] for i in sections], [self.header("refs/heads/good", good, self.main),
+                                                       self.header("refs/heads/bad", bad, self.main)])
+        self.assertEqual(text[sections[1] + 1][:16], "FAIL  whitespace")
         self.assertEqual(text[-1], "Push refused: 1 of 4 checks failed. "
                                    "Fix the findings, commit the fixes and push again.")
-        rerun = report["commits"][1]["checks"][0]["rerun"]
+        rerun = report["snapshots"][1]["checks"][0]["rerun"]
         self.assertIn(f"--head {bad} --base {self.main}", rerun)
         again = subprocess.run(shlex.split(rerun), cwd=str(self.repo.path), env=self.repo.env, capture_output=True,
                                text=True, stdin=subprocess.DEVNULL)
         self.assertEqual(again.returncode, 1, again.stderr)
         self.assertIn("bad.txt:1: trailing whitespace.", again.stdout)
+
+    def test_passing_branch_pushed_with_a_tag_of_a_tree_is_a_preparation_failure(self):
+        self.repo.git("checkout", "-q", "-b", "feature")
+        sent = self.commit_file("feature.txt")
+        self.repo.git("tag", "-a", "tree-tag", "-m", "A tagged tree", "HEAD^{tree}")
+        tag = self.repo.git("rev-parse", "tree-tag")
+        proc, report = self.push(self.line("refs/heads/feature", sent), self.line("refs/tags/tree-tag", tag))
+        self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
+        self.assertEqual(report["error"], {
+            "reference": "refs/tags/tree-tag",
+            "cause": f"the pushed reference refs/tags/tree-tag points at {tag[:7]}, which resolves to no commit",
+            "repair": "change the reference, or push it without the hook's check under the rule line"})
+        self.assertEqual([(s["reference"], s["snapshot"], s["result"]) for s in report["snapshots"]],
+                         [("refs/heads/feature", sent, "pass")])
+
+    def test_pushed_commits_with_different_pins_are_a_preparation_failure(self):
+        first = self.repo.pin
+        (self.house_rules.path / "MOVED").write_text("revision B\n")
+        second = self.house_rules.commit("Move the pin")
+        self.repo.git("checkout", "-q", "-b", "old-pin", "main")
+        old = self.commit_file("old.txt")
+        self.repo.git("checkout", "-q", "-b", "new-pin", "main")
+        self.repo.configure(pin=second)
+        new = self.commit_file("new.txt")
+        proc, report = self.push(self.line("refs/heads/old-pin", old), self.line("refs/heads/new-pin", new))
+        self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
+        self.assertEqual(report["error"], {
+            "reference": "refs/heads/new-pin", "repair": "push them separately",
+            "cause": f"the pushed commits pin different House Rules revisions ({first[:7]}, {second[:7]})"})
+        self.assertEqual([(s["reference"], s["house_rules"], s["result"]) for s in report["snapshots"]],
+                         [("refs/heads/old-pin", first, "pass")])
 
 
 class SpecDocsTest(RunnerCase):
@@ -586,9 +669,9 @@ class SpecDocsTest(RunnerCase):
         self.tour_commit_refused()
         proc, report = self.repo.report("run", "--stage", "pre-commit")
         self.assertEqual(proc.returncode, 1)
-        head, snapshot = self.repo.git("rev-parse", "HEAD"), report["snapshot"]
+        head, snapshot = self.repo.git("rev-parse", "HEAD"), report["snapshots"][0]["snapshot"]
         self.assertEqual(self.repo.git("diff", "--cached", "--name-only", snapshot), "")
-        spec, whitespace = report["checks"]
+        spec, whitespace = report["snapshots"][0]["checks"]
         python = Path(spec["command"][0])
         self.assertEqual(python.parent.parent.parent, self.cache / "environments")
         self.assertRegex(spec.pop("output"), r"\Aspec-docs: error D13 docs/example\.md:\d+: rejected form for "
@@ -597,8 +680,8 @@ class SpecDocsTest(RunnerCase):
         runner = str(self.cache / "revisions" / self.repo.pin / RUNNER)
         for result in (spec, whitespace):
             self.assertGreaterEqual(result.pop("seconds"), 0)
-        self.assertEqual(report, {
-            "version": 1, "stage": "pre-commit", "source": "index", "house_rules": self.repo.pin,
+        self.assertEqual(report, {"version": 1, "stage": "pre-commit", "result": "fail", "snapshots": [{
+            "reference": None, "source": "index", "house_rules": self.repo.pin,
             "base": head, "snapshot": snapshot, "result": "fail",
             "checks": [
                 {"id": "spec-docs", "status": "fail",
@@ -611,11 +694,11 @@ class SpecDocsTest(RunnerCase):
                  "command": ["git", f"--attr-source={snapshot}", "diff", "--check", head, snapshot],
                  "rerun": shlex.join([sys.executable, runner, "run", "--stage", "pre-commit", "--only",
                                       "whitespace"])}],
-            "overrides": [], "warnings": []})
+            "overrides": [], "warnings": []}]})
 
     def test_printed_rerun_runs_only_that_check_and_passes_after_the_fix(self):
         self.tour_commit_refused()
-        _, report = self.repo.report("run", "--stage", "pre-commit")
+        _, report = self.repo.snapshot("run", "--stage", "pre-commit")
         self.repo.stage("docs/example.md")
         proc = subprocess.run(shlex.split(report["checks"][0]["rerun"]), cwd=str(self.repo.path),
                               env=self.repo.env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
@@ -628,16 +711,16 @@ class SpecDocsTest(RunnerCase):
         self.repo.spec(rejected="batch machine")
         self.repo.configure({"lint": check(["git", "--version"], ["ci"])})
         self.seed_environment()
-        proc, preflight = self.repo.report("run", "--stage", "ci", "--index")
+        proc, preflight = self.repo.snapshot("run", "--stage", "ci", "--index")
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
         self.assertEqual(statuses(preflight), {"whitespace": "pass", "spec-docs": "pass", "lint": "skipped"})
         self.assertEqual(preflight["checks"][-1]["skip_reason"], "reads the working tree; runs in CI on the commit")
         self.repo.commit()
         self.repo.sentence("The batch machine is fast.")
         self.repo.stage("docs/example.md")
-        _, hook = self.repo.report("run", "--stage", "pre-commit")
+        _, hook = self.repo.snapshot("run", "--stage", "pre-commit")
         self.repo.commit()
-        _, ci = self.repo.report("run", "--stage", "ci", "--head", "HEAD")
+        _, ci = self.repo.snapshot("run", "--stage", "ci", "--head", "HEAD")
         self.assertEqual(statuses(hook), {"spec-docs": "fail", "whitespace": "pass"})
         self.assertEqual(statuses(ci), dict(statuses(hook), lint="pass"))
 
@@ -653,7 +736,7 @@ class SpecDocsTest(RunnerCase):
             self.repo.stage(name)
         self.repo.commit()
         self.seed_environment()
-        proc, report = self.repo.report("run", "--stage", "ci", "--head", "HEAD")
+        proc, report = self.repo.snapshot("run", "--stage", "ci", "--head", "HEAD")
         self.assertEqual(proc.returncode, 1, proc.stderr)
         results = {c["id"]: c for c in report["checks"]}
         self.assertEqual(results["code-names"]["output"], "src/a.ts\nsrc/lib/b.ts\n")
@@ -678,7 +761,7 @@ class PinningTest(RunnerCase):
             self.repo.configure(no_spec, pin=pin)
             self.assertEqual(self.repo.run("prepare").returncode, 0)
         old_runner = self.cache / "revisions" / first / RUNNER
-        proc, report = self.repo.report("run", "--stage", "pre-commit", script=old_runner, env=self.offline())
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit", script=old_runner, env=self.offline())
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(report["house_rules"], second)
         self.assertTrue(report["checks"][0]["rerun"].startswith(

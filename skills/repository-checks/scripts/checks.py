@@ -56,7 +56,16 @@ LABELS = {"pass": "PASS", "fail": "FAIL", "error": "ERROR", "skipped": "SKIP"}
 
 
 class Failure(Exception):
-    """A configuration or preparation failure: exit 2 with one line naming the cause and its repair."""
+    """A configuration or preparation failure: exit 2 with one line naming the cause and its repair.
+
+    The message is "<cause>; <repair>"; its last "; " separates the two. `reference` names the pushed
+    reference the failure concerns, if any.
+    """
+
+    def __init__(self, message, reference=None):
+        super().__init__(message)
+        self.cause, _, self.repair = message.rpartition("; ")
+        self.reference = reference
 
 
 def runner_command(*args):
@@ -71,7 +80,7 @@ def git(cwd, *args, env=None, foreign=False, check=True):
     environ.update(env or {})
     proc = subprocess.run(["git", *args], cwd=str(cwd), env=environ, stdin=subprocess.DEVNULL, capture_output=True)
     if check and proc.returncode:
-        raise Failure(f"git {' '.join(args[:2])} failed: {last_line(proc.stderr)}")
+        raise Failure(f"git {' '.join(args[:2])} failed ({last_line(proc.stderr)}); repair the clone and run again")
     return proc
 
 
@@ -158,17 +167,23 @@ def select_base(root, stage, base, remote, from_index, snapshot, remote_commit=N
 
 
 def push_base(root, remote, snapshot, remote_commit):
-    """Merge base with the remote commit Git names, else with the remote's default branch, else the empty tree."""
-    candidates = [remote_commit] if remote_commit and commit_id(root, remote_commit) else []
-    if remote:
+    """Merge base with the remote commit Git names, else with the remote's default branch, else the empty tree.
+
+    A pushed commit that shares no ancestor with its comparison commit also gets the empty tree.
+    """
+    compare = commit_id(root, remote_commit) if remote_commit else None
+    if compare is None and remote:
         default = git(root, "symbolic-ref", "--quiet", f"refs/remotes/{remote}/HEAD", check=False)
-        if default.returncode == 0:
-            candidates.append(default.stdout.decode().strip())
-    for ref in candidates:
-        proc = git(root, "merge-base", snapshot, ref, check=False)
-        if proc.returncode == 0:
-            return proc.stdout.decode().strip()
-    return empty_tree(root)
+        compare = commit_id(root, default.stdout.decode().strip()) if default.returncode == 0 else None
+    if compare is None:
+        return empty_tree(root)
+    proc = git(root, "merge-base", snapshot, compare, check=False)
+    if proc.returncode == 1:
+        return empty_tree(root)
+    if proc.returncode:
+        raise Failure(f"cannot find the push base of {snapshot[:7]} ({last_line(proc.stderr)}); "
+                      "repair the clone and push again")
+    return proc.stdout.decode().strip()
 
 
 def pushed_references(data):
@@ -505,85 +520,130 @@ def uses(check, name):
 # Commands ----------------------------------------------------------------------------------
 
 def command_run(args, argv):
+    snapshots, error, nothing = [], None, False
+    try:
+        nothing = check_stage(args, argv, snapshots)
+    except Failure as exc:
+        error = exc
+    result = "error" if error else "fail" if any(s["result"] == "fail" for s in snapshots) else "pass"
+    report = {"version": 1, "stage": args.stage, "result": result, "snapshots": snapshots}
+    if error:
+        report["error"] = {"reference": error.reference, "cause": error.cause, "repair": error.repair}
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False))
+    elif nothing:
+        print("nothing to check: the push only deletes references")
+    elif snapshots:
+        print(render(report))
+    if error:
+        sys.stdout.flush()
+        print(f"repository checks: {error}", file=sys.stderr)
+    return {"pass": 0, "fail": 1, "error": 2}[result]
+
+
+def check_stage(args, argv, snapshots):
+    """Check each snapshot of the stage in turn, appending its entry; return True when there is nothing to check.
+
+    A preparation failure stops the run; the snapshots checked before it stay in `snapshots`.
+    """
     root = find_root()
     from_index = args.index or (args.stage == "pre-commit" and not args.head)
     if args.remote and args.stage != "pre-push":
-        raise Failure("--remote applies only to --stage pre-push")
+        raise Failure("--remote applies only to --stage pre-push; drop --remote")
     # At pre-push Git names each pushed commit on standard input; each one is its own snapshot.
     pushing = args.stage == "pre-push" and not (args.head or args.index)
     stdin = sys.stdin.buffer.read() if pushing else None
-    targets = []
-    for ref, commit, remote_commit in pushed_references(stdin) if pushing else [(None, args.head, None)]:
-        target = {"ref": ref, "snapshot": None, "base": None, "skip_reason": None, "checks": [],
-                  "remote_commit": remote_commit, "config": None}
-        if pushing and commit is None:
-            target["skip_reason"] = "deleted reference; nothing to check"
-        else:
-            target["snapshot"], target["tree"] = build_snapshot(root, commit, from_index)
-            target["files"] = tree_files(root, target["snapshot"])
-            target["config"] = read_config(root, target["snapshot"], target["files"])
-            if target["config"] is None:
-                target["skip_reason"] = f"no {CONFIG} in this commit"
-        targets.append(target)
-    configs = [t["config"] for t in targets if t["config"]]
-    if not configs:
-        message = ("the push sends no commit to check" if pushing and not any(t["snapshot"] for t in targets)
-                   else f"no {CONFIG} in the snapshot; this repository has not adopted repository checks")
-        print(json.dumps({"version": 1, "result": "pass", "checks": [], "warnings": [message]})
-              if args.json else "repository checks: " + message)
-        return 0
-    pins = sorted({c["revision"] for c in configs})
-    if len(pins) > 1:
-        raise Failure(f"the pushed commits pin different House Rules revisions ({', '.join(p[:7] for p in pins)}); "
-                      "push them separately")
-    config = configs[0]
-    house_rules = pinned_tree(config, args.house_rules, argv, stdin)
-    for name in args.only or ():
-        if not any(name == c["id"] for each in configs for c in each["checks"]):
-            raise Failure(f"unknown check '{name}' in --only; known checks: "
-                          + ", ".join(c["id"] for c in config["checks"]))
+    items = pushed_references(stdin) if pushing else [(None, args.head, None)]
+    items = [item for item in items if not pushing or item[1] is not None]  # a deletion has nothing to check
+    if not items:
+        return True
+    pin = house_rules = None
+    for ref, head, remote_commit in items:
+        if pushing:
+            pushed, head = head, commit_id(root, head)
+            if head is None:
+                raise Failure(f"the pushed reference {ref} points at {pushed[:7]}, which resolves "
+                              "to no commit; change the reference, or push it without the hook's check under the "
+                              "rule line", reference=ref)
+        try:
+            target = snapshot_target(root, ref, head, from_index, remote_commit)
+            config = target["config"]
+            if config is None:
+                snapshots.append(unadopted(target))
+                continue
+            known = [c["id"] for c in config["checks"]]
+            for name in args.only or ():
+                if name not in known:
+                    raise Failure(f"unknown check '{name}' in --only; name one of {', '.join(known)}")
+            if house_rules is None:
+                house_rules, pin = pinned_tree(config, args.house_rules, argv, stdin), config["revision"]
+            elif config["revision"] != pin:
+                raise Failure(f"the pushed commits pin different House Rules revisions ({pin[:7]}, "
+                              f"{config['revision'][:7]}); push them separately")
+        except Failure as exc:
+            exc.reference = ref
+            raise
+        snapshots.append(check_snapshot(root, args, target, house_rules, from_index, pushing))
+        if from_index and index_tree(root) != target["tree"]:
+            raise Failure("the staged index changed during the run, so the checks did not see the content Git "
+                          "would commit; review what was staged and commit again")
+    return False
 
+
+def snapshot_target(root, ref, head, from_index, remote_commit):
+    snapshot, tree = build_snapshot(root, head, from_index)
+    files = tree_files(root, snapshot)
+    return {"ref": ref, "snapshot": snapshot, "tree": tree, "files": files, "remote_commit": remote_commit,
+            "source": "index" if from_index else "commit", "config": read_config(root, snapshot, files)}
+
+
+def snapshot_entry(target, config, base, result, checks, warnings):
+    return {"reference": target["ref"], "source": target["source"],
+            "house_rules": config["revision"] if config else None, "base": base, "snapshot": target["snapshot"],
+            "result": result, "checks": checks, "overrides": config["overrides"] if config else [],
+            "warnings": warnings}
+
+
+def unadopted(target):
+    return snapshot_entry(target, None, None, "pass", [],
+                          [f"no {CONFIG} in this snapshot; repository checks are not adopted here"])
+
+
+def check_snapshot(root, args, target, house_rules, from_index, pushing):
+    """Run the selected checks of one snapshot; every check reads only that snapshot's commit."""
+    config, snapshot = target["config"], target["snapshot"]
+    base = select_base(root, args.stage, args.base, args.remote, from_index, snapshot, target["remote_commit"])
+    changed = changed_files(root, base, snapshot) if args.stage in HOOK_STAGES else None
+    rerun = ["run", "--stage", args.stage]
+    for flag, value in (("--remote", args.remote), ("--head", snapshot if pushing else args.head),
+                        ("--base", base if pushing else args.base), ("--house-rules", args.house_rules)):
+        rerun += [flag, value] if value else []
+    rerun += ["--index"] if args.index else []
     plan = []
-    for target in targets:
-        if target["config"] is None:
+    for check in config["checks"]:
+        if args.only and check["id"] not in args.only:
             continue
-        snapshot = target["snapshot"]
-        target["base"] = base = select_base(root, args.stage, args.base, args.remote, from_index, snapshot,
-                                            target["remote_commit"])
-        changed = changed_files(root, base, snapshot) if args.stage in HOOK_STAGES else None
-        rerun = ["run", "--stage", args.stage]
-        for flag, value in (("--remote", args.remote), ("--head", snapshot if pushing else args.head),
-                            ("--base", base if pushing else args.base), ("--house-rules", args.house_rules)):
-            rerun += [flag, value] if value else []
-        rerun += ["--index"] if args.index else []
-        for check in target["config"]["checks"]:
-            if args.only and check["id"] not in args.only:
-                continue
-            if args.stage not in check["stages"]:
-                if args.only:
-                    plan.append((target, check, f"not configured for {args.stage}", None, rerun))
-                continue
-            plan.append((target, check, *select(check, args.stage, from_index, target["files"], changed), rerun))
-    running = [(target, check) for target, check, reason, _, _ in plan if reason is None]
-    python = None
-    if any(uses(check, "python") for _, check in running):
-        python = str(prepare_environment(house_rules))
-    for target, check in running:
-        if any(arg.startswith("--attr-source") for arg in check["run"]) and git(
-                root, f"--attr-source={target['snapshot']}", "rev-parse", "--git-dir", check=False).returncode:
+        if args.stage not in check["stages"]:
+            if args.only:
+                plan.append((check, f"not configured for {args.stage}", None))
+            continue
+        plan.append((check, *select(check, args.stage, from_index, target["files"], changed)))
+    running = [check for check, reason, _ in plan if reason is None]
+    values = {"base": base, "snapshot": snapshot, "house_rules": str(house_rules), "python": None}
+    if any(uses(check, "python") for check in running):
+        values["python"] = str(prepare_environment(house_rules))
+    if any(arg.startswith("--attr-source") for check in running for arg in check["run"]):
+        if git(root, f"--attr-source={snapshot}", "rev-parse", "--git-dir", check=False).returncode:
             raise Failure(f"the installed Git ({out(root, '--version')}) cannot read attributes from a commit "
                           "(--attr-source); install a Git that supports it")
 
     queue = os.environ.get("HOUSE_RULES_CHECK_QUEUE")
-    started = time.monotonic()
-    for target, check, reason, inputs, rerun in plan:
+    env = dict(os.environ, CHECK_STAGE=args.stage, CHECK_BASE=base, CHECK_SNAPSHOT=snapshot)
+    started, results = time.monotonic(), []
+    for check, reason, inputs in plan:
         result = {"id": check["id"], "status": "skipped", "seconds": None, "command": None, "output": "",
                   "fix": None, "rerun": runner_command(*rerun, "--only", check["id"]), "skip_reason": reason}
         if reason is None:
-            values = {"base": target["base"], "snapshot": target["snapshot"], "house_rules": str(house_rules),
-                      "python": python}
-            env = dict(os.environ, CHECK_STAGE=args.stage, CHECK_BASE=target["base"],
-                       CHECK_SNAPSHOT=target["snapshot"])
             command = expand(check["run"], values, inputs)
             begin = time.monotonic()
             try:
@@ -594,40 +654,20 @@ def command_run(args, argv):
                 status, output = "error", f"cannot start {(queue or command[0])!r}: {exc.strerror or exc}\n"
             result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
                           output=output, fix=check["fix"] if status != "pass" else None)
-        target["checks"].append(result)
+        results.append(result)
     total = time.monotonic() - started
-
-    results = [r for t in targets for r in t["checks"]]
     ran = [r for r in results if r["status"] != "skipped"]
-    failed = [r for r in ran if r["status"] != "pass"]
-    warnings, changed_index = [], False
+    warnings = []
     budget = config["budgets"].get(args.stage, {}).get("seconds") or (
         DEFAULT_BUDGET if args.stage == "pre-commit" else None)
     if budget is not None and total > budget:
         slowest = max(ran, key=lambda r: r["seconds"])["id"] if ran else None
         warnings.append(f"budget: {args.stage} took {total:.1f} s of {budget:g} s"
                         + (f"; slowest check {slowest}" if slowest else ""))
-    if from_index and index_tree(root) != targets[0]["tree"]:
-        changed_index = True
-        warnings.append("snapshot: the staged index changed during the run, so the checks did not see "
-                        "the content Git would commit")
     order = {"error": 0, "fail": 1, "pass": 2, "skipped": 3}
-    for target in targets:
-        target["checks"].sort(key=lambda r: order[r["status"]])
-    overrides = []
-    for each in configs:
-        overrides += [o for o in each["overrides"] if o not in overrides]
-    report = {"version": 1, "stage": args.stage, "source": "index" if from_index else "commit",
-              "house_rules": config["revision"]}
-    if args.stage == "pre-push":
-        report["commits"] = [{k: t[k] for k in ("ref", "snapshot", "base", "skip_reason", "checks")}
-                             for t in targets]
-    else:
-        report.update(base=targets[0]["base"], snapshot=targets[0]["snapshot"], checks=targets[0]["checks"])
-    report.update(result="error" if changed_index else "fail" if failed else "pass", overrides=overrides,
-                  warnings=warnings)
-    print(json.dumps(report, ensure_ascii=False) if args.json else render(report, ran, failed))
-    return {"pass": 0, "fail": 1, "error": 2}[report["result"]]
+    results.sort(key=lambda r: order[r["status"]])
+    outcome = "fail" if any(r["status"] in ("fail", "error") for r in ran) else "pass"
+    return snapshot_entry(target, config, base, outcome, results, warnings)
 
 
 def select(check, stage, from_index, files, changed):
@@ -679,29 +719,30 @@ def check_lines(results):
     return lines
 
 
-def render(report, ran, failed):
-    pin = f"House Rules {report['house_rules'][:7]} (pinned)"
-    if "commits" in report:
-        lines = [f"repository checks: {report['stage']} of {len(report['commits'])} pushed "
-                 f"reference{'s' if len(report['commits']) != 1 else ''}, {pin}"]
-        for commit in report["commits"]:
-            name = " ".join(filter(None, [commit["snapshot"] and commit["snapshot"][:7], commit["ref"]]))
-            lines.append(f"commit {name}" + (f", base {commit['base'][:7]}" if commit["base"] else "")
-                         + (f": {commit['skip_reason']}" if commit["skip_reason"] else ""))
-            lines += check_lines(commit["checks"])
-        checks = [r for c in report["commits"] for r in c["checks"]]
-    else:
-        source = "the staged index" if report["source"] == "index" else f"commit {report['snapshot'][:7]}"
-        lines = [f"repository checks: {report['stage']} on {source}, {pin}"] + check_lines(report["checks"])
-        checks = report["checks"]
-    lines += [f"override: {o['id']} {o['change']}; reason: {o['reason']}" for o in report["overrides"]]
-    lines += ["warning: " + w for w in report["warnings"]]
+def render(report):
+    lines, checks = [], []
+    for entry in report["snapshots"]:
+        where = ("the staged index" if entry["source"] == "index" else f"commit {entry['snapshot'][:7]}")
+        if entry["reference"]:
+            where = f"{entry['reference']} at {where}"
+        if entry["house_rules"] is None:
+            lines.append(f"repository checks: {report['stage']} on {where}: no {CONFIG}; "
+                         "repository checks are not adopted here")
+            continue
+        lines.append(f"repository checks: {report['stage']} on {where}"
+                     + (f", base {entry['base'][:7]}" if report["stage"] == "pre-push" else "")
+                     + f", House Rules {entry['house_rules'][:7]} (pinned)")
+        lines += check_lines(entry["checks"])
+        lines += [f"override: {o['id']} {o['change']}; reason: {o['reason']}" for o in entry["overrides"]]
+        lines += ["warning: " + w for w in entry["warnings"]]
+        checks += entry["checks"]
+    if not checks or "error" in report:
+        return "\n".join(lines)
+    ran = [r for r in checks if r["status"] != "skipped"]
+    failed = [r for r in ran if r["status"] != "pass"]
     refused, next_step = REFUSAL[report["stage"]]
     skipped = len(checks) - len(ran)
-    if report["result"] == "error":
-        again = "commit again" if report["stage"] == "pre-commit" else "run the checks again"
-        lines.append(f"{refused}: the staged index changed during the run. Review what was staged and {again}.")
-    elif failed:
+    if failed:
         lines.append(f"{refused}: {len(failed)} of {len(ran)} checks failed. Fix the findings, {next_step}.")
     elif ran:
         lines.append(f"All {len(ran)} selected check{'s' if len(ran) > 1 else ''} passed"
@@ -818,12 +859,10 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         if args.command == "install":
-            raise Failure("install is not implemented yet")
+            raise Failure("install is not implemented yet; write the configuration and hooks by hand")
         return {"run": command_run, "prepare": command_prepare, "status": command_status}[args.command](args, argv)
     except Failure as exc:
         print(f"repository checks: {exc}", file=sys.stderr)
-        if getattr(args, "json", False):
-            print(json.dumps({"version": 1, "result": "error", "error": str(exc)}))
         return 2
 
 
