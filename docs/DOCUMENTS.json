@@ -1052,7 +1052,7 @@
           "roles": [
             "questions"
           ],
-          "summary": "Find the one open limit and confirm that no other design choice remains open.",
+          "summary": "Confirm that no design choice remains open.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },

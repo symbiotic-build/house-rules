@@ -55,7 +55,7 @@ Use this map to choose the next explanation to read.
 - [Worked examples](194-repository-checks.md#examples) — Apply the configuration to another naming style and to a repository without specifications.
 - [Requirements](194-repository-checks.md#requirements) — Find the obligations each mechanism must meet.
 - [Decisions and alternatives](194-repository-checks.md#decisions) — Read each choice, its authority and the alternatives it rejects.
-- [Open questions](194-repository-checks.md#questions) — Find the one open limit and confirm that no other design choice remains open.
+- [Open questions](194-repository-checks.md#questions) — Confirm that no design choice remains open.
 - [Rollout and work packages](194-repository-checks.md#rollout) — Plan the implementation pull requests and adoption.
 - [Reference](194-repository-checks.md#reference) — Look up configuration fields, built-ins, commands and the report format.
 - [Acceptance](194-repository-checks.md#acceptance) — See the planned demonstrations for each requirement.
@@ -831,13 +831,13 @@ A repository declares all its checks in one place.
 <a id="req-checks-same-runner"></a>
 ### Requirement: the same runner in hooks and CI
 
-A built-in check gives the same result in the hook and in CI when both runs have the same snapshot, House Rules revision and base. A repository check gives the same result when its own clone-local inputs are the same too; the repository is responsible for them.
+A built-in check gives the same result in the hook and in CI when both runs have the same snapshot, House Rules revision and base, and the clone has no attribute file of its own outside the snapshot. A repository check gives the same result when its own clone-local inputs are the same too; the repository is responsible for them.
 
 **Actor:** Check runner.
 
 **Condition:** A hook or a CI step runs repository checks.
 
-**Result:** Both run `checks.py run` at the House Rules revision the run resolves, with the same configuration. A runner at another revision prepares and runs the runner at the resolved revision. Two runs resolve different revisions when House Rules main moves between them; the [latest House Rules decision](#decision-latest-house-rules) accepts that, and each report names its revision and each check's version, so a reader can tell which input differed. A built-in reads no clone-local input that changes its result: the whitespace built-in sets Git's default `core.whitespace` itself, under the [built-in results decision](#decision-built-in-results).
+**Result:** Both run `checks.py run` at the House Rules revision the run resolves, with the same configuration. A runner at another revision prepares and runs the runner at the resolved revision. Two runs resolve different revisions when House Rules main moves between them; the [latest House Rules decision](#decision-latest-house-rules) accepts that, and each report names its revision and each check's version, so a reader can tell which input differed. A built-in reads no clone-local Git setting that changes its result: the whitespace built-in sets Git's default `core.whitespace` itself. Attribute files outside the snapshot are the one accepted exception; the [built-in results decision](#decision-built-in-results) states it.
 A repository check's own clone-local inputs, such as a Git setting of the clone, a tool on the machine or the check's environment, can differ between a clone and CI's fresh clone. Keeping them equal is the repository's responsibility.
 
 **Verification:** Fixture House Rules whose main moves between runs; a clone with its own `core.whitespace`.
@@ -1027,7 +1027,7 @@ The operator's direction, quoted: "We should provide sane defaults but it should
 
 **Reason:** The earlier design guaranteed equal results for the same snapshot. In the triage's probe, a change to `core.whitespace` alone turned a failing whitespace run into a passing one for the same snapshot and base. A built-in is House Rules' own command, so House Rules can fix its inputs; a repository check's inputs belong to the repository.
 
-**Limit:** Git still reads the clone's `$GIT_DIR/info/attributes` with `--attr-source`. A probe on 2026-10-24 with Git 2.54.0 found that `* -whitespace` in that file turned the check off, also with the `-c` value; the [open questions](#questions) list it.
+**Limit:** Git still reads attribute files outside the snapshot with `--attr-source`: the clone's `$GIT_DIR/info/attributes`, a global `core.attributesFile` and the system attributes file. A probe on 2026-10-24 with Git 2.54.0 found that `* -whitespace` in `$GIT_DIR/info/attributes` turned the check off, also with the `-c` value. The lead accepted this boundary on the same day: those files are untracked inputs that a clone's or machine's owner sets on purpose, like skipping a hook. A hook's whitespace result can then differ from CI's, and CI's fresh clone, which has none of them, decides the PR. No further mechanism is added for them.
 
 **Rejected alternatives:** Accepting that a clone's own Git settings change a built-in's result would narrow the guarantee the operator approved with the design. Controlling every clone-local input of repository checks needs an execution policy the runner cannot enforce for arbitrary commands.
 
@@ -1100,7 +1100,7 @@ The operator's direction, quoted: "We should provide sane defaults but it should
 <a id="questions"></a>
 ## Open questions
 
-One design choice is open. A clone's `$GIT_DIR/info/attributes` can still change the whitespace result, a limit of the [built-in results decision](#decision-built-in-results), and the lead has not decided how to handle it. No other design choice is open. The operator answered the build-queue question, and left the file name and the warning budget to the lead.
+No design choice is open. The operator answered the build-queue question, and left the file name and the warning budget to the lead.
 Spec-docs runs at pre-commit by default; the operator's answer is to make it fast rather than move it.
 Both conditions for implementation hold: the operator approved the design on 2026-10-23, and [#196](https://github.com/symbiotic-build/house-rules/issues/196) met its time target in [#198](https://github.com/symbiotic-build/house-rules/pull/198).
 
