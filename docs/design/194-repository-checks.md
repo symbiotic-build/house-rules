@@ -12,17 +12,18 @@ How does one configuration reach the commit hook, the push hook and CI?
 
 ```mermaid
 flowchart TD
-    A["Repository: .agents/checks.json"] --> B["Check runner at the pinned House Rules revision"]
+    A["Repository: .agents/checks.json"] --> B["Check runner at House Rules main, resolved once per run"]
     C["Git pre-commit and pre-push hooks"] --> B
     D["CI step"] --> B
     B --> E["Selected checks: built-in and repository commands"]
-    E --> F["Check run report: pass, fail or error per check"]
+    E --> F["Check run report: House Rules revision, and per check its status and version"]
     F --> G["Commit or push refused, or CI job red, on any failure"]
 ```
 
-The [check configuration](#check-configuration) names the pinned House Rules revision and the repository's choices.
-The [check runner](#check-runner) reads it, selects the checks for the current [check stage](#check-stage) and runs each [check definition](#check-definition).
-Its [check run report](#check-run-report) says which check failed, why, how to fix it and how to rerun it.
+The [check configuration](#check-configuration) holds the repository's choices and names no House Rules revision.
+The [check runner](#check-runner) always runs at House Rules main, which it resolves once per run, as [House Rules revision and offline use](#revision) explains.
+It reads the configuration, selects the checks for the current [check stage](#check-stage) and runs each [check definition](#check-definition).
+Its [check run report](#check-run-report) names the House Rules revision and each check's version. It also says which check failed, why, how to fix it and how to rerun it.
 The [hook block](#hook-block) is the few lines of shell that connect a Git hook to the runner.
 
 <!-- spec-docs:navigation document="repository-checks" -->
@@ -48,7 +49,7 @@ Use this map to choose the next explanation to read.
 - [Configuration and checks](194-repository-checks.md#configuration) — Declare checks in one file and write a check to the command contract.
 - [Running checks](194-repository-checks.md#running) — See when each check runs, what it reads and how pre-commit stays fast.
 - [Installation, hooks and agents](194-repository-checks.md#installation) — Install hooks and CI without breaking other tools, and connect agent sessions.
-- [Pinning and offline use](194-repository-checks.md#pinning) — Control the House Rules revision and work without a network.
+- [House Rules revision and offline use](194-repository-checks.md#revision) — Know which House Rules revision a run uses, what it logs and what works without a network.
 - [Overrides and review](194-repository-checks.md#review) — Review overrides, and know which rules stay with reviewers.
 - [Worked examples](194-repository-checks.md#examples) — Apply the configuration to another naming style and to a repository without specifications.
 - [Requirements](194-repository-checks.md#requirements) — Find the obligations each mechanism must meet.
@@ -62,7 +63,7 @@ Use this map to choose the next explanation to read.
 
 Each technical term below links to its defining Markdown section.
 
-- [Check configuration](194-repository-checks.md#check-configuration) (`repository-checks.check-configuration`) — A check configuration is the versioned JSON file .agents/checks.json that pins House Rules and declares the repository's checks.
+- [Check configuration](194-repository-checks.md#check-configuration) (`repository-checks.check-configuration`) — A check configuration is the versioned JSON file .agents/checks.json that declares the repository's checks.
 - [Check definition](194-repository-checks.md#check-definition) (`repository-checks.check-definition`) — A check definition is one command, the stages it runs at, the files it reads and how its result is read.
 - [Check installation](194-repository-checks.md#check-installation) (`repository-checks.check-installation`) — Check installation is the repository-checks procedure that writes a repository's configuration, Git hooks and CI step, and prepares the local cache.
 - [Check run report](194-repository-checks.md#check-run-report) (`repository-checks.check-run-report`) — A check run report is the runner's account of one run and of each check in it.
@@ -127,49 +128,47 @@ Everything in this tour uses House Rules defaults.
    - Writes nothing.
 2. **Install:** the same command without `--dry-run`.
    - Writes the [check configuration](#check-configuration), the pre-commit and pre-push [hook blocks](#hook-block) and the CI workflow.
-   - Prepares the pinned House Rules revision and the spec checker's environment in the local cache.
+   - Fetches House Rules main and builds the spec checker's environment in the local cache.
 3. **Stage the install and check everything:** `git add` the files the install listed, then `checks.py run --stage ci --index`.
    - Runs every CI check that reads the snapshot over the staged snapshot, which already holds the new configuration. Existing failures show before the hook starts refusing commits.
    - Here both checks pass.
-4. **Commit the install** through a normal PR. A reviewer reads the configuration, which holds only the pin.
+4. **Commit the install** through a normal PR. A reviewer reads the configuration, which changes no default.
 5. **Edit a chapter and commit:** the change adds "segment id" to `docs/specs/storage/recovery.md`.
    - The pre-commit hook builds a snapshot commit of the staged index and runs both default checks on it.
    - The spec checker reports one error; Git refuses the commit.
 6. **Fix and rerun one check:** rename to "segment identifier", stage it, then run the `rerun` command the report printed.
    - The spec check passes.
 7. **Commit again.** Both checks pass and Git creates the commit.
-8. **Push the branch.** The CI step runs the same checks at the same pinned revision and passes.
+8. **Push the branch.** The CI step resolves House Rules main itself, runs the same checks and passes. Its job log names the revision and each check's version.
 
 > **Detail — configuration written in step 2**
 >
 > ```json
 > {
 >   "version": 1,
->   "house_rules": {
->     "revision": "ebb6b3762d90c7f8ed725b5119eb874325aa6c42",
->     "url": "https://github.com/symbiotic-build/house-rules"
->   },
 >   "checks": {}
 > }
 > ```
 >
-> The empty `checks` object means "House Rules defaults at this revision": whitespace and spec-docs.
-> The revision is illustrative: it predates the runner, which refuses a pin without one. A real install writes the revision its runner came from.
+> The empty `checks` object means "the House Rules defaults": whitespace and spec-docs at the run's House Rules revision.
 
 > **Detail — report printed in step 5**
 >
 > ```text
-> repository checks: pre-commit on the staged index, House Rules ebb6b37 (pinned)
+> repository checks: pre-commit on the staged index, House Rules ebb6b3762d90c7f8ed725b5119eb874325aa6c42 (main)
 > FAIL  spec-docs    1.8 s
+>       version: ~/.cache/house-rules/environments/5c1e…/bin/python@3f2a9c0d41b7 ~/.cache/house-rules/revisions/ebb6b37…/skills/spec-writing/scripts/spec_docs.py@a81d0e6c2f94
 >       spec-docs: error D13 docs/specs/storage/recovery.md:118: rejected form 'segment id'; use 'segment identifier'
 >       spec-docs: 1 error, 0 warnings
 >       fix: apply the remedy for each code in the spec checker's diagnostic table, run spec_docs.py generate, stage the result
 >       rerun: python3.14 ~/.cache/house-rules/revisions/ebb6b37…/skills/repository-checks/scripts/checks.py run --stage pre-commit --only spec-docs
 > PASS  whitespace   0.1 s
+>       version: /usr/bin/git@9b04e1c7d2aa
 > Commit refused: 1 of 2 checks failed. Fix the findings, stage the fixes and commit again.
 > ```
 >
-> The 1.8 s is illustrative: it assumes [#196](https://github.com/symbiotic-build/house-rules/issues/196) meets its target of 2 s or less on the large corpus. The rerun line holds the full revision; it is shortened here.
+> The header names the full House Rules revision and its source, `main`. Each `version:` line names the program and the script files the check ran, each with the first 12 hexadecimal digits of its SHA-256.
+> The 1.8 s, the revision and the digests are illustrative; the 1.8 s assumes [#196](https://github.com/symbiotic-build/house-rules/issues/196) meets its target of 2 s or less on the large corpus. The version and rerun lines hold full paths; they are shortened here.
 
 The spec check runs on every commit, because the files it reads cannot yet be listed safely, as [Running checks](#running) explains.
 The whitespace check runs on every commit too, because every staged file is its input.
@@ -183,7 +182,7 @@ A repository chooses its checks in one file; House Rules supplies the defaults a
 <a id="check-configuration"></a>
 ### Check configuration
 
-A check configuration is the versioned JSON file `.agents/checks.json` that pins House Rules and declares the repository's checks.
+A check configuration is the versioned JSON file `.agents/checks.json` that declares the repository's checks.
 It sits beside the repository's [bible](../../rules/core.md) (§Terms), `.agents/rules.md`, because it is part of the repository's rules.
 The runner reads this file from the run's snapshot: the staged index at pre-commit, the commit at pre-push and in CI.
 An unstaged edit to it therefore has no effect on the commit being checked.
@@ -191,17 +190,20 @@ An unstaged edit to it therefore has no effect on the commit being checked.
 A snapshot without the file has not adopted repository checks. `run` then checks nothing, prints one line saying so and exits 0.
 The runner's `prepare` and `status` commands read the file from the index, as pre-commit does.
 
-The file has four top-level fields:
+The file has three top-level fields:
 
 - `version` is 1.
-- `house_rules` holds the pinned `revision`, a full 40-character commit, and the `url` to fetch it from. This is the consuming repository's tool configuration that the [House Rules revision](../specs/spec-system/source-formats.md#house-rules-revision) reference asks for.
 - `budgets` optionally maps a hook [check stage](#check-stage) to an entry with `seconds` and `reason`. A snapshot whose checks take longer than the budget in its own configuration gets a warning. CI has no budget.
 - `checks` maps a check identity to an entry. An entry for a built-in identity changes that built-in; any other identity adds a repository check.
 
-The effective set is every built-in [check definition](#check-definition) at the pinned revision, changed by the repository's entries.
-Only the pinned runner judges the entries. A runner at another revision reads only `version` and `house_rules`, then starts the pinned runner, as [Pinning and offline use](#pinning) describes.
+The file names no House Rules revision. Every run uses House Rules main, and the run's report records the revision it used. That report is the retained run input that the [House Rules revision](../specs/spec-system/source-formats.md#house-rules-revision) reference asks for.
+A file that still holds the `house_rules` field of an earlier draft stops the run with the configuration error "remove house_rules: checks always run at House Rules main".
+
+The effective set is every built-in [check definition](#check-definition) at the run's House Rules revision, changed by the repository's entries.
+Only the runner at that revision judges the entries. A runner at another revision reads only `version` and refuses a `house_rules` field. It then starts the runner at the run's revision, as [House Rules revision and offline use](#revision) describes.
 Entry fields are listed in [Configuration fields](#configuration-fields).
-Unknown fields, unknown built-in placeholders, a NUL character in a command argument, an unsupported version or a revision that is not 40 hexadecimal characters stop the run with a configuration error.
+Unknown fields, unknown built-in placeholders and a NUL character in a command argument stop the run with a configuration error.
+An unsupported version, a `house_rules` field and an entry that sets `enforced` stop it the same way.
 
 Every entry that changes a default carries a `reason`, and so does every repository check.
 A field whose value equals the built-in default is no change and needs no reason.
@@ -215,13 +217,14 @@ A check definition is one command, the stages it runs at, the files it reads and
 Built-in definitions ship with the runner; repository definitions live in the [check configuration](#check-configuration).
 Both follow one contract, so the runner treats a House Rules check and a repository's linter the same way.
 
-The contract has five parts:
+The contract has six parts:
 
 - **Inputs.** `paths` lists the repository-relative globs the check reads. `requires` lists files that must exist in the snapshot for the check to apply; a snapshot without them skips the check with that reason. A folder of that name does not count.
 - **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files that exist in the snapshot as arguments, in place of its `{files}` argument; a `files` check without a whole `{files}` argument is a configuration error. `diff` runs once with a base and the snapshot. A repository check without `scope` has scope `tree`.
 - **Snapshot.** `run` is one argument list. A check that reads the [snapshot commit](#snapshot-handling) names it with `{snapshot}` and reads files from it, never from the working tree. Only such a check may list a hook stage; a check without `{snapshot}` reads the working tree and runs in CI only.
-- **Result.** Exit status 0 is a pass. Any other status is a failure. A command that cannot start, such as a missing program, is an error.
+- **Result.** Exit status 0 is a pass. Any other status is a failure. For a built-in that House Rules does not enforce yet, it is a warning instead, as [New built-in checks warn first](#warning-first) explains. A command that cannot start, such as a missing program, is an error.
 - **Output.** The runner shows everything the command printed, unshortened, in its [check run report](#check-run-report). `fix` adds one line telling the reader what to change. Every built-in has one, and a repository check without `fix` is a configuration error, so every failure carries a fix line.
+- **Version.** The runner records which program and script files the check ran, with their SHA-256, as [What each run logs](#logged-versions) defines. A check needs nothing for this. A check that uses prompts names their versions in its own output.
 
 A deleted or renamed-away file selects a `files` check but is not passed to it, because it no longer exists.
 A selection that holds only such files skips the check with the reason "only deleted inputs".
@@ -234,9 +237,27 @@ A check must not change files, the index or Git references.
 The runner adds `CHECK_STAGE`, `CHECK_BASE` and `CHECK_SNAPSHOT` to the environment with the same values as the placeholders, so a check script can read the range the runner chose.
 A configuration that lists a hook stage for a check without `{snapshot}` stops with a configuration error.
 
-The built-in definitions at the first implemented revision are whitespace and spec-docs, listed in [Built-in checks](#built-in-checks).
+The built-in definitions at the first implemented revision are whitespace and spec-docs, listed in [Built-in checks](#built-in-checks). Both are enforced.
 Spec-docs reads its naming style from the repository's own `docs/ENTITIES.json`.
 A repository with another naming style therefore changes its `docs/ENTITIES.json`, not the check, as [Worked examples](#examples) shows.
+
+<a id="warning-first"></a>
+### New built-in checks warn first
+
+A House Rules change reaches every adopted repository at its next run, so a new default check would otherwise refuse commits everywhere at once.
+A built-in definition therefore has the boolean `enforced`, default `true`, which House Rules sets and no configuration can.
+
+A failing check whose definition has `enforced: false` gets the status `warn`.
+Its output, fix line and rerun line show as for a failure, but its snapshot's result stays `pass`, so the commit, the push or the CI job goes ahead.
+A repository that wants such a check off sets `enabled: false` with a reason, as for any default.
+A check that cannot start is still an `error`, enforced or not.
+
+**Procedure: add a default check**
+
+1. **Ship it as a warning:** a House Rules PR adds the built-in with `enforced: false`. Every repository sees its findings as warnings from its next run.
+2. **Enforce it later:** a later House Rules PR sets `enforced: true`. That PR's Rule changes section is the announcement; the [pr-ready](../../skills/pr-ready/SKILL.md) merge procedure carries it into the rules changelog.
+
+A stricter rule inside an existing check, such as a new spec checker diagnostic, is the checker's own business. The checker ships it as a checker warning first; the runner adds nothing for it.
 
 <a id="running"></a>
 ## Running checks
@@ -291,7 +312,7 @@ At pre-commit the runner builds it once, at the start, without touching the real
 3. **Wrap the tree in a commit:** `git commit-tree <tree> -p HEAD`, without `-p` before the first commit. The runner sets a fixed author and committer, `repository checks <checks@localhost>`, so the step needs no Git identity. No branch or reference points to the commit.
 
 At pre-push the snapshot is each pushed commit that Git names on the hook's standard input, and in CI it is the commit under test.
-The runner reads the configuration, the pin, `requires` and the changed files from the snapshot, and passes it to every check as `{snapshot}`.
+The runner reads the configuration, `requires` and the changed files from the snapshot, and passes it to every check as `{snapshot}`.
 Spec-docs reads it with `--rev {snapshot}`. Whitespace compares it with `git --attr-source={snapshot} diff --check {base} {snapshot}`, so the whitespace rules in `.gitattributes` also come from the snapshot.
 The clone's own Git configuration, such as `core.whitespace`, still applies to that command. A clone that sets it can therefore get another whitespace result than CI, whose fresh clone has no such setting; CI's result decides the PR.
 
@@ -330,24 +351,24 @@ A commit can therefore wait behind another session's build. The [queue decision]
 
 The check runner is `skills/repository-checks/scripts/checks.py`, one standard-library Python file that reads the configuration, selects checks, runs them and prints the report.
 It runs on Python 3.9 or later, because the measured machine's system interpreter is 3.9.6.
-The same file runs in the Git hooks and in CI, at the pinned revision, so a check behaves the same in both.
+The same file runs in the Git hooks and in CI, at the House Rules revision the run resolves, so a check behaves the same in both.
 
 The runner has four commands, listed in [Runner commands](#runner-commands): `run`, `install`, `prepare` and `status`.
-`run` exits 0 when every selected check passed or was skipped. It exits 1 when a check failed or could not start, and 2 when the configuration or preparation failed.
+`run` exits 0 when every selected check passed, warned or was skipped. It exits 1 when a check failed or could not start, and 2 when the configuration or preparation failed.
 The hooks refuse the commit or push on any nonzero status.
 
 <a id="check-run-report"></a>
 ### Check run report
 
 A check run report is the runner's account of one run and of each check in it.
-It names the stage and, for each snapshot the run checked, the snapshot, its base and its House Rules revision. The JSON report holds each identity in full. The text report names where the snapshot came from, "the staged index" or the commit's short identity, and shows the base only at pre-push. For each check it gives the status, duration, output, fix line and rerun command.
+It names the stage, the run's House Rules revision with its source, and, for each snapshot the run checked, the snapshot and its base. The JSON report holds each identity in full. The text report names where the snapshot came from, "the staged index" or the commit's short identity, and shows the base only at pre-push. Its header line names the full House Rules revision and, in brackets, its source: `main`, `cached main, fetched <time>` or `override HOUSE_RULES_REVISION`. For each check it gives the status, duration, version, output, fix line and rerun command.
 
-A run checks one snapshot, except at pre-push, where it checks one per pushed commit. Each pushed commit is checked with its own configuration. Pushed commits that pin different House Rules revisions stop the run with a [preparation failure](#failure-preparation); the author pushes them separately.
+A run checks one snapshot, except at pre-push, where it checks one per pushed commit. Each pushed commit is checked with its own configuration, and every snapshot of the run uses the one House Rules revision the run resolved.
 
-A snapshot's result is `fail` when any of its checks failed or could not start, and `pass` otherwise. A preparation failure, which can occur without any snapshot, makes the run's result `error`. Otherwise the run's result is `fail` when any snapshot failed, and `pass` otherwise. A push that only deletes references checks nothing and passes with the line "nothing to check: the push only deletes references".
+A snapshot's result is `fail` when any of its checks failed or could not start, and `pass` otherwise; a check that warned leaves it `pass`. A preparation failure, which can occur without any snapshot, makes the run's result `error`. Otherwise the run's result is `fail` when any snapshot failed, and `pass` otherwise. A push that only deletes references checks nothing and passes with the line "nothing to check: the push only deletes references".
 It is the one output format for every check, so an agent can act on any failure the same way.
 
-Each check's status is `pass`, `fail`, `error` or `skipped`. A skipped check states why:
+Each check's status is `pass`, `fail`, `warn`, `error` or `skipped`. `warn` is a failure of a check that House Rules does not enforce yet, as [New built-in checks warn first](#warning-first) explains. A skipped check states why:
 
 - "disabled: <reason>" for a check turned off;
 - "requires docs/DOCUMENTS.json" for a missing required file;
@@ -357,21 +378,22 @@ Each check's status is `pass`, `fail`, `error` or `skipped`. A skipped check sta
 - "reads the working tree; runs in CI on the commit" for a check without `{snapshot}` in a run on the index;
 - "not configured for <stage>" for a check named with `--only` that does not list the stage.
 
-The report then lists every override of a default with its reason, and any warnings.
+The report then lists every override of a default with its reason, and any warnings. A run that could not fetch House Rules main and used the main last fetched adds one warning. That warning names the revision and when it was fetched.
 A snapshot without a configuration has one line and checks nothing.
 The last line says what the run refused and what to do next.
 After a preparation failure, standard output lists the snapshots checked before it, without that last line. Standard error then gets one line with the cause and its repair.
 
 `run --json` prints the same report as one JSON object, defined in [Report format](#report-format).
 Output and paths are kept byte for byte. The text report writes bytes that are not UTF-8 unchanged; the JSON report is ASCII and holds them as `\udcXX` escapes.
-The CI step prints the text report in the job log. The PR watcher then wakes the session on the red check; the session reruns the printed command locally.
+The CI step prints the text report in the job log, so the log names the House Rules revision and each check's version. The PR watcher then wakes the session on the red check; the session reruns the printed command locally.
+A rerun line starts the runner of the run's revision, which resolves House Rules main again; after a House Rules merge the rerun therefore uses the newer revision, and its header says so.
 
 <a id="failure-check-refused"></a>
 ### Failure state: commit or push refused
 
 This refusal keeps a change that breaks a declared rule out of the commit or the push.
 
-**Trigger:** A selected check exits with a nonzero status, or cannot start.
+**Trigger:** A selected check exits with a nonzero status, or cannot start. A failure of a check that House Rules does not enforce yet only warns and is no trigger.
 
 **Outcome:** The runner exits 1 and the hook exits with that status, so Git creates no commit or sends no push. The report names each failing check, its output, its fix line and its rerun command.
 
@@ -405,11 +427,11 @@ Running it again repairs missing pieces and keeps every choice the repository ma
 
 > **Detail — what the install writes**
 >
-> - `.agents/checks.json`: created only when absent, pinned to the House Rules revision the runner came from. An existing file is never rewritten, except its `house_rules.revision` under `--update-pin <revision>`.
+> - `.agents/checks.json`: created only when absent, with `version` 1 and an empty `checks` object. An existing file is never rewritten.
 > - The `pre-commit` and `pre-push` hook files in the folder `git rev-parse --git-path hooks` prints: the [hook block](#hook-block) is added or refreshed.
 > - Two per-clone Git settings: `house-rules.checks-runner`, the runner's absolute path in the cache, and `house-rules.checks-python`, an absolute interpreter path.
 > - `.github/workflows/repository-checks.yml`, when the repository has `.github/workflows/` or the caller passes `--ci github`. A rerun never rewrites an existing workflow file. It reports when the runner step differs from the current template, so a repository's own setup steps stay.
-> - Cache contents: the pinned House Rules tree and the spec checker's environment, built from its hash-locked requirements.
+> - Cache contents: the tree of House Rules main and the spec checker's environment, built from its hash-locked requirements.
 
 The installer chooses `house-rules.checks-python` as the newest interpreter on `PATH` that every enabled built-in supports.
 With spec-docs enabled that range is CPython 3.11 to 3.14. On the measured machine it chooses `python3.14`, not `python3` 3.15.0.
@@ -478,12 +500,12 @@ The agent side only needs to notice a clone where the hooks are missing.
 `scripts/sync.py --install-hooks` registers one more session-start handler beside the House Rules context and the approved-work listing.
 It runs `checks.py status --session` from the House Rules main checkout. In a repository with a [check configuration](#check-configuration) it prints one line:
 
-- `repository checks: ready (House Rules ebb6b37, hooks installed)`, or
-- what is missing, with the command that fixes it: no hook block, a hook file that is not executable, the pinned revision not in the cache, or the spec checker's environment not built.
+- `repository checks: ready (House Rules ebb6b37, main fetched 2026-10-23T14:05:00Z, hooks installed)`, or
+- what is missing, with the command that fixes it: no hook block, a hook file that is not executable, "House Rules main not fetched yet", or the spec checker's environment not built.
 
 In a managed repository, one that has `.agents/rules.md`, without a configuration it prints the install command. Elsewhere it prints nothing.
 It always exits 0. A configuration error becomes its one line, so a broken file never stops a session from starting.
-With the pinned revision in the cache it hands over to the pinned runner. Otherwise it reports the missing revision, and checks the environment only after `prepare`.
+It reports the main last fetched into the cache and when it was fetched; it never fetches. With that revision prepared it hands over to its runner, which knows which checks need an environment. Otherwise it reports "House Rules main not fetched yet" with the `prepare` command, and checks the environment only after `prepare`.
 It runs Git commands only, no checks, and needs no network.
 
 The PR watcher needs no change.
@@ -492,49 +514,107 @@ The CI step appears on the PR as one more check. The watcher already wakes the s
 No end-of-turn agent hook runs checks.
 The Git hook already gates every commit, and an end-of-turn hook would run on turns that commit nothing.
 
-<a id="pinning"></a>
-## Pinning and offline use
+<a id="revision"></a>
+## House Rules revision and offline use
 
-This chapter explains how a repository controls which House Rules checks it runs, and what works without a network.
+This chapter explains which House Rules revision a run uses, what the run logs about it, and what works without a network.
 
-The [check configuration](#check-configuration) pins one full House Rules commit.
-A newer House Rules revision changes nothing in a repository until a reviewed PR moves its pin with `checks.py install --update-pin <revision>`.
-That PR's CI run uses the new revision, so it shows what the new defaults would change before the merge.
+Every run uses House Rules main. A House Rules merge therefore reaches every adopted repository at its next run, and the run's report names the new revision.
+A new default check cannot refuse commits everywhere at once, because it warns first, as [New built-in checks warn first](#warning-first) explains.
+An older revision runs only for a deliberate test, through the [revision override](#revision-override); no repository configuration can hold one.
+
+**Procedure: resolve the House Rules revision of one run**
+
+1. **Read the override:** when `HOUSE_RULES_REVISION` is set, the run uses that commit and skips the next step.
+2. **Ask for main:** `git ls-remote <url> refs/heads/main` names main's commit; the runner fetches that commit unless the cache holds it.
+3. **Prepare the tree:** the runner extracts the commit into the cache unless it is there.
+4. **Hand over:** a runner at another revision starts the runner at the resolved one and passes it the result, so the started runner does not resolve again.
+
+> **Detail — resolution**
+>
+> - The URL is `https://github.com/symbiotic-build/house-rules`, unless `HOUSE_RULES_URL` names another, such as a fork or a test fixture.
+> - The runner fetches one commit with depth 1 into `refs/pins/<commit>` of the cache's `source.git`; Git transfers nothing when the cache has it. The override's commit is fetched the same way.
+> - It asks for main with `ls-remote` and then fetches by commit, instead of fetching the branch. Two hooks that resolve at once in one cache therefore cannot fail on each other's reference update.
+> - A fetch that fails while another process fetches the same commit uses the commit once it is present.
+> - Every fetch and `ls-remote` passes `-c http.lowSpeedLimit=1 -c http.lowSpeedTime=30`: Git stops a transfer that moves less than 1 byte per second for 30 s. The runner adds no timer, because the [verification rules](../../rules/delivery.md) (§Verification) fail long-running steps on lack of progress, not on elapsed time. These settings cover HTTP URLs, such as the default; another transport keeps Git's own behaviour.
+> - The handing runner passes the resolution in the environment variable `HOUSE_RULES_RESOLVED`. The started runner accepts it only when it names that runner's own revision, and removes it, so no check inherits it.
+
+A run resolves once, at its first snapshot that has a configuration, before that snapshot's checks. Every later snapshot of the run uses the same revision, so two commits of one push always run at one revision.
+A run whose snapshots have no configuration checks nothing and resolves nothing, so it needs no network.
 
 The runner prepares a revision once and reuses it:
 
 > **Detail — cache layout**
 >
 > - The cache root is `HOUSE_RULES_CACHE`, or `$XDG_CACHE_HOME/house-rules`, or `~/.cache/house-rules`.
-> - `source.git` is a bare repository. It fetches each pinned commit from the pinned `url` into `refs/pins/<commit>` with depth 1, not the whole history. When a fetch fails while another process fetches the same pin, the runner uses the pin once it is present. `HOUSE_RULES_CLONE` names an existing House Rules clone to read objects from instead.
+> - `source.git` is a bare repository that holds each fetched commit with depth 1, not the whole history.
+> - `main.json` records the main last fetched: its URL, its commit and the UTC time of the fetch, such as `2026-10-23T14:05:00Z`. A successful resolution of main from another URL replaces it.
 > - `revisions/<commit>/` holds that commit's files, extracted with `git archive`. Files are read-only; folders stay writable, so the cache can be removed.
 > - `environments/<digest>/` holds one virtual environment per requirements lock and interpreter version. The digest is SHA-256 over the lock file and `CPython <major>.<minor>`.
 > - The environment's interpreter is the running one when the spec checker supports it, and otherwise the newest supported `python3.<minor>` on `PATH`.
 > - A revision or environment is built in a temporary folder and renamed into place. Two hooks that prepare the same revision at once both end with one complete copy.
 > - The cache survives an interrupted process, because nothing uses an entry before its rename. It is not built to survive a host power loss: an entry can then be incomplete, and the repair is to delete the cache folder.
-> - Extracting a revision from its commit makes its files the pin's files; the runner trusts a cache entry after that and checks only that the runner file exists.
+> - Extracting a revision from its commit makes its files the commit's files; the runner trusts a cache entry after that and checks only that the runner file exists.
 
-The runner in a hook is the one at the path in `house-rules.checks-runner`.
-A pull can move the pin, so that runner's revision can differ from the configuration's pin. It then prepares the pinned revision and runs the runner from it.
-The runner that runs the checks is therefore always the pinned one.
+The runner in a hook is the one at the path in `house-rules.checks-runner`, at the revision the install prepared.
+After House Rules main moves, that runner resolves the new main, prepares it and hands over. The runner that runs the checks is therefore always at the run's resolved revision.
 
 Offline use works as follows:
 
-- A pinned revision and environment already in the cache need no network. This is the normal state after the install.
-- A pinned revision missing from the cache is fetched once. Offline, the run stops with a preparation error that names the revision and the command `checks.py prepare` to run when online.
-- Building the spec checker's environment the first time installs hash-locked wheels with pip. Offline, pip can use its own wheel cache; otherwise the run stops the same way.
+- Every run asks for House Rules main. Offline, it uses the main last fetched into the cache, and the report's source is `cached main`. The run adds one warning that names that revision and its fetch time, shown below.
+- With no main ever fetched into the cache, the run stops with a [preparation failure](#failure-preparation), also shown below. At pre-push its repair reads "push again when online". The push fetches House Rules main and builds its environment itself.
+- Building the spec checker's environment the first time installs hash-locked wheels with pip. Offline, pip can use its own wheel cache; otherwise the run stops with a preparation failure that names `checks.py prepare` to run when online.
 - The checks themselves make no network calls. The spec checker checks external links by syntax only.
 
-Warden pins its own House Rules revision for its review prompts.
-That pin and the repository's pin are independent; the report names the revision it ran, so a reviewer can tell them apart.
+> **Detail — offline warning and failure lines**
+>
+> ```text
+> warning: cannot fetch House Rules main from https://github.com/symbiotic-build/house-rules (fatal: unable to access …); using the main last fetched, ebb6b3762d90c7f8ed725b5119eb874325aa6c42, fetched 2026-10-23T14:05:00Z
+> repository checks: cannot fetch House Rules main from https://github.com/symbiotic-build/house-rules (fatal: unable to access …); run again when online
+> ```
+
+Warden chooses its own House Rules revision for its review prompts.
+That choice is independent of the revision a check run uses; the report names the revision it ran, so a reviewer can tell them apart.
+
+<a id="revision-override"></a>
+### Revision override
+
+A revision override is the environment variable `HOUSE_RULES_REVISION`, a full 40-character commit, that runs that House Rules commit instead of main for one run.
+It exists for deliberate tests, such as checking a repository against the revision before a House Rules change.
+
+The variable works for direct runs and for hooks alike. A Git hook inherits the environment of the `git commit` or `git push` that starts it.
+Nothing stores it: the configuration has no field for it, and the next run without the variable uses main again.
+The report marks every run that used it: the JSON `house_rules` object has `"source": "override"`, and the text header ends with "(override HOUSE_RULES_REVISION)".
+
+> **Detail — a deliberate test at an earlier revision**
+>
+> ```text
+> HOUSE_RULES_REVISION=ebb6b3762d90c7f8ed725b5119eb874325aa6c42 checks.py run --stage ci --head HEAD
+> repository checks: ci on commit 9f3c2a1, House Rules ebb6b3762d90c7f8ed725b5119eb874325aa6c42 (override HOUSE_RULES_REVISION)
+> ```
+
+A value that is not a full commit identity, or a commit the House Rules URL does not have, stops the run with a [preparation failure](#failure-preparation).
+
+<a id="logged-versions"></a>
+### What each run logs
+
+Each run records what it ran, so a reader of any report or CI log can tell which rules produced a result.
+
+- **House Rules revision.** The run object's `house_rules` holds three fields. `revision` is the full commit. `source` is `main`, `cached main` or `override`. `fetched` is an ISO 8601 UTC time: of this run's fetch for `main`, of the last fetch for `cached main`, and of the cache's first preparation of the commit for an override.
+- **Check versions.** Each check result that ran holds `version`, a list of `path` and `sha256` pairs. The first pair is the program: the first argument after placeholder expansion, resolved on `PATH`, or from the repository root when it holds a slash. One pair follows for every other argument that names an existing regular file when the check starts, in argument order. A `{files}` argument is the check's input, not its version, so its files are left out. A skipped check has `version` set to `null`.
+- **Prompt versions.** No built-in check uses a prompt. A repository check that uses prompts names their versions in its own output, which the report shows unchanged; the runner does not parse it.
+
+The text report prints one `version:` line under each check that ran, listing `path@<first 12 hexadecimal digits of the SHA-256>` for each item.
+For spec-docs it names the environment's interpreter and `spec_docs.py`; for whitespace it names the `git` program.
 
 <a id="failure-preparation"></a>
 ### Failure state: runner cannot prepare
 
 This refusal keeps a commit from passing without its checks having run.
 
-**Trigger:** The configuration is invalid, the pinned revision cannot be read or fetched, the pinned revision has no runner, the cache cannot be written, or no supported interpreter or environment can be prepared.
-Pushed commits pin different House Rules revisions.
+**Trigger:** The configuration is invalid, House Rules main cannot be fetched and the cache holds no main fetched before, or the resolved revision has no runner.
+The [revision override](#revision-override) is not a full commit identity, or the House Rules URL lacks its commit.
+The cache cannot be written, or no supported interpreter or environment can be prepared.
 The live index's tree differs from the snapshot at the end of a pre-commit run.
 The snapshot cannot be built: the index copy cannot be read, or the index still has unmerged entries.
 The installed Git cannot read attributes from a commit (`--attr-source`).
@@ -546,13 +626,13 @@ The report's `error` names the pushed reference the failure concerns: the refere
 
 **Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used. A failed temporary copy of the pushed references is removed, except when a plain `/bin/sh` exits at a failed reopening; the file then stays in the temporary folder.
 
-**Recovery:** The author runs the printed repair: `checks.py prepare` when online, `checks.py install` for a missing setting, or a configuration fix through a reviewed PR.
-`prepare` reads the index's configuration. For a pushed commit whose pin or environment cannot be prepared offline, the repair is to push again when online, because the run prepares that commit's pin and environment itself.
+**Recovery:** The author runs the printed repair: the same run again when online, `checks.py prepare` when online for an environment, `checks.py install` for a missing setting, or a configuration fix through a reviewed PR.
+At pre-push the offline repair is to push again when online, because the push fetches House Rules main and builds its environment itself.
+For an invalid revision override the author corrects `HOUSE_RULES_REVISION` or unsets it; for a revision without a runner the author names another revision or URL.
 For a changed index the author reviews what was staged and commits again.
 For unmerged entries the author resolves the conflicts and stages the result; for an unreadable index the author runs the commit again, and repairs the clone if the error repeats.
 For an old Git the author installs a Git that supports `--attr-source`.
 For a pushed object with no commit the author pushes that reference without the hook's check, under the [rule line](#rule-line), or changes the reference.
-For pushed commits with different pins the author pushes each pin's references separately.
 For a failed temporary copy the author frees space in, or repairs access to, the temporary folder and pushes again.
 
 **Authority:** The author repairs the clone; a configuration change needs the repository's normal review.
@@ -646,13 +726,14 @@ A repository that wants the linter before each commit wraps it to read each file
 ### A repository with no specifications
 
 This small script repository has no `docs/DOCUMENTS.json`.
-Its install writes a configuration with only the pin and the default checks.
+Its install writes a configuration that keeps every default check.
 
 > **Detail — report at its first commit**
 >
 > ```text
-> repository checks: pre-commit on the staged index, House Rules ebb6b37 (pinned)
+> repository checks: pre-commit on the staged index, House Rules ebb6b3762d90c7f8ed725b5119eb874325aa6c42 (main)
 > PASS  whitespace   0.1 s
+>       version: /usr/bin/git@9b04e1c7d2aa
 > SKIP  spec-docs    requires docs/DOCUMENTS.json
 > All 1 selected check passed; 1 skipped.
 > ```
@@ -676,7 +757,7 @@ A repository declares all its checks in one place.
 
 **Condition:** A repository has a [check configuration](#check-configuration).
 
-**Result:** The runner applies the built-in [check definitions](#check-definition) at the pinned revision, changed by the repository's entries. It refuses unknown fields, unknown built-in placeholders and any changed default or repository check without a reason.
+**Result:** The runner applies the built-in [check definitions](#check-definition) at the run's House Rules revision, changed by the repository's entries. It refuses unknown fields, unknown built-in placeholders, a `house_rules` field, an entry that sets `enforced`, and any changed default or repository check without a reason.
 
 **Verification:** Fixture configurations through the runner.
 
@@ -695,11 +776,11 @@ A check gives the same result in the hook and in CI for the same snapshot.
 
 **Condition:** A hook or a CI step runs repository checks.
 
-**Result:** Both run `checks.py run` from the pinned revision with the same configuration. A runner at another revision prepares and runs the pinned one.
+**Result:** Both run `checks.py run` at the House Rules revision the run resolves, with the same configuration. A runner at another revision prepares and runs the runner at the resolved revision.
 
-**Verification:** Fixture repository with the pin moved between commits.
+**Verification:** Fixture House Rules whose main moves between runs.
 
-**Tests:** [Default install](#test-checks-default-install), [pin move](#test-checks-pin-move).
+**Tests:** [Default install](#test-checks-default-install), [main moves](#test-checks-main-moves).
 
 **Status:** specified.
 
@@ -714,7 +795,7 @@ A pre-commit check sees what the commit contains, and no run disturbs other work
 
 **Condition:** Any stage.
 
-**Result:** Every check of a snapshot reads that snapshot's commit; at pre-commit the run's one snapshot is built from a copy of the index. The configuration, pin and `requires` come from it. A hook stage accepts only checks that read `{snapshot}`. A pre-commit run whose live index no longer matches the snapshot at the end stops. The runner never writes the working tree, the index, the stash or references.
+**Result:** Every check of a snapshot reads that snapshot's commit; at pre-commit the run's one snapshot is built from a copy of the index. The configuration and `requires` come from it. A hook stage accepts only checks that read `{snapshot}`. A pre-commit run whose live index no longer matches the snapshot at the end stops. The runner never writes the working tree, the index, the stash or references.
 
 **Verification:** Fixtures with partly staged files and with a file staged by another process during a run.
 
@@ -752,11 +833,11 @@ Every failure tells the reader what failed, how to fix it and how to rerun only 
 
 **Condition:** A check fails or cannot start, or preparation fails.
 
-**Result:** The [check run report](#check-run-report) gives each check's status, full output, fix line and rerun command, the active overrides and the warnings. `--json` gives the same content in the [report format](#report-format).
+**Result:** The [check run report](#check-run-report) gives the run's House Rules revision with its source, each check's status, version, full output, fix line and rerun command, the active overrides and the warnings. `--json` gives the same content in the [report format](#report-format).
 
-**Verification:** Golden report text and JSON for the tour's failure.
+**Verification:** Golden report text and JSON for the tour's failure; versions of a built-in and a repository check.
 
-**Tests:** [Refused commit](#test-checks-refused-commit), [preparation failure](#test-checks-preparation-failure).
+**Tests:** [Refused commit](#test-checks-refused-commit), [preparation failure](#test-checks-preparation-failure), [logged versions](#test-checks-logged-versions).
 
 **Status:** specified.
 
@@ -771,7 +852,7 @@ A rerun of the install repairs what is missing and changes nothing the repositor
 
 **Condition:** Any clone, with or without existing hooks, `core.hooksPath` or configuration.
 
-**Result:** The install writes only the items listed in check installation, never sets `core.hooksPath`, keeps hook lines outside its markers, refuses hook files it cannot edit safely or that are not executable, and rewrites the configuration only for `--update-pin`. `--dry-run` writes nothing.
+**Result:** The install writes only the items listed in check installation, never sets `core.hooksPath`, keeps hook lines outside its markers, refuses hook files it cannot edit safely or that are not executable, and never rewrites an existing configuration. `--dry-run` writes nothing.
 
 **Verification:** Fixture clones with existing hooks, a non-executable hook, a Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook and an existing configuration.
 
@@ -782,23 +863,42 @@ A rerun of the install repairs what is missing and changes nothing the repositor
 **Basis:** [Hook location decision](#decision-hook-location).
 
 <a id="req-checks-offline"></a>
-### Requirement: pinned and offline
+### Requirement: latest House Rules and offline
 
-A repository runs the checks of the revision it pinned, and a prepared clone needs no network.
+Every run uses the latest House Rules main, and a clone that fetched main once keeps working without a network.
 
 **Actor:** Check runner.
 
-**Condition:** The pinned revision and its environment are in the cache, or are not.
+**Condition:** A run can fetch House Rules main or cannot, and a [revision override](#revision-override) is set or is not.
 
-**Result:** With both in the cache, a run makes no network call. Otherwise the runner fetches once, or stops with the [preparation failure](#failure-preparation) and its repair command.
+**Result:** Without an override, a run fetches House Rules main once and every snapshot of the run uses it. When the fetch fails, the run uses the main last fetched into the cache and warns with that revision and its fetch time; with no main fetched ever, it stops with the [preparation failure](#failure-preparation) and its repair. With an override, the run uses that commit for that run only, and the report marks it; no configuration stores it. The report names the revision, its source and its fetch time in every case.
 
-**Verification:** Fixture runs with network access denied.
+**Verification:** Fixture House Rules reached through a `file://` URL, with main moved between runs, a failing or unreachable URL, and an override.
 
-**Tests:** [Preparation failure](#test-checks-preparation-failure), [pin move](#test-checks-pin-move).
+**Tests:** [Main moves](#test-checks-main-moves), [offline main](#test-checks-offline-main), [revision override](#test-checks-revision-override), [preparation failure](#test-checks-preparation-failure).
 
 **Status:** specified.
 
-**Basis:** [One runner decision](#decision-one-runner).
+**Basis:** [Latest House Rules decision](#decision-latest-house-rules).
+
+<a id="req-checks-warning-first"></a>
+### Requirement: new default checks warn first
+
+A new default check reports its findings without refusing commits until a later House Rules change enforces it.
+
+**Actor:** Check runner.
+
+**Condition:** A built-in definition has `enforced: false`, and its check fails.
+
+**Result:** The check's status is `warn`; its output, fix line and rerun line show as for a failure; its snapshot's result stays `pass` and the run exits 0. A configuration entry that sets `enforced` is a configuration error.
+
+**Verification:** Fixture House Rules revision with an extra built-in that fails and is not enforced.
+
+**Tests:** [Warning first](#test-checks-warning-first).
+
+**Status:** specified.
+
+**Basis:** [Latest House Rules decision](#decision-latest-house-rules).
 
 <a id="decisions"></a>
 ## Decisions and alternatives
@@ -828,16 +928,32 @@ The operator's direction, quoted: "We should provide sane defaults but it should
 
 **Rejected alternatives:** `.house-rules.toml` needs Python 3.11 or a third-party reader in every hook. YAML needs a third-party reader. Settings inside the bible's Markdown would need a parser for a second format in a prose file. A file named after House Rules describes its owner, not what it does.
 
+<a id="decision-latest-house-rules"></a>
+### Decision: always run at the latest House Rules main
+
+**Choice:**
+
+- Repository checks always run against the latest House Rules main. `.agents/checks.json` has no revision field, and a run resolves main once, so pushed commits cannot disagree on a revision.
+- An older revision runs only through the [revision override](#revision-override), a deliberate test for one run. No repository configuration stores it, and the report records that the run used it.
+- Every run logs the House Rules revision, each check's version and any prompt versions it used. They appear in its output and so in the CI log, as [What each run logs](#logged-versions) defines.
+- A newly added default check reports as a warning first. It starts failing commits only after a later House Rules change, merged and announced, enforces it, as [New built-in checks warn first](#warning-first) describes.
+
+**Authority:** Operator decision, 2026-10-23, relayed by the lead session. The operator wrote: "Everything should definitely log the prompt versions and house rules versions and check versions but I don't see any reason to keep stale version other than deliberate tests which ofc we can do but that would be something which you'd do deliberately?" The lead chose the configuration, override, logging and warning-first mechanisms from it on the same day.
+
+**Reason:** A stale House Rules revision has no use except a deliberate test, so the default is main and a test override is explicit and leaves no trace in any repository. Logging the revision and each check's version lets a reader of any report tell which rules produced it. A warning-first default keeps a House Rules merge from refusing commits in every repository at once.
+
+**Rejected alternatives:** A per-repository pin in `.agents/checks.json`, moved by a reviewed PR, which this design held before: rejected by the operator, because a stale version has no use except deliberate tests. It also let pushed commits disagree on a revision. Bot PRs that move each repository's pin: rejected for the same reason; they would keep stale versions in place until each PR merges, and add one PR per repository per House Rules merge.
+
 <a id="decision-one-runner"></a>
-### Decision: one runner, run from the pinned revision
+### Decision: one runner, run at the resolved revision
 
-**Choice:** Ship one standard-library runner in House Rules; hooks and CI run it from the pinned revision, prepared in a per-user cache.
+**Choice:** Ship one standard-library runner in House Rules; hooks and CI always run it at the House Rules revision the run resolves, prepared in a per-user cache.
 
-**Authority:** Lead proposal, 2026-10-22; approved with the design on 2026-10-23.
+**Authority:** Lead proposal, 2026-10-22; approved with the design on 2026-10-23. Its revision rule follows the [latest House Rules decision](#decision-latest-house-rules) of 2026-10-23.
 
-**Reason:** One program in both places is what makes hook and CI results agree. Running from the pin means a House Rules change reaches a repository only through a reviewed pin move. The [spec-writing skill](../../skills/spec-writing/SKILL.md) already forbids copying the checker into consuming repositories.
+**Reason:** One program in both places is what makes hook and CI results agree. Running the runner at the resolved revision means its checks and built-ins come from one known commit, which the report names. The [spec-writing skill](../../skills/spec-writing/SKILL.md) already forbids copying the checker into consuming repositories.
 
-**Rejected alternatives:** A copy of the runner in each repository drifts from House Rules and multiplies fixes. A published Python package needs a release process House Rules does not have. Running the live House Rules main checkout would change every repository's checks on each House Rules merge, without review.
+**Rejected alternatives:** A copy of the runner in each repository drifts from House Rules and multiplies fixes. A published Python package needs a release process House Rules does not have. Running a local House Rules checkout in place would let an uncommitted local edit change the checks, and the report could not name a commit for it.
 
 <a id="decision-hook-location"></a>
 ### Decision: marked blocks in the existing hooks folder
@@ -890,9 +1006,9 @@ The operator's direction, quoted: "We should provide sane defaults but it should
 
 **Authority:** Lead proposal, 2026-10-22; approved with the design on 2026-10-23.
 
-**Reason:** GitHub documents that a `pull_request` workflow runs the workflow file from the PR's merge commit, so a PR controls its own CI step anyway. A pin-move PR must run the new runner to show what changes.
+**Reason:** GitHub documents that a `pull_request` workflow runs the workflow file from the PR's merge commit, so a PR controls its own CI step anyway. A PR that changes the configuration must run with that configuration to show what it changes.
 
-**Rejected alternatives:** Reading the base configuration, as the rule-changes preparer does, would protect nothing the PR cannot change through the workflow file, and would test a pin move with the old runner.
+**Rejected alternatives:** Reading the base configuration, as the rule-changes preparer does, would protect nothing the PR cannot change through the workflow file, and would check a configuration change with the configuration it replaces.
 
 <a id="questions"></a>
 ## Open questions
@@ -913,6 +1029,7 @@ Each PR follows the normal review and closes nothing until the last one closes [
 - **Rule line and House Rules adoption:** the [rule line](#rule-line), House Rules' own `.agents/checks.json`, and its CI step, which replaces the corpus check in `.github/workflows/spec-docs.yml`; that workflow keeps its tests and selector audit. Depends on the install. Gate: CI on that PR.
 
 Repositories adopt by running the install; nothing changes in a repository that has not.
+After adoption, each House Rules merge reaches the repository at its next run. A new default check warns until a later House Rules PR enforces it.
 Removing adoption is deleting the configuration, the hook blocks and the workflow file; the install's `--dry-run` lists them.
 
 <a id="reference"></a>
@@ -936,9 +1053,11 @@ Fields of one entry in `checks`. A built-in entry may set any field; a repositor
 | `fix` | text | one-line fix hint |
 | `reason` | text | why the entry differs from the default |
 
+`enforced` is not a configuration field. House Rules sets it in each built-in definition, and an entry that sets it is a configuration error.
+
 A `budgets` entry has `seconds`, a positive number, and `reason`. The default pre-commit budget is 10 s and needs no entry. Pre-push has no default budget, and CI has no budget.
 
-Placeholders in `run`: `{files}` (one argument per selected file; `files` scope only), `{base}`, `{snapshot}`, `{house_rules}` (the pinned tree) and `{python}` (the pinned spec checker environment's interpreter). `{base}` and `{snapshot}` hold the same values at every stage that the [snapshot handling](#snapshot-handling) defines.
+Placeholders in `run`: `{files}` (one argument per selected file; `files` scope only), `{base}`, `{snapshot}`, `{house_rules}` (the tree of the run's House Rules revision) and `{python}` (the interpreter of that revision's spec checker environment). `{base}` and `{snapshot}` hold the same values at every stage that the [snapshot handling](#snapshot-handling) defines.
 Glob `**/` matches zero or more folders and `*` matches within one path segment, as in the `.rule-changes.json` file of the [rule-changes specification](../specs/rule-changes/rule-changes.md).
 
 <a id="naming-conventions"></a>
@@ -946,22 +1065,23 @@ Glob `**/` matches zero or more folders and `*` matches within one path segment,
 
 Each kind of public name in this design follows one convention:
 
-- Configuration fields, report fields and Git setting keys after their section are lower snake case: `skip_reason`, `house_rules`. Git settings sit in the `house-rules` section in kebab case: `house-rules.checks-runner`.
-- Check identities, stages and command options are lower kebab case, noun first for identities: `spec-docs`, `pre-commit`, `--update-pin`.
+- Configuration fields, built-in definition fields, report fields and Git setting keys after their section are lower snake case: `skip_reason`, `house_rules`, `enforced`. Git settings sit in the `house-rules` section in kebab case: `house-rules.checks-runner`.
+- Check identities, stages and command options are lower kebab case, noun first for identities: `spec-docs`, `pre-commit`, `--dry-run`.
 - Runner commands are one lower-case verb: `run`, `install`, `prepare`, `status`.
 - Placeholders are a lower snake-case noun in braces: `{snapshot}`, `{house_rules}`.
-- Environment variables are upper snake case; those the runner reads start with `HOUSE_RULES_`, and those it sets for checks start with `CHECK_`.
-- Statuses, results and scopes are one lower-case word: `pass`, `error`, `files`.
+- Environment variables are upper snake case. Those the runner reads start with `HOUSE_RULES_`, such as `HOUSE_RULES_URL` and `HOUSE_RULES_REVISION`. Those it sets for checks start with `CHECK_`.
+- Statuses, results and scopes are one lower-case word: `pass`, `warn`, `error`, `files`.
+- Revision sources are lower-case words separated by a space: `main`, `cached main`, `override`.
 
 A new name follows the convention of its kind. Repositories that adopt the checks name their own repository checks; they follow these conventions only for the fields and options the runner defines.
 
 <a id="built-in-checks"></a>
 ### Built-in checks
 
-| Identity | Stages | Scope | Requires | Time target |
-|---|---|---|---|---|
-| `whitespace` | pre-commit, ci | diff | nothing | none set |
-| `spec-docs` | pre-commit, ci | tree | `docs/DOCUMENTS.json` | 2 s or less on the 1.24 MB corpus |
+| Identity | Stages | Scope | Requires | Enforced | Time target |
+|---|---|---|---|---|---|
+| `whitespace` | pre-commit, ci | diff | nothing | yes | none set |
+| `spec-docs` | pre-commit, ci | tree | `docs/DOCUMENTS.json` | yes | 2 s or less on the 1.24 MB corpus |
 
 > **Detail — built-in commands and inputs**
 >
@@ -973,55 +1093,76 @@ A new name follows the convention of its kind. Repositories that adopt the check
 ### Runner commands
 
 ```text
-checks.py run --stage pre-commit|pre-push|ci [--base REV] [--head REV | --index] [--remote NAME] [--only ID]... [--house-rules PATH] [--json]
-checks.py install [--dry-run] [--update-pin REV] [--ci github]
+checks.py run --stage pre-commit|pre-push|ci [--base REV] [--head REV | --index] [--remote NAME] [--only ID]... [--json]
+checks.py install [--dry-run] [--ci github]
 checks.py prepare
 checks.py status [--session]
 ```
 
-`--remote NAME` names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. `--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--house-rules PATH` names an existing House Rules clone to read the pinned commit from, which must contain it; the runner extracts the pin into the cache as with `HOUSE_RULES_CLONE`, so a later checkout in that clone cannot change the checks. A pin already in the cache is used as is; `--house-rules` and `HOUSE_RULES_CLONE` are read only to extract a missing pin. The CI step uses it. `--only` limits the run to named checks and is what the report's rerun line uses. `--base` accepts a commit or the empty tree's identity, so a rerun line can repeat any base the runner chose.
+`--remote NAME` names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. `--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--only` limits the run to named checks and is what the report's rerun line uses. `--base` accepts a commit or the empty tree's identity, so a rerun line can repeat any base the runner chose.
 
-`status` prints the effective set from the pinned runner. Without the pinned revision in the cache it prints the pin, the missing revision and that the effective set is unavailable until `prepare`, because the pinned runner defines it.
+`prepare` fetches House Rules main, or the revision override's commit. It then builds the environment that the index's configuration needs.
+`status` never fetches. It prints the effective set from the runner at the revision a run would use offline: the revision override when set, else the main last fetched. A check that warns first is listed with "(warning only)". With no main fetched it prints "House Rules main not fetched yet" and that the effective set is unavailable until `prepare`, because that revision's runner defines it.
+
+The runner reads these environment variables:
+
+| Variable | Meaning |
+|---|---|
+| `HOUSE_RULES_URL` | House Rules repository; default `https://github.com/symbiotic-build/house-rules` |
+| `HOUSE_RULES_REVISION` | revision override for one run |
+| `HOUSE_RULES_CACHE` | cache root |
+| `HOUSE_RULES_CHECK_QUEUE` | build-queue command |
+| `HOUSE_RULES_RESOLVED` | set only by a handing runner |
 
 A pre-push rerun line also names the snapshot and its base, `--head <commit> --base <base>`. With `--head` the runner checks that one commit and reads no standard input.
-A CI rerun line holds the CI machine's paths, such as `.tmp/house-rules`. To rerun it locally, the reader replaces them with the local runner and drops `--house-rules`.
+A CI rerun line holds the CI machine's paths, such as `.tmp/house-rules`. To rerun it locally, the reader replaces them with the local runner.
 
-The workflow the install writes for GitHub Actions has five steps. It checks out the repository with full history and reads the pin from the configuration. It checks out House Rules at that pin into `.tmp/house-rules`, sets up Python 3.13 and runs:
+The workflow the install writes for GitHub Actions has four steps. It checks out the repository with full history and sets up Python 3.13. It checks out nothing of House Rules; it clones House Rules main and runs that runner:
 
 ```text
-python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage ci --house-rules .tmp/house-rules --base <PR base or previous commit> --head <commit>
+git clone --depth 1 https://github.com/symbiotic-build/house-rules .tmp/house-rules
+python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage ci --base <PR base or previous commit> --head <commit>
 ```
+
+The runner then resolves House Rules main itself. It normally equals the clone's revision; after a House Rules merge between the two steps, the cloned runner hands over to the newer one. The job log holds the text report with the revision and each check's version.
 
 <a id="report-format"></a>
 ### Report format
 
 `run --json` prints one object for the run, with one entry in `snapshots` for each snapshot it checked.
+The report's `version` is 2: version 1 had a `house_rules` revision in each snapshot entry and no check `version`. The configuration's `version` stays 1.
 
 ```json
-{"version": 1, "stage": "pre-commit", "result": "fail",
+{"version": 2, "stage": "pre-commit", "result": "fail",
+ "house_rules": {"revision": "ebb6b3762d90c7f8ed725b5119eb874325aa6c42", "source": "main",
+                 "fetched": "2026-10-23T14:05:00Z"},
+ "warnings": [],
  "snapshots": [
  {"reference": null, "source": "index",
- "house_rules": "ebb6b3762d90c7f8ed725b5119eb874325aa6c42",
  "base": "4e1a…", "snapshot": "9f3c…", "result": "fail",
  "checks": [
   {"id": "spec-docs", "status": "fail", "seconds": 40.6,
    "command": ["…/python", "…/spec_docs.py", "check", "--root", ".", "--rev", "9f3c…"],
+   "version": [{"path": "…/python", "sha256": "3f2a9c0d41b7…"}, {"path": "…/spec_docs.py", "sha256": "a81d0e6c2f94…"}],
    "output": "spec-docs: error D13 docs/specs/storage/recovery.md:118: …",
    "fix": "apply the remedy for each code in the spec checker's diagnostic table, …",
    "rerun": "… checks.py run --stage pre-commit --only spec-docs",
    "skip_reason": null},
   {"id": "whitespace", "status": "pass", "seconds": 0.1, "command": ["git", "--attr-source=9f3c…", "diff", "--check", "4e1a…", "9f3c…"],
+   "version": [{"path": "/usr/bin/git", "sha256": "9b04e1c7d2aa…"}],
    "output": "", "fix": null, "rerun": "… --only whitespace", "skip_reason": null}],
  "overrides": [],
  "warnings": ["budget: pre-commit took 40.7 s of 10 s; slowest check spec-docs"]}]}
 ```
 
-The run's `result` is `error` after a preparation failure, matching exit status 2. Otherwise it is `fail` when any snapshot `result` is `fail`, matching exit status 1, and `pass` with exit status 0. A check that could not start has check status `error` and makes its snapshot's result `fail`.
+The run's `house_rules` object is defined in [What each run logs](#logged-versions). It is `null` when no snapshot had a configuration, or when the run failed before it resolved a revision. The run's `warnings` hold warnings about the whole run, such as the use of the main last fetched.
+
+The run's `result` is `error` after a preparation failure, matching exit status 2. Otherwise it is `fail` when any snapshot `result` is `fail`, matching exit status 1, and `pass` with exit status 0. A check that could not start has check status `error` and makes its snapshot's result `fail`. A check with status `warn` leaves its snapshot's result `pass`.
 
 On a preparation failure the run object also holds `error`: one object with `reference` (the pushed reference it concerns, or `null`), `cause` and `repair`; the snapshots checked before the failure stay listed. `snapshots` is empty for a push that only deletes references, and the run's result is then `pass`.
 
 In each snapshot entry, `reference` is the pushed local reference at pre-push and `null` otherwise. `source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `snapshot` is the commit identity passed to the checks. `base` is a commit identity, or the empty tree's identity in the cases the [check definition](#check-definition) names. Each override has `id`, `change` and `reason`.
-A snapshot without a configuration has `house_rules` and `base` set to `null`, no checks, result `pass` and one warning.
+A snapshot without a configuration has `base` set to `null`, no checks, result `pass` and one warning. Each check's `version` is a list of `path` and `sha256` objects, or `null` for a skipped check.
 
 <a id="acceptance"></a>
 ## Acceptance
@@ -1075,7 +1216,7 @@ Evidence: planned for the install work package, following the [tour](#tour). The
 
 **Requirements:** [Run only changed inputs](#req-checks-fast).
 
-**Inputs:** Spec-docs at the pinned revision on the 1.24 MB corpus, timed on the measured machine below its core count in load.
+**Inputs:** Spec-docs at House Rules main after [#198](https://github.com/symbiotic-build/house-rules/pull/198) on the 1.24 MB corpus, timed on the measured machine below its core count in load.
 
 **Expected:** Each run takes 2 s or less, its target in [Built-in checks](#built-in-checks).
 
@@ -1088,7 +1229,7 @@ Evidence: the [measurement after #198](#evidence), about 1.2 s.
 
 **Requirements:** [One configuration](#req-checks-one-configuration), [snapshot](#req-checks-snapshot).
 
-**Inputs:** The camel-case repository from [Worked examples](#examples), with a stub command in place of the linter. The same entry without a reason, and with `pre-commit` but no `{snapshot}`. Other invalid configurations: an unknown field, an unknown placeholder, an unsupported version, a short revision, a changed default without a reason.
+**Inputs:** The camel-case repository from [Worked examples](#examples), with a stub command in place of the linter. The same entry without a reason, and with `pre-commit` but no `{snapshot}`. Other invalid configurations: an unknown field, an unknown placeholder, an unsupported version, a `house_rules` field, an entry that sets `enforced`, a changed default without a reason.
 
 **Expected:** Spec-docs applies the repository's naming rule; the repository check runs in CI with every matching `.ts` file. Each invalid configuration is refused with a configuration error and exit status 2.
 
@@ -1120,28 +1261,80 @@ Evidence: the [measurement after #198](#evidence), about 1.2 s.
 
 Evidence: planned for the install work package, following [Check installation](#check-installation).
 
-<a id="test-checks-pin-move"></a>
-### Pin move
+<a id="test-checks-main-moves"></a>
+### House Rules main moves
 
 **Method:** test.
 
-**Requirements:** [Same runner](#req-checks-same-runner), [pinned and offline](#req-checks-offline).
+**Requirements:** [Same runner](#req-checks-same-runner), [latest House Rules and offline](#req-checks-offline).
 
-**Inputs:** A clone whose hook setting points at the runner of revision A, after a pull that moved the pin to revision B already in the cache, with an unreachable House Rules URL standing in for denied network access.
+**Inputs:** A fixture House Rules reached through a `file://` URL. One run at main A; then main moves to B, and the next run starts from the runner of revision A, as a hook installed earlier does. Separately, main with history, then an override of its parent; and a fetch that fails after its commit arrived, as when another process fetched it at once.
 
-**Expected:** The run reports revision B and makes no network call.
+**Expected:** The first run reports A with source `main`; the second reports B, and its rerun line starts the runner of B. The cache's `source.git` is shallow and holds main and the override's commit with depth 1. The run whose fetch failed after the commit arrived passes at main.
 
-**Implementation:** [skills/repository-checks/scripts/test_checks.py::PinningTest::test_pin_move_runs_the_pinned_revision_without_network](../../skills/repository-checks/scripts/test_checks.py)
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_main_moved_since_the_last_run_is_used](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_main_and_override_are_fetched_with_depth_1](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_failed_fetch_continues_when_the_commit_arrived_meanwhile](../../skills/repository-checks/scripts/test_checks.py)
+
+<a id="test-checks-offline-main"></a>
+### Offline with a cached main
+
+**Method:** test.
+
+**Requirements:** [Latest House Rules and offline](#req-checks-offline).
+
+**Inputs:** One run that fetched main, then a run whose `git ls-remote` fails as without a network.
+
+**Expected:** The second run exits 0 with source `cached main` and the first run's fetch time, one run warning naming that revision and time, and the text header "(cached main, fetched <time>)". The case with no main ever fetched is in [Preparation failure](#test-checks-preparation-failure).
+
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_offline_run_uses_the_cached_main_with_a_warning](../../skills/repository-checks/scripts/test_checks.py)
+
+<a id="test-checks-revision-override"></a>
+### Revision override
+
+**Method:** test.
+
+**Requirements:** [Latest House Rules and offline](#req-checks-offline).
+
+**Inputs:** `HOUSE_RULES_REVISION` set to a fixture commit off main, for a direct run and for a `git commit` through a pre-commit hook; then a run without it. Separately, an override whose runner adds a built-in and lists whitespace at pre-push, with a configuration that fits only that runner.
+
+**Expected:** The direct run reports that commit with source `override`, and its rerun line starts that commit's runner. The hook's text header ends with "(override HOUSE_RULES_REVISION)". The run without the variable reports main again. The override's runner judges the configuration with its own built-ins, and `status` prints its effective set. Invalid overrides are in [Preparation failure](#test-checks-preparation-failure).
+
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_override_runs_that_revision_for_one_run_and_marks_the_report](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_resolved_runner_judges_entries_against_its_own_built_ins](../../skills/repository-checks/scripts/test_checks.py)
+
+<a id="test-checks-warning-first"></a>
+### Warning first
+
+**Method:** test.
+
+**Requirements:** [New default checks warn first](#req-checks-warning-first).
+
+**Inputs:** An override whose runner adds a built-in with `enforced: false` that always fails. Separately, a configuration entry that sets `enforced`.
+
+**Expected:** The run exits 0, the snapshot's result is `pass`, and the new check has status `warn` with its output and fix line. The text report shows "WARN", the fix and rerun lines, and the closing line "No enforced check failed; 1 of 2 selected checks warned, because House Rules does not enforce them yet; 1 skipped." `status` lists the check with "(warning only)". The entry that sets `enforced` is refused with a configuration error.
+
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_unenforced_built_in_that_fails_warns_and_its_snapshot_passes](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_configuration_errors_stop_the_run_with_exit_2](../../skills/repository-checks/scripts/test_checks.py)
+
+<a id="test-checks-logged-versions"></a>
+### Logged versions
+
+**Method:** test.
+
+**Requirements:** [Failure output](#req-checks-report).
+
+**Inputs:** A repository check that runs `sh tools/lint.sh {snapshot}`, a `files` check that runs the same script with `{files}` over a staged `notes.txt`, the whitespace built-in and, in the tour, spec-docs.
+
+**Expected:** Each check that ran lists its program resolved on `PATH` and the script, each with its SHA-256; `notes.txt`, a `{files}` input, is not listed. Whitespace lists `git`; spec-docs lists the environment's interpreter and `spec_docs.py`; a skipped check has `version` `null`. The text report prints one matching `version:` line under each check that ran.
+
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_versions_name_each_program_and_script_but_not_file_inputs](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SpecDocsTest::test_refused_commit_json_report](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-preparation-failure"></a>
 ### Preparation failure
 
 **Method:** test.
 
-**Requirements:** [Failure output](#req-checks-report), [pinned and offline](#req-checks-offline).
+**Requirements:** [Failure output](#req-checks-report), [latest House Rules and offline](#req-checks-offline).
 
-**Inputs:** A pin missing from the cache with an unreachable House Rules URL; a House Rules clone without the pin; a pinned revision without a runner; a House Rules checkout at another revision; an invalid configuration; a pinned spec checker that needs an interpreter the machine lacks; an index with unmerged entries; a Git without `--attr-source`. A pushed tag of a tree, alone, and pushed after a passing branch. Two pushed branches whose commits pin different revisions.
+**Inputs:** No main ever fetched, with an unreachable House Rules URL; a House Rules main without a runner; an override that is not a full commit identity; an override the URL lacks; an invalid configuration; a spec checker that needs an interpreter the machine lacks; an index with unmerged entries; a Git without `--attr-source`. A pushed tag of a tree, alone, and pushed after a passing branch. A push offline with no main fetched.
 
-**Expected:** Each case exits 2 with one line naming the cause and its repair command, and the hook refuses the commit or push. A push of a passing branch followed by a tag of a tree exits 2 with run result `error`; its `error` names the tag, and the branch's snapshot stays listed with result `pass`, because Git's order puts the branch first. The push with different pins names the second branch, and the first branch's snapshot stays listed.
+**Expected:** Each case exits 2 with one line naming the cause and its repair, and the hook refuses the commit or push. With no main fetched the line reads "cannot fetch House Rules main from <url> (<Git's error>); run again when online". A push of a passing branch followed by a tag of a tree exits 2 with run result `error`; its `error` names the tag, and the branch's snapshot stays listed with result `pass`, because Git's order puts the branch first. The offline push names its reference and the repair "push again when online; the push fetches House Rules main and builds its environment itself".
 
-**Implementation:** [skills/repository-checks/scripts/test_checks.py::PinningTest::test_preparation_failures_exit_2_with_cause_and_repair](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_configuration_errors_stop_the_run_with_exit_2](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PinningTest::test_no_supported_interpreter_for_the_spec_checker_is_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SnapshotTest::test_unmerged_index_and_old_git_are_preparation_failures](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_pushed_tag_of_a_tree_is_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_passing_branch_pushed_with_a_tag_of_a_tree_is_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_pushed_commits_with_different_pins_are_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py)
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_preparation_failures_exit_2_with_cause_and_repair](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_configuration_errors_stop_the_run_with_exit_2](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_no_supported_interpreter_for_the_spec_checker_is_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SnapshotTest::test_unmerged_index_and_old_git_are_preparation_failures](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_pushed_tag_of_a_tree_is_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_passing_branch_pushed_with_a_tag_of_a_tree_is_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_offline_push_without_a_fetched_main_is_repaired_by_pushing_again](../../skills/repository-checks/scripts/test_checks.py)
