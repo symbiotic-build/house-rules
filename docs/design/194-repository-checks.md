@@ -363,6 +363,7 @@ The last line says what the run refused and what to do next.
 After a preparation failure, standard output lists the snapshots checked before it, without that last line. Standard error then gets one line with the cause and its repair.
 
 `run --json` prints the same report as one JSON object, defined in [Report format](#report-format).
+Output and paths are kept byte for byte. The text report writes bytes that are not UTF-8 unchanged; the JSON report is ASCII and holds them as `\udcXX` escapes.
 The CI step prints the text report in the job log. The PR watcher then wakes the session on the red check; the session reruns the printed command locally.
 
 <a id="failure-check-refused"></a>
@@ -482,6 +483,7 @@ It runs `checks.py status --session` from the House Rules main checkout. In a re
 
 In a managed repository, one that has `.agents/rules.md`, without a configuration it prints the install command. Elsewhere it prints nothing.
 It always exits 0. A configuration error becomes its one line, so a broken file never stops a session from starting.
+With the pinned revision in the cache it hands over to the pinned runner. Otherwise it reports the missing revision, and checks the environment only after `prepare`.
 It runs Git commands only, no checks, and needs no network.
 
 The PR watcher needs no change.
@@ -545,7 +547,7 @@ The report's `error` names the pushed reference the failure concerns: the refere
 **Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used. A failed temporary copy of the pushed references is removed, except when a plain `/bin/sh` exits at a failed reopening; the file then stays in the temporary folder.
 
 **Recovery:** The author runs the printed repair: `checks.py prepare` when online, `checks.py install` for a missing setting, or a configuration fix through a reviewed PR.
-`prepare` reads the index's configuration. For a pushed commit whose pin is missing, the repair is to push again when online, because the run fetches that commit's pin itself.
+`prepare` reads the index's configuration. For a pushed commit whose pin or environment cannot be prepared offline, the repair is to push again when online, because the run prepares that commit's pin and environment itself.
 For a changed index the author reviews what was staged and commits again.
 For unmerged entries the author resolves the conflicts and stages the result; for an unreadable index the author runs the commit again, and repairs the clone if the error repeats.
 For an old Git the author installs a Git that supports `--attr-source`.
@@ -977,7 +979,9 @@ checks.py prepare
 checks.py status [--session]
 ```
 
-`--remote NAME` names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. `--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--house-rules PATH` names an existing House Rules clone to read the pinned commit from, which must contain it; the runner extracts the pin into the cache as with `HOUSE_RULES_CLONE`, so a later checkout in that clone cannot change the checks. The CI step uses it. `--only` limits the run to named checks and is what the report's rerun line uses. `--base` accepts a commit or the empty tree's identity, so a rerun line can repeat any base the runner chose.
+`--remote NAME` names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. `--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--house-rules PATH` names an existing House Rules clone to read the pinned commit from, which must contain it; the runner extracts the pin into the cache as with `HOUSE_RULES_CLONE`, so a later checkout in that clone cannot change the checks. A pin already in the cache is used as is; `--house-rules` and `HOUSE_RULES_CLONE` are read only to extract a missing pin. The CI step uses it. `--only` limits the run to named checks and is what the report's rerun line uses. `--base` accepts a commit or the empty tree's identity, so a rerun line can repeat any base the runner chose.
+
+`status` prints the effective set from the pinned runner. Without the pinned revision in the cache it prints the pin, the missing revision and that the effective set is unavailable until `prepare`, because the pinned runner defines it.
 
 A pre-push rerun line also names the snapshot and its base, `--head <commit> --base <base>`. With `--head` the runner checks that one commit and reads no standard input.
 A CI rerun line holds the CI machine's paths, such as `.tmp/house-rules`. To rerun it locally, the reader replaces them with the local runner and drops `--house-rules`.

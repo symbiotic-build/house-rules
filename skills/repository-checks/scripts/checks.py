@@ -584,7 +584,11 @@ def environment(tree):
     return python, cache_root() / "environments" / digest
 
 
-def prepare_environment(tree):
+# A push prepares a pushed commit's pin and environment itself, so pushing again online repairs either.
+PUSH_AGAIN = "push again when online; the push prepares the pinned revision and its environment itself"
+
+
+def prepare_environment(tree, offline_repair=None):
     python, final = environment(tree)
     if (final / "bin" / "python").exists():
         return final / "bin" / "python"
@@ -599,7 +603,7 @@ def prepare_environment(tree):
             if proc.returncode:
                 raise Failure(f"cannot build the spec checker's environment ({step} exited {proc.returncode}: "
                               f"{last_line(proc.stderr + proc.stdout)})",
-                              f"run `{runner_command('prepare')}` when online")
+                              offline_repair or f"run `{runner_command('prepare')}` when online")
         return place(temporary, final, lambda path: (path / "bin" / "python").exists()) / "bin" / "python"
     except OSError as exc:
         raise cache_failure(exc)
@@ -663,8 +667,7 @@ def check_stage(args, argv, snapshots):
         items = [item for item in items if item[1] is not None]  # a deletion has nothing to check
         if not items:
             return "the push only deletes references"
-    # The push fetches a pushed commit's pin itself, so pushing again online repairs a missing one.
-    offline = "push again when online; the push fetches the pinned revision itself" if pushing else None
+    offline = PUSH_AGAIN if pushing else None
     pin = house_rules = None
     for ref, head, remote_commit in items:
         try:
@@ -742,7 +745,7 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
     running = [check for check, reason, _ in plan if reason is None]
     values = {"base": base, "snapshot": snapshot, "house_rules": str(house_rules), "python": None}
     if any(uses(check, "python") for check in running):
-        values["python"] = str(prepare_environment(house_rules))
+        values["python"] = str(prepare_environment(house_rules, PUSH_AGAIN if pushing else None))
     if any(arg.startswith("--attr-source") for check in running for arg in check["run"]):
         if git(root, f"--attr-source={snapshot}", "rev-parse", "--git-dir", check=False).returncode:
             raise Failure(f"the installed Git ({out(root, '--version')}) cannot read attributes from a commit "

@@ -712,7 +712,7 @@ class PushTest(RunnerCase):
                                         input=self.line("refs/heads/feature", sent), env=env)
         self.assertEqual((proc.returncode, report["error"]["reference"], report["error"]["repair"]),
                          (2, "refs/heads/feature",
-                          "push again when online; the push fetches the pinned revision itself"), proc.stderr)
+                          "push again when online; the push prepares the pinned revision and its environment itself"), proc.stderr)
         self.assertTrue(report["error"]["cause"].startswith(f"cannot fetch House Rules {self.repo.pin} from {OFFLINE}"),
                         report["error"])
 
