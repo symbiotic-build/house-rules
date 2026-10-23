@@ -72,18 +72,6 @@ def python39():
     return None
 
 
-def unsupported_python():
-    """An interpreter the runner supports (3.9 or later) but the spec checker does not."""
-    for candidate in (python39(), shutil.which("python3.10"), shutil.which("python3.15"), "/usr/bin/python3"):
-        if candidate and os.path.exists(candidate):
-            proc = subprocess.run([candidate, "-c", "import sys; print(sys.version_info[:2])"],
-                                  capture_output=True, text=True)
-            version = tuple(int(v) for v in re.findall(r"\d+", proc.stdout))
-            if version and (3, 9) <= version and not (3, 11) <= version < (3, 15):
-                return candidate
-    return None
-
-
 class HouseRules:
     """A synthetic House Rules clone holding the runner under test and the spec checker."""
 
@@ -794,17 +782,17 @@ class PinningTest(RunnerCase):
                 self.assertPreparationFailure(self.repo.run("run", "--stage", "pre-commit", *extra, env=env), *parts)
 
     def test_no_supported_interpreter_for_the_spec_checker_is_a_preparation_failure(self):
-        python = unsupported_python()
-        if python is None:
-            self.skipTest("no interpreter of 3.9 or later outside the spec checker's range is installed")
+        # A pinned spec checker that asks for a CPython no machine has, so the case runs on every image.
+        (self.house_rules.path / "skills/spec-writing/scripts/runtime.json").write_text(json.dumps(
+            {"version": 1, "implementation": "CPython", "requires_python": ">=3.98,<3.99"}))
+        pin = self.house_rules.commit("Require an interpreter that does not exist")
         tools = self.repo.path.parent / "tools"
         tools.mkdir()
         for name in ("git", "tar"):
             os.symlink(shutil.which(name), str(tools / name))
         self.repo.spec()
-        self.repo.configure()
-        proc = self.repo.run("run", "--stage", "pre-commit", python=python,
-                             env=dict(self.repo.env, PATH=str(tools)))
+        self.repo.configure(pin=pin)
+        proc = self.repo.run("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=str(tools)))
         self.assertPreparationFailure(proc, "no supported interpreter for the spec checker",
                                       "install one, then run `", " prepare`")
 
