@@ -6,6 +6,7 @@ standard library and runs on CPython 3.9 or later.
 """
 import argparse
 import contextlib
+import errno
 import fcntl
 import hashlib
 import json
@@ -13,6 +14,7 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -81,11 +83,14 @@ class Failure(Exception):
     """A configuration or preparation failure: exit 2 with one line naming the cause and its repair.
 
     The line is "<cause>; <repair>". `reference` names the pushed reference the failure concerns, if any.
+    `snapshot` is the report entry of the snapshot whose checks were running, with the checks completed before the
+    failure, or None.
     """
 
     def __init__(self, cause, repair, reference=None):
         super().__init__(f"{cause}; {repair}")
         self.cause, self.repair, self.reference = cause, repair, reference
+        self.snapshot = None
 
 
 def runner_command(*args):
@@ -1010,6 +1015,8 @@ def check_stage(args, argv, run):
                               "would commit", "review what was staged and commit again")
         except Failure as exc:
             exc.reference = ref
+            if exc.snapshot is not None:  # keep the checks of this snapshot that completed before the failure
+                snapshots.append(exc.snapshot)
             raise
     return None
 
@@ -1070,23 +1077,31 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
         if reason is None:
             command, version_arguments = expand(check["run"], values, inputs)
             begin = time.monotonic()
-            status, output, version = start_check(command, version_arguments, root, env)
+            try:
+                status, output, version = start_check(command, version_arguments, root, env)
+            except Failure as exc:
+                exc.snapshot = finished(target, config, base, args.stage, started, results)
+                raise
             # A failing check that House Rules does not enforce yet warns and leaves its snapshot passing.
             status = status or ("pass" if output[0] == 0 else "fail" if check["enforced"] else "warn")
             result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
                           version=version, output=output[1], fix=check["fix"] if status != "pass" else None)
         results.append(result)
+    return finished(target, config, base, args.stage, started, results)
+
+
+def finished(target, config, base, stage, started, results):
+    """The snapshot's report entry for `results`, the checks it completed, in report order with its budget warning."""
     total = time.monotonic() - started
     ran = [r for r in results if r["status"] != "skipped"]
     warnings = []
-    budget = config["budgets"].get(args.stage, {}).get("seconds") or (
-        DEFAULT_BUDGET if args.stage == "pre-commit" else None)
+    budget = config["budgets"].get(stage, {}).get("seconds") or (DEFAULT_BUDGET if stage == "pre-commit" else None)
     if budget is not None and total > budget:
         slowest = max(ran, key=lambda r: r["seconds"])["id"] if ran else None
-        warnings.append(f"budget: {args.stage} took {total:.1f} s of {budget:g} s"
+        warnings.append(f"budget: {stage} took {total:.1f} s of {budget:g} s"
                         + (f"; slowest check {slowest}" if slowest else ""))
     order = {"error": 0, "fail": 1, "warn": 2, "pass": 3, "skipped": 4}
-    results.sort(key=lambda r: order[r["status"]])
+    results = sorted(results, key=lambda r: order[r["status"]])
     outcome = "fail" if any(r["status"] in ("fail", "error") for r in ran) else "pass"
     return snapshot_entry(target, config, base, outcome, results, warnings)
 
@@ -1132,8 +1147,7 @@ def start_check(command, version_arguments, root, env):
     program = find_program(command[0], root, env)
     if program is None:
         return "error", (None, f"cannot start {command[0]!r}: No such file or directory\n"), []
-    files = [program] + [command[i] for i in version_arguments
-                         if i and os.path.isfile(os.path.join(str(root), command[i]))]
+    files = [program] + [command[i] for i in version_arguments if i and version_input(root, command[i])]
     version = [{"path": path, "sha256": digest(root, path)} for path in files]
     queue = os.environ.get("HOUSE_RULES_CHECK_QUEUE")
     try:
@@ -1163,6 +1177,27 @@ def find_program(name, root, env):
     return None
 
 
+def version_input(root, argument):
+    """Whether a command argument names a version file: a regular file, as one file-status lookup finds it.
+
+    An argument whose path does not exist, or names no regular file, is no version input. ENAMETOOLONG counts as
+    absent: such an argument, such as a long `sh -c` script, cannot name a file. Any other lookup error, such as a
+    folder the runner cannot search, is a preparation failure, because the version would leave out a file that ran.
+    """
+    try:
+        mode = os.stat(os.path.join(str(root), argument)).st_mode
+    except OSError as exc:
+        if exc.errno in (errno.ENOENT, errno.ENOTDIR, errno.ENAMETOOLONG):
+            return False
+        raise version_failure(argument, exc)
+    return stat.S_ISREG(mode)
+
+
+def version_failure(path, exc):
+    return Failure(f"cannot read {path} to record the check's version ({exc.strerror or exc})",
+                   "make the file readable, or change the check, and run again")
+
+
 def digest(root, path):
     """The SHA-256 of a version file, read immediately before its command is handed to the queue or started."""
     hasher = hashlib.sha256()
@@ -1171,8 +1206,7 @@ def digest(root, path):
             for block in iter(lambda: handle.read(1 << 20), b""):
                 hasher.update(block)
     except OSError as exc:
-        raise Failure(f"cannot read {path} to record the check's version ({exc.strerror or exc})",
-                      "make the file readable, or change the check, and run again")
+        raise version_failure(path, exc)
     return hasher.hexdigest()
 
 

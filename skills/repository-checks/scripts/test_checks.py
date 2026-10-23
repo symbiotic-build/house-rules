@@ -443,17 +443,47 @@ class DefaultsTest(RunnerCase):
                          (0, "pass", "linted\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
 
     def test_version_file_that_cannot_be_read_is_a_preparation_failure(self):
+        """The run stops before the unreadable script's check, and keeps the checks that completed before it."""
         if os.geteuid() == 0:
             self.skipTest("the superuser reads every file")
         self.repo.write("tools/lint.sh", "echo linted\n")
         script = self.repo.path / "tools/lint.sh"
         script.chmod(0)
         self.addCleanup(script.chmod, 0o644)
-        self.repo.configure({"lint": check(["sh", "tools/lint.sh", "{snapshot}"], ["pre-commit"])})
+        self.repo.configure({"first": check(["sh", "-c", "echo first finding; exit 1", "{snapshot}"], ["pre-commit"]),
+                             "lint": check(["sh", "tools/lint.sh", "{snapshot}"], ["pre-commit"])})
+        cause = "cannot read tools/lint.sh to record the check's version (Permission denied)"
+        repair = "make the file readable, or change the check, and run again"
+        proc, report = self.repo.report("run", "--stage", "pre-commit")
+        self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
+        self.assertEqual(report["error"], {"reference": None, "cause": cause, "repair": repair})
+        (snapshot,) = report["snapshots"]
+        results = {c["id"]: c for c in snapshot["checks"]}
+        self.assertEqual((snapshot["result"], sorted(results)), ("fail", ["first", "spec-docs", "whitespace"]))
+        first = results["first"]
+        self.assertEqual((first["status"], first["output"], first["fix"]),
+                         ("fail", "first finding\n", "Fix the synthetic finding."))
+        self.assertTrue(first["rerun"].endswith(" --only first"), first["rerun"])
+        text = self.repo.run("run", "--stage", "pre-commit")
+        self.assertEqual((text.returncode, text.stderr), (2, f"repository checks: {cause}; {repair}\n"))
+        self.assertIn("\nFAIL  first        ", text.stdout)
+        lines = "\n      first finding\n      fix: Fix the synthetic finding.\n      rerun: " + first["rerun"] + "\n"
+        self.assertIn(lines, text.stdout)
+        self.assertNotIn("lint", text.stdout.replace(first["rerun"], ""))
+
+    def test_version_file_in_a_folder_that_cannot_be_searched_is_a_preparation_failure(self):
+        if os.geteuid() == 0:
+            self.skipTest("the superuser searches every folder")
+        self.repo.write("tools/locked/lint.sh", "echo linted\n")
+        folder = self.repo.path / "tools/locked"
+        folder.chmod(0o600)  # readable listing, but no search permission: no lookup of the script can succeed
+        self.addCleanup(folder.chmod, 0o755)
+        self.repo.configure({"lint": check(["sh", "tools/locked/lint.sh", "{snapshot}"], ["pre-commit"])})
         proc, report = self.repo.report("run", "--stage", "pre-commit")
         self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
         self.assertEqual(report["error"], {
-            "reference": None, "cause": "cannot read tools/lint.sh to record the check's version (Permission denied)",
+            "reference": None,
+            "cause": "cannot read tools/locked/lint.sh to record the check's version (Permission denied)",
             "repair": "make the file readable, or change the check, and run again"})
 
     def test_repository_whose_path_ends_in_a_space_is_checked(self):
@@ -1364,6 +1394,21 @@ class RevisionTest(RunnerCase):
         for name in ("draft", "lint"):
             self.assertEqual((results[name]["status"], results[name]["output"]),
                              ("error", "cannot start 'no-such-program-for-checks': No such file or directory\n"))
+
+    def test_queued_script_whose_interpreter_is_missing_fails_an_enforced_check(self):
+        # The start fails inside the queue, so the queue's exit status is the command's result: a failure.
+        self.repo.write("tools/lint", "#!/nonexistent/interpreter\n")
+        (self.repo.path / "tools/lint").chmod(0o755)
+        queue = self.repo.path.parent / "queue"
+        queue.write_text('#!/bin/sh\nexec "$@"\n')
+        queue.chmod(0o755)
+        self.repo.configure({"lint": check(["tools/lint", "{snapshot}"], ["pre-commit"])})
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint",
+                                         env=dict(self.repo.env, HOUSE_RULES_CHECK_QUEUE=str(queue)))
+        lint = entry["checks"][0]
+        self.assertEqual((proc.returncode, entry["result"], lint["status"], lint["fix"]),
+                         (1, "fail", "fail", "Fix the synthetic finding."), proc.stderr)
+        self.assertEqual(lint["version"], [{"path": "tools/lint", "sha256": sha256(self.repo.path / "tools/lint")}])
 
     def test_built_in_that_omits_enforced_is_enforced(self):
         plain = ('    "plain": {"enabled": True, "scope": "tree", "stages": ["pre-commit", "ci"], "paths": ["**"], '
