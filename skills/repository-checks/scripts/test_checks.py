@@ -1107,7 +1107,6 @@ class SpecDocsTest(RunnerCase):
             (folder / name).mkdir()
             failing = f"import sys\nprint('planted {name}', file=sys.stderr)\nsys.exit(3)\n"
             (folder / name / "__init__.py").write_text(failing)
-            (folder / name / "__main__.py").write_text(failing)
         return folder
 
     def test_spec_checker_ignores_inherited_python_settings(self):
@@ -1289,6 +1288,61 @@ class RevisionTest(RunnerCase):
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertIn("pre-commit: plain, whitespace, spec-docs", status.stdout.splitlines())
 
+    def test_check_that_a_signal_ends_is_not_a_pass(self):
+        self.repo.configure({"piped": check(["sh", "-c", "kill -s PIPE $$; echo survived", "{snapshot}"],
+                                            ["pre-commit"])})
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "piped")
+        piped = entry["checks"][0]
+        self.assertEqual((proc.returncode, piped["status"], piped["output"]), (1, "fail", ""), proc.stderr)
+
+    def test_program_falls_back_to_a_later_path_entry_that_starts(self):
+        self.repo.write("first/lint", "#!/nonexistent/interpreter\n")
+        self.repo.write("second/lint", "#!/bin/sh\necho working\n")
+        for name in ("first/lint", "second/lint"):
+            (self.repo.path / name).chmod(0o755)
+        self.repo.configure({"lint": check(["lint", "{snapshot}"], ["pre-commit"])})
+        env = dict(self.repo.env, PATH=os.pathsep.join(["first", "second", os.environ["PATH"]]))
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint", env=env)
+        lint = entry["checks"][0]
+        program = os.path.join(self.repo.root, "second", "lint")
+        self.assertEqual((proc.returncode, lint["status"], lint["output"], lint["version"]),
+                         (0, "pass", "working\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
+
+    def test_launch_ended_before_its_program_starts_is_a_preparation_failure(self):
+        # The queue runs the launch mode in its own interpreter and kills it where it would start the program,
+        # after it read the version; the check is one that House Rules does not enforce.
+        draft = ('    "draft": {"enabled": True, "enforced": False, "scope": "tree", "stages": ["pre-commit", "ci"], '
+                 '"paths": ["**"], "requires": [], "run": ["sh", "-c", "exit 1", "{snapshot}"], '
+                 '"fix": "Fix the draft finding."},\n')
+        revision = self.house_rules.runner_variant("Add a check that warns first",
+                                                   [("BUILTINS = {\n", "BUILTINS = {\n" + draft)])
+        queue = self.repo.path.parent / "killing-queue"
+        queue.write_text(f"#!{sys.executable}\nimport os, runpy, signal, subprocess, sys\n"
+                         "subprocess.Popen = lambda *args, **kwargs: os.kill(os.getpid(), signal.SIGKILL)\n"
+                         "sys.argv = sys.argv[3:]\nrunpy.run_path(sys.argv[0], run_name='__main__')\n")
+        queue.chmod(0o755)
+        self.repo.configure()
+        env = dict(self.repo.env, HOUSE_RULES_REVISION=revision, HOUSE_RULES_CHECK_QUEUE=str(queue))
+        proc, report = self.repo.report("run", "--stage", "pre-commit", "--only", "draft", env=env)
+        self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
+        self.assertTrue(report["error"]["cause"].startswith("cannot read the start record of 'sh'"), report["error"])
+
+    def test_missing_or_malformed_start_record_is_a_preparation_failure(self):
+        self.repo.configure({"lint": check(["sh", "-c", "exit 0", "{snapshot}"], ["pre-commit"])})
+        cases = {"missing": "exit 0", "malformed": "printf 'not a record' > \"$5\""}
+        for name, body in cases.items():
+            with self.subTest(name):
+                queue = self.repo.path.parent / f"{name}-queue"
+                queue.write_text(f"#!/bin/sh\n{body}\n")  # starts nothing; $5 is the start record's path
+                queue.chmod(0o755)
+                proc, report = self.repo.report("run", "--stage", "pre-commit",
+                                                env=dict(self.repo.env, HOUSE_RULES_CHECK_QUEUE=str(queue)))
+                self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
+                self.assertTrue(report["error"]["cause"].startswith("cannot read the start record of 'git'"),
+                                report["error"])
+                self.assertEqual(report["error"]["repair"],
+                                 "free space in or repair access to the temporary folder, and run again")
+
     def test_versions_name_each_program_and_script_but_not_file_inputs(self):
         self.repo.write("tools/lint.sh", 'echo "linted $1"\n')
         self.repo.write("notes.txt", "notes\n")
@@ -1354,16 +1408,61 @@ class RevisionTest(RunnerCase):
         self.assertEqual(run.returncode, 0, stderr)
         self.assertEqual(json.loads((cache / "main.json").read_text())["revision"], self.repo.main)
 
-    def test_record_of_a_later_fetch_is_never_replaced(self):
-        cache = self.fresh_cache("later-record-cache")
-        cache.mkdir()
-        later = {"url": self.house_rules.url, "revision": "1" * 40, "fetched": "2999-01-01T00:00:00Z"}
-        (cache / "main.json").write_text(json.dumps(later))
+    def test_offline_run_uses_the_latest_fetch_even_after_a_clock_rollback(self):
+        house_rules = self.own_house_rules()
+        cache = self.fresh_cache("rollback-cache")
         self.repo.configure(NO_SPEC)
-        proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit")
-        self.assertEqual((proc.returncode, resolved["revision"], resolved["source"]), (0, self.repo.main, "main"),
-                         proc.stderr)
-        self.assertEqual(json.loads((cache / "main.json").read_text()), later)
+        offline = lambda: dict(self.repo.env, PATH=self.racing_git("ls-remote", "echo 'fatal: offline' >&2; exit 128"))
+        steps = [("fetch A", None, house_rules.main, "main"), ("offline after A", offline, house_rules.main, "cached main")]
+        for name, env, revision, source in steps:
+            with self.subTest(name):
+                proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit", env=env and env())
+                self.assertEqual((proc.returncode, resolved["revision"], resolved["source"]), (0, revision, source),
+                                 proc.stderr)
+        record = json.loads((cache / "main.json").read_text())
+        (cache / "main.json").write_text(json.dumps(dict(record, fetched="2999-01-01T00:00:00Z")))  # clock ran ahead
+        (house_rules.path / "MOVED").write_text("main moved\n")
+        moved = house_rules.commit("Move main")
+        for name, env, revision, source in [("fetch B, timed before A", None, moved, "main"),
+                                            ("offline after B", offline, moved, "cached main")]:
+            with self.subTest(name):
+                proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit", env=env and env())
+                self.assertEqual((proc.returncode, resolved["revision"], resolved["source"]), (0, revision, source),
+                                 proc.stderr)
+
+    def test_main_and_override_are_fetched_with_depth_1(self):
+        # Each fetch's own repository is deleted afterwards, so a Git wrapper reports its history right after the fetch.
+        house_rules = self.own_house_rules()
+        older = house_rules.commit("A commit with a parent")
+        newer = house_rules.commit("Main with history")
+        self.fresh_cache("depth-cache")
+        log = self.repo.path.parent / "fetches.log"
+        wrapper = self.repo.path.parent / "depth-git"
+        wrapper.mkdir()
+        (wrapper / "git").write_text(
+            f"#!/bin/sh\nREAL={shlex.quote(shutil.which('git'))}\n"
+            'case " $* " in *" fetch "*) "$REAL" "$@" || exit $?\n'
+            f'  {{ "$REAL" rev-parse --is-shallow-repository; "$REAL" rev-list --all --count; }} >> {shlex.quote(str(log))}'
+            "\n  exit 0;; esac\nexec \"$REAL\" \"$@\"\n")
+        (wrapper / "git").chmod(0o755)
+        env = dict(self.repo.env, PATH=f"{wrapper}{os.pathsep}{os.environ['PATH']}")
+        self.repo.configure(NO_SPEC)
+        for revision, extra in ((newer, {}), (older, {"HOUSE_RULES_REVISION": older})):
+            proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit", env=dict(env, **extra))
+            self.assertEqual((proc.returncode, resolved["revision"]), (0, revision), proc.stderr)
+        self.assertEqual(log.read_text().split(), ["true", "1", "true", "1"])
+
+    def test_failed_removal_of_a_fetch_repository_is_a_preparation_failure(self):
+        if os.geteuid() == 0:
+            self.skipTest("the superuser removes every file")
+        cache = self.fresh_cache("cleanup-cache")
+        self.addCleanup(lambda: [os.chmod(folder, 0o755) for folder, _, _ in os.walk(str(cache))])
+        # The fetch succeeds, and leaves a file in a folder whose mode forbids removing it.
+        path = self.racing_git("fetch", "mkdir locked && : > locked/file && chmod 500 locked || exit 1")
+        self.repo.configure(NO_SPEC)
+        proc = self.repo.run("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
+        self.assertPreparationFailure(proc, f"cannot write the House Rules cache at {cache} (",
+                                      "make that folder writable")
 
     def test_failure_cause_and_repair_stay_separate_when_a_path_holds_a_separator(self):
         revision = self.house_rules.variant("Require an interpreter that does not exist", self.IMPOSSIBLE_RUNTIME)

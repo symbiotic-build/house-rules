@@ -14,6 +14,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -553,7 +554,7 @@ def fetch_revision(url, revision):
         place(temporary, revision_folder(revision), lambda path: (path / RUNNER).is_file())
         return None
     finally:
-        shutil.rmtree(str(repository), ignore_errors=True)  # a leftover is never used and may be deleted
+        shutil.rmtree(str(repository))  # an error here reaches the caller as a cache failure
 
 
 def ask_main(url):
@@ -581,10 +582,7 @@ def main_record(url):
 
 
 def write_main_record(record):
-    """Publish `record` as the main last fetched, unless the cache records a later fetch from its URL."""
-    current = main_record(record["url"])
-    if current and current["fetched"] > record["fetched"]:
-        return
+    """Publish `record` as the main last fetched; under the main lock the latest successful resolution wins."""
     descriptor, temporary = tempfile.mkstemp(prefix=".main-", dir=str(cache_root()))
     with os.fdopen(descriptor, "w") as handle:
         json.dump(record, handle)
@@ -1038,9 +1036,9 @@ def start_check(command, version_arguments, root, env, record_path):
     """Run one check through the launch mode, inside the build queue when the machine declares one.
 
     Returns (status or None, (exit status, output), version). The status is "error" when the program could not
-    start, and None when it ran; only then does its exit status decide the result. The launch mode records the
-    version at the moment the program starts, and a start failure, in its start record, so a queue's own exit
-    status never stands for either. A version that cannot be read stops the run with a preparation failure.
+    start, and None when it started; only then does its exit status decide the result. The launch mode writes
+    the start record, so a queue's own exit status never stands for a start. A version file that cannot be read
+    stops the run with a preparation failure, and so does a start record that is missing, unreadable or malformed.
     """
     queue = os.environ.get("HOUSE_RULES_CHECK_QUEUE")
     launch = [sys.executable, "-I", str(Path(__file__).resolve()), LAUNCH, str(record_path),
@@ -1053,15 +1051,19 @@ def start_check(command, version_arguments, root, env, record_path):
     output = proc.stdout.decode(errors="surrogateescape")
     try:
         record = json.loads(record_path.read_text())
-    except (OSError, ValueError):
-        return "error", (proc.returncode, output + f"cannot start {command[0]!r}: the launch recorded no start "
-                                                   f"(exit status {proc.returncode})\n"), None
+        version, failure = record.get("version"), record.get("failure")
+        if not (isinstance(version, list) and (record.get("started") is True or isinstance(record.get("error"), str))
+                or isinstance(failure, dict) and all(isinstance(failure.get(k), str) for k in ("cause", "repair"))):
+            raise ValueError("it holds no start, start error or failure")
+    except (OSError, ValueError, AttributeError) as exc:
+        raise Failure(f"cannot read the start record of {command[0]!r} at {record_path} (exit status "
+                      f"{proc.returncode}: {exc})",
+                      "free space in or repair access to the temporary folder, and run again")
     if "failure" in record:
         raise Failure(record["failure"]["cause"], record["failure"]["repair"])
     if "error" in record:
-        return "error", (proc.returncode, output + f"cannot start {command[0]!r}: {record['error']}\n"), \
-            record["version"]
-    return None, (proc.returncode, output), record["version"]
+        return "error", (proc.returncode, output + f"cannot start {command[0]!r}: {record['error']}\n"), version
+    return None, (proc.returncode, output), version
 
 
 def digest(path):
@@ -1073,14 +1075,17 @@ def digest(path):
 
 
 def launch(argv):
-    """The launch mode: record the check's version in the start record, then replace this process by the check.
+    """The launch mode: read the check's version, start its program, wait for it and end as it ended.
 
     `argv` is the start record's path, the comma-separated positions of the arguments that can name a version
     file, and the command. The process runs in the check's folder, the repository root, with the check's
-    environment. The program is the first argument, resolved on PATH, with relative PATH entries counted from
-    that folder, or the path itself when it holds a slash; the launch starts exactly that file. Each other listed
-    argument that names an existing regular file joins the version. A file that cannot be read writes a failure,
-    and the program does not start. A program that cannot start writes its error instead.
+    environment and standard input. A program without a slash is tried in each PATH entry in order, relative
+    entries counted from that folder, and an entry that cannot start it (ENOENT, EACCES or ENOEXEC) moves on to
+    the next, as execvp does. Each candidate file and every other listed argument that names a regular file is
+    read for its SHA-256 just before the start; a file that cannot be read writes a failure, and nothing starts.
+    The start record says "started", with the version of the candidate that started, only after the program
+    started; otherwise it holds the start error. A program that a signal ends makes this process end by the same
+    signal, so the runner sees the same result as for a program it started itself.
     """
     record_path, positions, command = argv[0], [int(i) for i in argv[1].split(",") if i], argv[2:]
 
@@ -1088,33 +1093,48 @@ def launch(argv):
         with open(record_path, "w") as handle:
             json.dump(value, handle)
 
-    program = shutil.which(command[0]) if "/" not in command[0] else command[0]
-    found = []
-    for position in positions:
-        if position == 0:
-            path = os.path.abspath(program) if program and "/" not in command[0] else program
-            if not (path and os.path.isfile(path)):
-                continue  # nothing to read: the start below fails and says why
-        elif os.path.isfile(command[position]):
-            path = command[position]
-        else:
-            continue
+    def read(path):
         try:
-            found.append({"path": path, "sha256": digest(path)})
+            return {"path": path, "sha256": digest(path)}
         except OSError as exc:
-            record({"failure": {"cause": f"cannot read {path} to record the check's version "
-                                         f"({exc.strerror or exc})",
+            record({"failure": {"cause": f"cannot read {path} to record the check's version ({exc.strerror or exc})",
                                 "repair": "make the file readable, or change the check, and run again"}})
-            return 2
-    record({"version": found})
-    if program is None:
-        record({"version": found, "error": os.strerror(errno.ENOENT)})
-        return 127
-    try:
-        os.execv(program, command)
-    except OSError as exc:
-        record({"version": found, "error": exc.strerror or str(exc)})
-        return 127
+            return None
+
+    others = []
+    for position in positions:
+        if position and os.path.isfile(command[position]):
+            others.append(read(command[position]))
+            if others[-1] is None:
+                return 2
+    if "/" in command[0]:
+        candidates = [command[0]]
+    else:
+        candidates = [os.path.abspath(os.path.join(entry, command[0])) for entry in os.get_exec_path()]
+    error = errno.ENOENT
+    for candidate in candidates:
+        program = []
+        if 0 in positions and os.path.isfile(candidate):
+            program = [read(candidate)]
+            if program[0] is None:
+                return 2
+        try:
+            child = subprocess.Popen(command, executable=candidate, stdin=0)
+        except OSError as exc:
+            if exc.errno in (errno.ENOENT, errno.EACCES, errno.ENOEXEC):
+                error = exc.errno
+                continue
+            record({"version": others, "error": exc.strerror or str(exc)})
+            return 127
+        record({"started": True, "version": program + others})
+        status = child.wait()
+        if status < 0:  # ended by a signal: end by that signal too
+            signal.signal(-status, signal.SIG_DFL)
+            os.kill(os.getpid(), -status)
+            return 128 - status  # only for a signal that does not end a process
+        return status
+    record({"version": others, "error": os.strerror(error)})
+    return 127
 
 
 def expand(run, values, inputs):
