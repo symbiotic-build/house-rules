@@ -423,25 +423,8 @@ class DefaultsTest(RunnerCase):
         proc, report = self.repo.snapshot("run", "--stage", "pre-commit",
                                         env=dict(self.repo.env, HOUSE_RULES_CHECK_QUEUE=str(queue)))
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(report["checks"][0]["output"], f"queued: {sys.executable}\n")  # it starts the launch
+        self.assertEqual(report["checks"][0]["output"], "queued: git\n")
 
-
-    def test_queued_check_records_the_version_that_starts(self):
-        # Another session replaces the script while the check waits in the queue.
-        self.repo.write("tools/lint.sh", 'echo "version A"\n')
-        self.repo.stage("tools/lint.sh")
-        self.repo.configure({"lint": check(["sh", "tools/lint.sh", "{snapshot}"], ["pre-commit"])})
-        queue = self.repo.path.parent / "queue"
-        queue.write_text("#!/bin/sh\nprintf 'echo \"version B\"\\n' > tools/lint.sh || exit 1\nexec \"$@\"\n")
-        queue.chmod(0o755)
-        proc, report = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint",
-                                          env=dict(self.repo.env, HOUSE_RULES_CHECK_QUEUE=str(queue)))
-        lint = {c["id"]: c for c in report["checks"]}["lint"]
-        shell = shutil.which("sh")
-        self.assertEqual((proc.returncode, lint["output"]), (0, "version B\n"), proc.stderr)
-        self.assertEqual(lint["version"], [{"path": shell, "sha256": sha256(shell)},
-                                           {"path": "tools/lint.sh",
-                                            "sha256": hashlib.sha256(b'echo "version B"\n').hexdigest()}])
 
     def test_program_on_a_relative_path_entry_is_versioned_from_the_repository_root(self):
         self.repo.write("bin/lint", "#!/bin/sh\necho linted\n")
@@ -1295,53 +1278,48 @@ class RevisionTest(RunnerCase):
         piped = entry["checks"][0]
         self.assertEqual((proc.returncode, piped["status"], piped["output"]), (1, "fail", ""), proc.stderr)
 
-    def test_program_falls_back_to_a_later_path_entry_that_starts(self):
-        self.repo.write("first/lint", "#!/nonexistent/interpreter\n")
-        self.repo.write("second/lint", "#!/bin/sh\necho working\n")
-        for name in ("first/lint", "second/lint"):
-            (self.repo.path / name).chmod(0o755)
+    def lookup(self, prepare, entries, expected):
+        """Run `lint` with PATH `entries` after `prepare`; assert it ran `ran/lint` and the version names `expected`."""
+        self.repo.write("ran/lint", "#!/bin/sh\necho working\n")
+        (self.repo.path / "ran/lint").chmod(0o755)
+        prepare()
         self.repo.configure({"lint": check(["lint", "{snapshot}"], ["pre-commit"])})
-        env = dict(self.repo.env, PATH=os.pathsep.join(["first", "second", os.environ["PATH"]]))
+        env = dict(self.repo.env, PATH=os.pathsep.join([*entries, os.environ["PATH"]]))
         proc, entry = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint", env=env)
         lint = entry["checks"][0]
-        program = os.path.join(self.repo.root, "second", "lint")
+        program = os.path.join(self.repo.root, expected)
         self.assertEqual((proc.returncode, lint["status"], lint["output"], lint["version"]),
                          (0, "pass", "working\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
 
-    def test_launch_ended_before_its_program_starts_is_a_preparation_failure(self):
-        # The queue runs the launch mode in its own interpreter and kills it where it would start the program,
-        # after it read the version; the check is one that House Rules does not enforce.
-        draft = ('    "draft": {"enabled": True, "enforced": False, "scope": "tree", "stages": ["pre-commit", "ci"], '
-                 '"paths": ["**"], "requires": [], "run": ["sh", "-c", "exit 1", "{snapshot}"], '
-                 '"fix": "Fix the draft finding."},\n')
-        revision = self.house_rules.runner_variant("Add a check that warns first",
-                                                   [("BUILTINS = {\n", "BUILTINS = {\n" + draft)])
-        queue = self.repo.path.parent / "killing-queue"
-        queue.write_text(f"#!{sys.executable}\nimport os, runpy, signal, subprocess, sys\n"
-                         "subprocess.Popen = lambda *args, **kwargs: os.kill(os.getpid(), signal.SIGKILL)\n"
-                         "sys.argv = sys.argv[3:]\nrunpy.run_path(sys.argv[0], run_name='__main__')\n")
-        queue.chmod(0o755)
-        self.repo.configure()
-        env = dict(self.repo.env, HOUSE_RULES_REVISION=revision, HOUSE_RULES_CHECK_QUEUE=str(queue))
-        proc, report = self.repo.report("run", "--stage", "pre-commit", "--only", "draft", env=env)
-        self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
-        self.assertTrue(report["error"]["cause"].startswith("cannot read the start record of 'sh'"), report["error"])
+    def test_version_names_the_first_candidate_when_the_start_passes_it(self):
+        # The start passes a script whose first line names a missing interpreter; the version names it all the same.
+        def broken():
+            self.repo.write("first/lint", "#!/nonexistent/interpreter\n")
+            (self.repo.path / "first/lint").chmod(0o755)
+        self.lookup(broken, ["first", "ran"], "first/lint")
 
-    def test_missing_or_malformed_start_record_is_a_preparation_failure(self):
-        self.repo.configure({"lint": check(["sh", "-c", "exit 0", "{snapshot}"], ["pre-commit"])})
-        cases = {"missing": "exit 0", "malformed": "printf 'not a record' > \"$5\""}
-        for name, body in cases.items():
-            with self.subTest(name):
-                queue = self.repo.path.parent / f"{name}-queue"
-                queue.write_text(f"#!/bin/sh\n{body}\n")  # starts nothing; $5 is the start record's path
-                queue.chmod(0o755)
-                proc, report = self.repo.report("run", "--stage", "pre-commit",
-                                                env=dict(self.repo.env, HOUSE_RULES_CHECK_QUEUE=str(queue)))
-                self.assertEqual((proc.returncode, report["result"]), (2, "error"), proc.stderr)
-                self.assertTrue(report["error"]["cause"].startswith("cannot read the start record of 'git'"),
-                                report["error"])
-                self.assertEqual(report["error"]["repair"],
-                                 "free space in or repair access to the temporary folder, and run again")
+    def test_program_lookup_skips_a_path_entry_that_is_no_folder(self):
+        self.lookup(lambda: self.repo.write("plain", "a file, not a folder\n"), ["plain", "ran"], "ran/lint")
+
+    def test_program_lookup_skips_an_unreadable_candidate_that_is_not_executable(self):
+        if os.geteuid() == 0:
+            self.skipTest("the superuser reads every file")
+
+        def unreadable():
+            self.repo.write("first/lint", "not a program\n")
+            (self.repo.path / "first/lint").chmod(0)
+            self.addCleanup((self.repo.path / "first/lint").chmod, 0o644)
+        self.lookup(unreadable, ["first", "ran"], "ran/lint")
+
+    def test_program_lookup_resolves_parent_folders_through_links(self):
+        # link/.. is the folder that holds the link's target, not the repository root as lexical normalization says.
+        def linked():
+            self.repo.write("deep/target/keep", "\n")
+            os.symlink("deep/target", str(self.repo.path / "link"))
+            self.repo.write("deep/ran/lint", "#!/bin/sh\necho working\n")
+            (self.repo.path / "deep/ran/lint").chmod(0o755)
+            (self.repo.path / "ran/lint").write_text("#!/bin/sh\necho wrong program; exit 1\n")
+        self.lookup(linked, ["link/../ran"], "link/../ran/lint")
 
     def test_versions_name_each_program_and_script_but_not_file_inputs(self):
         self.repo.write("tools/lint.sh", 'echo "linted $1"\n')
@@ -1463,6 +1441,26 @@ class RevisionTest(RunnerCase):
         proc = self.repo.run("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
         self.assertPreparationFailure(proc, f"cannot write the House Rules cache at {cache} (",
                                       "make that folder writable")
+
+    def test_preparation_failure_survives_a_failed_cleanup(self):
+        if os.geteuid() == 0:
+            self.skipTest("the superuser removes every file")
+        runnerless = self.repo.path.parent / "runnerless"
+        git(runnerless.parent, "init", "-q", "-b", "main", str(runnerless))
+        git(runnerless, "commit", "-q", "--allow-empty", "-m", "no runner")
+        cache = self.fresh_cache("double-failure-cache")
+        self.addCleanup(lambda: [os.chmod(folder, 0o755) for folder, _, _ in os.walk(str(cache))])
+        path = self.racing_git("fetch", "mkdir locked && : > locked/file && chmod 500 locked || exit 1")
+        self.repo.configure(NO_SPEC)
+        proc, report = self.repo.report("run", "--stage", "pre-commit", env=dict(
+            self.repo.env, PATH=path, HOUSE_RULES_URL="file://" + str(runnerless)))
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        cause = report["error"]["cause"]
+        self.assertTrue(cause.startswith(f"House Rules {git(runnerless, 'rev-parse', 'HEAD')} has no repository "
+                                         "checks runner"), cause)
+        self.assertIn("; removing the temporary repository ", cause)
+        self.assertEqual(report["error"]["repair"], "set HOUSE_RULES_URL to a House Rules repository whose main has "
+                                                    "one, or HOUSE_RULES_REVISION to a revision that has one")
 
     def test_failure_cause_and_repair_stay_separate_when_a_path_holds_a_separator(self):
         revision = self.house_rules.variant("Require an interpreter that does not exist", self.IMPOSSIBLE_RUNTIME)

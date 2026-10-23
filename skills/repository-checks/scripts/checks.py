@@ -6,7 +6,6 @@ standard library and runs on CPython 3.9 or later.
 """
 import argparse
 import contextlib
-import errno
 import fcntl
 import hashlib
 import json
@@ -14,7 +13,6 @@ import os
 import re
 import shlex
 import shutil
-import signal
 import subprocess
 import sys
 import tempfile
@@ -40,8 +38,6 @@ PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
 RESOLVED = "HOUSE_RULES_RESOLVED"
 # and the snapshot it built before resolving, so the started runner checks that same snapshot.
 SNAPSHOT = "HOUSE_RULES_SNAPSHOT"
-# The internal mode that starts one check: it records the check's version, then becomes the check's program.
-LAUNCH = "launch"
 SOURCES = ("main", "cached main", "override")
 IDENTITY = {"GIT_AUTHOR_NAME": "repository checks", "GIT_AUTHOR_EMAIL": "checks@localhost",
             "GIT_COMMITTER_NAME": "repository checks", "GIT_COMMITTER_EMAIL": "checks@localhost"}
@@ -534,27 +530,45 @@ def fetch_revision(url, revision):
     if prepared(revision):
         return None
     repository = partial(cache_root())
+    failure = None
     try:
-        git(repository, "init", "--quiet", "--bare", ".", foreign=True)
-        proc = git(repository, *PROGRESS, "fetch", "--quiet", "--depth=1", "--no-tags", url,
-                   f"{revision}:refs/pins/{revision}", foreign=True, check=False)
-        if proc.returncode:
-            return last_line(proc.stderr)
-        temporary = partial(revision_folder(revision).parent)
-        extract(repository, revision, temporary)
-        if not (temporary / RUNNER).is_file():
-            raise Failure(f"House Rules {revision} has no repository checks runner ({RUNNER})",
-                          "set HOUSE_RULES_URL to a House Rules repository whose main has one, "
-                          "or HOUSE_RULES_REVISION to a revision that has one")
-        for folder, _, names in os.walk(str(temporary)):
-            for name in names:
-                path = os.path.join(folder, name)
-                if not os.path.islink(path):
-                    os.chmod(path, os.stat(path).st_mode & ~0o222)
-        place(temporary, revision_folder(revision), lambda path: (path / RUNNER).is_file())
-        return None
-    finally:
-        shutil.rmtree(str(repository))  # an error here reaches the caller as a cache failure
+        error = fetch_into(repository, url, revision)
+    except Failure as exc:
+        failure = exc
+    except OSError as exc:
+        failure = cache_failure(exc)
+    try:
+        shutil.rmtree(str(repository))
+    except OSError as exc:
+        if failure is None:
+            raise  # the caller reports it as a cache failure
+        raise Failure(f"{failure.cause}; removing the temporary repository {repository} failed too ({exc})",
+                      failure.repair)
+    if failure is not None:
+        raise failure
+    return error
+
+
+def fetch_into(repository, url, revision):
+    """Fetch `revision` into the empty bare `repository` and put its files into the cache; return None or Git's error."""
+    git(repository, "init", "--quiet", "--bare", ".", foreign=True)
+    proc = git(repository, *PROGRESS, "fetch", "--quiet", "--depth=1", "--no-tags", url,
+               f"{revision}:refs/pins/{revision}", foreign=True, check=False)
+    if proc.returncode:
+        return last_line(proc.stderr)
+    temporary = partial(revision_folder(revision).parent)
+    extract(repository, revision, temporary)
+    if not (temporary / RUNNER).is_file():
+        raise Failure(f"House Rules {revision} has no repository checks runner ({RUNNER})",
+                      "set HOUSE_RULES_URL to a House Rules repository whose main has one, "
+                      "or HOUSE_RULES_REVISION to a revision that has one")
+    for folder, _, names in os.walk(str(temporary)):
+        for name in names:
+            path = os.path.join(folder, name)
+            if not os.path.islink(path):
+                os.chmod(path, os.stat(path).st_mode & ~0o222)
+    place(temporary, revision_folder(revision), lambda path: (path / RUNNER).is_file())
+    return None
 
 
 def ask_main(url):
@@ -969,27 +983,20 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
                           "(--attr-source)", "install a Git that supports it")
 
     env = dict(os.environ, CHECK_STAGE=args.stage, CHECK_BASE=base, CHECK_SNAPSHOT=snapshot, **NO_REPLACE)
-    try:
-        records = tempfile.TemporaryDirectory(prefix="checks-launch-")
-    except OSError as exc:
-        raise Failure(f"cannot create a temporary folder for the checks' start records ({exc})",
-                      "free space in or repair access to the temporary folder, and run again")
     started, results = time.monotonic(), []
-    with records as folder:
-        for number, (check, reason, inputs) in enumerate(plan):
-            result = {"id": check["id"], "status": "skipped", "seconds": None, "command": None, "version": None,
-                      "output": "", "fix": None, "rerun": runner_command(*rerun, "--only", check["id"]),
-                      "skip_reason": reason}
-            if reason is None:
-                command, version_arguments = expand(check["run"], values, inputs)
-                begin = time.monotonic()
-                status, output, version = start_check(command, version_arguments, root, env,
-                                                      Path(folder) / f"{number}.json")
-                # A failing check that House Rules does not enforce yet warns and leaves its snapshot passing.
-                status = status or ("pass" if output[0] == 0 else "fail" if check["enforced"] else "warn")
-                result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
-                              version=version, output=output[1], fix=check["fix"] if status != "pass" else None)
-            results.append(result)
+    for check, reason, inputs in plan:
+        result = {"id": check["id"], "status": "skipped", "seconds": None, "command": None, "version": None,
+                  "output": "", "fix": None, "rerun": runner_command(*rerun, "--only", check["id"]),
+                  "skip_reason": reason}
+        if reason is None:
+            command, version_arguments = expand(check["run"], values, inputs)
+            begin = time.monotonic()
+            status, output, version = start_check(command, version_arguments, root, env)
+            # A failing check that House Rules does not enforce yet warns and leaves its snapshot passing.
+            status = status or ("pass" if output[0] == 0 else "fail" if check["enforced"] else "warn")
+            result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
+                          version=version, output=output[1], fix=check["fix"] if status != "pass" else None)
+        results.append(result)
     total = time.monotonic() - started
     ran = [r for r in results if r["status"] != "skipped"]
     warnings = []
@@ -1032,109 +1039,58 @@ def select(check, stage, from_index, target, changed):
     return None, inputs
 
 
-def start_check(command, version_arguments, root, env, record_path):
-    """Run one check through the launch mode, inside the build queue when the machine declares one.
+def start_check(command, version_arguments, root, env):
+    """Read the check's version, then run its command, inside the build queue when the machine declares one.
 
-    Returns (status or None, (exit status, output), version). The status is "error" when the program could not
-    start, and None when it started; only then does its exit status decide the result. The launch mode writes
-    the start record, so a queue's own exit status never stands for a start. A version file that cannot be read
-    stops the run with a preparation failure, and so does a start record that is missing, unreadable or malformed.
+    Returns (status or None, (exit status, output), version). The status is "error" when the program was not
+    found or could not start, and None when the command ran; then its exit status decides the result. Through a
+    queue, the queue's exit status is the command's. A version file that cannot be read is a preparation failure.
     """
+    program = find_program(command[0], root, env)
+    if program is None:
+        return "error", (None, f"cannot start {command[0]!r}: No such file or directory\n"), []
+    files = [program] + [command[i] for i in version_arguments
+                         if i and os.path.isfile(os.path.join(str(root), command[i]))]
+    version = [{"path": path, "sha256": digest(root, path)} for path in files]
     queue = os.environ.get("HOUSE_RULES_CHECK_QUEUE")
-    launch = [sys.executable, "-I", str(Path(__file__).resolve()), LAUNCH, str(record_path),
-              ",".join(str(i) for i in version_arguments), *command]
     try:
-        proc = subprocess.run([queue, *launch] if queue else launch, cwd=str(root), env=env,
+        proc = subprocess.run([queue, *command] if queue else command, cwd=str(root), env=env,
                               stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     except OSError as exc:
-        return "error", (None, f"cannot start {(queue or sys.executable)!r}: {exc.strerror or exc}\n"), None
-    output = proc.stdout.decode(errors="surrogateescape")
-    try:
-        record = json.loads(record_path.read_text())
-        version, failure = record.get("version"), record.get("failure")
-        if not (isinstance(version, list) and (record.get("started") is True or isinstance(record.get("error"), str))
-                or isinstance(failure, dict) and all(isinstance(failure.get(k), str) for k in ("cause", "repair"))):
-            raise ValueError("it holds no start, start error or failure")
-    except (OSError, ValueError, AttributeError) as exc:
-        raise Failure(f"cannot read the start record of {command[0]!r} at {record_path} (exit status "
-                      f"{proc.returncode}: {exc})",
-                      "free space in or repair access to the temporary folder, and run again")
-    if "failure" in record:
-        raise Failure(record["failure"]["cause"], record["failure"]["repair"])
-    if "error" in record:
-        return "error", (proc.returncode, output + f"cannot start {command[0]!r}: {record['error']}\n"), version
-    return None, (proc.returncode, output), version
+        return "error", (None, f"cannot start {(queue or command[0])!r}: {exc.strerror or exc}\n"), version
+    return None, (proc.returncode, proc.stdout.decode(errors="surrogateescape")), version
 
 
-def digest(path):
-    hasher = hashlib.sha256()
-    with open(path, "rb") as handle:
-        for block in iter(lambda: handle.read(1 << 20), b""):
-            hasher.update(block)
-    return hasher.hexdigest()
+def find_program(name, root, env):
+    """The program the command's start will run, as far as a lookup before the start can tell, or None.
 
-
-def launch(argv):
-    """The launch mode: read the check's version, start its program, wait for it and end as it ended.
-
-    `argv` is the start record's path, the comma-separated positions of the arguments that can name a version
-    file, and the command. The process runs in the check's folder, the repository root, with the check's
-    environment and standard input. A program without a slash is tried in each PATH entry in order, relative
-    entries counted from that folder, and an entry that cannot start it (ENOENT, EACCES or ENOEXEC) moves on to
-    the next, as execvp does. Each candidate file and every other listed argument that names a regular file is
-    read for its SHA-256 just before the start; a file that cannot be read writes a failure, and nothing starts.
-    The start record says "started", with the version of the candidate that started, only after the program
-    started; otherwise it holds the start error. A program that a signal ends makes this process end by the same
-    signal, so the runner sees the same result as for a program it started itself.
+    A name with a slash is taken from the repository root. Otherwise the first PATH entry that is a folder and holds
+    `name` as an executable regular file wins; a relative entry counts from the repository root, and the path is
+    joined, never normalized, so `link/../bin` resolves through the file system as the start does. The start itself
+    uses the system's lookup, which can pass a candidate that cannot start, such as a script whose first line names
+    a missing interpreter; the version then still names the first candidate.
     """
-    record_path, positions, command = argv[0], [int(i) for i in argv[1].split(",") if i], argv[2:]
+    if "/" in name:
+        return name if os.path.isfile(os.path.join(str(root), name)) else None
+    for entry in os.get_exec_path(env):
+        folder = os.path.join(str(root), entry)  # an absolute entry stays as it is
+        candidate = os.path.join(folder, name)
+        if os.path.isdir(folder) and os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
 
-    def record(value):
-        with open(record_path, "w") as handle:
-            json.dump(value, handle)
 
-    def read(path):
-        try:
-            return {"path": path, "sha256": digest(path)}
-        except OSError as exc:
-            record({"failure": {"cause": f"cannot read {path} to record the check's version ({exc.strerror or exc})",
-                                "repair": "make the file readable, or change the check, and run again"}})
-            return None
-
-    others = []
-    for position in positions:
-        if position and os.path.isfile(command[position]):
-            others.append(read(command[position]))
-            if others[-1] is None:
-                return 2
-    if "/" in command[0]:
-        candidates = [command[0]]
-    else:
-        candidates = [os.path.abspath(os.path.join(entry, command[0])) for entry in os.get_exec_path()]
-    error = errno.ENOENT
-    for candidate in candidates:
-        program = []
-        if 0 in positions and os.path.isfile(candidate):
-            program = [read(candidate)]
-            if program[0] is None:
-                return 2
-        try:
-            child = subprocess.Popen(command, executable=candidate, stdin=0)
-        except OSError as exc:
-            if exc.errno in (errno.ENOENT, errno.EACCES, errno.ENOEXEC):
-                error = exc.errno
-                continue
-            record({"version": others, "error": exc.strerror or str(exc)})
-            return 127
-        record({"started": True, "version": program + others})
-        status = child.wait()
-        if status < 0:  # ended by a signal: end by that signal too
-            signal.signal(-status, signal.SIG_DFL)
-            os.kill(os.getpid(), -status)
-            return 128 - status  # only for a signal that does not end a process
-        return status
-    record({"version": others, "error": os.strerror(error)})
-    return 127
+def digest(root, path):
+    """The SHA-256 of a version file, read immediately before its command is handed to the queue or started."""
+    hasher = hashlib.sha256()
+    try:
+        with open(os.path.join(str(root), path), "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                hasher.update(block)
+    except OSError as exc:
+        raise Failure(f"cannot read {path} to record the check's version ({exc.strerror or exc})",
+                      "make the file readable, or change the check, and run again")
+    return hasher.hexdigest()
 
 
 def expand(run, values, inputs):
@@ -1332,8 +1288,6 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     HANDED = os.environ.pop(RESOLVED, None)  # so no check inherits it
     HANDED_SNAPSHOT = os.environ.pop(SNAPSHOT, None)
-    if argv[:1] == [LAUNCH]:
-        return launch(argv[1:])
     for stream in (sys.stdout, sys.stderr):
         stream.reconfigure(errors="surrogateescape")  # paths with bytes that are not UTF-8 print unchanged
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
