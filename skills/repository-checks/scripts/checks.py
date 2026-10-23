@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.parse
 from pathlib import Path
 
 RUNNER = "skills/repository-checks/scripts/checks.py"
@@ -29,7 +30,11 @@ SCOPES = ("tree", "files", "diff")
 FIELDS = ("enabled", "run", "stages", "scope", "paths", "requires", "fix", "reason")
 PLACEHOLDERS = ("files", "base", "snapshot", "house_rules", "python")
 PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
-COMMIT = re.compile(r"[0-9a-fA-F]{40}")
+COMMIT = re.compile(r"[0-9a-fA-F]{40}")  # a House Rules revision: a full SHA-1 commit identity
+# An object identity of the consuming repository: SHA-1 or SHA-256, whichever object format it uses.
+OBJECT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+# Git's default whitespace rules (git-config core.whitespace), so a clone's own setting cannot change the result.
+GIT_WHITESPACE = "core.whitespace=blank-at-eol,space-before-tab,blank-at-eof"
 DEFAULT_BUDGET = 10
 DEFAULT_URL = "https://github.com/symbiotic-build/house-rules"
 # A House Rules fetch fails on lack of progress, never on elapsed time: below 1 byte/s for 30 s over HTTP.
@@ -52,7 +57,7 @@ BUILTINS = {
     "whitespace": {
         "enabled": True, "enforced": True, "scope": "diff", "stages": ["pre-commit", "ci"], "paths": ["**"],
         "requires": [],
-        "run": ["git", "--attr-source={snapshot}", "diff", "--check", "{base}", "{snapshot}"],
+        "run": ["git", "-c", GIT_WHITESPACE, "--attr-source={snapshot}", "diff", "--check", "{base}", "{snapshot}"],
         "fix": "remove the whitespace errors the output lists, stage the result"},
     "spec-docs": {
         "enabled": True, "enforced": True, "scope": "tree", "stages": ["pre-commit", "ci"], "paths": ["**"],
@@ -140,33 +145,56 @@ def empty_tree(root):
 # Snapshot handling -----------------------------------------------------------------------
 
 def index_tree(root):
-    """Write the tree of a copy of the live index; the real index is never written."""
+    """Write the tree of a copy of the live index; the real index is never written.
+
+    Creating, using and removing the copy's temporary folder is one error boundary: a file system error is a
+    preparation failure, and a failed removal after another failure keeps that failure's cause and repair.
+    """
     index = root / out(root, "rev-parse", "--git-path", "index")
+    temporary_repair = "free space in or repair access to the temporary folder, and run again"
     try:
-        temporary = tempfile.TemporaryDirectory()
+        folder = tempfile.mkdtemp()
     except OSError as exc:
-        raise Failure(f"cannot create a temporary folder for the index copy ({exc})",
-                      "free space in or repair access to the temporary folder, and run again")
-    with temporary as folder:
-        copy = Path(folder) / "index"
-        try:
-            shutil.copyfile(str(index), str(copy))
-        except FileNotFoundError:
-            pass  # nothing was ever staged: the copy stays absent and Git reads an empty index
-        except OSError as exc:
-            raise Failure(f"cannot read the index copy ({exc})",
-                          "run the commit again, and repair the clone if the error repeats")
-        env = {"GIT_INDEX_FILE": str(copy)}
-        unmerged = sorted({line.split("\t", 1)[1] for line in
-                           out(root, "ls-files", "-u", env=env).splitlines() if "\t" in line})
-        if unmerged:
-            raise Failure(f"the index has unmerged entries ({', '.join(unmerged)})",
-                          "resolve the conflicts, stage the result and commit again")
-        proc = git(root, "write-tree", env=env, check=False)
-        if proc.returncode:
-            raise Failure(f"cannot write the staged tree ({last_line(proc.stderr)})",
-                          "run the commit again, and repair the clone if the error repeats")
-        return proc.stdout.decode().strip()
+        raise Failure(f"cannot create a temporary folder for the index copy ({exc})", temporary_repair)
+    failure = tree = None
+    try:
+        tree = staged_tree(root, index, Path(folder) / "index")
+    except Failure as exc:
+        failure = exc
+    except OSError as exc:
+        failure = Failure(f"cannot use the temporary folder {folder} of the index copy ({exc})", temporary_repair)
+    try:
+        shutil.rmtree(folder)
+    except OSError as exc:
+        if failure is None:
+            raise Failure(f"cannot remove the temporary folder {folder} of the index copy ({exc})", temporary_repair)
+        raise Failure(f"{failure.cause}; removing the temporary folder {folder} of the index copy failed too ({exc})",
+                      failure.repair)
+    if failure is not None:
+        raise failure
+    return tree
+
+
+def staged_tree(root, index, copy):
+    """Copy the index to `copy` and write its tree, refusing unmerged entries."""
+    try:
+        shutil.copyfile(str(index), str(copy))
+    except FileNotFoundError:
+        pass  # nothing was ever staged: the copy stays absent and Git reads an empty index
+    except OSError as exc:
+        raise Failure(f"cannot read the index copy ({exc})",
+                      "run the commit again, and repair the clone if the error repeats")
+    env = {"GIT_INDEX_FILE": str(copy)}
+    unmerged = sorted({line.split("\t", 1)[1] for line in
+                       out(root, "ls-files", "-u", env=env).splitlines() if "\t" in line})
+    if unmerged:
+        raise Failure(f"the index has unmerged entries ({', '.join(unmerged)})",
+                      "resolve the conflicts, stage the result and commit again")
+    proc = git(root, "write-tree", env=env, check=False)
+    if proc.returncode:
+        raise Failure(f"cannot write the staged tree ({last_line(proc.stderr)})",
+                      "run the commit again, and repair the clone if the error repeats")
+    return proc.stdout.decode().strip()
 
 
 def build_snapshot(root, head, from_index, handed=None):
@@ -232,11 +260,19 @@ def push_base(root, remote, snapshot, remote_commit):
 
 
 def pushed_references(data):
-    """Parse Git's pre-push lines: local ref, local commit, remote ref, remote commit; zeros mean none."""
+    """Parse Git's pre-push lines: local ref, local commit, remote ref, remote commit; zeros mean none.
+
+    Git ends each line with a line feed and separates its fields with one space; only those bytes delimit, so a
+    reference name keeps every other character. Names decode losslessly: a byte that is not UTF-8 stays an escape.
+    """
     pushes = []
-    for line in data.decode(errors="surrogateescape").splitlines():
-        parts = line.split()
-        if len(parts) != 4 or not all(re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", p) for p in parts[1::2]):
+    lines = data.split(b"\n")
+    if lines[-1] == b"":
+        lines.pop()
+    for raw in lines:
+        parts = [part.decode("utf-8", "surrogateescape") for part in raw.split(b" ")]
+        if len(parts) != 4 or not all(OBJECT.fullmatch(p) for p in parts[1::2]):
+            line = raw.decode("utf-8", "surrogateescape")
             raise Failure(f"cannot read the pushed reference line {line!r} on standard input",
                           "run the pre-push stage from the pre-push hook block")
         local, remote = (None if set(c) == {"0"} else c for c in parts[1::2])
@@ -413,6 +449,9 @@ def parse_config(data):
         raise config_error("checks must be an object")
     checks, overrides = [], []
     for identity in [*BUILTINS, *(k for k in entries if k not in BUILTINS)]:
+        if "\0" in identity:
+            raise config_error("checks has an identity with a NUL character: "
+                               + identity.encode("unicode_escape").decode())
         where = f"checks.{identity}"
         entry = entries.get(identity, {})
         default = BUILTINS.get(identity)
@@ -495,6 +534,31 @@ def utc(seconds=None):
 
 def house_rules_url():
     return os.environ.get("HOUSE_RULES_URL") or DEFAULT_URL
+
+
+def shown_url(url):
+    """The URL as messages and reports show it: without the user name and password in its authority."""
+    parts = urllib.parse.urlsplit(url)
+    if "@" not in parts.netloc:
+        return url
+    return urllib.parse.urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
+
+
+def hidden(text, url):
+    """`text`, such as Git's error, with the URL's user name and password removed wherever they appear.
+
+    Git itself always receives the full URL; only what the runner prints is changed.
+    """
+    netloc = urllib.parse.urlsplit(url).netloc
+    if "@" not in netloc:
+        return text
+    userinfo = netloc.rpartition("@")[0]
+    secrets = {userinfo, *userinfo.split(":", 1)}
+    secrets = {value for secret in secrets for value in (secret, urllib.parse.unquote(secret)) if value}
+    text = text.replace(url, "\0")  # Git's error text holds no NUL, so this stands for the URL alone
+    for secret in sorted(secrets, key=len, reverse=True):
+        text = text.replace(secret + "@", "").replace(secret, "***")
+    return text.replace("\0", shown_url(url))
 
 
 def revision_folder(revision):
@@ -645,9 +709,9 @@ def handed_snapshot():
     except ValueError:
         return None
     if (isinstance(snapshot, dict) and snapshot.get("source") in ("index", "commit")
-            and all(isinstance(snapshot.get(k), str) and COMMIT.fullmatch(snapshot[k]) for k in ("snapshot", "tree"))
+            and all(isinstance(snapshot.get(k), str) and OBJECT.fullmatch(snapshot[k]) for k in ("snapshot", "tree"))
             and (snapshot.get("parent") is None or (isinstance(snapshot["parent"], str)
-                                                    and COMMIT.fullmatch(snapshot["parent"])))):
+                                                    and OBJECT.fullmatch(snapshot["parent"])))):
         return snapshot
     return None
 
@@ -662,12 +726,13 @@ def resolve(offline_repair=None):
     if resolution:
         return resolution
     url = house_rules_url()
+    shown = shown_url(url)
     try:
         override = override_revision()
         if override:
             error, removal = fetch_revision(url, override)
             if error:
-                raise fetch_failure(f"cannot fetch House Rules {override} from {url} ({error})", removal,
+                raise fetch_failure(f"cannot fetch House Rules {override} from {shown} ({hidden(error, url)})", removal,
                                     "run again when online, or set HOUSE_RULES_REVISION to a commit that exists there")
             return {"revision": override, "source": "override", "fetched": None}
         with main_lock():
@@ -682,10 +747,11 @@ def resolve(offline_repair=None):
             record = main_record(url)
         # A failed removal stops the run even when the cache holds an earlier main, as every cache failure does.
         if removal or record is None or not prepared(record["revision"]):
-            raise fetch_failure(f"cannot fetch House Rules main from {url} ({error})", removal,
+            raise fetch_failure(f"cannot fetch House Rules main from {shown} ({hidden(error, url)})", removal,
                                 offline_repair or "run again when online")
         return {"revision": record["revision"], "source": "cached main", "fetched": record["fetched"],
-                "warning": f"cannot fetch House Rules main from {url} ({error}); using the main last fetched, "
+                "warning": f"cannot fetch House Rules main from {shown} ({hidden(error, url)}); "
+                           "using the main last fetched, "
                            f"{record['revision']}, fetched {record['fetched']}"}
     except OSError as exc:
         raise cache_failure(exc)
@@ -1026,29 +1092,33 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
 
 
 def select(check, stage, from_index, target, changed):
-    """Return (skip reason or None, inputs for a files-scope check)."""
-    files = target["files"]
+    """Return (skip reason or None, inputs for a files-scope check).
+
+    Inputs are paths that hold a file in the snapshot, a regular file or a symbolic link; a submodule is never one.
+    """
+    blobs = target["blobs"]
     if not check["enabled"]:
         return f"disabled: {check['reason']}", None
     if from_index and not uses(check, "snapshot"):
         return "reads the working tree; runs in CI on the commit", None
     # A required file is a regular file or a symbolic link; a folder or a submodule of that name is none.
-    missing = [p for p in check["requires"] if p not in target["blobs"]]
+    missing = [p for p in check["requires"] if p not in blobs]
     if missing:
         return "requires " + ", ".join(missing), None
     patterns = [glob(p) for p in check["paths"]]
     matches = lambda names: sorted(n for n in names if any(p.match(n) for p in patterns))
     if changed is None:
-        inputs = matches(files)
+        inputs = matches(blobs)
         if check["scope"] == "files" and not inputs:
             return "no matching input", None
         return None, inputs
     selected = matches(changed)
     if not selected:
         return ("no staged input" if stage == "pre-commit" else "no changed input"), None
-    inputs = [n for n in selected if n in files]
+    inputs = [n for n in selected if n in blobs]
     if check["scope"] == "files" and not inputs:
-        return "only deleted inputs", None
+        # A changed path that is still in the snapshot but holds no file is a submodule.
+        return ("no matching input" if any(n in target["files"] for n in selected) else "only deleted inputs"), None
     return None, inputs
 
 
@@ -1256,7 +1326,9 @@ def main(argv=None):
     HANDED = os.environ.pop(RESOLVED, None)  # so no check inherits it
     HANDED_SNAPSHOT = os.environ.pop(SNAPSHOT, None)
     for stream in (sys.stdout, sys.stderr):
-        stream.reconfigure(errors="surrogateescape")  # paths with bytes that are not UTF-8 print unchanged
+        # UTF-8 with surrogate escapes reverses how the runner decodes output and paths, so every byte prints as
+        # it came, whatever output encoding the interpreter inherited, such as from PYTHONIOENCODING.
+        stream.reconfigure(encoding="utf-8", errors="surrogateescape")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run", help="run the checks of one stage")
