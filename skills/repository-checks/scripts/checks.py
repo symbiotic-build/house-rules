@@ -530,7 +530,7 @@ def fetch_revision(url, revision):
     if prepared(revision):
         return None
     repository = partial(cache_root())
-    failure = None
+    failure = error = None
     try:
         error = fetch_into(repository, url, revision)
     except Failure as exc:
@@ -540,10 +540,13 @@ def fetch_revision(url, revision):
     try:
         shutil.rmtree(str(repository))
     except OSError as exc:
-        if failure is None:
+        if failure is None and error is None:
             raise  # the caller reports it as a cache failure
-        raise Failure(f"{failure.cause}; removing the temporary repository {repository} failed too ({exc})",
-                      failure.repair)
+        # Keep the first failure: a failed fetch or preparation, with the failed removal added to its cause.
+        first = failure or Failure(f"cannot fetch House Rules {revision} from {url} ({error})",
+                                   "run again when online")
+        raise Failure(f"{first.cause}; removing the temporary repository {repository} failed too ({exc})",
+                      first.repair)
     if failure is not None:
         raise failure
     return error

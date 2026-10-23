@@ -1462,6 +1462,22 @@ class RevisionTest(RunnerCase):
         self.assertEqual(report["error"]["repair"], "set HOUSE_RULES_URL to a House Rules repository whose main has "
                                                     "one, or HOUSE_RULES_REVISION to a revision that has one")
 
+    def test_failed_fetch_survives_a_failed_cleanup(self):
+        if os.geteuid() == 0:
+            self.skipTest("the superuser removes every file")
+        cache = self.fresh_cache("fetch-and-cleanup-cache")
+        self.addCleanup(lambda: [os.chmod(folder, 0o755) for folder, _, _ in os.walk(str(cache))])
+        # The fetch fails, and leaves a file in a folder whose mode forbids removing it.
+        path = self.racing_git("fetch", "mkdir locked && : > locked/file && chmod 500 locked; "
+                                        "echo 'fatal: the remote hung up' >&2; exit 128")
+        self.repo.configure(NO_SPEC)
+        proc, report = self.repo.report("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
+        self.assertEqual(proc.returncode, 2, proc.stderr)
+        cause = report["error"]["cause"]
+        self.assertTrue(cause.startswith("cannot fetch House Rules "), cause)
+        self.assertIn("(fatal: the remote hung up); removing the temporary repository ", cause)
+        self.assertEqual(report["error"]["repair"], "run again when online")
+
     def test_failure_cause_and_repair_stay_separate_when_a_path_holds_a_separator(self):
         revision = self.house_rules.variant("Require an interpreter that does not exist", self.IMPOSSIBLE_RUNTIME)
         cache = self.fresh_cache("house; cache")
