@@ -101,6 +101,8 @@ The agent ran the spec checker by hand before some commits, and that repository 
 > - `git diff --cached --check` printed `w:1: trailing whitespace.` and exited with status 2.
 > - Of the Git clones directly under this workspace folder, six have a tool-written `post-commit` in `.git/hooks`. Five set `core.hooksPath` to a tracked folder, four of them to a Husky folder.
 
+After [#198](https://github.com/symbiotic-build/house-rules/pull/198) removed the two defects, the spec checker took about 1.2 s on the same 1.24 MB corpus, with identical output. That PR's timing table records each run with its machine load.
+
 The design must meet these constraints:
 
 - Never stop another tool's existing hook, which rules out setting `core.hooksPath` on a clone that has hooks in `.git/hooks`.
@@ -184,13 +186,15 @@ A check configuration is the versioned JSON file `.agents/checks.json` that pins
 It sits beside the repository's [bible](../../rules/core.md) (§Terms), `.agents/rules.md`, because it is part of the repository's rules.
 The runner reads this file from the run's snapshot: the staged index at pre-commit, the commit at pre-push and in CI.
 An unstaged edit to it therefore has no effect on the commit being checked.
-A snapshot without the file has not adopted repository checks; the runner then does nothing and says so.
+
+A snapshot without the file has not adopted repository checks. `run` then checks nothing, prints one line saying so and exits 0.
+The runner's `prepare` and `status` commands read the file from the index, as pre-commit does.
 
 The file has four top-level fields:
 
 - `version` is 1.
 - `house_rules` holds the pinned `revision`, a full 40-character commit, and the `url` to fetch it from. This is the consuming repository's tool configuration that the [House Rules revision](../specs/spec-system/source-formats.md#house-rules-revision) reference asks for.
-- `budgets` optionally maps a hook [check stage](#check-stage) to an entry with `seconds` and `reason`. A run that takes longer prints a warning.
+- `budgets` optionally maps a hook [check stage](#check-stage) to an entry with `seconds` and `reason`. A snapshot whose checks take longer than the budget in its own configuration gets a warning. CI has no budget.
 - `checks` maps a check identity to an entry. An entry for a built-in identity changes that built-in; any other identity adds a repository check.
 
 The effective set is every built-in [check definition](#check-definition) at the pinned revision, changed by the repository's entries.
@@ -198,6 +202,7 @@ Entry fields are listed in [Configuration fields](#configuration-fields).
 Unknown fields, unknown built-in placeholders, an unsupported version or a revision that is not 40 hexadecimal characters stop the run with a configuration error.
 
 Every entry that changes a default carries a `reason`, and so does every repository check.
+A field whose value equals the built-in default is no change and needs no reason.
 The reason is one sentence a reviewer can judge, such as "Spec checks take 40 s on this corpus; run them at pre-push."
 The runner refuses an entry without one, because [Overrides and review](#review) depends on it.
 
@@ -211,7 +216,7 @@ Both follow one contract, so the runner treats a House Rules check and a reposit
 The contract has five parts:
 
 - **Inputs.** `paths` lists the repository-relative globs the check reads. `requires` lists files that must exist in the snapshot for the check to apply; a snapshot without them skips the check with that reason.
-- **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files that exist in the snapshot as arguments. `diff` runs once with a base and the snapshot.
+- **Scope.** `tree` runs once over the whole snapshot. `files` runs once with the matching files that exist in the snapshot as arguments; `{files}` must be a whole argument of its command. `diff` runs once with a base and the snapshot. A repository check without `scope` has scope `tree`.
 - **Snapshot.** `run` is one argument list. A check that reads the [snapshot commit](#snapshot-handling) names it with `{snapshot}` and reads files from it, never from the working tree. Only such a check may list a hook stage; a check without `{snapshot}` reads the working tree and runs in CI only.
 - **Result.** Exit status 0 is a pass. Any other status is a failure. A command that cannot start, such as a missing program, is an error.
 - **Output.** The runner shows everything the command printed, unshortened, in its [check run report](#check-run-report). `fix` adds one line telling the reader what to change.
@@ -255,12 +260,20 @@ CI therefore also catches a commit made without hooks, such as one from a clone 
 
 A `diff` check needs a base. At pre-commit it is `HEAD`, as the check contract states.
 At pre-push Git writes one line per pushed reference to the hook's standard input: local reference, local commit, remote reference and remote commit.
-The runner checks each pushed local commit as its own snapshot, so a commit made in the same clone during the push cannot stand in for the one Git sends. A deleted reference, whose local commit is all zeros, has nothing to check.
+The runner checks each pushed local commit as its own snapshot, so a commit made in the same clone during the push cannot stand in for the one Git sends. It checks them in the order of Git's lines. A deleted reference, whose local commit is all zeros, has nothing to check.
 
-Before using an object Git names, the runner resolves it to the commit it points at (`<object>^{commit}`), so a pushed annotated tag is checked as its commit. A pushed object that resolves to no commit, such as a tag of a tree, stops the run with a [preparation failure](#failure-preparation) naming the reference.
+Before using an object Git names, the runner resolves it to the commit it points at (`<object>^{commit}`), so a pushed annotated tag is checked as its commit. A pushed object that resolves to no commit, such as a tag of a tree, stops the run with a [preparation failure](#failure-preparation) naming the reference. A remote object that resolves to no commit counts as absent, so the base falls back to the remote's default branch.
 
 A pushed commit's push base is its merge base with the remote commit Git names, when that commit is present locally. Otherwise it is the merge base with the remote's default branch, and otherwise the empty tree. When the two commits share no ancestor, for example a new unrelated branch, the base is the empty tree too, so every file in the pushed commit counts as changed.
-For a new branch the merge base gives exactly the branch's own changes. After a rebase it can also include the commits the branch was moved onto, which only selects more checks, never fewer. In CI the base is the PR's base commit, or the previous commit for a push.
+
+Change selection compares two trees: the push base's and the pushed commit's. It therefore sees the net difference between them, not each commit in between.
+For a new branch the merge base gives exactly the branch's own changes.
+
+After a rebase of a branch whose old copy is on the remote, the merge base with that old copy is older than the new upstream. The difference then also holds the upstream commits the branch was moved onto, so more checks can run.
+It can also hold fewer files. A change and its reversal across the rebase cancel out, so a file that differs from the new upstream can select no check.
+CI runs every CI check on the whole commit, so it catches what such a push skipped.
+
+In CI the base is the PR's base commit, or the previous commit for a push.
 
 <a id="snapshot-handling"></a>
 ### Snapshot handling
@@ -298,6 +311,7 @@ The budget is a warning, never a timeout.
 The [verification rules](../../rules/delivery.md) (§Verification) fail long-running checks on lack of progress, not on elapsed time; the runner adds no timer of its own.
 
 Checks run one at a time, in configuration order with built-ins first.
+The report lists them by status instead: errors, failures, passes, then skipped checks.
 Parallel checks would add load on a shared machine. A repository with many slow checks moves them to pre-push instead.
 
 ### Build queue
@@ -324,12 +338,25 @@ The hooks refuse the commit or push on any nonzero status.
 A check run report is the runner's account of one run and of each check in it.
 It names the stage and, for each snapshot the run checked, the snapshot, its base and its House Rules revision. For each check it gives the status, duration, output, fix line and rerun command.
 
-A run checks one snapshot, except at pre-push, where it checks one per pushed commit; each pushed commit can have its own configuration and pin. A snapshot's result is `fail` when any of its checks failed or could not start, and `pass` otherwise. A preparation failure, which can occur without any snapshot, makes the run's result `error`. Otherwise the run's result is `fail` when any snapshot failed, and `pass` otherwise. A push that only deletes references checks nothing and passes with the line "nothing to check: the push only deletes references".
+A run checks one snapshot, except at pre-push, where it checks one per pushed commit. Each pushed commit is checked with its own configuration. Pushed commits that pin different House Rules revisions stop the run with a [preparation failure](#failure-preparation); the author pushes them separately.
+
+A snapshot's result is `fail` when any of its checks failed or could not start, and `pass` otherwise. A preparation failure, which can occur without any snapshot, makes the run's result `error`. Otherwise the run's result is `fail` when any snapshot failed, and `pass` otherwise. A push that only deletes references checks nothing and passes with the line "nothing to check: the push only deletes references".
 It is the one output format for every check, so an agent can act on any failure the same way.
 
-Each check's status is `pass`, `fail`, `error` or `skipped`. A skipped check states why, for example "no staged input", "requires docs/DOCUMENTS.json" or "disabled: <reason>".
-The report then lists every override of a default with its reason, and any budget or snapshot warnings.
+Each check's status is `pass`, `fail`, `error` or `skipped`. A skipped check states why:
+
+- "disabled: <reason>" for a check turned off;
+- "requires docs/DOCUMENTS.json" for a missing required file;
+- "no staged input" at pre-commit and "no changed input" at pre-push, when no changed file matches;
+- "no matching input" in CI, for a `files` check without a matching file;
+- "only deleted inputs" for a `files` check whose matching files were all deleted;
+- "reads the working tree; runs in CI on the commit" for a check without `{snapshot}` in a run on the index;
+- "not configured for <stage>" for a check named with `--only` that does not list the stage.
+
+The report then lists every override of a default with its reason, and any warnings.
+A snapshot without a configuration has one line and checks nothing.
 The last line says what the run refused and what to do next.
+After a preparation failure, standard output lists the snapshots checked before it, without that last line. Standard error then gets one line with the cause and its repair.
 
 `run --json` prints the same report as one JSON object, defined in [Report format](#report-format).
 The CI step prints the text report in the job log. The PR watcher then wakes the session on the red check; the session reruns the printed command locally.
@@ -449,7 +476,8 @@ It runs `checks.py status --session` from the House Rules main checkout. In a re
 - `repository checks: ready (House Rules ebb6b37, hooks installed)`, or
 - what is missing, with the command that fixes it: no hook block, the pinned revision not in the cache, or the spec checker's environment not built.
 
-In a managed repository without a configuration it prints the install command. Elsewhere it prints nothing.
+In a managed repository, one that has `.agents/rules.md`, without a configuration it prints the install command. Elsewhere it prints nothing.
+It always exits 0. A configuration error becomes its one line, so a broken file never stops a session from starting.
 It runs Git commands only, no checks, and needs no network.
 
 The PR watcher needs no change.
@@ -472,9 +500,10 @@ The runner prepares a revision once and reuses it:
 > **Detail — cache layout**
 >
 > - The cache root is `HOUSE_RULES_CACHE`, or `$XDG_CACHE_HOME/house-rules`, or `~/.cache/house-rules`.
-> - `source.git` is a bare clone of the pinned `url`. `HOUSE_RULES_CLONE` names an existing House Rules clone to read objects from instead.
-> - `revisions/<commit>/` holds that commit's files, extracted read-only with `git archive`.
-> - `environments/<digest>/` holds one virtual environment per requirements lock and interpreter version. The digest is SHA-256 over the lock file and the interpreter version.
+> - `source.git` is a bare repository. It fetches each pinned commit from the pinned `url` into `refs/pins/<commit>`, not the whole history. `HOUSE_RULES_CLONE` names an existing House Rules clone to read objects from instead.
+> - `revisions/<commit>/` holds that commit's files, extracted with `git archive`. Files are read-only; folders stay writable, so the cache can be removed.
+> - `environments/<digest>/` holds one virtual environment per requirements lock and interpreter version. The digest is SHA-256 over the lock file and `CPython <major>.<minor>`.
+> - The environment's interpreter is the running one when the spec checker supports it, and otherwise the newest supported `python3.<minor>` on `PATH`.
 > - A revision or environment is built in a temporary folder and renamed into place. Two hooks that prepare the same revision at once both end with one complete copy.
 
 The runner in a hook is the one at the path in `house-rules.checks-runner`.
@@ -496,7 +525,8 @@ That pin and the repository's pin are independent; the report names the revision
 
 This refusal keeps a commit from passing without its checks having run.
 
-**Trigger:** The configuration is invalid, the pinned revision cannot be read or fetched, the extracted runner does not match the pin, or no supported interpreter or environment can be prepared.
+**Trigger:** The configuration is invalid, the pinned revision cannot be read or fetched, the pinned revision has no runner, or no supported interpreter or environment can be prepared.
+Pushed commits pin different House Rules revisions.
 The live index's tree differs from the snapshot at the end of a pre-commit run.
 The snapshot cannot be built: the index copy cannot be read, or the index still has unmerged entries.
 The installed Git cannot read attributes from a commit (`--attr-source`).
@@ -504,6 +534,7 @@ A pushed object resolves to no commit, such as a tag of a tree.
 At pre-push, the [hook block](#hook-block) cannot create or write its temporary copy of the pushed references; the block refuses the push itself, before the runner starts. Reopening the copy after the checks can fail too; the push is then refused after the checks ran.
 
 **Outcome:** The runner exits 2 and prints one error line naming the cause and the command that repairs it. The hook refuses the commit or push.
+The report's `error` names the pushed reference the failure concerns: the reference of a pushed commit with an invalid configuration, for example. A failure outside any pushed reference names none.
 
 **Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used. A failed temporary copy of the pushed references is removed, except when a plain `/bin/sh` exits at a failed reopening; the file then stays in the temporary folder.
 
@@ -512,6 +543,7 @@ For a changed index the author reviews what was staged and commits again.
 For unmerged entries the author resolves the conflicts and stages the result; for an unreadable index the author runs the commit again, and repairs the clone if the error repeats.
 For an old Git the author installs a Git that supports `--attr-source`.
 For a pushed object with no commit the author pushes that reference without the hook's check, under the [rule line](#rule-line), or changes the reference.
+For pushed commits with different pins the author pushes each pin's references separately.
 For a failed temporary copy the author frees space in, or repairs access to, the temporary folder and pushes again.
 
 **Authority:** The author repairs the clone; a configuration change needs the repository's normal review.
@@ -696,7 +728,7 @@ Pre-commit and pre-push stay fast without skipping a check whose inputs changed.
 
 **Verification:** Fixture commits that touch and do not touch each check's inputs, including a one-commit push; timing of each built-in on its target corpus.
 
-**Tests:** [Change selection](#test-checks-change-selection).
+**Tests:** [Change selection](#test-checks-change-selection), [spec-docs time](#test-checks-spec-docs-time).
 
 **Status:** specified.
 
@@ -895,7 +927,7 @@ Fields of one entry in `checks`. A built-in entry may set any field; a repositor
 | `fix` | text | one-line fix hint |
 | `reason` | text | why the entry differs from the default |
 
-A `budgets` entry has `seconds`, a positive number, and `reason`. The default pre-commit budget is 10 s and needs no entry; pre-push and CI have no default budget.
+A `budgets` entry has `seconds`, a positive number, and `reason`. The default pre-commit budget is 10 s and needs no entry. Pre-push has no default budget, and CI has no budget.
 
 Placeholders in `run`: `{files}` (one argument per selected file; `files` scope only), `{base}`, `{snapshot}`, `{house_rules}` (the pinned tree) and `{python}` (the pinned spec checker environment's interpreter). `{base}` and `{snapshot}` hold the same values at every stage that the [snapshot handling](#snapshot-handling) defines.
 Glob `**/` matches zero or more folders and `*` matches within one path segment, as in the `.rule-changes.json` file of the [rule-changes specification](../specs/rule-changes/rule-changes.md).
@@ -925,6 +957,9 @@ checks.py status [--session]
 ```
 
 `--remote NAME` names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. `--index` builds the snapshot from the staged index, as pre-commit does, for the install's preflight; `--head` names a commit instead. `--house-rules PATH` runs from an existing House Rules checkout, which must be at the pinned revision; the CI step uses it. `--only` limits the run to named checks and is what the report's rerun line uses.
+
+A pre-push rerun line also names the snapshot and its base, `--head <commit> --base <base>`. With `--head` the runner checks that one commit and reads no standard input.
+A CI rerun line holds the CI machine's paths, such as `.tmp/house-rules`. To rerun it locally, the reader replaces them with the local runner and drops `--house-rules`.
 
 The workflow the install writes for GitHub Actions has five steps. It checks out the repository with full history and reads the pin from the configuration. It checks out House Rules at that pin into `.tmp/house-rules`, sets up Python 3.13 and runs:
 
@@ -956,15 +991,18 @@ python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage c
  "warnings": ["budget: pre-commit took 40.7 s of 10 s; slowest check spec-docs"]}]}
 ```
 
-The run's `result` is `error` after a preparation failure, matching exit status 2. Otherwise it is `fail` when any snapshot `result` is `fail`, matching exit status 1, and `pass` with exit status 0. A check that could not start has check status `error` and makes its snapshot's result `fail`. On a preparation failure the run object also holds `error`: one object with `reference` (the pushed reference it concerns, or `null`), `cause` and `repair`; the snapshots checked before the failure stay listed. `snapshots` is empty for a push that only deletes references, and the run's result is then `pass`.
+The run's `result` is `error` after a preparation failure, matching exit status 2. Otherwise it is `fail` when any snapshot `result` is `fail`, matching exit status 1, and `pass` with exit status 0. A check that could not start has check status `error` and makes its snapshot's result `fail`.
+
+On a preparation failure the run object also holds `error`: one object with `reference` (the pushed reference it concerns, or `null`), `cause` and `repair`; the snapshots checked before the failure stay listed. `snapshots` is empty for a push that only deletes references, and the run's result is then `pass`.
 
 In each snapshot entry, `reference` is the pushed local reference at pre-push and `null` otherwise. `source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `snapshot` is the commit identity passed to the checks. `base` is a commit identity, or the empty tree's identity in the cases the [check definition](#check-definition) names. Each override has `id`, `change` and `reason`.
+A snapshot without a configuration has `house_rules` and `base` set to `null`, no checks, result `pass` and one warning.
 
 <a id="acceptance"></a>
 ## Acceptance
 
-These cases become unit tests in the runner's work package.
-Until then each is a planned demonstration of the worked example it names; none has been run.
+The runner's cases are unit tests in `skills/repository-checks/scripts/test_checks.py`; CI runs them before it audits their selectors.
+Cases that need the install, its hook blocks or a private corpus are demonstrations or an analysis. Each names the work package or record that delivers its evidence.
 
 <a id="test-checks-default-install"></a>
 ### Demonstration: default install
@@ -977,51 +1015,64 @@ Until then each is a planned demonstration of the worked example it names; none 
 
 **Expected:** The install writes the tour's configuration and both hook blocks. After the stub is added and staged, `run --stage ci --index` runs both default checks and lists the stub check as skipped with the reason "reads the working tree; runs in CI on the commit"; `run --stage ci` on the commit runs the stub. The hook and `run --stage ci` give the same result for the same commit.
 
-Evidence: planned, following the [tour](#tour).
+Evidence: planned for the install work package, following the [tour](#tour). The runner's part, with a hand-written configuration and hook, is `test_default_install_preflight_and_hook_match_ci`.
 
 <a id="test-checks-refused-commit"></a>
-### Demonstration: refused commit
+### Refused commit
 
-**Method:** demonstration.
+**Method:** test.
 
 **Requirements:** [Snapshot](#req-checks-snapshot), [failure output](#req-checks-report).
 
 **Inputs:** The tour's staged "segment id", with an unstaged correction of the same file in the working tree. Staged trailing whitespace with an unstaged `.gitattributes` edit that turns whitespace checks off. A configured check whose program is missing. Separately, a file staged by another process while a check runs, and the same file staged and restored again during the run.
 
-**Expected:** The commit is refused from the staged content and the report matches the tour's text. The staged trailing whitespace fails under the snapshot's attributes. The check with a missing program has status `error`, its snapshot's result is `fail`, and the run exits 1. The file staged during the run stops the run with a preparation failure. The staged-and-restored file leaves the checks' result unchanged, because they read the snapshot. The working tree, index, stash and references are unchanged.
+**Expected:** The commit is refused from the staged content and the report matches the tour's text and JSON. The printed rerun command runs only that check and passes after the fix. The staged trailing whitespace fails under the snapshot's attributes. The check with a missing program has status `error`, its snapshot's result is `fail`, and the run exits 1. The file staged during the run stops the run with a preparation failure. The staged-and-restored file leaves the checks' result unchanged, because they read the snapshot. The working tree, index, stash and references are unchanged.
 
-Evidence: planned, following the [refusal declaration](#failure-check-refused).
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::SpecDocsTest::test_refused_commit_reports_like_the_tour_and_changes_nothing](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SpecDocsTest::test_refused_commit_json_report](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SpecDocsTest::test_printed_rerun_runs_only_that_check_and_passes_after_the_fix](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_whitespace_reads_attributes_from_the_snapshot](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_check_whose_program_is_missing_is_an_error_and_fails_the_run](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SnapshotTest::test_file_staged_during_the_run_stops_with_preparation_failure](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SnapshotTest::test_file_staged_and_restored_during_the_run_keeps_the_snapshot_result](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-change-selection"></a>
-### Demonstration: change selection
+### Change selection
 
-**Method:** demonstration.
+**Method:** test.
 
 **Requirements:** [Run only changed inputs](#req-checks-fast).
 
-**Inputs:** A repository check with `paths: ["src/**/*.ts"]`: one commit staging only a `.py` file, one staging a `.ts` file, one deleting a `.ts` file, and a CI run on the first commit. A one-commit push of a new branch and of a rebased branch with a pre-push check. A push during which another commit is made on the pushed branch. A pre-push hook file with another tool's line after the block that reads standard input. A push of two branches where one fails a check, a push that only deletes a branch, a pushed annotated tag, and a new branch that shares no history with the remote. Spec-docs timed on the 1.24 MB corpus.
+**Inputs:** A repository check with `paths: ["src/**/*.ts"]`: one commit staging only a `.py` file, one staging a `.ts` file, one deleting a `.ts` file, and a CI run on the first commit. Pushes of a new branch, of an update to a pushed branch, of a rebased branch that is new on the remote, of an annotated tag, of a branch that shares no history with the remote, and of a branch with no remote default branch to compare with. A push during which another commit is made on the pushed branch, and a push of a branch other than the checked-out one. A push of two branches where one fails a check, written in the order good branch, failing branch. A push that deletes a branch beside a pushed branch, and one that only deletes a branch. A configured budget below the checks' duration.
 
-**Expected:** The repository check skips with "no staged input" on the first commit, runs on the second, skips with "only deleted inputs" on the third, and runs in CI. Both pushes count the pushed commit's files. The push with a new commit made during it checks the commit Git sends, not the new one. The other tool's line reads the same reference lines as the runner. A push of two branches, one failing, reports both snapshots and fails. A deletion-only push reports "nothing to check" and passes. A pushed annotated tag is checked as its commit. A new unrelated branch counts every file as changed. Spec-docs runs on all three commits within its time target. The budget warning appears when the total exceeds the configured budget.
+**Expected:** The repository check skips with "no staged input" on the first commit, runs on the second, skips with "only deleted inputs" on the third, and runs in CI. Each push counts the files its push base gives: the branch's own files for the new and rebased branches, the new commit's files for the update, and every file without a shared history or a remote default branch. A pushed annotated tag is checked as its commit. The push checks the commit Git sends, not the one made during it, and not the checked-out branch. The two-branch push reports both snapshots in Git's order and fails, and its rerun line names the failing commit and its base. A deletion has no snapshot; a deletion-only push reports "nothing to check" and passes. The budget warning appears when a snapshot's total exceeds its budget.
 
-Evidence: planned, following [Running checks](#running).
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::SelectionTest::test_files_check_selects_staged_inputs_by_stage](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SelectionTest::test_budget_warning_when_the_run_exceeds_the_stage_budget](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_push_base_is_chosen_per_pushed_commit](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_commit_made_during_the_push_is_not_checked](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_push_of_a_branch_other_than_the_checked_out_one_is_checked](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_push_of_two_branches_reports_both_snapshots_and_fails_when_one_fails](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_deleted_reference_is_skipped](../../skills/repository-checks/scripts/test_checks.py)
+
+<a id="test-checks-spec-docs-time"></a>
+### Analysis: spec-docs time
+
+**Method:** analysis.
+
+**Requirements:** [Run only changed inputs](#req-checks-fast).
+
+**Inputs:** Spec-docs at the pinned revision on the 1.24 MB corpus, timed on the measured machine below its core count in load.
+
+**Expected:** Each run takes 2 s or less, its target in [Built-in checks](#built-in-checks).
+
+Evidence: the [measurement after #198](#evidence), about 1.2 s.
 
 <a id="test-checks-naming-override"></a>
-### Demonstration: naming override
+### Naming override
 
-**Method:** demonstration.
+**Method:** test.
 
 **Requirements:** [One configuration](#req-checks-one-configuration), [snapshot](#req-checks-snapshot).
 
-**Inputs:** The camel-case repository from [Worked examples](#examples), with a stub command in place of the linter, and the same entry without a reason.
+**Inputs:** The camel-case repository from [Worked examples](#examples), with a stub command in place of the linter. The same entry without a reason, and with `pre-commit` but no `{snapshot}`. Other invalid configurations: an unknown field, an unknown placeholder, an unsupported version, a short revision, a changed default without a reason.
 
-**Expected:** Spec-docs applies the repository's naming rule; the repository check runs in CI with every matching `.ts` file; the entry without a reason, and the entry with `pre-commit` but no `{snapshot}`, are refused with configuration errors.
+**Expected:** Spec-docs applies the repository's naming rule; the repository check runs in CI with every matching `.ts` file. Each invalid configuration is refused with a configuration error and exit status 2.
 
-Evidence: planned, following [Worked examples](#examples).
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::SpecDocsTest::test_naming_override_with_a_stub_linter](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_configuration_errors_stop_the_run_with_exit_2](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-no-specs"></a>
-### Demonstration: no specifications
+### No specifications
 
-**Method:** demonstration.
+**Method:** test.
 
 **Requirements:** [One configuration](#req-checks-one-configuration).
 
@@ -1029,7 +1080,7 @@ Evidence: planned, following [Worked examples](#examples).
 
 **Expected:** Whitespace runs; spec-docs is skipped with "requires docs/DOCUMENTS.json"; the report lists no override.
 
-Evidence: planned, following [Worked examples](#examples).
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_no_specifications_runs_whitespace_and_skips_spec_docs](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-install-existing"></a>
 ### Demonstration: install over existing hooks
@@ -1038,34 +1089,34 @@ Evidence: planned, following [Worked examples](#examples).
 
 **Requirements:** [Install](#req-checks-install).
 
-**Inputs:** Clones with a tool-written `post-commit` and `pre-commit`, a non-executable `pre-commit`, a `core.hooksPath` Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook, a binary hook and an existing configuration; each installed twice.
+**Inputs:** Clones with a tool-written `post-commit` and `pre-commit`, a non-executable `pre-commit`, a `core.hooksPath` Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook, a binary hook and an existing configuration; each installed twice. A pre-push hook file with another tool's line after the block that reads standard input. A pre-push whose temporary copy of the references fails to write.
 
-**Expected:** Other tools' lines still run; the Husky folder receives the blocks; the non-executable, framework and binary hooks are refused with their stated output; the status line reports the linked worktree without its block; the configuration is unchanged; the second install reports every item unchanged.
+**Expected:** Other tools' lines still run; the line after the pre-push block reads the same reference lines as the runner. The Husky folder receives the blocks; the non-executable, framework and binary hooks are refused with their stated output; the status line reports the linked worktree without its block; the configuration is unchanged; the second install reports every item unchanged. The failed temporary copy makes the [hook block](#hook-block) print its own line and refuse the push with status 1 before the runner starts.
 
-Evidence: planned, following [Check installation](#check-installation).
+Evidence: planned for the install work package, following [Check installation](#check-installation).
 
 <a id="test-checks-pin-move"></a>
-### Demonstration: pin move
+### Pin move
 
-**Method:** demonstration.
+**Method:** test.
 
 **Requirements:** [Same runner](#req-checks-same-runner), [pinned and offline](#req-checks-offline).
 
-**Inputs:** A clone whose hook setting points at the runner of revision A, after a pull that moved the pin to revision B already in the cache, with network access denied.
+**Inputs:** A clone whose hook setting points at the runner of revision A, after a pull that moved the pin to revision B already in the cache, with an unreachable House Rules URL standing in for denied network access.
 
 **Expected:** The run reports revision B and makes no network call.
 
-Evidence: planned, following [Pinning and offline use](#pinning).
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::PinningTest::test_pin_move_runs_the_pinned_revision_without_network](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-preparation-failure"></a>
-### Demonstration: preparation failure
+### Preparation failure
 
-**Method:** demonstration.
+**Method:** test.
 
 **Requirements:** [Failure output](#req-checks-report), [pinned and offline](#req-checks-offline).
 
-**Inputs:** A pin missing from the cache with network access denied; an invalid configuration; no supported interpreter; an index with unmerged entries; a Git without `--attr-source`; a pushed tag of a tree, alone and pushed together with a passing branch; a pre-push whose temporary copy of the references fails to write.
+**Inputs:** A pin missing from the cache with an unreachable House Rules URL; a House Rules clone without the pin; a pinned revision without a runner; a House Rules checkout at another revision; an invalid configuration; a pinned spec checker that needs an interpreter the machine lacks; an index with unmerged entries; a Git without `--attr-source`. A pushed tag of a tree, alone, and pushed after a passing branch. Two pushed branches whose commits pin different revisions.
 
-**Expected:** Each runner case exits 2 with one line naming the cause and its repair command, and the hook refuses the commit or push. The failed temporary copy makes the [hook block](#hook-block) print its own line and refuse the push with status 1 before the runner starts. The push of a passing branch with a tag of a tree exits 2 with run result `error`; its `error` names the tag, and the branch's snapshot stays listed with result `pass`.
+**Expected:** Each case exits 2 with one line naming the cause and its repair command, and the hook refuses the commit or push. A push of a passing branch followed by a tag of a tree exits 2 with run result `error`; its `error` names the tag, and the branch's snapshot stays listed with result `pass`, because Git's order puts the branch first. The push with different pins names the second branch, and the first branch's snapshot stays listed.
 
-Evidence: planned, following the [preparation declaration](#failure-preparation).
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::PinningTest::test_preparation_failures_exit_2_with_cause_and_repair](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_configuration_errors_stop_the_run_with_exit_2](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PinningTest::test_no_supported_interpreter_for_the_spec_checker_is_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SnapshotTest::test_unmerged_index_and_old_git_are_preparation_failures](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_pushed_tag_of_a_tree_is_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_passing_branch_pushed_with_a_tag_of_a_tree_is_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::PushTest::test_pushed_commits_with_different_pins_are_a_preparation_failure](../../skills/repository-checks/scripts/test_checks.py)
