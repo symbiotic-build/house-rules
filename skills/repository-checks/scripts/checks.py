@@ -322,12 +322,6 @@ def check_entry(where, entry):
             raise config_error(f"{where}.run must be a nonempty list of arguments")
         if any("\0" in v for v in entry["run"]):
             raise config_error(f"{where}.run has an argument with a NUL character")
-        for value in entry["run"]:
-            try:
-                os.fsencode(value)  # a surrogate escape of a filename byte encodes; an unpaired surrogate does not
-            except UnicodeEncodeError:
-                raise config_error(f"{where}.run has an argument that cannot be passed to a program: "
-                                   f"{value.encode('unicode_escape').decode()}")
     if "stages" in entry:
         strings("stages", lambda v: v in STAGES)
         if len(set(entry["stages"])) != len(entry["stages"]):
@@ -359,6 +353,26 @@ def check_definition(where, definition):
                            "a hook stage needs a check that reads the snapshot, otherwise list only ci")
 
 
+def unencodable(value):
+    """Yield every string in a parsed JSON value that the file system encoding cannot encode.
+
+    A surrogate escape of a file name byte encodes; an unpaired surrogate from a JSON escape does not, and would
+    crash the text report or process start.
+    """
+    if isinstance(value, str):
+        try:
+            os.fsencode(value)
+        except UnicodeEncodeError:
+            yield value
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from unencodable(key)
+            yield from unencodable(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from unencodable(item)
+
+
 def load_document(data):
     """Parse the file and validate only what every runner reads before the handover: `version`.
 
@@ -375,6 +389,10 @@ def load_document(data):
         raise config_error("the file lacks version")
     if type(document["version"]) is not int or document["version"] != 1:
         raise config_error(f"unsupported version {document['version']!r}; this runner reads version 1")
+    unprintable = next(unencodable(document), None)
+    if unprintable is not None:
+        raise config_error(f"the file holds text that cannot be printed or passed to a program: "
+                           f"{unprintable.encode('unicode_escape').decode()}")
     if "house_rules" in document:
         raise config_error("remove house_rules: checks always run at House Rules main")
     return document

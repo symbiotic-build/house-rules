@@ -338,7 +338,10 @@ class DefaultsTest(RunnerCase):
                 "checks.lint has scope files but its run has no whole {files} argument"),
             "argument that cannot be passed to a program": (
                 {"checks": {"lint": check(["lint", "\ud800", "{snapshot}"], ["ci"])}}, None,
-                "checks.lint.run has an argument that cannot be passed to a program: \\ud800"),
+                "the file holds text that cannot be printed or passed to a program: \\ud800"),
+            "reason that cannot be printed": (
+                {"checks": {"whitespace": {"enabled": False, "reason": "off \udbff"}}}, None,
+                "the file holds text that cannot be printed or passed to a program: off \\udbff"),
             "repository check without fix": (
                 {"checks": {"lint": {k: v for k, v in check(["lint"], ["ci"]).items() if k != "fix"}}}, None,
                 "checks.lint lacks fix"),

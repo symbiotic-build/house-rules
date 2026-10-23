@@ -209,7 +209,7 @@ The effective set is every built-in [check definition](#check-definition) at the
 Only the runner at that revision judges the entries. A runner at another revision reads only `version` and refuses a `house_rules` field. It then starts the runner at the run's revision, as [House Rules revision and offline use](#revision) describes.
 Entry fields are listed in [Configuration fields](#configuration-fields).
 Unknown fields, unknown built-in placeholders and a NUL character in a command argument stop the run with a configuration error.
-So does a command argument that cannot be passed to a program, such as an unpaired surrogate escape like `\ud800` in the JSON text. An argument that holds a filename byte that is not UTF-8, which Python keeps as a surrogate escape from `\udc80` to `\udcff`, reaches the program as that byte.
+So does any text in the file that cannot be printed or passed to a program, such as an unpaired surrogate escape like `\ud800` in an argument or a reason. An argument that holds a filename byte that is not UTF-8, which Python keeps as a surrogate escape from `\udc80` to `\udcff`, reaches the program as that byte.
 An unsupported version, a `house_rules` field and an entry that sets `enforced` stop it the same way.
 
 Every entry that changes a default carries a `reason`, and so does every repository check.
