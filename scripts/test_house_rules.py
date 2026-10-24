@@ -250,7 +250,13 @@ class ConfigurationTests(Fixture):
         self.refused({"version": 2, "pin": "x"}, "unknown field pin")
         self.refused({"version": 2}, "sources is required")
         self.refused({"version": 2, "sources": [source], "git_settings": {"core.autocrlf": False}},
-                     "git_settings must map Git configuration keys to strings")
+                     "git_settings must map Git setting names")
+        for key in ("core.attributesFile", "core.bare", "extensions.objectFormat"):
+            self.refused({"version": 2, "sources": [source], "git_settings": {key: "x"}},
+                         f"git_settings.{key}: the isolated Git environment sets this itself")
+        self.assertEqual(hr.repository_config(json.dumps({"version": 2, "sources": [source], "git_settings": {
+            "core.whitespace": "blank-at-eol", "diff.my driver.command": "x"}}))["git_settings"]["core.whitespace"],
+                         "blank-at-eol")
         self.assertEqual(hr.repository_config(json.dumps({"version": 2, "sources": [source]}))["sources"],
                          [{"name": "house-rules", "url": hr.DEFAULT_URL, "ref": "main"}])
 
@@ -345,6 +351,7 @@ class CommandTests(Fixture):
         self.assertEqual(hr.source_key("https://git.example.com:8443/team/rules"),
                          "https/git.example.com%3A8443/team/rules")
         self.assertEqual(hr.source_key("file:///tmp/a b/x.git"), "file/tmp/a%20b/x")
+        self.assertEqual(hr.source_key("https://example.com/team/../rules//x"), "https/example.com/team/%2E%2E/rules/x")
 
     def test_text_form_of_the_tour(self):
         config, pin = self.tour()

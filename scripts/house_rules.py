@@ -64,6 +64,9 @@ LOCAL_GIT_ENV = ("GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONF
 PROFILE_MARKERS = (("rust", ("Cargo.toml",)), ("typescript", ("package.json", "tsconfig.json")),
                    ("python", ("pyproject.toml",)), ("svelte", ("svelte.config.js",)),
                    ("specs", ("docs/ENTITIES.json",)))
+GIT_SETTING = re.compile(r"[A-Za-z][A-Za-z0-9-]*(?:\.[^\n]+)?\.[A-Za-z][A-Za-z0-9-]*")
+# Keys the isolated Git environment of the checks runner sets itself, which a repository cannot change.
+RESERVED_GIT_SETTINGS = ("core.bare", "core.worktree", "core.repositoryformatversion", "core.attributesfile")
 REPOSITORY_FIELDS = ("version", "sources", "profiles", "budgets", "checks", "git_settings")
 LAYER_FIELDS = ("version", "checks", "budgets", "context")
 GLOBAL_FIELDS = ("version", "sources", "budgets", "checks")
@@ -152,7 +155,10 @@ def hidden(text, url):
 
 
 def escape(segment):
-    """One path segment of a source key: characters outside [A-Za-z0-9._-] become %XX of their UTF-8 bytes."""
+    """One path segment of a source key: characters outside [A-Za-z0-9._-] become %XX of their UTF-8 bytes,
+    and a segment made only of dots has each dot escaped, as the checks runner names the same folders."""
+    if set(segment) == {"."}:
+        return "%2E" * len(segment)
     return "".join(c if re.fullmatch(r"[A-Za-z0-9._-]", c) else "".join(f"%{b:02X}" for b in c.encode())
                    for c in segment)
 
@@ -181,9 +187,7 @@ def source_key(url):
     path = path.strip("/")
     if path.endswith(".git"):
         path = path[:-4]
-    segments = [scheme, *([host] if host else []), *path.split("/")]
-    if any(segment in ("", ".", "..") for segment in segments):
-        raise Failure(f"house-rules: cannot derive a cache folder from the URL {shown_url(url)}; check the url")
+    segments = [segment for segment in (scheme, host, *path.split("/")) if segment]  # empty segments are dropped
     return "/".join(escape(segment) for segment in segments)
 
 
@@ -194,6 +198,11 @@ def source_folder(url):
 def tree_folder(url, commit):
     """A commit's files; a commit identifies its content, so every source shares one folder per commit."""
     return cache_root() / "revisions" / commit
+
+
+def prepared(tree):
+    """A tree counts only once revisions/<commit>.fetched exists, as the checks runner decides."""
+    return Path(tree).is_dir() and Path(str(tree) + ".fetched").is_file()
 
 
 def partial(folder):
@@ -344,8 +353,13 @@ def repository_config(data, where=CONFIG):
         raise Failure(f"house-rules: {where}: sources is required; list at least "
                       '{"name": "house-rules", "ref": "main"}')
     settings = value.get("git_settings", {})
-    if not isinstance(settings, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in settings.items()):
-        raise Failure(f"house-rules: {where}: git_settings must map Git configuration keys to strings")
+    if not isinstance(settings, dict) or not all(isinstance(k, str) and GIT_SETTING.fullmatch(k) and isinstance(v, str)
+                                                 for k, v in settings.items()):
+        raise Failure(f"house-rules: {where}: git_settings must map Git setting names (section.key or "
+                      "section.subsection.key) to strings")
+    for key in settings:
+        if key.lower() in RESERVED_GIT_SETTINGS or key.lower().startswith("extensions."):
+            raise Failure(f"house-rules: {where}: git_settings.{key}: the isolated Git environment sets this itself")
     profiles = value.get("profiles", [])
     if not isinstance(profiles, list) or not all(isinstance(p, str) and NAME.fullmatch(p) for p in profiles) \
             or len(set(profiles)) != len(profiles):
@@ -533,7 +547,7 @@ def fetch_commit(url, commit, deadline=NO_DEADLINE):
     written once to revisions/<commit>.fetched, just before the rename. The caller holds the source's lock.
     """
     final = tree_folder(url, commit)
-    if final.is_dir():
+    if prepared(final):
         return None
     repository = partial(source_folder(url))
     try:
@@ -660,7 +674,7 @@ def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
             except DeadlinePassed:
                 error = f"the remote did not answer within {HOOK_SECONDS} s"
             if error:
-                if tree_folder(url, commit).is_dir():
+                if prepared(tree_folder(url, commit)):
                     error = None
                 elif error.startswith("the remote did not answer") or reachable(url, deadline):
                     raise Failure(f"house-rules: cannot reach {shown} ({hidden(error, url)}) and {name} {commit} is "
@@ -678,7 +692,7 @@ def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
                 record = branch_record(url, ref)
                 now = time.time()
                 if record and 0 <= now - record["seconds"] < REUSE_SECONDS and \
-                        tree_folder(url, record["revision"]).is_dir():
+                        prepared(tree_folder(url, record["revision"])):
                     commit, source = record["revision"], "reused"
                 else:
                     commit, error = ask_branch(url, ref, deadline)
@@ -693,7 +707,7 @@ def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
         except DeadlinePassed:
             commit, error = None, f"the remote did not answer within {HOOK_SECONDS} s"
         if commit is None or source not in ("reused", "fetched"):
-            if record is None or not tree_folder(url, record["revision"]).is_dir():
+            if record is None or not prepared(tree_folder(url, record["revision"])):
                 raise Failure(f"house-rules: cannot reach {shown} ({hidden(error, url)}) and no earlier fetch of "
                               f"{name} {ref} is cached; run again when online")
             commit, source = record["revision"], "offline"
