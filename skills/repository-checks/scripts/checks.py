@@ -22,7 +22,11 @@ from pathlib import Path
 
 RUNNER = "skills/repository-checks/scripts/checks.py"
 SPEC_SCRIPTS = "skills/spec-writing/scripts"
-CONFIG = ".agents/checks.json"
+CONFIG = "house-rules.json"
+CONFIG_VERSION = 2
+# The untracked file in the working tree that may change only budgets, never whether a check passes.
+LOCAL_CONFIG = "house-rules.local.json"
+HOUSE_RULES = "house-rules"  # the name of the House Rules source layer
 HOOK_MARKER = "# house-rules:repository-checks:begin"
 STAGES = ("pre-commit", "pre-push", "ci")
 HOOK_STAGES = ("pre-commit", "pre-push")
@@ -33,17 +37,27 @@ PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 COMMIT = re.compile(r"[0-9a-fA-F]{40}")  # a House Rules revision: a full SHA-1 commit identity
 # An object identity of the consuming repository: SHA-1 or SHA-256, whichever object format it uses.
 OBJECT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
-# Git's default whitespace rules (git-config core.whitespace), so a clone's own setting cannot change the result.
-GIT_WHITESPACE = "core.whitespace=blank-at-eol,space-before-tab,blank-at-eof"
 DEFAULT_BUDGET = 10
+# The URL of the House Rules layer when its entry names none; the install writes the branch main beside it.
 DEFAULT_URL = "https://github.com/symbiotic-build/house-rules"
+DEFAULT_SOURCE = {"name": HOUSE_RULES, "ref": "main"}
+# A commit ref of a source layer: a full SHA-1 or SHA-256 commit identity. Any other ref is a branch name.
+COMMIT_REF = re.compile(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")
+# A character a cache path keeps as it is; every other character of a URL or branch is written as %XX.
+PATH_CHARACTER = re.compile(r"[A-Za-z0-9._-]")
+# A Git setting name: section.key or section.subsection.key, as git-config defines them.
+GIT_SETTING = re.compile(r"[A-Za-z0-9-]+(?:\.[^\n\0]+)?\.[A-Za-z][A-Za-z0-9-]*")
+# Settings of the isolated Git directory that the runner sets itself; no configuration may change them.
+RUNNER_GIT_SETTINGS = ("core.bare", "core.worktree", "core.repositoryformatversion", "core.attributesfile")
 # A House Rules fetch fails on lack of progress, never on elapsed time: below 1 byte/s for 30 s over HTTP.
 PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
 # The handing runner passes the run's resolved House Rules revision to the runner it starts,
 RESOLVED = "HOUSE_RULES_RESOLVED"
 # and the snapshot it built before resolving, so the started runner checks that same snapshot.
 SNAPSHOT = "HOUSE_RULES_SNAPSHOT"
-SOURCES = ("main", "cached main", "override")
+# Where a layer's commit came from: its branch now, its branch as last resolved (offline), a commit ref, or the
+# HOUSE_RULES_REVISION test override.
+SOURCES = ("branch", "cached branch", "commit", "override")
 IDENTITY = {"GIT_AUTHOR_NAME": "repository checks", "GIT_AUTHOR_EMAIL": "checks@localhost",
             "GIT_COMMITTER_NAME": "repository checks", "GIT_COMMITTER_EMAIL": "checks@localhost"}
 # Every Git command of the runner and of its checks reads each commit itself, never a local replacement.
@@ -57,7 +71,7 @@ BUILTINS = {
     "whitespace": {
         "enabled": True, "enforced": True, "scope": "diff", "stages": ["pre-commit", "ci"], "paths": ["**"],
         "requires": [],
-        "run": ["git", "-c", GIT_WHITESPACE, "--attr-source={snapshot}", "diff", "--check", "{base}", "{snapshot}"],
+        "run": ["git", "--attr-source={snapshot}", "diff", "--check", "{base}", "{snapshot}"],
         "fix": "remove the whitespace errors the output lists, stage the result"},
     "spec-docs": {
         "enabled": True, "enforced": True, "scope": "tree", "stages": ["pre-commit", "ci"], "paths": ["**"],
@@ -92,11 +106,10 @@ def runner_command(*args):
     return shlex.join([sys.executable, str(Path(__file__).resolve()), *args])
 
 
-def git(cwd, *args, env=None, foreign=False, check=True):
+def git(cwd, *args, env=None, foreign=False, check=True, drop=()):
     environ = dict(os.environ)
-    if foreign:
-        for name in LOCAL_GIT_ENV:
-            environ.pop(name, None)
+    for name in (*LOCAL_GIT_ENV, *drop) if foreign else drop:
+        environ.pop(name, None)
     environ.update(env or {}, **NO_REPLACE)
     try:
         proc = subprocess.run(["git", *args], cwd=str(cwd), env=environ, stdin=subprocess.DEVNULL,
@@ -144,34 +157,46 @@ def empty_tree(root):
 
 # Snapshot handling -----------------------------------------------------------------------
 
-def index_tree(root):
-    """Write the tree of a copy of the live index; the real index is never written.
+TEMPORARY_REPAIR = "free space in or repair access to the temporary folder, and run again"
 
-    Creating, using and removing the copy's temporary folder is one error boundary: a file system error is a
-    preparation failure, and a failed removal after another failure keeps that failure's cause and repair.
+
+@contextlib.contextmanager
+def scratch(what):
+    """A temporary folder for `what`, removed when the block ends; one error boundary covers all of it.
+
+    A file system error while creating, using or removing the folder is a preparation failure. A failed removal
+    after another failure keeps that failure's cause and repair and adds the removal to the cause.
     """
-    index = root / out(root, "rev-parse", "--git-path", "index")
-    temporary_repair = "free space in or repair access to the temporary folder, and run again"
     try:
         folder = tempfile.mkdtemp()
     except OSError as exc:
-        raise Failure(f"cannot create a temporary folder for the index copy ({exc})", temporary_repair)
-    failure = tree = None
+        raise Failure(f"cannot create a temporary folder for {what} ({exc})", TEMPORARY_REPAIR)
+    failure = None
     try:
-        tree = staged_tree(root, index, Path(folder) / "index")
+        yield Path(folder)
     except Failure as exc:
         failure = exc
     except OSError as exc:
-        failure = Failure(f"cannot use the temporary folder {folder} of the index copy ({exc})", temporary_repair)
+        failure = Failure(f"cannot use the temporary folder {folder} of {what} ({exc})", TEMPORARY_REPAIR)
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)  # an interruption: remove what it can, and keep the interruption
+        raise
     try:
         shutil.rmtree(folder)
     except OSError as exc:
         if failure is None:
-            raise Failure(f"cannot remove the temporary folder {folder} of the index copy ({exc})", temporary_repair)
-        raise Failure(f"{failure.cause}; removing the temporary folder {folder} of the index copy failed too ({exc})",
+            raise Failure(f"cannot remove the temporary folder {folder} of {what} ({exc})", TEMPORARY_REPAIR)
+        raise Failure(f"{failure.cause}; removing the temporary folder {folder} of {what} failed too ({exc})",
                       failure.repair)
     if failure is not None:
         raise failure
+
+
+def index_tree(root):
+    """Write the tree of a copy of the live index; the real index is never written."""
+    index = root / out(root, "rev-parse", "--git-path", "index")
+    with scratch("the index copy") as folder:
+        tree = staged_tree(root, index, folder / "index")
     return tree
 
 
@@ -407,10 +432,11 @@ def unencodable(value):
 
 
 def load_document(data):
-    """Parse the file and validate only what every runner reads before the handover: `version`.
+    """Parse the file and validate what every runner reads before the handover: `version` and `sources`.
 
-    A `house_rules` field, the pin of an earlier design, is refused here too. Only the runner at the run's
-    resolved House Rules revision judges the rest (`parse_config`).
+    Returns (the document, its House Rules source layer {"name", "url", "ref"}). A `house_rules` field, the pin of
+    an earlier design, is refused here too. Only the runner at the run's resolved House Rules revision judges the
+    rest (`effective_checks`).
     """
     try:
         document = json.loads(data.decode("utf-8"))
@@ -420,30 +446,127 @@ def load_document(data):
         raise config_error("the file must be an object")
     if "version" not in document:
         raise config_error("the file lacks version")
-    if type(document["version"]) is not int or document["version"] != 1:
-        raise config_error(f"unsupported version {document['version']!r}; this runner reads version 1")
+    version = document["version"]
+    if type(version) is int and version == 1:
+        raise Failure(f"configuration error in {CONFIG}: version 1 is no longer read; version {CONFIG_VERSION} names "
+                      "its House Rules source in a sources list",
+                      f'set "version": {CONFIG_VERSION} and add "sources": {json.dumps([DEFAULT_SOURCE])}, '
+                      "through a reviewed change")
+    if type(version) is not int or version != CONFIG_VERSION:
+        raise config_error(f"unsupported version {version!r}; this runner reads version {CONFIG_VERSION}")
     unprintable = next(unencodable(document), None)
     if unprintable is not None:
         raise config_error(f"the file holds text that cannot be printed or passed to a program: "
                            f"{unprintable.encode('unicode_escape').decode()}")
     if "house_rules" in document:
-        raise config_error("remove house_rules: checks always run at House Rules main")
-    return document
+        raise config_error("remove house_rules: sources names the House Rules source")
+    return document, source_layer(document)
 
 
-def parse_config(data):
-    """Validate the whole file against this runner's built-in definitions and return the effective set."""
-    document = load_document(data)
-    fields(document, "the file", ("version", "checks"), ("budgets",))
-    budgets = document.get("budgets", {})
-    fields(budgets, "budgets", (), HOOK_STAGES)
+def source_layer(document):
+    """The House Rules source layer the file names: its one `sources` entry, validated, with its URL filled in."""
+    if "sources" not in document:
+        raise config_error("the file lacks sources")
+    sources = document["sources"]
+    if not isinstance(sources, list) or not sources:
+        raise config_error("sources must be a nonempty list")
+    entry = sources[0]
+    fields(entry, "sources[0]", ("name", "ref"), ("url",))
+    if entry["name"] != HOUSE_RULES:
+        raise config_error(f'sources[0].name must be "{HOUSE_RULES}": the first layer is House Rules')
+    for number, later in enumerate(sources[1:], 1):
+        if isinstance(later, dict) and later.get("name") == HOUSE_RULES:
+            raise config_error(f'sources[{number}] is named "{HOUSE_RULES}"; only the first source is House Rules')
+    if len(sources) > 1:
+        raise Failure(f"{HOUSE_RULES}: {CONFIG}: custom source layers are not supported by this runner yet (#217)",
+                      f"remove the extra entry from sources in {CONFIG}")
+    url = entry.get("url", DEFAULT_URL)
+    if not text(url) or "\0" in url:
+        raise config_error("sources[0].url must be nonempty text")
+    shown_url(url)  # a URL that cannot be parsed stops here, before any message could show it
+    ref = entry["ref"]
+    if not text(ref) or not (COMMIT_REF.fullmatch(ref) or branch_name(ref)):
+        raise config_error(f"sources[0].ref must be a branch name or a full commit identity of 40 or 64 "
+                           f"hexadecimal digits, not {ref!r}")
+    return {"name": entry["name"], "url": url, "ref": ref.lower() if COMMIT_REF.fullmatch(ref) else ref}
+
+
+def branch_name(ref):
+    """Whether `ref` is a valid branch name, as `git check-ref-format --branch` judges it."""
+    if "\0" in ref:
+        return False
+    return git(".", "check-ref-format", "--branch", ref, foreign=True, check=False).returncode == 0
+
+
+def check_budgets(budgets, error):
+    """Validate a `budgets` object; `error` builds the configuration error of the file it came from."""
+    if not isinstance(budgets, dict):
+        raise error("budgets must be an object")
+    unknown = [k for k in budgets if k not in HOOK_STAGES]
+    if unknown:
+        raise error(f"budgets has unknown field {', '.join(unknown)}")
     for stage, entry in budgets.items():
-        fields(entry, f"budgets.{stage}", ("seconds", "reason"), ())
+        if not isinstance(entry, dict) or sorted(entry) != ["reason", "seconds"]:
+            raise error(f"budgets.{stage} must be an object with seconds and reason")
         seconds = entry["seconds"]
         if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not seconds > 0:
-            raise config_error(f"budgets.{stage}.seconds must be a positive number")
+            raise error(f"budgets.{stage}.seconds must be a positive number")
         if not text(entry["reason"]):
-            raise config_error(f"budgets.{stage}.reason must be nonempty text")
+            raise error(f"budgets.{stage}.reason must be nonempty text")
+    return budgets
+
+
+def check_git_settings(settings):
+    """Validate `git_settings`: Git setting names mapped to text values, none of them set by the runner."""
+    if not isinstance(settings, dict):
+        raise config_error("git_settings must be an object")
+    for name, value in settings.items():
+        if not GIT_SETTING.fullmatch(name):
+            raise config_error(f"git_settings has {name!r}, which is no Git setting name (section.key or "
+                               "section.subsection.key)")
+        section, key = name.split(".", 1)[0].lower(), name.rsplit(".", 1)[1].lower()
+        if section == "extensions" or f"{section}.{key}" in RUNNER_GIT_SETTINGS:
+            raise config_error(f"git_settings.{name} is set by the runner for the isolated Git directory")
+        if not isinstance(value, str) or "\0" in value:
+            raise config_error(f"git_settings.{name} must be text without a NUL character")
+    return settings
+
+
+def local_error(message):
+    return Failure(f"configuration error in {LOCAL_CONFIG}: {message}",
+                   f"fix or remove {LOCAL_CONFIG}, which the working tree of this clone holds")
+
+
+def parse_local(data):
+    """Validate the local file: an object that may set only `budgets`, so it can never change a check's result."""
+    try:
+        document = json.loads(data.decode("utf-8"))
+    except (UnicodeError, ValueError) as exc:
+        raise local_error(f"not valid JSON ({exc})")
+    if not isinstance(document, dict):
+        raise local_error("the file must be an object")
+    for key in document:
+        if key != "budgets":
+            raise local_error(f"{key} is not allowed: the local file may set only budgets, because it may not "
+                              "change whether a check passes")
+    return check_budgets(document.get("budgets", {}), local_error)
+
+
+def budget_override(stage, entry, layer):
+    return {"id": f"budgets.{stage}", "layer": layer, "change": f"seconds: {json.dumps(entry['seconds'])}",
+            "reason": entry["reason"]}
+
+
+def effective_checks(data, local=None):
+    """Validate the whole file against this runner's built-in definitions and return the effective set.
+
+    The layers apply in order: the House Rules built-ins, the repository's entries, then the local file's budgets,
+    each replacing what an earlier layer set for the same check or stage. `local` is the local file's bytes or None.
+    """
+    document, _ = load_document(data)
+    fields(document, "the file", ("version", "sources", "checks"), ("budgets", "git_settings"))
+    budgets = dict(check_budgets(document.get("budgets", {}), config_error))
+    git_settings = check_git_settings(document.get("git_settings", {}))
     entries = document["checks"]
     if not isinstance(entries, dict):
         raise config_error("checks must be an object")
@@ -468,11 +591,15 @@ def parse_config(data):
             if changed and "reason" not in entry:
                 raise config_error(f"{where} changes {', '.join(changed)} without a reason")
             if changed:
-                overrides.append({"id": identity, "reason": entry["reason"],
+                overrides.append({"id": identity, "layer": "repository", "reason": entry["reason"],
                                   "change": ", ".join(f"{k}: {json.dumps(entry[k])}" for k in changed)})
         check_definition(where, definition)
-        checks.append(dict(definition, id=identity))
-    return {"checks": checks, "overrides": overrides, "budgets": budgets}
+        checks.append(dict(definition, id=identity, layer=HOUSE_RULES if default else "repository"))
+    layers = {stage: "repository" for stage in budgets}
+    for stage, entry in (parse_local(local) if local is not None else {}).items():
+        budgets[stage], layers[stage] = entry, "local"
+    overrides += [budget_override(stage, budgets[stage], layers[stage]) for stage in budgets]
+    return {"checks": checks, "overrides": overrides, "budgets": budgets, "git_settings": git_settings}
 
 
 def config_data(root, rev, blobs):
@@ -484,6 +611,16 @@ def config_data(root, rev, blobs):
 def staged_data(root):
     proc = git(root, "cat-file", "blob", ":" + CONFIG, check=False)
     return proc.stdout if proc.returncode == 0 else None
+
+
+def local_data(root):
+    """The local file's bytes from the working tree, or None when the clone has none."""
+    try:
+        return (root / LOCAL_CONFIG).read_bytes()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise local_error(f"cannot read it ({exc.strerror or exc})")
 
 
 # Pinning and cache -----------------------------------------------------------------------
@@ -532,13 +669,18 @@ def utc(seconds=None):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
 
 
-def house_rules_url():
-    return os.environ.get("HOUSE_RULES_URL") or DEFAULT_URL
+def url_parts(url):
+    """The URL split into its parts; a URL the parser refuses is a preparation failure that shows nothing of it."""
+    try:
+        return urllib.parse.urlsplit(url)
+    except ValueError:
+        # The parser's message can hold the URL's authority, with its user name and password, so it is left out.
+        raise Failure(f"the House Rules URL in {CONFIG} cannot be parsed", "correct it") from None
 
 
 def shown_url(url):
     """The URL as messages and reports show it: without the user name and password in its authority."""
-    parts = urllib.parse.urlsplit(url)
+    parts = url_parts(url)
     if "@" not in parts.netloc:
         return url
     return urllib.parse.urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
@@ -549,7 +691,7 @@ def hidden(text, url):
 
     Git itself always receives the full URL; only what the runner prints is changed.
     """
-    netloc = urllib.parse.urlsplit(url).netloc
+    netloc = url_parts(url).netloc
     if "@" not in netloc:
         return text
     userinfo = netloc.rpartition("@")[0]
@@ -566,17 +708,65 @@ def revision_folder(revision):
 
 
 def prepared(revision):
-    return (revision_folder(revision) / RUNNER).is_file()
+    """Whether the cache holds the commit's complete tree and the time it was first placed."""
+    folder = revision_folder(revision)
+    return (folder / RUNNER).is_file() and fetch_time_path(folder).is_file()
+
+
+def fetch_time_path(tree):
+    """revisions/<commit>.fetched: one line, the UTC time the commit's folder was first placed in the cache."""
+    return Path(str(tree) + ".fetched")
+
+
+def record_fetch_time(tree):
+    """Write the commit's first-fetch time once; when another process already wrote it, keep that time."""
+    path = fetch_time_path(tree)
+    descriptor, temporary = tempfile.mkstemp(prefix=".fetched-", dir=str(path.parent))
+    try:
+        with os.fdopen(descriptor, "w") as handle:
+            handle.write(utc() + "\n")
+        try:
+            os.link(temporary, str(path))  # fails when the time is there already, so the first one stays
+        except FileExistsError:
+            pass
+    finally:
+        os.unlink(temporary)
+
+
+def cache_segment(segment):
+    """One folder or file name of a cache path: every character outside [A-Za-z0-9._-] becomes %XX per byte."""
+    escaped = "".join(c if PATH_CHARACTER.fullmatch(c)
+                      else "".join(f"%{b:02X}" for b in c.encode("utf-8", "surrogateescape")) for c in segment)
+    return escaped.replace(".", "%2E") if set(escaped) <= {"."} else escaped  # never "." or ".."
+
+
+def source_folder(url):
+    """The cache folder of one source, sources/<scheme>/<host>/<path>, from its URL without user name and password.
+
+    The scheme is the transport, such as https, http, ssh or file. An scp-like URL, user@host:path, counts as ssh; a
+    file URL or a plain path is file, with its absolute path and no host.
+    """
+    parts = url_parts(url)
+    scp = not parts.scheme and ":" in url.split("/", 1)[0]
+    if scp:
+        host, _, path = url.partition(":")
+        segments = ["ssh", host.rpartition("@")[2], *path.split("/")]
+    elif parts.scheme and parts.scheme != "file":
+        segments = [parts.scheme.lower(), parts.netloc.rpartition("@")[2], *parts.path.split("/")]
+    else:
+        segments = ["file", *(parts.path if parts.scheme == "file" else url).split("/")]
+    return cache_root() / "sources" / Path(*(cache_segment(s) for s in segments if s))
 
 
 @contextlib.contextmanager
-def main_lock():
-    """Hold the cache's main lock: one process at a time asks for main, fetches it and writes its record.
+def branch_lock(url):
+    """Hold the source's lock: one process at a time asks for its branches, fetches them and writes their records.
 
     The lock is advisory (flock) and the system releases it when its process ends, however it ends.
     """
-    cache_root().mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(str(cache_root() / "main.lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    folder = source_folder(url)
+    folder.mkdir(parents=True, exist_ok=True)
+    descriptor = os.open(str(folder / "lock"), os.O_RDWR | os.O_CREAT, 0o644)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
         yield
@@ -634,47 +824,60 @@ def fetch_into(repository, url, revision):
     extract(repository, revision, temporary)
     if not (temporary / RUNNER).is_file():
         raise Failure(f"House Rules {revision} has no repository checks runner ({RUNNER})",
-                      "set HOUSE_RULES_URL to a House Rules repository whose main has one, "
+                      f"set sources in {CONFIG} to a House Rules repository and ref that have one, "
                       "or HOUSE_RULES_REVISION to a revision that has one")
     for folder, _, names in os.walk(str(temporary)):
         for name in names:
             path = os.path.join(folder, name)
             if not os.path.islink(path):
                 os.chmod(path, os.stat(path).st_mode & ~0o222)
-    place(temporary, revision_folder(revision), lambda path: (path / RUNNER).is_file())
+    record_fetch_time(place(temporary, revision_folder(revision), lambda path: (path / RUNNER).is_file()))
     return None
 
 
-def ask_main(url):
-    """Return (House Rules main's commit, None), or (None, Git's error)."""
-    proc = git(cache_root(), *PROGRESS, "ls-remote", url, "refs/heads/main", foreign=True, check=False)
+def ask_branch(url, branch):
+    """Return (the branch's commit, None), or (None, Git's error)."""
+    name = "refs/heads/" + branch
+    proc = git(cache_root(), *PROGRESS, "ls-remote", url, name, foreign=True, check=False)
     if proc.returncode:
         return None, last_line(proc.stderr)
     heads = [line.split("\t") for line in proc.stdout.decode(errors="replace").splitlines()]
-    revision = next((head[0] for head in heads if head[1:] == ["refs/heads/main"]), None)
+    revision = next((head[0] for head in heads if head[1:] == [name]), None)
     if revision is None or not COMMIT.fullmatch(revision):
-        return None, "the repository has no main branch"
+        return None, f"the repository has no {branch} branch"
     return revision, None
 
 
-def main_record(url):
-    """The main last fetched from `url` into this cache, as {"url", "revision", "fetched"}, or None."""
+def branch_record_path(url, branch):
+    """Where the cache records the commit last resolved for one source and branch."""
+    segments = [cache_segment(s) for s in branch.split("/")]
+    return source_folder(url).joinpath("branches", *segments[:-1], segments[-1] + ".json")
+
+
+def branch_record(url, branch):
+    """The commit last resolved for `branch` of `url`, as {"url", "branch", "revision", "fetched"}, or None.
+
+    The record's URL holds no user name or password.
+    """
     try:
-        record = json.loads((cache_root() / "main.json").read_text())
+        record = json.loads(branch_record_path(url, branch).read_text())
     except (OSError, ValueError):
         return None
-    if not (isinstance(record, dict) and record.get("url") == url and isinstance(record.get("revision"), str)
-            and COMMIT.fullmatch(record["revision"]) and isinstance(record.get("fetched"), str)):
+    if not (isinstance(record, dict) and record.get("url") == shown_url(url) and record.get("branch") == branch
+            and isinstance(record.get("revision"), str) and COMMIT.fullmatch(record["revision"])
+            and isinstance(record.get("fetched"), str)):
         return None
     return record
 
 
-def write_main_record(record):
-    """Publish `record` as the main last fetched; under the main lock the latest successful resolution wins."""
-    descriptor, temporary = tempfile.mkstemp(prefix=".main-", dir=str(cache_root()))
+def write_branch_record(url, record):
+    """Publish `record` for its source and branch; under the source's lock the latest successful resolution wins."""
+    path = branch_record_path(url, record["branch"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".branch-", dir=str(path.parent))
     with os.fdopen(descriptor, "w") as handle:
         json.dump(record, handle)
-    os.replace(temporary, str(cache_root() / "main.json"))
+    os.replace(temporary, str(path))
 
 
 def override_revision():
@@ -684,7 +887,7 @@ def override_revision():
         return None
     if not COMMIT.fullmatch(value):
         raise Failure(f"HOUSE_RULES_REVISION {value!r} is not a full 40-character commit identity",
-                      "set it to a full commit identity, or unset it to run at House Rules main")
+                      f"set it to a full commit identity, or unset it to run at the ref {CONFIG} names")
     return value.lower()
 
 
@@ -695,7 +898,8 @@ def handed_resolution():
     except ValueError:
         return None
     if (isinstance(resolution, dict) and resolution.get("revision") == own_revision()
-            and resolution.get("source") in SOURCES and isinstance(resolution.get("fetched"), str)):
+            and resolution.get("source") in SOURCES and isinstance(resolution.get("fetched"), str)
+            and all(isinstance(resolution.get(k), str) for k in ("name", "url", "ref", "tree"))):
         return resolution
     return None
 
@@ -716,43 +920,47 @@ def handed_snapshot():
     return None
 
 
-def resolve(offline_repair=None):
-    """Resolve the House Rules revision for this run: the override, else main fetched now, else the cached main.
+def resolve(source, offline_repair=None):
+    """Resolve the House Rules layer `source` for this run: the override, else its commit ref, else its branch
+    fetched now, else the commit last resolved for that branch.
 
-    Returns {"revision", "source", "fetched"}, plus "warning" for a cached main. Called once per run; the
-    revision it returns is prepared in the cache.
+    Returns the layer {"name", "url", "ref", "revision", "source", "fetched"}, its URL without authentication, plus
+    "warning" for a cached branch. Called once per run; the revision it returns is prepared in the cache.
     """
     resolution = handed_resolution()
     if resolution:
         return resolution
-    url = house_rules_url()
+    url, ref = source["url"], source["ref"]
     shown = shown_url(url)
+    layer = {"name": source["name"], "url": shown, "ref": ref}
     try:
         override = override_revision()
-        if override:
-            error, removal = fetch_revision(url, override)
+        if override or COMMIT_REF.fullmatch(ref):
+            revision = override or ref
+            error, removal = fetch_revision(url, revision)
             if error:
-                raise fetch_failure(f"cannot fetch House Rules {override} from {shown} ({hidden(error, url)})", removal,
-                                    "run again when online, or set HOUSE_RULES_REVISION to a commit that exists there")
-            return {"revision": override, "source": "override", "fetched": None}
-        with main_lock():
+                repair = ("run again when online, or set HOUSE_RULES_REVISION to a commit that exists there" if override
+                          else f"run again when online, or set the ref in {CONFIG} to a commit that exists there")
+                raise fetch_failure(f"cannot fetch House Rules {revision} from {shown} ({hidden(error, url)})",
+                                    removal, repair)
+            return dict(layer, revision=revision, source="override" if override else "commit", fetched=None)
+        with branch_lock(url):
             fetched = utc()
-            revision, error = ask_main(url)
+            revision, error = ask_branch(url, ref)
             removal = None
             if not error:
                 error, removal = fetch_revision(url, revision)
             if not error:
-                write_main_record({"url": url, "revision": revision, "fetched": fetched})
-                return {"revision": revision, "source": "main", "fetched": fetched}
-            record = main_record(url)
-        # A failed removal stops the run even when the cache holds an earlier main, as every cache failure does.
+                write_branch_record(url, {"url": shown, "branch": ref, "revision": revision, "fetched": fetched})
+                return dict(layer, revision=revision, source="branch", fetched=fetched)
+            record = branch_record(url, ref)
+        # A failed removal stops the run even when the cache holds an earlier commit, as every cache failure does.
         if removal or record is None or not prepared(record["revision"]):
-            raise fetch_failure(f"cannot fetch House Rules main from {shown} ({hidden(error, url)})", removal,
+            raise fetch_failure(f"cannot fetch House Rules {ref} from {shown} ({hidden(error, url)})", removal,
                                 offline_repair or "run again when online")
-        return {"revision": record["revision"], "source": "cached main", "fetched": record["fetched"],
-                "warning": f"cannot fetch House Rules main from {shown} ({hidden(error, url)}); "
-                           "using the main last fetched, "
-                           f"{record['revision']}, fetched {record['fetched']}"}
+        return dict(layer, revision=record["revision"], source="cached branch", fetched=record["fetched"],
+                    warning=f"cannot fetch House Rules {ref} from {shown} ({hidden(error, url)}); using the {ref} "
+                            f"last fetched, {record['revision']}, fetched {record['fetched']}")
     except OSError as exc:
         raise cache_failure(exc)
 
@@ -776,8 +984,16 @@ def extract(source, revision, folder):
 
 
 def prepared_at(tree):
-    """When the cache fetched a revision: the time its folder was renamed into place."""
-    return utc(os.stat(str(tree)).st_mtime)
+    """When the cache first placed the commit's folder `tree`, from revisions/<commit>.fetched.
+
+    A tree outside this cache that has no such file, such as a runner started from another cache folder, gives
+    the folder's modification time instead.
+    """
+    try:
+        recorded = fetch_time_path(tree).read_text().strip()
+    except OSError:
+        recorded = ""
+    return recorded if re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", recorded) else utc(os.stat(str(tree)).st_mtime)
 
 
 def dispatch(tree, argv, resolution, stdin=None, snapshot=None):
@@ -809,35 +1025,51 @@ def dispatch(tree, argv, resolution, stdin=None, snapshot=None):
         raise Failure(f"cannot start the resolved runner {runner} ({exc})", f"run `{runner_command('prepare')}` again")
 
 
-def resolved_tree(argv, stdin=None, offline_repair=None, snapshot=None):
-    """Resolve the run's House Rules revision; return (its tree, the resolution), or start the runner there.
+def resolve_layers(data, offline_repair=None):
+    """Resolve the source layers that `data`, the bytes of a configuration, names, for this run.
 
-    The started runner replaces this process and receives the same resolution and `snapshot`.
+    Returns the layers in order, House Rules first, each {"name", "url", "ref", "revision", "source", "fetched",
+    "tree"}, plus "warning" on a layer resolved offline. Each layer's commit is prepared in the cache at `tree`.
+    This runner resolves only the House Rules layer.
     """
-    resolution = resolve(offline_repair)
-    revision = resolution["revision"]
+    _, source = load_document(data)
+    layer = resolve(source, offline_repair)
+    revision = layer["revision"]
     tree = own_tree() if own_revision() == revision else revision_folder(revision)
-    if resolution["fetched"] is None:
-        resolution["fetched"] = prepared_at(tree)  # an override: when the cache fetched that commit
-    dispatch(tree, argv, resolution, stdin, snapshot)
-    return tree, resolution
+    if layer["fetched"] is None:
+        layer["fetched"] = prepared_at(tree)  # a commit ref or an override: when the cache fetched that commit
+    return [dict(layer, tree=str(tree))]
 
 
-def cached_resolution():
-    """What a run would resolve without any network: (resolution or None, its prepared tree or None).
+def resolved_tree(argv, data, stdin=None, offline_repair=None, snapshot=None):
+    """Resolve the layers `data` names; return (the House Rules tree, the layers), or start the runner there.
 
-    The override when set, else the main last fetched; `status` reports it and never fetches.
+    The started runner replaces this process and receives the same House Rules layer and `snapshot`.
+    """
+    layers = resolve_layers(data, offline_repair)
+    tree = Path(layers[0]["tree"])
+    dispatch(tree, argv, layers[0], stdin, snapshot)
+    return tree, layers
+
+
+def cached_resolution(source):
+    """What a run would resolve without any network: (layer or None, its prepared tree or None).
+
+    The override when set, else the commit ref, else the commit last resolved for the branch; `status` reports it
+    and never fetches.
     """
     resolution = handed_resolution()
     if resolution is None:
+        layer = {"name": source["name"], "url": shown_url(source["url"]), "ref": source["ref"]}
         override = override_revision()
-        if override:
-            resolution = {"revision": override, "source": "override", "fetched": None}
+        if override or COMMIT_REF.fullmatch(source["ref"]):
+            resolution = dict(layer, revision=override or source["ref"], source="override" if override else "commit",
+                              fetched=None)
         else:
-            record = main_record(house_rules_url())
+            record = branch_record(source["url"], source["ref"])
             if record is None:
                 return None, None
-            resolution = {"revision": record["revision"], "source": "cached main", "fetched": record["fetched"]}
+            resolution = dict(layer, revision=record["revision"], source="cached branch", fetched=record["fetched"])
     revision = resolution["revision"]
     tree = own_tree() if own_revision() == revision else revision_folder(revision)
     if not (tree / RUNNER).is_file():
@@ -847,10 +1079,17 @@ def cached_resolution():
     return resolution, tree
 
 
-def label(resolution):
-    """How a report names the source of its House Rules revision and when the cache fetched it."""
-    source = "override HOUSE_RULES_REVISION" if resolution["source"] == "override" else resolution["source"]
-    return f"{source}, fetched {resolution['fetched']}" if resolution["fetched"] else f"{source}, not fetched yet"
+def label(layer):
+    """How a report names where a layer's commit came from, its URL and when the cache fetched it."""
+    source = {"branch": f"branch {layer['ref']}", "cached branch": f"cached branch {layer['ref']}",
+              "commit": "commit ref", "override": "override HOUSE_RULES_REVISION"}[layer["source"]]
+    when = f"fetched {layer['fetched']}" if layer["fetched"] else "not fetched yet"
+    return f"{source} of {layer['url']}, {when}"
+
+
+def same_source(layer, source):
+    """Whether a snapshot's House Rules source is the one the run resolved."""
+    return (layer["name"], layer["url"], layer["ref"]) == (source["name"], shown_url(source["url"]), source["ref"])
 
 
 def runtime_interpreter(tree):
@@ -888,8 +1127,8 @@ def environment(tree):
     return python, cache_root() / "environments" / digest
 
 
-# A push fetches House Rules main and builds its environment itself, so pushing again online repairs either.
-PUSH_AGAIN = "push again when online; the push fetches House Rules main and builds its environment itself"
+# A push fetches House Rules and builds its environment itself, so pushing again online repairs either.
+PUSH_AGAIN = "push again when online; the push fetches House Rules and builds its environment itself"
 
 
 def prepare_environment(tree, offline_repair=None):
@@ -931,7 +1170,7 @@ def uses(check, name):
 # Commands ----------------------------------------------------------------------------------
 
 def command_run(args, argv):
-    run = {"house_rules": None, "warnings": [], "snapshots": []}
+    run = {"layers": [], "warnings": [], "snapshots": []}
     error, nothing = None, None
     try:
         nothing = check_stage(args, argv, run)
@@ -939,7 +1178,7 @@ def command_run(args, argv):
         error = exc
     snapshots = run["snapshots"]
     result = "error" if error else "fail" if any(s["result"] == "fail" for s in snapshots) else "pass"
-    report = {"version": 2, "stage": args.stage, "result": result, "house_rules": run["house_rules"],
+    report = {"version": 3, "stage": args.stage, "result": result, "layers": run["layers"],
               "warnings": run["warnings"], "snapshots": snapshots}
     if error:
         report["error"] = {"reference": error.reference, "cause": error.cause, "repair": error.repair}
@@ -958,8 +1197,9 @@ def command_run(args, argv):
 def check_stage(args, argv, run):
     """Check each snapshot of the stage in turn, appending its entry; return why there is nothing to check, or None.
 
-    The first snapshot with a configuration resolves House Rules once for the whole run, into `run`.
-    A preparation failure stops the run; the snapshots checked before it stay in `run["snapshots"]`.
+    The first snapshot with a configuration resolves its House Rules layer once for the whole run, into `run`;
+    every later snapshot must name the same layer. A preparation failure stops the run; the snapshots checked
+    before it stay in `run["snapshots"]`.
     """
     snapshots = run["snapshots"]
     root = find_root()
@@ -978,7 +1218,8 @@ def check_stage(args, argv, run):
         if not items:
             return "the push only deletes references"
     offline = PUSH_AGAIN if pushing else None
-    house_rules = None
+    house_rules = layer = None
+    local = None
     # A run that one runner handed over checks the snapshot that runner built; a push names its own commits.
     handed = None if pushing else handed_snapshot()
     for ref, head, remote_commit in items:
@@ -992,14 +1233,19 @@ def check_stage(args, argv, run):
             if target["data"] is None:
                 snapshots.append(unadopted(target))
             else:
-                # Read only the version before handing over: the resolved runner judges the check entries.
-                load_document(target["data"])
+                # Read only the version and sources before handing over: the resolved runner judges the rest.
+                _, source = load_document(target["data"])
                 if house_rules is None:
                     passed = None if pushing else {k: target[k] for k in ("snapshot", "tree", "parent", "source")}
-                    house_rules, resolution = resolved_tree(argv, stdin, offline, passed)
-                    run["house_rules"] = {k: resolution[k] for k in ("revision", "source", "fetched")}
-                    run["warnings"] += [resolution["warning"]] if resolution.get("warning") else []
-                config = parse_config(target["data"])
+                    house_rules, layers = resolved_tree(argv, target["data"], stdin, offline, passed)
+                    layer = layers[0]
+                    run["layers"] = [{k: layer[k] for k in ("name", "url", "ref", "revision", "source", "fetched")}]
+                    run["warnings"] += [layer["warning"]] if layer.get("warning") else []
+                    local = local_data(root)
+                if not same_source(layer, source):
+                    # The shared resolver of #217 replaces this with a handover per snapshot.
+                    raise Failure("the pushed commits declare different House Rules sources", "push them separately")
+                config = effective_checks(target["data"], local)
                 known = [c["id"] for c in config["checks"]]
                 for name in args.only or ():
                     if name not in known:
@@ -1061,21 +1307,25 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
             raise Failure(f"the installed Git ({out(root, '--version')}) cannot read attributes from a commit "
                           "(--attr-source)", "install a Git that supports it")
 
-    env = dict(os.environ, CHECK_STAGE=args.stage, CHECK_BASE=base, CHECK_SNAPSHOT=snapshot, **NO_REPLACE)
     started, results = time.monotonic(), []
-    for check, reason, inputs in plan:
-        result = {"id": check["id"], "status": "skipped", "seconds": None, "command": None,
-                  "output": "", "fix": None, "rerun": runner_command(*rerun, "--only", check["id"]),
-                  "skip_reason": reason}
-        if reason is None:
-            command = expand(check["run"], values, inputs)
-            begin = time.monotonic()
-            status, output = start_check(command, root, env)
-            # A failing check that House Rules does not enforce yet warns and leaves its snapshot passing.
-            status = status or ("pass" if output[0] == 0 else "fail" if check["enforced"] else "warn")
-            result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
-                          output=output[1], fix=check["fix"] if status != "pass" else None)
-        results.append(result)
+    with scratch("the isolated Git directory") as folder:
+        gitdir = isolated_git(root, folder, config["git_settings"])
+        env = check_environment(gitdir, args.stage, base, snapshot)
+        if any(not uses(check, "snapshot") for check in running):
+            working = check_environment(gitdir, args.stage, base, snapshot, root, index_copy(root, folder))
+        for check, reason, inputs in plan:
+            result = {"id": check["id"], "layer": check["layer"], "status": "skipped", "seconds": None,
+                      "command": None, "output": "", "fix": None,
+                      "rerun": runner_command(*rerun, "--only", check["id"]), "skip_reason": reason}
+            if reason is None:
+                command = expand(check["run"], values, inputs)
+                begin = time.monotonic()
+                status, output = start_check(command, root, env if uses(check, "snapshot") else working)
+                # A failing check that House Rules does not enforce yet warns and leaves its snapshot passing.
+                status = status or ("pass" if output[0] == 0 else "fail" if check["enforced"] else "warn")
+                result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
+                              output=output[1], fix=check["fix"] if status != "pass" else None)
+            results.append(result)
     total = time.monotonic() - started
     ran = [r for r in results if r["status"] != "skipped"]
     warnings = []
@@ -1120,6 +1370,63 @@ def select(check, stage, from_index, target, changed):
         # A changed path that is still in the snapshot but holds no file is a submodule.
         return ("no matching input" if any(n in target["files"] for n in selected) else "only deleted inputs"), None
     return None, inputs
+
+
+def isolated_git(root, folder, settings):
+    """Make the isolated Git directory every check of a snapshot runs with, in `folder`; return its path.
+
+    It is a bare Git directory without references whose objects come from the clone's object folder through
+    objects/info/alternates. Its configuration holds only what Git needs to read those objects, core.bare, an empty
+    core.attributesFile, so that no personal attributes file applies, and the configuration's `git_settings`.
+    """
+    gitdir = folder / "git"
+    object_format = out(root, "rev-parse", "--show-object-format")
+    # An empty template, and no GIT_TEMPLATE_DIR, so no personal template copies attributes or hooks into it.
+    git(folder, "init", "--quiet", "--bare", "--template=", f"--object-format={object_format}", str(gitdir),
+        env=dict(ISOLATED_GIT_ENV), foreign=True, drop=("GIT_TEMPLATE_DIR",))
+    head = commit_id(root, "HEAD")
+    if head:  # detached at the clone's HEAD commit, which a working-tree check's index copy belongs to
+        (gitdir / "HEAD").write_text(head + "\n")
+    (gitdir / "objects" / "info").mkdir(parents=True, exist_ok=True)
+    objects = (root / out(root, "rev-parse", "--git-path", "objects")).resolve()
+    (gitdir / "objects" / "info" / "alternates").write_bytes(os.fsencode(str(objects)) + b"\n")
+    lines = ["[core]", f"\trepositoryformatversion = {0 if object_format == 'sha1' else 1}", "\tbare = true"]
+    lines += [] if object_format == "sha1" else ["[extensions]", f"\tobjectFormat = {object_format}"]
+    (gitdir / "config").write_text("\n".join(lines) + "\n")
+    isolated = dict(ISOLATED_GIT_ENV)
+    for name, value in [("core.attributesFile", os.devnull), *settings.items()]:
+        git(folder, "config", "--file", str(gitdir / "config"), "--", name, value, env=isolated, foreign=True)
+    return gitdir
+
+
+# Every check reads Git with no personal or system configuration and no system attributes file.
+ISOLATED_GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_ATTR_NOSYSTEM": "1"}
+
+
+def check_environment(gitdir, stage, base, snapshot, work_tree=None, index=None):
+    """The environment of a check: the runner's own, without variables that bind Git to the clone or configure it,
+    plus the isolated Git directory and the CHECK_ values.
+
+    A check that reads the working tree also gets the repository root as its work tree and a copy of the clone's
+    index; a check that reads the snapshot gets no work tree.
+    """
+    env = {k: v for k, v in os.environ.items()
+           if k not in LOCAL_GIT_ENV and not k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))}
+    env.update(ISOLATED_GIT_ENV, GIT_DIR=str(gitdir), CHECK_STAGE=stage, CHECK_BASE=base, CHECK_SNAPSHOT=snapshot,
+               **NO_REPLACE)
+    if work_tree is not None:
+        env.update(GIT_WORK_TREE=str(work_tree), GIT_INDEX_FILE=str(index))
+    return env
+
+
+def index_copy(root, folder):
+    """Copy the clone's index into `folder` for checks that read the working tree; return the copy's path."""
+    copy = folder / "index"
+    try:
+        shutil.copyfile(str(root / out(root, "rev-parse", "--git-path", "index")), str(copy))
+    except FileNotFoundError:
+        pass  # nothing was ever staged: Git reads the absent copy as an empty index
+    return copy
 
 
 def start_check(command, root, env):
@@ -1184,9 +1491,9 @@ def render(report):
             continue
         lines.append(f"repository checks: {report['stage']} on {where}"
                      + (f", base {entry['base'][:7]}" if report["stage"] == "pre-push" else "")
-                     + f", House Rules {report['house_rules']['revision']} ({label(report['house_rules'])})")
+                     + "".join(f", House Rules {layer['revision']} ({label(layer)})" for layer in report["layers"]))
         lines += check_lines(entry["checks"])
-        lines += [f"override: {o['id']} {o['change']}; reason: {o['reason']}" for o in entry["overrides"]]
+        lines += [override_line(o) for o in entry["overrides"]]
         lines += ["warning: " + w for w in entry["warnings"]]
         checks += entry["checks"]
     lines += ["warning: " + w for w in report["warnings"]]
@@ -1210,14 +1517,17 @@ def render(report):
     return "\n".join(lines)
 
 
+def override_line(override):
+    return f"override: {override['id']} {override['change']} ({override['layer']}); reason: {override['reason']}"
+
+
 def command_prepare(args, argv):
     root = find_root()
     data = staged_data(root)
     if data is None:
         raise Failure(f"no {CONFIG} in the index", f"run `{runner_command('install')}` first")
-    load_document(data)
-    tree, resolution = resolved_tree(argv)
-    config = parse_config(data)
+    tree, (resolution,) = resolved_tree(argv, data)
+    config = effective_checks(data, local_data(root))
     print(f"repository checks: House Rules {resolution['revision']} ({label(resolution)}) ready at {tree}")
     if resolution.get("warning"):
         print("warning: " + resolution["warning"])
@@ -1240,12 +1550,12 @@ def command_status(args, argv):
     if data is None:
         print(f"repository checks: no {CONFIG} in the index; this repository has not adopted repository checks")
         return 0
-    load_document(data)
-    resolution, tree = cached_resolution()
+    _, source = load_document(data)
+    resolution, tree = cached_resolution(source)
     prepare = runner_command("prepare")
     if tree is None:
         if resolution is None:
-            print(f"repository checks: House Rules main not fetched yet (run: {prepare})")
+            print(f"repository checks: House Rules {source['ref']} not fetched yet (run: {prepare})")
         else:
             print(f"repository checks: House Rules {resolution['revision']} ({label(resolution)})")
             print(f"revision: not prepared in the cache (run: {prepare})")
@@ -1253,7 +1563,7 @@ def command_status(args, argv):
               f"(run: {prepare})")
         return 0
     dispatch(tree, argv, resolution)  # the resolved runner prints the effective set of its own built-ins
-    config = parse_config(data)
+    config = effective_checks(data, local_data(root))
     print(f"repository checks: House Rules {resolution['revision']} ({label(resolution)})")
     print(f"revision: in the cache at {tree}")
     if any(c["enabled"] and uses(c, "python") for c in config["checks"]):
@@ -1263,9 +1573,9 @@ def command_status(args, argv):
                  if c["enabled"] and stage in c["stages"]]
         print(f"{stage}: {', '.join(names) or 'none'}")
     for override in config["overrides"]:
-        print(f"override: {override['id']} {override['change']}; reason: {override['reason']}")
-    for stage, entry in config["budgets"].items():
-        print(f"budget: {stage} {entry['seconds']:g} s; reason: {entry['reason']}")
+        print(override_line(override))
+    for name, value in config["git_settings"].items():
+        print(f"git setting: {name} = {value}")
     return 0
 
 
@@ -1279,8 +1589,8 @@ def session_line(argv):
         if (root / ".agents" / "rules.md").is_file():
             return f"repository checks: not installed; run: {runner_command('install')}"
         return None
-    load_document(data)
-    resolution, tree = cached_resolution()
+    _, source = load_document(data)
+    resolution, tree = cached_resolution(source)
     if tree is not None:
         dispatch(tree, argv, resolution)  # the resolved runner knows which checks need an environment
     hooks = root / out(root, "rev-parse", "--git-path", "hooks")
@@ -1292,18 +1602,14 @@ def session_line(argv):
         problems.append(f"hook file {', '.join(ignored)} not executable "
                         f"(run: {shlex.join(['chmod', '+x', *(str(hooks / name) for name in ignored)])})")
     if resolution is None:
-        problems.append(f"House Rules main not fetched yet (run: {runner_command('prepare')})")
+        problems.append(f"House Rules {source['ref']} not fetched yet (run: {runner_command('prepare')})")
     elif tree is None:
         problems.append(f"House Rules {resolution['revision'][:7]} not prepared in the cache "
                         f"(run: {runner_command('prepare')})")
     else:
-        problem = environment_problem(parse_config(data), tree)
+        problem = environment_problem(effective_checks(data, local_data(root)), tree)
         problems += [problem] if problem else []
-    where = ""
-    if resolution:
-        source = ("main fetched " + resolution["fetched"] if resolution["source"] == "cached main"
-                  else label(resolution))
-        where = f"House Rules {resolution['revision'][:7]}, {source}"
+    where = f"House Rules {resolution['revision'][:7]}, {label(resolution)}" if resolution else ""
     if problems:
         return "repository checks: not ready" + (f" ({where})" if where else "") + ": " + "; ".join(problems)
     return f"repository checks: ready ({where}, hooks installed)"
@@ -1341,7 +1647,7 @@ def main(argv=None):
     run.add_argument("--remote", help="the pushed remote; pre-push then reads Git's pushed reference lines")
     run.add_argument("--json", action="store_true")
     commands.add_parser("install", help="not implemented yet").add_argument("rest", nargs=argparse.REMAINDER)
-    commands.add_parser("prepare", help="fetch House Rules main and build its environment in the cache")
+    commands.add_parser("prepare", help="fetch the House Rules layer and build its environment in the cache")
     status = commands.add_parser("status", help="print the effective configuration and cache state")
     status.add_argument("--session", action="store_true")
     args = parser.parse_args(argv)
