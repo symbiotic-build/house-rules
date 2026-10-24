@@ -538,10 +538,10 @@ class SessionContextTests(Fixture):
             "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
             "scripts/session_context.py": (here / "session_context.py").read_text(),
             "scripts/house_rules.py": (here / "house_rules.py").read_text()})
-        long = "rules/" + "/".join(["n" * 60] * 5) + ".md"  # its banner and label repeat the long path
+        long = "rules/" + "/".join(["n" * 60] * 11) + ".md"  # a 680-character path its banner and label repeat
         team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": [*names, "rules/big.md", long]},
                                           "rules/big.md": "# Big\n\n" + "word " * 3000 + "\n",
-                                          long: "# Long\n\n" + "w " * 4300 + "\n",
+                                          long: "# Long\n\n" + "w " * 4380 + "\n",
                                           **{name: "# r\n" for name in names}})
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
                                                           {"name": "team-rules", "url": team}]})
@@ -561,6 +561,25 @@ class SessionContextTests(Fixture):
         text = "".join(outputs)
         self.assertIn(f"Read it from {tree / 'rules/big.md'}.", text)  # the real file, not a path under House Rules
         self.assertIn(f"Read it from {tree / long}.", text)  # fits alone, but not with its banner: the error instead
+        self.assertEqual(text.count(long), 2)  # in full only in its resolution line and the error; labels shorten it
+        self.assertEqual(context.machine_file(context.root(), context.APPROVED_CONF),
+                         context.root() / context.APPROVED_CONF)  # no machine file in the configuration folder
+        (self.root / "config" / "house-rules" / "custom").mkdir(parents=True)
+        (self.root / "config" / "house-rules" / "custom" / "approved-work.conf").write_text("owner\n")
+        self.assertEqual(context.machine_file(context.root(), context.APPROVED_CONF),  # found without an INDEX.md
+                         (self.root / "config" / "house-rules" / "custom" / "approved-work.conf").resolve())
+        fresh = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(fresh)  # nothing has read the default link yet
+        link = hr.cache_root() / "default"
+        if link.is_symlink():
+            link.unlink()
+        link.symlink_to(hr.layer_tree(record))
+        with mock.patch.dict(os.environ, {hr.RESOLVED: json.dumps(record)}):
+            first = fresh.default_link()
+            link.unlink()
+            link.symlink_to(tree)  # the default moves while the session is building its parts
+            self.assertEqual(fresh.default_link(), first)  # one session reads the link once
+        self.assertEqual(first, Path(os.path.realpath(str(hr.layer_tree(record)))))
 
     def test_kimi_records_a_session_only_after_complete_rules(self):
         here = Path(__file__).resolve().parent
@@ -591,6 +610,14 @@ class SessionContextTests(Fixture):
         self.assertIn("# Bad, repaired", prompt())  # the next prompt delivers the repaired file
         self.assertTrue((kimi / "house-rules-sessions" / "s1").exists())
         self.assertEqual(prompt(), "")  # a session that has the complete rules gets nothing more
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        hr.resolve(None)  # the global default's tree, which a failed resolution falls back to
+        (Path(repo) / hr.CONFIG).write_text(json.dumps({"version": 2, "sources": [
+            {"name": "house-rules", "url": house, "ref": "gone"}]}))
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo, "session_id": "s2"}).encode(), stdin=None,
+                              capture_output=True, env=dict(os.environ, KIMI_CODE_HOME=str(kimi)))
+        self.assertIn("HOUSE RULES HOOK ERROR: house-rules: house-rules: no branch gone", proc.stdout.decode())
+        self.assertFalse((kimi / "house-rules-sessions" / "s2").exists())  # the default's rules are not complete
 
     def test_a_resolution_too_large_for_part_1_gives_the_default_rules(self):
         here = Path(__file__).resolve().parent
@@ -601,6 +628,7 @@ class SessionContextTests(Fixture):
             "scripts/session_context.py": (here / "session_context.py").read_text(),
             "scripts/house_rules.py": (here / "house_rules.py").read_text()})
         team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": names}, **{n: "# r\n" for n in names}})
+        layer = "team-" + "rules-" * 18 + "x"  # 114 characters: the message shortens it after counting its files
         (self.root / "config" / "house-rules").mkdir(parents=True)
         hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
         hr.resolve(None)  # the global default's tree
@@ -609,7 +637,7 @@ class SessionContextTests(Fixture):
         self.push("house-rules", {"rules/later.md": "# Later\n"})  # the repository resolves a newer commit
         self.expire_answers()
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
-                                                          {"name": "team-rules", "url": team}]})
+                                                          {"name": layer, "url": team}]})
         command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py", "codex"]
         proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
                               env=os.environ)
@@ -618,10 +646,10 @@ class SessionContextTests(Fixture):
         default = Path(os.path.realpath(str(hr.cache_root() / "default")))
         self.assertNotEqual(default.name, run(self.root / "work" / "house-rules", "rev-parse", "HEAD"))
         self.assertRegex(text, r"HOUSE RULES HOOK ERROR: the resolution lines need \d+ characters, more than the 8800 "
-                               r"part 1 holds; team-rules lists the most context files \(200\)\. The House Rules "
+                               rf"part 1 holds; {layer[:99]}… lists the most context files \(200\)\. The House Rules "
                                rf"below are the global default's \({re.escape(str(default))}\)")
-        self.assertNotIn("context of team-rules", text)  # no part of the oversized resolution is given
-        self.assertNotIn("team-rules rules/r000", text)
+        self.assertNotIn("context of team-", text)  # no part of the oversized resolution is given
+        self.assertNotIn("rules/r000-", text)
         self.assertIn("===== House Rules file rules/core.md =====", text)  # the default's own rules
         self.assertIn(f"Read the files from {default} directly.", text)
         self.assertIn("# This machine", text)  # the configuration folder's machine index

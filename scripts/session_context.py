@@ -111,12 +111,13 @@ def oversized():
     for item in record.get("context", []):
         counts[item["layer"].split("/", 1)[0]] = counts.get(item["layer"].split("/", 1)[0], 0) + 1
     most = max(counts, key=counts.get) if counts else record["layers"][0]["name"]
+    count = counts.get(most, 0)
     most = most if len(most) <= 100 else most[:99] + "…"
     tree = default_tree()
     given = (f"the global default's ({tree})" if tree is not None else
              f"this repository's House Rules layer alone ({root()}), because no global default is cached")
     return (f"{ERROR} the resolution lines need {size} characters, more than the {CAP - RESERVE} part 1 holds; "
-            f"{most} lists the most context files ({counts.get(most, 0)}). The House Rules below are {given}, not "
+            f"{most} lists the most context files ({count}). The House Rules below are {given}, not "
             "this repository's resolved rules, and this repository's custom layers are missing.")
 
 
@@ -136,18 +137,28 @@ def delivered():
 
 
 @functools.lru_cache(maxsize=None)
+def default_link():
+    """Where the cache's `default` link points, or None; read once, so a run that moves the link meanwhile cannot
+    make one part give one tree, name another, or decide its size from a third."""
+    link = house_rules().cache_root() / "default"
+    return Path(os.path.realpath(str(link))) if link.is_symlink() else None
+
+
 def default_tree():
-    """The global default's cached House Rules tree, or None when none is cached; read once, so a run that moves
-    the `default` link meanwhile cannot make one part give one tree and name another."""
-    default = Path(os.path.realpath(str(house_rules().cache_root() / "default")))
-    return default if (default / "INDEX.md").is_file() else None
+    """The global default's cached House Rules tree, or None when none is cached."""
+    default = default_link()
+    return default if default is not None and (default / "INDEX.md").is_file() else None
+
+
+def machine_file(base, name):
+    """One of this computer's custom/ files: the configuration folder's when it exists, else `base`'s own."""
+    module = house_rules()
+    configured = module.config_home() / name if module else None
+    return configured if configured is not None and configured.is_file() else base / name
 
 
 def local_index(base):
-    """This computer's custom/INDEX.md: the configuration folder's when it exists, else `base`'s own."""
-    module = house_rules()
-    configured = module.config_home() / LOCAL_INDEX if module else None
-    return configured if configured is not None and configured.is_file() else base / LOCAL_INDEX
+    return machine_file(base, LOCAL_INDEX)
 
 
 def context_files(base, failures):
@@ -291,11 +302,12 @@ def parts(base=None, failures=None):
         blocks.append(("resolution", "resolution", RESOLUTION_HEAD + error + "\n"))
     for name, text, path in sources(base, failures):
         for index, (name, heading, section) in enumerate(sections(name, text)):
-            banner = f"\n===== House Rules file {name} =====\n" if index == 0 else ""
+            shown = name if len(name) <= 100 else name[:99] + "…"
+            banner = f"\n===== House Rules file {shown} =====\n" if index == 0 else ""
             if units(banner + section) > limit:
                 too_long.append((name, heading))
-                section = (f"{ERROR} {name} section \"{heading[:100]}\" is {units(section)} characters, more than "
-                           f"the {limit} one part holds, so it is not in this context. Read it from {path}.\n")
+                section = (f"{ERROR} the section \"{heading[:100]}\" is {units(section)} characters, more than the "
+                           f"{limit} one part holds, so it is not in this context. Read it from {path}.\n")
             blocks.append((name, heading, banner + section))
     packed = []
     for name, heading, text in blocks:
@@ -359,11 +371,11 @@ def resolution_lines(record):
     lines += [f"house-rules: tree of {layer['name']}: {layer['tree']}" for layer in record["layers"]]
     for item in record.get("context", []):
         lines.append(f"house-rules: context of {item['layer']}: {item['path']}")
-    default = module.cache_root() / "default"
+    default = default_link()
     tree = Path(record["layers"][0]["tree"])
-    if default.is_symlink() and Path(os.path.realpath(str(default))) != tree.resolve():
+    if default is not None and default != tree.resolve():
         lines.append(f"This repository uses House Rules {record['layers'][0]['revision']}; the skills this agent "
-                     f"lists come from the global default, {Path(os.path.realpath(str(default))).name}. Read skill "
+                     f"lists come from the global default, {default.name}. Read skill "
                      f"files from {tree}/skills/<name>/SKILL.md.")
     return lines
 
@@ -389,7 +401,7 @@ def approved(base=None):
     The list is a reminder bounded by APPROVED_CAP: when items are left out, one notice inside the cap says so."""
     try:
         try:
-            config = (local_index(base or root()).parent / Path(APPROVED_CONF).name).read_text()
+            config = machine_file(base or root(), APPROVED_CONF).read_text()
         except FileNotFoundError:
             return ""
         scopes = [line.split("#", 1)[0].strip() for line in config.splitlines()]
@@ -469,6 +481,8 @@ def every_part(failures=None):
     rev, packed, too_long = parts(failures=failures)
     if oversized():
         failures.append("the resolution, too large for part 1")
+    if handed() is None and root().parent.name == "revisions":  # only exec's fallback runs a cached tree bare
+        failures.append("the repository's resolution, which failed")
     failures.extend(f"{name}, heading \"{heading}\"" for name, heading in too_long)
     if len(packed) > SLOTS:
         failures.append(f"parts {SLOTS + 1} to {len(packed)}")
