@@ -289,17 +289,26 @@ def pushed_references(data):
     return pushes
 
 
-def tree_files(root, rev):
-    """Return the paths in the snapshot that hold a file: a regular file or a symbolic link.
+GITLINK = b"160000"
+
+
+def file_paths(listing):
+    """Return the paths in `git ls-tree -r -z` or `git ls-files --stage -z` output that hold a file: a regular file or
+    a symbolic link. Both put the mode first.
 
     A submodule's path holds a commit of another repository (a gitlink), so it is a path but no file.
     """
-    blobs = set()
-    for entry in git(root, "ls-tree", "-r", "-z", "--full-tree", rev).stdout.split(b"\0"):
+    paths = set()
+    for entry in listing.split(b"\0"):
         meta, _, path = entry.partition(b"\t")
-        if entry and meta.split()[1] == b"blob":
-            blobs.add(os.fsdecode(path))
-    return blobs
+        if entry and meta.split()[0] != GITLINK:
+            paths.add(os.fsdecode(path))
+    return paths
+
+
+def tree_files(root, rev):
+    """Return the paths in the snapshot that hold a file."""
+    return file_paths(git(root, "ls-tree", "-r", "-z", "--full-tree", rev).stdout)
 
 
 def changed_files(root, base, snapshot):
@@ -535,17 +544,16 @@ def effective_checks(data):
 
 
 def config_data(root, rev, blobs):
+    """The configuration at `rev`, the index when `rev` is empty, or None when no file is at exactly its path."""
     if CONFIG not in blobs:
         return None
     return git(root, "cat-file", "blob", f"{rev}:{CONFIG}").stdout
 
 
 def staged_data(root):
-    """The staged configuration, or None when the index does not list it. A listed file that cannot be read is a
-    preparation failure with Git's message, never taken for an absent one."""
-    if not git(root, "ls-files", "--cached", "-z", "--", CONFIG).stdout:
-        return None
-    return git(root, "cat-file", "blob", ":" + CONFIG).stdout
+    """The staged configuration, by the rule `run` uses. A file that the index lists but Git cannot read, such as a
+    missing blob or an unmerged entry, is a preparation failure with Git's message, never taken for an absent one."""
+    return config_data(root, "", file_paths(git(root, "ls-files", "--stage", "-z", "--", CONFIG).stdout))
 
 
 # Pinning and cache -----------------------------------------------------------------------
