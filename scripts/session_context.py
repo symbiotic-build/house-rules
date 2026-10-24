@@ -352,10 +352,15 @@ def label(number, total, rev, text_id, name, heading):
 
 def introduction(total, text_id):
     """Part 1's account of how to read the parts."""
+    record = resolution()
+    linked = record is not None and any(layer["source"] == "link" for layer in record["layers"])
     governs = ("Part 1's resolution governs: read INDEX.md and every context file its resolution lines list, "
                "each inside the tree line of its layer, directly. A listed file that cannot be read means the "
-               "files changed: say so and start a new session." if resolution()
+               "files changed: say so and start a new session." if record is not None
                else f"Read the files from {delivered()} directly.")
+    if linked:  # a linked layer is a working tree: rereading it after a split can give text part 1 never had
+        governs += (" A layer here has source link, so a split cannot be recovered by rereading: say so and start "
+                    "a new session.")
     return (f"House Rules INDEX.md, its always-load rules, the operator-writing skill and this computer's "
             f"{LOCAL_INDEX}, then any custom layer's context files, follow in full, in {total} parts. "
             "They apply to every reply in this session. The parts can arrive in any order: read them in "

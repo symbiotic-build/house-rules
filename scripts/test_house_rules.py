@@ -530,6 +530,12 @@ class SessionContextTests(Fixture):
         self.assertIn("# This computer", fallback)  # a fallback still reads this machine's index
         default = Path(os.path.realpath(str(hr.cache_root() / "default")))
         self.assertIn(f"(revision {default.name[:12]}, ", fallback)  # the cached tree's commit, not "unknown"
+        linked = "A layer here has source link, so a split cannot be recovered by rereading"
+        self.assertNotIn(linked, text)  # fetched and pinned trees can be reread
+        self.assertEqual(hr.main(["link", str(self.root / "work" / "team-rules"), "--url", team]), 0)
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
+        self.assertIn(linked, json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"])
 
     def test_large_resolutions_name_their_files(self):
         here = Path(__file__).resolve().parent
