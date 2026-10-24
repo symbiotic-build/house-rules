@@ -918,7 +918,9 @@ class RoundTwoTests(Fixture):
         records.mkdir()
         (records / "x.json").write_text(json.dumps({"url": ["u"], "branch": "main", "revision": "c" * 40,
                                                     "fetched": "2026-10-24T00:00:00Z"}))
-        self.assertEqual(self.command("cache", "list")[0], 0)  # a record with a field of the wrong type is skipped
+        code, _, err = self.command("cache", "list")
+        self.assertEqual(code, 0)
+        self.assertIn(f"warning: {records / 'x.json'} is not a usable branch record; it is left out", err)
         other.chmod(0)
         self.addCleanup(other.chmod, 0o700)
         code, out, err = self.command("cache", "list")
@@ -1009,27 +1011,44 @@ class ResolverRoundThreeTests(Fixture):
         self.assertEqual(code, 1)
         self.assertNotIn("SECRET", err)
         self.assertIn("the --url value carries credentials", err)
+        code, _, err = self.command("link", str(checkout), "--url", "https::https://user:SECRET@host/rules")
+        self.assertEqual(code, 1)  # the address inside the transport form is never saved or printed
+        self.assertNotIn("SECRET", err)
+        self.assertIn("the --url value uses Git's <transport>:: form", err)
+        self.assertFalse(hr.links_path().exists())
+        with self.assertRaises(hr.Failure) as caught:  # a lone surrogate cannot become a cache key
+            hr.repository_config('{"version": 2, "sources": [{"name": "house-rules"}, '
+                                 '{"name": "team", "url": "https://host/\\ud800"}]}')
+        self.assertIn("sources[1]: the URL of team is not valid text", str(caught.exception))
 
     def test_push_lines_split_only_at_spaces_and_bad_lines_fail(self):
         commit = "1" * 40
         line = f"refs/heads/a\u00a0b {commit} refs/heads/a\u2028b {'0' * 40}\n".encode()
         self.assertEqual(hr.pushed_commits(line), [commit])  # Unicode spaces are part of a ref name
         self.assertEqual(hr.pushed_commits(f"(delete) {'0' * 40} refs/heads/x {commit}\n".encode()), [])
-        with self.assertRaises(hr.Failure):
-            hr.pushed_commits(b"not a pre-push line\n")
+        for bad in (b"not a pre-push line\n", f"refs/heads/a {'0' * 40} refs/heads/a nonsense\n".encode(),
+                    f" {'0' * 40}  {commit}\n".encode()):  # a malformed line is never a deletion
+            with self.assertRaises(hr.Failure):
+                hr.pushed_commits(bad)
         code, out, _ = self.command("exec", "--origin", "push", "scripts/x.py", stdin=b"garbage\n",
                                     cwd=self.repository())
         self.assertEqual(code, 2)
         self.assertNotIn("nothing to check", out)
 
-    def test_a_snapshot_without_configuration_resolves_nothing(self):
-        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": "file:///nowhere"}]})
+    def test_the_staged_configuration_is_read_by_its_exact_path(self):
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules"}]})
         run(repo, "add", hr.CONFIG)
         run(repo, "commit", "-q", "-m", "adopt")
+        self.assertEqual(json.loads(hr.hook_configuration(repo, "index", b"")[0])["version"], 2)
         run(repo, "rm", "-q", "--cached", hr.CONFIG)
-        code, out, err = self.command("exec", "--origin", "index", "scripts/x.py", cwd=repo)
-        self.assertEqual((code, out), (0, "nothing to check: the staged index has no house-rules.json\n"), err)
-        self.assertFalse(hr.cache_root().exists())  # nothing was resolved, so no unrelated source could refuse
+        self.assertIsNone(hr.hook_configuration(repo, "index", b"")[0])  # a staged deletion: no configuration
+        Path(repo, hr.CONFIG).unlink()
+        Path(repo, hr.CONFIG).mkdir()
+        Path(repo, hr.CONFIG, "nested.json").write_text("{}")
+        run(repo, "add", hr.CONFIG)
+        with self.assertRaises(hr.Failure) as caught:  # a folder of that name is not the configuration
+            hr.hook_configuration(repo, "index", b"")
+        self.assertIn(f"cannot read {hr.CONFIG} from the index in {repo} (", str(caught.exception))
 
     def test_a_configuration_git_cannot_read_is_a_failure(self):
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules"}]})

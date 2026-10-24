@@ -471,18 +471,18 @@
       "symbols": [],
       "rejected_forms": []
     },
-    "layered-configuration.layer-file": {
+    "layered-configuration.ruleset": {
       "kind": "data",
       "home": {
         "section": "layered-configuration#configuration",
-        "anchor": "layer-file"
+        "anchor": "ruleset"
       },
       "scope": [
         "layered-configuration"
       ],
       "forms": [
-        "layer file",
-        "layer files"
+        "ruleset",
+        "rulesets"
       ],
       "symbols": [],
       "rejected_forms": []
@@ -514,21 +514,6 @@
       ],
       "forms": [
         "global configuration"
-      ],
-      "symbols": [],
-      "rejected_forms": []
-    },
-    "layered-configuration.local-configuration": {
-      "kind": "data",
-      "home": {
-        "section": "layered-configuration#configuration",
-        "anchor": "local-configuration"
-      },
-      "scope": [
-        "layered-configuration"
-      ],
-      "forms": [
-        "local configuration"
       ],
       "symbols": [],
       "rejected_forms": []
