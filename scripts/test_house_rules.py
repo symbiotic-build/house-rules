@@ -536,6 +536,17 @@ class SessionContextTests(Fixture):
                               env=os.environ)
         again = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertNotEqual(re.search(r"text ([0-9a-f]{12})", again).group(1), first)  # every layer's commit counts
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        hr.resolve(None)  # the global default's tree, which a fallback runs from
+        broken = self.root / "broken"
+        broken.mkdir()
+        run(broken, "init", "-q", "-b", "main")
+        (broken / hr.CONFIG).write_text(json.dumps({"version": 2, "sources": [{"name": "house-rules", "url": house,
+                                                                               "ref": "gone"}]}))
+        proc = subprocess.run(command, input=json.dumps({"cwd": str(broken)}).encode(), stdin=None,
+                              capture_output=True, env=os.environ)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("# This computer", proc.stdout.decode())  # a fallback still reads this machine's index
 
 
 class RoundOneTests(Fixture):

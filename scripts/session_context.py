@@ -87,10 +87,11 @@ def resolution():
 
 
 def local_index(base):
-    """This computer's custom/INDEX.md: the configuration folder's when house-rules exec started this run, else the
-    custom/ folder of the checkout the hook runs from, as an install that predates the command registers it."""
+    """This computer's custom/INDEX.md: the configuration folder's when house-rules exec started this run, also as
+    a fallback (HOUSE_RULES_FALLBACK), else the custom/ folder of the checkout the hook runs from, as an install that
+    predates the command registers it."""
     module = house_rules()
-    if module is None or resolution() is None:
+    if module is None or (resolution() is None and not os.environ.get(module.FALLBACK)):
         return base / LOCAL_INDEX
     return module.config_home() / LOCAL_INDEX
 
