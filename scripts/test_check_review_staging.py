@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 import check_review_staging
@@ -144,6 +145,18 @@ class ReviewStagingTest(unittest.TestCase):
         finally:
             os.close(read_fd)
             os.close(write_fd)
+
+    def test_a_fixture_commit_starts_no_background_maintenance(self):
+        with tempfile.TemporaryDirectory() as folder:
+            trace = Path(folder) / "git-trace"
+            repo = Path(folder) / "repo"
+            repo.mkdir()
+            (repo / "a.txt").write_text("a\n")
+            with unittest.mock.patch.dict(os.environ, {"GIT_TRACE": str(trace)}):
+                for args in (["git", "init", "-q", "-b", "main"], ["git", "add", "a.txt"], ["git", "commit", "-qm", "a"]):
+                    self.assertEqual(check_review_staging.run(args, repo).returncode, 0)
+            self.assertIn("git commit", trace.read_text())
+            self.assertNotIn("maintenance run", trace.read_text())  # Git would start one, detached, after the commit
 
     def test_this_checkout_prepares_every_role_and_lens(self):
         self.assertEqual(check_review_staging.check(REPO), [])

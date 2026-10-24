@@ -1091,5 +1091,27 @@ class ResolverRoundEightTests(Fixture):
         self.assertNotIn("warning:", out)
         self.assertTrue(out.startswith(f"house-rules: repository {repo}, configuration house-rules.json"), out)
 
+
+class GitMaintenanceTests(Fixture):
+    """Issue #228 and the resolver's fetch cleanup: no detached maintenance races a removal."""
+
+    def test_a_fetch_starts_no_background_maintenance(self):
+        config, pin = self.tour()
+        trace = self.root / "git-trace"
+        with mock.patch.dict(os.environ, {"GIT_TRACE": str(trace)}):
+            self.assertIsNone(hr.fetch_commit(config["sources"][2]["url"], pin))
+        self.assertIn("git fetch", trace.read_text())
+        self.assertNotIn("maintenance run", trace.read_text())  # Git would start one, detached, after each fetch
+        self.assertEqual([p for p in hr.source_folder(config["sources"][2]["url"]).iterdir()
+                          if p.name.startswith(".partial-")], [])
+
+    def test_a_caller_git_setting_is_kept(self):
+        repo = self.repository()
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "user.name",
+                                          "GIT_CONFIG_VALUE_0": "caller"}):
+            names = hr.git(repo, "config", "--get", "user.name").stdout.decode().strip()
+            auto = hr.git(repo, "config", "--get", "maintenance.auto").stdout.decode().strip()
+        self.assertEqual((names, auto), ("caller", "false"))
+
 if __name__ == "__main__":
     unittest.main()

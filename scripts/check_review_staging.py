@@ -24,8 +24,12 @@ SERVICE_RUN = ("import runpy, sys; from pathlib import Path; sys.argv = sys.argv
 # The service prepares Codex reviews in the structured format: lens instructions come last.
 SECTIONS = ("# 1. Review pack", "# 3. Pull request and issue", "# 4. Requirements", "# 5. Change",
             "# 7. Lens instructions")
+# No detached `git maintenance run --auto` after a commit: its background repack races the removal of the
+# temporary fixture repositories ("Directory not empty"). The fixtures take no settings from the caller.
 GIT_ENV = {"GIT_AUTHOR_NAME": "check", "GIT_AUTHOR_EMAIL": "check@example.invalid",
-           "GIT_COMMITTER_NAME": "check", "GIT_COMMITTER_EMAIL": "check@example.invalid"}
+           "GIT_COMMITTER_NAME": "check", "GIT_COMMITTER_EMAIL": "check@example.invalid",
+           "GIT_CONFIG_COUNT": "2", "GIT_CONFIG_KEY_0": "maintenance.auto", "GIT_CONFIG_VALUE_0": "false",
+           "GIT_CONFIG_KEY_1": "gc.auto", "GIT_CONFIG_VALUE_1": "0"}
 
 
 def run(args, cwd):
