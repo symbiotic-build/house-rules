@@ -537,6 +537,41 @@ class SessionContextTests(Fixture):
                               env=os.environ)
         self.assertIn(linked, json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"])
 
+    def test_a_fallback_part_and_its_failure_line_stay_under_the_cap(self):
+        here = Path(__file__).resolve().parent
+        import session_context
+        self.assertEqual(session_context.FALLBACK_LINE, hr.HOOK_LINE_UNITS + 1)  # the reserve is exec's line and its end
+        banner = "\n===== House Rules file rules/big.md =====\n"
+        most = 10 ** len(str(session_context.SLOTS * 100))  # a later part's room before any fallback reserve
+        room = session_context.CAP - 4 - session_context.units(session_context.end_line(most, most)) - \
+            session_context.units(session_context.label(most, most, "0" * 12, "0" * 12, "rules/big.md", "Big"))
+        body = "w " * ((room - 10 - session_context.units(banner) - len("# Big\n\n")) // 2)  # fills a part
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n",
+            "rules/core.md": "# Core rules\n", "rules/big.md": "# Big\n\n" + body + "\n",
+            hr.RULESET: {"version": 1, "context": ["rules/core.md", "rules/big.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        (self.root / "config" / "house-rules" / "custom").mkdir(parents=True)
+        (self.root / "config" / "house-rules" / "custom" / "INDEX.md").write_text("# This machine\n")
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        hr.resolve(None)  # the global default's tree
+        missing = "file://" + str(self.root / "missing" / ("g/" * 300)) + "rules.git"  # its error repeats the URL
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": "team-rules", "url": missing}]})
+        for part in ("1", "2"):
+            proc = subprocess.run([sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py",
+                                   "claude", part], input=json.dumps({"cwd": repo}).encode(), stdin=None,
+                                  capture_output=True, env=os.environ)
+            out = proc.stdout.decode().rstrip("\n")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            first = out.split("\n", 1)[0]
+            self.assertTrue(first.startswith("HOUSE RULES HOOK ERROR: house-rules: "), first)
+            self.assertTrue(first.endswith("…"), first)  # the long URL cut to the reserve
+            self.assertLessEqual(session_context.units(first), hr.HOOK_LINE_UNITS)
+            self.assertLess(session_context.units(out), session_context.CAP)  # the hook output Claude Code takes
+            self.assertNotIn("-character cap", out)
+
     def test_large_resolutions_name_their_files(self):
         here = Path(__file__).resolve().parent
         names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(60)]  # 60 resolution lines still fit in part 1

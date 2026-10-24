@@ -49,6 +49,7 @@ import time
 
 CAP = 10_000      # Claude Code's limit for one hook's output, in UTF-16 code units.
 SLOTS = 12        # Claude Code hooks registered; the last one reports text that needs more.
+FALLBACK_LINE = 601  # exec's fallback line before each part: house_rules.HOOK_LINE_UNITS and its line end
 RESOLUTION_LIMIT = 8_800  # Room in part 1 for the resolution lines, in UTF-16 code units.
 TIMEOUT = 10      # Seconds each product waits for one hook.
 ERROR = "HOUSE RULES HOOK ERROR:"
@@ -385,6 +386,8 @@ def capacity(number, name, heading, notice=False):
         used += units(introduction(most, "0" * 12)) + 1
     if notice and number in (1, SLOTS):
         used += units(overflow(most)) + 1
+    if exec_fallback():  # exec prints its failure line before this part's text, in the same hook output
+        used += FALLBACK_LINE
     return CAP - used
 
 

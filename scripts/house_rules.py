@@ -53,6 +53,7 @@ OVERRIDE = "HOUSE_RULES_REVISION"
 LINK = "HOUSE_RULES_LINK"
 DEADLINE = "HOUSE_RULES_DEADLINE"  # set by exec --hook: the hook's deadline, in seconds since 1970-01-01 UTC
 HOOK_ERROR = "HOUSE RULES HOOK ERROR:"  # the error prefix agent session hooks print, as session_context.py does
+HOOK_LINE_UNITS = 600  # the most UTF-16 units of the fallback line; session_context.py keeps this room in every part
 COMMIT = re.compile(r"[0-9a-f]{40}")  # a source layer's commit: sources are SHA-1 repositories for now
 SHA256_COMMIT = re.compile(r"[0-9a-f]{64}")
 TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")  # an exact release tag; no version ranges
@@ -1222,6 +1223,16 @@ def script_in(tree, relative):
     return script
 
 
+def fallback_line(text):
+    """`text` cut to HOOK_LINE_UNITS UTF-16 units, ending in an ellipsis when cut: a URL or Git error of any length
+    then still leaves the session script the room it keeps for this line."""
+    if len(text.encode("utf-16-le")) // 2 <= HOOK_LINE_UNITS:
+        return text
+    while len(text.encode("utf-16-le")) // 2 > HOOK_LINE_UNITS - 1:
+        text = text[:-1]
+    return text + "…"
+
+
 def cmd_exec(args):
     stdin = None
     folder = args.repo
@@ -1256,10 +1267,10 @@ def cmd_exec(args):
         repository = None
         tree, record = Path(os.path.realpath(str(cache_root() / "default"))), None
         known = prepared(tree) and (tree / args.path).is_file()
-        print(f"{HOOK_ERROR} {failure}. " + (
+        print(fallback_line(f"{HOOK_ERROR} {failure}. " + (
             f"The House Rules below are the global default's ({tree}), not this repository's resolved rules, and "
             "this repository's custom layers are missing." if known else "No House Rules tree is cached, so this "
-            "context holds no House Rules; fix the cause above and start a new session."))
+            "context holds no House Rules; fix the cause above and start a new session.")))
         sys.stdout.flush()
         if not known:
             return 0
