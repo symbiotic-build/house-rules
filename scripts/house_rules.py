@@ -22,7 +22,10 @@ or later.
 import argparse
 import calendar
 import contextlib
-import fcntl
+try:
+    import fcntl  # Unix only: the cache's locks; a session hook that only reads the handed record never needs it
+except ImportError:  # native Windows
+    fcntl = None
 import hashlib
 import json
 import math
