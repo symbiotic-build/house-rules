@@ -474,14 +474,6 @@ class Corpus:
     assignment: dict | None = None
     base: Corpus | None = None
 
-    @cached_property
-    def rejected_patterns(self):
-        """Compile each rejected spelling's matcher once per corpus."""
-        return {(rejected["text"], rejected.get("case_sensitive") is True):
-                phrase_pattern(rejected["text"], rejected.get("case_sensitive") is True)
-                for entity in self.entities.values() for rejected in entity["rejected_forms"]
-                if isinstance(rejected, dict) and isinstance(rejected.get("text"), str)}
-
     @property
     def registry(self):
         return {"version": 1, "entities": self.entities}
@@ -1233,7 +1225,8 @@ class Recognizer:
     string, which every text holds."""
 
     def __init__(self, entities):
-        self.patterns, self.keyed, self.rejected, self.results = [], defaultdict(list), defaultdict(list), {}
+        self.patterns, self.keyed, self.results = [], defaultdict(list), {}
+        self.rejected, self.rejected_keyed = [], defaultdict(list)
         for identity, entity in entities.items():
             terms = [(phrase, False) for phrase in set([entity["title"], *entity["forms"]])]
             for text, exact in terms + [(symbol, True) for symbol in entity["symbols"]]:
@@ -1243,7 +1236,8 @@ class Recognizer:
             for rejected in entity["rejected_forms"]:
                 if isinstance(rejected, dict) and isinstance(rejected.get("text"), str):
                     runs = phrase_runs(rejected["text"])
-                    self.rejected[max(sorted(runs), key=len, default="")].append(runs)
+                    self.rejected_keyed[max(sorted(runs), key=len, default="")].append(len(self.rejected))
+                    self.rejected.append((identity, phrase_pattern(rejected["text"], rejected.get("case_sensitive") is True), runs))
 
     @staticmethod
     def runs(text):
@@ -1256,10 +1250,14 @@ class Recognizer:
         return [self.patterns[index][:4] for index in sorted(
             index for run in runs for index in self.keyed.get(run, ()) if self.patterns[index][4] <= runs)]
 
-    def may_reject(self, text):
-        """Return False only when no rejected form can match the text."""
+    def rejections(self, text):
+        """Return, in registration order, the entity of each rejected form that matches the text.
+
+        Only the forms whose runs all occur in the text are searched."""
         runs = self.runs(text)
-        return any(rejected <= runs for run in runs for rejected in self.rejected.get(run, ()))
+        return [self.rejected[index][0] for index in sorted(
+                index for run in runs for index in self.rejected_keyed.get(run, ()) if self.rejected[index][2] <= runs)
+                if self.rejected[index][1].search(text)]
 
 
 def recognized(corpus, text):
@@ -1547,11 +1545,9 @@ def check_uses(corpus, md, diagnostics, missing=None):
                         and not any(a < span[1] and span[0] < b for a, b, _ in link_spans)):
                     missing.append((token, span, entity))
             seen.add((local, identity))
-        if not literal and corpus.recognizer.may_reject(text):
-            for entity in corpus.entities.values():
-                for rejected in entity["rejected_forms"]:
-                    if isinstance(rejected, dict) and isinstance(rejected.get("text"), str) and corpus.rejected_patterns[rejected["text"], rejected.get("case_sensitive") is True].search(text):
-                        diagnostics.add("D13", f"rejected form for entity '{entity['id']}'; use its registered replacement", md.path, line + 1)
+        if not literal:
+            for identity in corpus.recognizer.rejections(text):
+                diagnostics.add("D13", f"rejected form for entity '{identity}'; use its registered replacement", md.path, line + 1)
 
 
 def sentences(children):

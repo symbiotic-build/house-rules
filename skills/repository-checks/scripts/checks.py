@@ -6,12 +6,14 @@ standard library and runs on CPython 3.9 or later.
 """
 import argparse
 import contextlib
+import errno
 import hashlib
 import json
 import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -1130,16 +1132,16 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
     env = check_environment(args.stage, base, snapshot)
     for check, reason, inputs in plan:
         result = {"id": check["id"], "layer": check["layer"], "status": "skipped", "seconds": None,
-                  "command": None, "output": "", "fix": None,
+                  "command": None, "version": None, "output": "", "fix": None,
                   "rerun": runner_command(*rerun, "--only", check["id"]), "skip_reason": reason}
         if reason is None:
-            command = expand(check["run"], values, inputs)
+            command, version_arguments = expand(check["run"], values, inputs)
             begin = time.monotonic()
-            status, output = start_check(command, root, env)
+            status, output, version = start_check(command, version_arguments, root, env)
             # A failing check that House Rules does not enforce yet warns and leaves its snapshot passing.
             status = status or ("pass" if output[0] == 0 else "fail" if check["enforced"] else "warn")
             result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
-                          output=output[1], fix=check["fix"] if status != "pass" else None)
+                          version=version, output=output[1], fix=check["fix"] if status != "pass" else None)
         results.append(result)
     total = time.monotonic() - started
     ran = [r for r in results if r["status"] != "skipped"]
@@ -1205,30 +1207,94 @@ def check_environment(stage, base, snapshot):
     return env
 
 
-def start_check(command, root, env):
-    """Run the check's command from the repository root; return (status or None, (exit status, output)).
+def start_check(command, version_arguments, root, env):
+    """Read the check's version, then run its command, inside the build queue when the machine declares one.
 
-    The status is "error" when the program was not found or could not start, and None when the command ran; then
-    its exit status decides the result. `subprocess` finds the program on PATH and restores the default signal
-    dispositions, so a check that SIGPIPE ends fails.
+    Returns (status or None, (exit status, output), version). The status is "error" when the program was not found,
+    a version file cannot be read, or the program or queue could not start; None when the command ran, and then its
+    exit status decides the result. Through a queue, the queue's exit status is the command's. The queue command runs
+    with the check's environment. `subprocess` restores the default signal dispositions, so a check that SIGPIPE ends
+    fails.
+    """
+    program = find_program(command[0], root, env)
+    if program is None:
+        return "error", (None, f"cannot start {command[0]!r}: No such file or directory\n"), []
+    version = []
+    for path in [program] + [command[i] for i in version_arguments if i]:
+        try:
+            if path is program or version_input(root, path):
+                version.append({"path": path, "sha256": digest(root, path)})
+        except OSError as exc:  # the check does not run: its version would leave out a file that ran
+            return "error", (None, f"version unreadable: {path} ({exc.strerror or exc})\n"), version
+    queue = os.environ.get("HOUSE_RULES_CHECK_QUEUE")
+    try:
+        proc = subprocess.run([queue, *command] if queue else command, cwd=str(root), env=env,
+                              stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    except OSError as exc:
+        return "error", (None, f"cannot start {(queue or command[0])!r}: {exc.strerror or exc}\n"), version
+    return None, (proc.returncode, proc.stdout.decode(errors="surrogateescape")), version
+
+
+def find_program(name, root, env):
+    """The program the command's start will run, as far as a lookup before the start can tell, or None.
+
+    A name with a slash is taken from the repository root. Otherwise it is the first PATH entry that holds `name` as an
+    executable regular file; a relative entry counts from the repository root and is joined, never normalized, so
+    `link/../bin` resolves through the file system as the start does. Only a regular file counts, so a named pipe is
+    never read for the version. The start can still pass a candidate, such as a script whose first line names a
+    missing interpreter; the version then names the first candidate.
+    """
+    def regular(path):
+        try:
+            return stat.S_ISREG(os.stat(os.path.join(str(root), path)).st_mode)
+        except OSError:
+            return False
+    if "/" in name:  # the start itself reports a file it cannot run, such as one without execute permission
+        return name if regular(name) else None
+    for entry in os.get_exec_path(env):  # split before joining, so a separator in the root splits nothing
+        candidate = os.path.join(str(root), entry, name)
+        if regular(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def version_input(root, argument):
+    """Whether a command argument names a version file: a regular file, as one file-status lookup finds it.
+
+    A path that does not exist, or is too long to be one, such as a long `sh -c` script, is no version file. Any
+    other lookup error, such as a folder the runner cannot search, raises OSError.
     """
     try:
-        proc = subprocess.run(command, cwd=str(root), env=env, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                              stderr=subprocess.STDOUT)
+        mode = os.stat(os.path.join(str(root), argument)).st_mode
     except OSError as exc:
-        return "error", (None, f"cannot start {command[0]!r}: {exc.strerror or exc}\n")
-    return None, (proc.returncode, proc.stdout.decode(errors="surrogateescape"))
+        if exc.errno in (errno.ENOENT, errno.ENOTDIR, errno.ENAMETOOLONG):
+            return False
+        raise
+    return stat.S_ISREG(mode)
+
+
+def digest(root, path):
+    """The SHA-256 of a version file, read immediately before its command is handed to the queue or started."""
+    hasher = hashlib.sha256()
+    with open(os.path.join(str(root), path), "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            hasher.update(block)
+    return hasher.hexdigest()
 
 
 def expand(run, values, inputs):
-    """Return the command: each `{files}` argument becomes the check's inputs, and placeholders their values."""
-    command = []
+    """Return (the command, the positions of its arguments that can name a version file).
+
+    `{files}` arguments are the check's inputs, not its version, so their positions are left out.
+    """
+    command, positions = [], []
     for arg in run:
         if arg == "{files}":
             command += inputs
         else:
+            positions.append(len(command))
             command.append(PLACEHOLDER.sub(lambda m: values[m.group(1)], arg))
-    return command
+    return command, positions
 
 
 def check_lines(results):
@@ -1236,6 +1302,9 @@ def check_lines(results):
     for result in results:
         detail = result["skip_reason"] if result["status"] == "skipped" else f"{result['seconds']:.1f} s"
         lines.append(f"{LABELS[result['status']]:<6}{result['id']:<12} {detail}")
+        if result["version"]:
+            items = [f"{shlex.quote(item['path'])}@{item['sha256'][:12]}" for item in result["version"]]
+            lines.append("      version: " + " ".join(items))
         lines += indented(result["output"])
         if result["status"] in ("fail", "warn", "error"):
             if result["fix"]:
