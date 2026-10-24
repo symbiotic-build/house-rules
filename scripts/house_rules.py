@@ -54,6 +54,7 @@ LINK = "HOUSE_RULES_LINK"
 DEADLINE = "HOUSE_RULES_DEADLINE"  # set by exec --hook: the hook's deadline, in seconds since 1970-01-01 UTC
 HOOK_ERROR = "HOUSE RULES HOOK ERROR:"  # the error prefix agent session hooks print, as session_context.py does
 HOOK_LINE_UNITS = 600  # the most UTF-16 units of the fallback line; session_context.py keeps this room in every part
+WORD_UNITS = 80  # the most UTF-16 units one word of a too-long fallback line keeps
 COMMIT = re.compile(r"[0-9a-f]{40}")  # a source layer's commit: sources are SHA-1 repositories for now
 SHA256_COMMIT = re.compile(r"[0-9a-f]{64}")
 TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")  # an exact release tag; no version ranges
@@ -1224,25 +1225,29 @@ def script_in(tree, relative):
 
 
 def clip(text, most):
-    """`text` within `most` UTF-16 units, its start and end kept around an ellipsis: a failure names its cause first
-    and its repair last, and a long URL or Git error sits between them."""
-    widths = [1 + (ord(char) > 0xFFFF) for char in text]
-    if sum(widths) <= most:
-        return text
-    room, used, head, tail = max(most - 1, 0), 0, 0, 0
-    while used + widths[head] <= room // 2:
-        used, head = used + widths[head], head + 1
-    while used + widths[-1 - tail] <= room:
-        used, tail = used + widths[-1 - tail], tail + 1
-    return text[:head] + "…" + text[len(text) - tail:]
+    """`text` within `most` UTF-16 units, its start and end kept around an ellipsis, and a lone surrogate, as from an
+    undecodable branch byte, as its printable escape. Only `most` characters at each end are read, whatever the length."""
+    head, tail = (part.encode("utf-8", "backslashreplace").decode() for part in (text[:most], text[-most:]))
+    if len(text) <= most and len(head.encode("utf-16-le")) // 2 <= most:
+        return head
+    room, used, kept = max(most - 1, 0), 0, ["", ""]
+    for side, part, limit in ((0, head, room // 2), (1, tail[::-1], room)):
+        for char in part:
+            width = 1 + (ord(char) > 0xFFFF)
+            if used + width > limit:
+                break
+            used, kept[side] = used + width, kept[side] + char
+    return kept[0] + "…" + kept[1][::-1]
 
 
 def fallback_line(failure, explanation):
-    """The hook's failure line within HOOK_LINE_UNITS UTF-16 units: the failure gives way in its middle, so its cause,
-    its repair and the explanation stay. A lone surrogate, as an undecodable branch byte, prints as its escape."""
-    failure, explanation = (text.encode("utf-8", "backslashreplace").decode() for text in (failure, explanation))
+    """The hook's failure line within HOOK_LINE_UNITS UTF-16 units. A failure too long for it first shortens each
+    long word, as a URL, path or key, so its cause and repair stay in plain words; then it gives way in its middle."""
     room = HOOK_LINE_UNITS - len(f"{HOOK_ERROR} . {explanation}".encode("utf-16-le")) // 2
-    return clip(f"{HOOK_ERROR} {clip(failure, room)}. {explanation}", HOOK_LINE_UNITS)
+    failure = clip(failure, 4 * HOOK_LINE_UNITS)
+    if len(failure.encode("utf-16-le")) // 2 > room:
+        failure = " ".join(clip(word, WORD_UNITS) for word in failure.split(" "))
+    return f"{HOOK_ERROR} {clip(failure, room)}. {explanation}"
 
 
 def cmd_exec(args):
@@ -1280,7 +1285,7 @@ def cmd_exec(args):
         tree, record = Path(os.path.realpath(str(cache_root() / "default"))), None
         known = prepared(tree) and (tree / args.path).is_file()
         print(fallback_line(str(failure), (
-            f"The House Rules below are the global default's ({tree}), not this repository's resolved rules, and "
+            "The House Rules below are the global default's, not this repository's resolved rules, and "
             "this repository's custom layers are missing." if known else "No House Rules tree is cached, so this "
             "context holds no House Rules; fix the cause above and start a new session.")))
         sys.stdout.flush()
