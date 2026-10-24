@@ -597,7 +597,7 @@ class SessionContextTests(Fixture):
         context = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(context)
         with mock.patch.dict(os.environ, {hr.RESOLVED: json.dumps(record)}):
-            self.assertIn(f"the global default's ({second.resolve()})", context.oversized())  # the run decides once
+            context.oversized()  # the run decides on its default here, before the changes below
             link.unlink()
             link.symlink_to(first)  # the default moves while the run builds its part
             (second / "INDEX.md").unlink()  # and an editor removes the decided tree's index
@@ -661,16 +661,16 @@ class SessionContextTests(Fixture):
         self.assertIn(f"global default's ({checkout.resolve()})", proc.stdout.decode())
         self.assertFalse((kimi / "house-rules-sessions" / "s4").exists())  # a linked default's fallback is not complete
 
-    def test_an_older_default_gives_the_rules_of_its_own_loader(self):
+    def test_an_older_default_names_its_repair_and_keeps_the_machine_index(self):
         here = Path(__file__).resolve().parent
         names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(200)]
-        loader = ("import json, sys\nargs = sys.argv[1:]\n"
-                  "if args == ['codex']:\n    print(json.dumps({'hookSpecificOutput': {'hookEventName': 'SessionStart',"
-                  " 'additionalContext': 'older loader rules'}}))\nelse:\n    print('older loader part', args[-1])\n")
-        older = self.source("older", {"INDEX.md": "# Index\n", "scripts/session_context.py": loader})  # no ruleset.json
-        (self.root / "config" / "house-rules").mkdir(parents=True)
+        loader = "print('older loader ran')\n"
+        older = self.source("older", {"INDEX.md": "# Index\n\n## Always load\n\n- [core](rules/core.md)\n",
+                                      "rules/core.md": "# Older core\n", "scripts/session_context.py": loader})
+        (self.root / "config" / "house-rules" / "custom").mkdir(parents=True)
+        (self.root / "config" / "house-rules" / "custom" / "INDEX.md").write_text("# This machine\n")
         hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": older}]}))
-        hr.resolve(None)
+        tree = Path(hr.layer_tree(hr.resolve(None)))  # the default, from before ruleset.json
         house = self.source("house-rules", {
             "INDEX.md": "# Index\n", "rules/core.md": "# Core rules\n",
             hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
@@ -679,16 +679,17 @@ class SessionContextTests(Fixture):
         team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": names}, **{n: "# r\n" for n in names}})
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
                                                           {"name": "team-rules", "url": team}]})
-        command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py"]
-        codex = subprocess.run(command + ["codex"], input=json.dumps({"cwd": repo}).encode(), stdin=None,
-                               capture_output=True, env=os.environ)
-        text = json.loads(codex.stdout)["hookSpecificOutput"]["additionalContext"]
-        self.assertTrue(text.startswith("HOUSE RULES HOOK ERROR: the resolution lines need "), text)
-        self.assertIn("\nolder loader rules", text)
-        part = subprocess.run(command + ["claude", "1"], input=json.dumps({"cwd": repo}).encode(), stdin=None,
-                              capture_output=True, env=os.environ).stdout.decode()
-        self.assertIn("\nolder loader part 1", part)
-        self.assertNotIn("ruleset.json is missing", text + part)
+        command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py", "codex"]
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
+        text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("HOUSE RULES HOOK ERROR: the resolution lines need ", text)
+        self.assertIn(f"HOUSE RULES HOOK ERROR: {tree.resolve() / hr.RULESET} is missing, so this tree's always-load "
+                      "rules are not in this context", text)
+        self.assertIn("scripts/house_rules.py install", text)
+        self.assertIn("# This machine", text)  # the configuration folder's index, chosen by the current script
+        self.assertNotIn("older loader ran", text)  # the default's own script never runs
+        self.assertNotIn("# Older core", text)
 
     def test_a_resolution_too_large_for_part_1_gives_the_default_rules(self):
         here = Path(__file__).resolve().parent

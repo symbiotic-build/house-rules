@@ -1400,15 +1400,75 @@ class SessionContextTests(unittest.TestCase):
         self.assertIn("# Operator writing", text)
 
     def test_a_long_checkout_path_keeps_a_nearly_full_section(self):
-        self.root = self.root.joinpath(*(letter * 100 for letter in "defgh"))  # a 500-character checkout path
-        self.write("INDEX.md", "# Index\n\n## Always load\n\n- [core](rules/core.md)\n")
-        self.write("rules/core.md", "# Core rules\n\n## Big\n\n" + "w " * 4300 + "\n")
-        self.write("ruleset.json", json.dumps({"version": 1, "context": ["rules/core.md"]}))
-        outputs = self.rendered()
-        text = "".join(outputs)
-        self.assertNotIn(context.ERROR + " the section", text)
+        place = tempfile.TemporaryDirectory(prefix="house-rules-long-")
+        self.addCleanup(place.cleanup)
+        tree = Path(place.name).joinpath(*(letter * 100 for letter in "defgh"))  # a 500-character checkout path
+        files = {"INDEX.md": "# Index\n\n## Always load\n\n- [core](rules/core.md)\n",
+                 "rules/core.md": "# Core rules\n\n## Big\n\n" + "w " * 4300 + "\n",
+                 "ruleset.json": json.dumps({"version": 1, "context": ["rules/core.md"]}),
+                 "custom/INDEX.md": "# Machine\n"}
+        for name, text in files.items():
+            (tree / name).parent.mkdir(parents=True, exist_ok=True)
+            (tree / name).write_text(text, encoding="utf-8")
+        (tree / "scripts").mkdir()
+        for name in ("session_context.py", "house_rules.py"):
+            shutil.copyfile(REPO / "scripts" / name, tree / "scripts" / name)
+        environ = {k: v for k, v in os.environ.items() if not k.startswith("HOUSE_RULES_")}
+        environ["XDG_CONFIG_HOME"] = str(Path(place.name) / "config")  # no configuration folder: the tree's own index
+        proc = subprocess.run([sys.executable, "-I", str(tree / "scripts/session_context.py"), "codex"],
+                              stdin=subprocess.DEVNULL, capture_output=True, env=environ)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn(context.ERROR, text)  # neither a cap error nor a section replaced by one
         self.assertIn("## Big\n\n" + "w " * 4300 + "\n", text)  # the whole section, in the part it starts
-        self.assertTrue(all(context.units(output) < context.CAP for output in outputs))
+        self.assertIn(f"Read the files from {tree.resolve()} directly.", text)  # the introduction names the long path
+
+    def test_a_wide_label_never_pushes_a_part_over_the_cap(self):
+        place = tempfile.TemporaryDirectory(prefix="house-rules-wide-")
+        self.addCleanup(place.cleanup)
+        tree = Path(place.name)
+        name = "rules/" + "n" * 100 + ".md"  # a label shows 100 characters of it
+        heading = "\U0001F600" * 100  # 100 characters of two UTF-16 units each
+        widest = "\U0001F600" * 100
+        room = context.CAP - context.units(context.label(1000, 1000, "0" * 12, "0" * 12, widest, widest)) - \
+            context.units(context.end_line(1000, 1000)) - 4  # a later part's room with every label field at its widest
+        files = {"INDEX.md": "# Index\n\n## Always load\n\n- [core](rules/core.md)\n",
+                 "rules/core.md": "# Core rules\n\n" + "Filler. " * 900 + "\n",
+                 name: f"## {heading}\n\n" + "w " * ((room - 147) // 2) + "\n",  # fits an ASCII estimate only
+                 "ruleset.json": json.dumps({"version": 1, "context": ["rules/core.md", name]}),
+                 "custom/INDEX.md": "# Machine\n"}
+        for path, text in files.items():
+            (tree / path).parent.mkdir(parents=True, exist_ok=True)
+            (tree / path).write_text(text, encoding="utf-8")
+        (tree / "scripts").mkdir()
+        for script in ("session_context.py", "house_rules.py"):
+            shutil.copyfile(REPO / "scripts" / script, tree / "scripts" / script)
+        environ = {k: v for k, v in os.environ.items() if not k.startswith("HOUSE_RULES_")}
+        environ["XDG_CONFIG_HOME"] = str(tree / "config")
+        proc = subprocess.run([sys.executable, "-I", str(tree / "scripts/session_context.py"), "codex"],
+                              stdin=subprocess.DEVNULL, capture_output=True, env=environ)
+        text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("-character cap", text)  # the parts render; the rules are not replaced by one error
+        self.assertIn("# Core rules", text)
+
+    def test_both_packing_passes_use_one_reading_of_the_files(self):
+        rev, packed, _ = context.parts(self.root)
+        real = Path.read_text
+        writing = self.root / "rules/writing.md"
+
+        def read_once(path, *args, **kwargs):
+            text = real(path, *args, **kwargs)
+            if Path(path) == writing:
+                writing.unlink()  # removed after its first reading, as an edit during the hook would
+            return text
+        failures = []
+        with mock.patch.object(context, "SLOTS", len(packed) - 1), \
+                mock.patch.object(context, "root", return_value=self.root), \
+                mock.patch.object(Path, "read_text", read_once):
+            context.capacity.cache_clear()
+            text = context.every_part(failures)
+        self.assertIn("# Writing rules", text)  # the second pass packs what the first read
+        self.assertNotIn("is missing", text)
 
     def test_section_longer_than_a_part_is_a_visible_error_and_never_split(self):
         self.write("rules/core.md", "# Core rules\n\n## Long section\n\n" + "word " * 3000 + "\n\n## Short\n\nKept.\n")

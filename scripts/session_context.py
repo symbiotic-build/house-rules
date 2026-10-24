@@ -196,7 +196,9 @@ def context_files(base, failures):
         return
     if not isinstance(listed, list) or not listed or not all(isinstance(name, str) for name in listed):
         failures.append(RULESET)
-        yield RULESET, None, (f"{ERROR} {path} is missing.\n" if listed is None
+        yield RULESET, None, (f"{ERROR} {path} is missing, so this tree's always-load rules are not in this context; "
+                              "a tree from before ruleset.json needs the newer global default: python3 <House Rules "
+                              "checkout>/scripts/house_rules.py install\n" if listed is None
                               else f"{ERROR} {path} lists no context files.\n")
         return
     for name in listed:
@@ -299,13 +301,14 @@ def parts(base=None, failures=None):
     failures, when given, collects the House Rules files sources() could not supply.
     """
     base = base or delivered()
-    packed, too_long = pack(base, failures, notice=False)
+    read = list(sources(base, failures))  # one reading: both passes pack the same files and failures
+    packed, too_long = pack(read, notice=False)
     if len(packed) > SLOTS:  # parts 1 and SLOTS then carry the overflow notice too
-        packed, too_long = pack(base, None, notice=True)
+        packed, too_long = pack(read, notice=True)
     return revision(base), packed, too_long
 
 
-def pack(base, failures, notice):
+def pack(read, notice):
     """[(file, heading, text)] per part and [(file, heading)] of sections too long for a part."""
     packed, too_long = [], []
 
@@ -321,7 +324,7 @@ def pack(base, failures, notice):
         add("resolution", "resolution", RESOLUTION_HEAD + "".join(line + "\n" for line in resolution_lines(record)))
     elif error:
         add("resolution", "resolution", RESOLUTION_HEAD + error + "\n")
-    for name, text, path in sources(base, failures):
+    for name, text, path in read:
         for index, (name, heading, section) in enumerate(sections(name, text)):
             shown = name if len(name) <= 100 else name[:99] + "…"
             banner = f"\n===== House Rules file {shown} =====\n" if index == 0 else ""
@@ -378,7 +381,8 @@ def capacity(number, notice=False):
     """The characters part `number` holds for its text: the cap minus the most its label, part 1's introduction,
     the overflow notice when `notice` is set, and its end line can take, with paths and names at their length."""
     most = 10 ** len(str(SLOTS * 100))  # a part count with more digits than any real one
-    used = units(label(most, most, "0" * 12, "0" * 12, "n" * 100, "h" * 100)) + units(end_line(most, most)) + 4
+    wide = "\U0001F600" * 100  # the longest name or heading a label shows, at two UTF-16 units a character
+    used = units(label(most, most, "0" * 12, "0" * 12, wide, wide)) + units(end_line(most, most)) + 4
     if number == 1:
         used += units(introduction(most, "0" * 12)) + 1
     if notice and number in (1, SLOTS):
@@ -510,31 +514,7 @@ def valid_issue(item):
             and isinstance(item.get("body"), str))
 
 
-def default_script():
-    """The global default's own session script when this run gives the default's rules for a resolution too large
-    for part 1. Run as exec's fallback runs it, it reads its own tree's files in whatever format that tree has."""
-    tree = default_tree() if oversized() else None
-    script = tree / "scripts" / "session_context.py" if tree is not None else None
-    return script if script is not None and script.is_file() else None
-
-
-def run_default(script, *argv):
-    """The default script's output for `argv`, started with no resolution record, before the hook's deadline."""
-    environ = {name: value for name, value in os.environ.items() if name != "HOUSE_RULES_RESOLVED"}
-    ends = os.environ.get("HOUSE_RULES_DEADLINE")
-    try:
-        proc = subprocess.run([sys.executable, "-I", str(script), *argv], stdin=subprocess.DEVNULL,
-                              capture_output=True, env=environ,
-                              timeout=max(0.1, float(ends) - time.time()) if ends else None)
-    except subprocess.TimeoutExpired:
-        raise ValueError(f"the global default's {script} did not finish before the hook deadline") from None
-    return proc.stdout.decode("utf-8", "replace").rstrip("\n")
-
-
 def claude(number):
-    script = default_script()
-    if script is not None:
-        return oversized() + "\n" + run_default(script, "claude", str(number))
     rev, packed, _ = parts()
     return render(number, rev, packed)
 
@@ -546,14 +526,6 @@ def every_part(failures=None):
     sections too long for a part, and parts beyond SLOTS.
     """
     failures = [] if failures is None else failures
-    script = default_script()
-    if script is not None:
-        failures.append("the resolution, too large for part 1")
-        try:
-            given = json.loads(run_default(script, "codex"))["hookSpecificOutput"]["additionalContext"]
-        except (KeyError, TypeError) as error:
-            raise ValueError(f"the global default's {script} gave no session context ({error})") from None
-        return oversized() + "\n" + given
     rev, packed, too_long = parts(failures=failures)
     if oversized():
         failures.append("the resolution, too large for part 1")
