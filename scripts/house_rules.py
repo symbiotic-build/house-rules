@@ -54,7 +54,6 @@ LINK = "HOUSE_RULES_LINK"
 DEADLINE = "HOUSE_RULES_DEADLINE"  # set by exec --hook: the hook's deadline, in seconds since 1970-01-01 UTC
 HOOK_ERROR = "HOUSE RULES HOOK ERROR:"  # the error prefix agent session hooks print, as session_context.py does
 HOOK_LINE_UNITS = 600  # the most UTF-16 units of the fallback line; session_context.py keeps this room in every part
-WORD_UNITS = 80  # the most UTF-16 units one word of a too-long fallback line keeps
 COMMIT = re.compile(r"[0-9a-f]{40}")  # a source layer's commit: sources are SHA-1 repositories for now
 SHA256_COMMIT = re.compile(r"[0-9a-f]{64}")
 TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")  # an exact release tag; no version ranges
@@ -660,10 +659,10 @@ def ref_kind(ref):
 
 
 def linked_layer(entry, path, how):
-    state = checkout_state(path) if Path(path).is_dir() else None
+    state = checkout_state(path) if os.path.isdir(path) else None  # False, not an error, for a too-long path
     if state is None:
-        raise Failure(f"house-rules: link {entry['url']}: {path} is not the root of a Git working tree; "
-                      f"run house-rules unlink {path}" if how == "links.json"
+        raise Failure(f"house-rules: the link for {entry['name']} is not the root of a Git working tree: {path}; "
+                      f"run house-rules unlink {entry['url']}" if how == "links.json"
                       else f"house-rules: {LINK}={path} is not the root of a Git working tree; unset it or name one")
     changes = " with uncommitted changes" if state["dirty"] else ""
     warning = (f"warning: LINKED {entry['name']} -> {path} at {state['head']}{changes}; "
@@ -1241,12 +1240,9 @@ def clip(text, most):
 
 
 def fallback_line(failure, explanation):
-    """The hook's failure line within HOOK_LINE_UNITS UTF-16 units. A failure too long for it first shortens each
-    long word, as a URL, path or key, so its cause and repair stay in plain words; then it gives way in its middle."""
+    """The hook's failure line within HOOK_LINE_UNITS UTF-16 units: a failure names its cause first and its repair
+    last, so it gives way in its middle, where a URL, path or Git error sits, and the fixed explanation follows whole."""
     room = HOOK_LINE_UNITS - len(f"{HOOK_ERROR} . {explanation}".encode("utf-16-le")) // 2
-    failure = clip(failure, 4 * HOOK_LINE_UNITS)
-    if len(failure.encode("utf-16-le")) // 2 > room:
-        failure = " ".join(clip(word, WORD_UNITS) for word in failure.split(" "))
     return f"{HOOK_ERROR} {clip(failure, room)}. {explanation}"
 
 

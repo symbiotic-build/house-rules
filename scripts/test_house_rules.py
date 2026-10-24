@@ -209,8 +209,8 @@ class ResolutionTests(Fixture):
         hr.write_links({config["sources"][1]["url"]: str(self.root / "gone")})
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(repo)
-        self.assertIn(f"is not the root of a Git working tree; run house-rules unlink {self.root / 'gone'}",
-                      str(caught.exception))
+        self.assertIn(f"is not the root of a Git working tree: {self.root / 'gone'}; run house-rules unlink "
+                      f"{config['sources'][1]['url']}", str(caught.exception))
 
     def test_no_configuration_uses_the_global_sources_and_moves_default(self):
         fork = self.source("house-rules", {"INDEX.md": "fork rules\n"})
@@ -592,19 +592,23 @@ class SessionContextTests(Fixture):
         hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
         hr.resolve(None)  # the global default's tree
         team = self.source("team-rules", {hr.RULESET: {"version": 1}})
-        gone = self.root / "/".join(["g" * 100] * 7)
-        hr.write_links({team: str(gone)})  # a link to a long path that holds no checkout
         explanation = (". The House Rules below are the global default's, not this repository's resolved rules, and "
                        "this repository's custom layers are missing.")
-        cases = [  # each configuration, and what its line keeps
-            ({"version": 2, "sources": [{"name": "house-rules", "url": house}], "\udc80": 1},
+        linked = {"version": 2, "sources": [{"name": "house-rules", "url": house}, {"name": "team-rules", "url": team}]}
+        broken = ["house-rules: the link for team-rules is not the root of a Git working tree: /",
+                  f"; run house-rules unlink {team}. "]
+        cases = [  # each configuration, the link it finds, and what its line keeps
+            ({"version": 2, "sources": [{"name": "house-rules", "url": house}], "\udc80": 1}, None,
              ["house-rules: ", "house-rules.json: unknown field \\udc80; allowed: "]),
             ({"version": 2, "sources": [{"name": "house-rules", "url": house}, {"name": "team-rules", "url": house,
-                                                                               "ref": "gone-" + "b" * 700}]},
+                                                                               "ref": "gone-" + "b" * 700}]}, None,
              ["team-rules: no branch gone-bbb", "; check the ref in house-rules.json"]),
-            ({"version": 2, "sources": [{"name": "house-rules", "url": house}, {"name": "team-rules", "url": team}]},
-             [" is not the root of a Git working tree; run house-rules unlink /"])]
-        for config, kept in cases:
+            (linked, "/" + "/".join(["g" * 100] * 30), broken),  # links to missing paths: a 3 030-character one,
+            (linked, "/" + "/".join(["g g " * 25] * 8), broken),  # one with spaces
+            (linked, "/" + "/".join(["g" * 100] * 7), broken)]  # and one just longer than the line
+        for config, link, kept in cases:
+            if link:
+                hr.write_links({team: link})
             repo = self.repository(config)
             proc = subprocess.run([sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py",
                                    "claude", "1"], input=json.dumps({"cwd": repo}).encode(), stdin=None,
@@ -617,6 +621,12 @@ class SessionContextTests(Fixture):
             for text in kept:
                 self.assertIn(text, first)
             self.assertIn("# Core rules", rest)  # the default's rules still follow
+            if link:  # the printed repair works as written
+                target = re.search(r"; run house-rules unlink (\S+)\. The House Rules below", first).group(1)
+                repair = subprocess.run([sys.executable, "-I", str(SCRIPT), "unlink", target], capture_output=True,
+                                        stdin=subprocess.DEVNULL, env=os.environ)
+                self.assertEqual(repair.returncode, 0, repair.stderr)
+                self.assertEqual(hr.read_links(), {})
 
     def test_large_resolutions_name_their_files(self):
         here = Path(__file__).resolve().parent
