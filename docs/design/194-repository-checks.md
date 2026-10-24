@@ -66,7 +66,7 @@ Each technical term below links to its defining Markdown section.
 
 - [Check configuration](194-repository-checks.md#check-configuration) (`repository-checks.check-configuration`) — A check configuration is the versioned JSON file house-rules.json at the repository root that names the repository's House Rules source layer and declares its checks.
 - [Check definition](194-repository-checks.md#check-definition) (`repository-checks.check-definition`) — A check definition is one command, the stages it runs at, the files it reads and how its result is read.
-- [Check installation](194-repository-checks.md#check-installation) (`repository-checks.check-installation`) — Check installation is the repository-checks procedure that writes a repository's configuration, Git hooks and CI step, and prepares the local cache.
+- [Check installation](194-repository-checks.md#check-installation) (`repository-checks.check-installation`) — Check installation is the repository-checks procedure that writes a clone's Git hooks and clone setting and a repository's CI step; it never writes the configuration.
 - [Check run report](194-repository-checks.md#check-run-report) (`repository-checks.check-run-report`) — A check run report is the runner's account of one run and of each check in it.
 - [Check runner](194-repository-checks.md#check-runner) (`repository-checks.check-runner`) — The check runner is skills/repository-checks/scripts/checks.py, one standard-library Python file that reads the configuration, selects checks, runs them and prints the report.
 - [Check stage](194-repository-checks.md#check-stage) (`repository-checks.check-stage`) — A check stage is one point in the change loop where the runner runs checks: pre-commit, pre-push or ci.
@@ -453,29 +453,30 @@ This chapter explains what the install writes, why it writes into the existing h
 <a id="check-installation"></a>
 ### Check installation
 
-Check installation is the `repository-checks` procedure that writes a repository's configuration, Git hooks and CI step, and prepares the local cache.
-An agent or a person runs it once per clone.
+Check installation is the `repository-checks` procedure that writes a clone's Git hooks and [clone setting](#clone-settings) and a repository's CI step; it never writes the configuration.
+An agent or a person runs it once per clone, normally as [`house-rules exec skills/repository-checks/scripts/checks.py install --ci github`](#runner-options).
 Running it again repairs missing pieces and keeps every choice the repository made.
+It needs two things first: the repository's configuration, which `house-rules init` writes, and the `house-rules` command on `PATH`, which `python3 <House Rules checkout>/scripts/house_rules.py install` installs.
 
 **Procedure: install repository checks in one clone**
 
-1. **Preview:** [`checks.py install --dry-run`](#runner-options). Lists each file and setting with "create", "update", "unchanged" or "refused", and writes nothing.
-2. **Install:** `checks.py install`. Performs the listed writes.
-3. **Stage the install:** `git add` the configuration and, when written, the CI workflow.
-4. **Check everything:** [`checks.py run --stage ci --index`](#runner-options). Every CI check that reads [`{snapshot}`](#run-placeholders) runs over the staged snapshot, and failures in existing files show before the hooks start refusing commits. A check that reads the working tree is listed as skipped with the reason "reads the working tree; runs in CI on the commit".
+1. **Preview:** [`house-rules exec skills/repository-checks/scripts/checks.py install --dry-run`](#runner-options). Lists each file and setting with "create", "update", "unchanged" or "refused", and writes nothing.
+2. **Install:** the same command without [`--dry-run`](#runner-options). Performs the listed writes.
+3. **Stage the install:** `git add` the files its `next: stage the install` line names, and the configuration when it is new.
+4. **Check everything:** [`house-rules exec --origin index skills/repository-checks/scripts/checks.py run --stage ci --index`](#runner-options), the install's last `next:` line. Every CI check that reads [`{snapshot}`](#run-placeholders) runs over the staged snapshot, and failures in existing files show before the hooks start refusing commits. A check that reads the working tree is listed as skipped with the reason "reads the working tree; runs in CI on the commit".
 5. **Commit the repository files** through a reviewed PR. CI then runs the same checks on the commit.
 
 > **Detail — what the install writes**
 >
-> - `house-rules.json`: created only when absent, with `version` 2, the House Rules layer at its branch `main` and an empty `checks` object. An existing file is never rewritten.
+> - Nothing in `house-rules.json`. A repository without one, neither in the index nor in the working tree, stops the install with exit status 2 and "no house-rules.json in this repository; run `house-rules init` first".
 > - The `pre-commit` and `pre-push` hook files in the folder `git rev-parse --git-path hooks` prints: the [hook block](#hook-block) is added or refreshed.
-> - Two per-clone Git settings: [`house-rules.checks-runner`](#clone-settings), the runner's absolute path in the cache, and [`house-rules.checks-python`](#clone-settings), an absolute interpreter path.
-> - `.github/workflows/repository-checks.yml`, when the repository has `.github/workflows/` or the caller passes [`--ci github`](#runner-options). A rerun never rewrites an existing workflow file. It reports when the runner step differs from the current template, so a repository's own setup steps stay.
-> - Cache contents: the tree of the commit the House Rules layer resolves to and the spec checker's environment, built from its hash-locked requirements.
+> - One per-clone Git setting, [`house-rules.command`](#clone-settings): the absolute path of the `house-rules` command that `PATH` names. With no such command on `PATH` the install stops with exit status 2 and "the house-rules command is not on PATH; run `python3 <House Rules checkout>/scripts/house_rules.py install` first".
+> - `.github/workflows/repository-checks.yml`, when the repository has `.github/workflows/` or the caller passes [`--ci github`](#runner-options). A rerun never rewrites an existing workflow file. It reports when the runner step differs from the current template and prints the template's step, so a repository's own setup steps stay.
+> - Nothing in the cache: each hook and CI run resolves House Rules through `house-rules exec`.
 
-The installer chooses [`house-rules.checks-python`](#clone-settings) as the newest interpreter on `PATH` that every enabled built-in supports.
-With spec-docs enabled that range is CPython 3.11 to 3.14. On the measured machine it chooses `python3.14`, not `python3` 3.15.0.
-
+Each stop above happens before the install writes anything.
+The install prints one line per item, its action and then the file or setting. A refused item gives its reason and repair on that line or on the lines below it.
+The install exits 1 when it refused an item and 0 otherwise; the items it did not refuse are written either way.
 For another CI system the install writes no file and prints the one command the CI job runs.
 
 <a id="hook-block"></a>
@@ -486,27 +487,39 @@ Markers let a rerun replace exactly its own lines and leave other tools' lines a
 
 ```sh
 # house-rules:repository-checks:begin
-runner=$(git config --get house-rules.checks-runner) || {
-  echo "repository checks are not installed in this clone; run: python3 <House Rules>/skills/repository-checks/scripts/checks.py install" >&2
+cmd=$(git config --get house-rules.command) || cmd=
+if [ ! -f "$cmd" ] || [ ! -x "$cmd" ]; then
+  echo "repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install" >&2
   exit 1
-}
-"$(git config --get house-rules.checks-python)" -I "$runner" run --stage pre-commit || exit $?
+fi
+"$cmd" exec --origin index skills/repository-checks/scripts/checks.py run --stage pre-commit || exit $?
 # house-rules:repository-checks:end
 ```
 
 Entities in this example: [clone settings](#clone-settings), [runner options](#runner-options).
 
-The pre-push block runs [`--stage pre-push`](#runner-options) instead, and also handles the pushed references that Git writes once to the hook's standard input:
+The block reads the clone setting [`house-rules.command`](#clone-settings) and starts that command's `exec`, which resolves the repository's House Rules layer and runs the runner from that commit's tree. At pre-commit, `exec --origin index` reads the configuration from the staged index.
+When the setting is missing or does not name an executable file, the block prints one line, which names the command's install, and exits 1, so Git refuses the commit or push:
+
+```text
+repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install
+```
+
+`exec` returns the runner's exit status unchanged. Its own failures exit 2 for a preparation failure and 1 for a usage error, each with one line on standard error. The block passes that status to Git, so any nonzero status refuses the commit or push and the lines after the block do not run.
+The block never passes `--hook` to `exec`: that option belongs to agent session hooks.
+
+The pre-push block runs `exec --rev HEAD` with [`--stage pre-push`](#runner-options) instead, and also handles the pushed references that Git writes once to the hook's standard input:
 
 ```sh
 # house-rules:repository-checks:begin
-runner=$(git config --get house-rules.checks-runner) || {
-  echo "repository checks are not installed in this clone; run: python3 <House Rules>/skills/repository-checks/scripts/checks.py install" >&2
+cmd=$(git config --get house-rules.command) || cmd=
+if [ ! -f "$cmd" ] || [ ! -x "$cmd" ]; then
+  echo "repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install" >&2
   exit 1
-}
+fi
 refs=$(mktemp) || { echo "repository checks: cannot create a temporary file; push refused" >&2; exit 1; }
 cat > "$refs" || { echo "repository checks: cannot save the pushed references; push refused" >&2; rm -f "$refs"; exit 1; }
-"$(git config --get house-rules.checks-python)" -I "$runner" run --stage pre-push --remote "$1" < "$refs" || { status=$?; rm -f "$refs"; exit $status; }
+"$cmd" exec --rev HEAD skills/repository-checks/scripts/checks.py run --stage pre-push --remote "$1" < "$refs" || { status=$?; rm -f "$refs"; exit $status; }
 exec < "$refs" || { echo "repository checks: cannot reopen the pushed references; push refused" >&2; rm -f "$refs"; exit 1; }
 rm -f "$refs"
 # house-rules:repository-checks:end
@@ -514,10 +527,10 @@ rm -f "$refs"
 
 Entities in this example: [clone settings](#clone-settings), [runner options](#runner-options).
 
-The block saves the reference lines to a temporary file and gives them to the runner. When creating or writing that file fails, the block names the failure, removes the file and refuses the push before any check runs, so a partial copy never stands for the whole push. After the runner passes, the block reopens the hook's standard input from that file, so another tool's lines after the block read the same lines; a large-file extension's pre-push hook is one such reader. Removing the file after `exec` is safe, because the open input stays readable until the hook exits.
+The block saves the reference lines to a temporary file and feeds the runner from it; `exec` passes its standard input to the runner unchanged. When creating or writing that file fails, the block names the failure, removes the file and refuses the push before any check runs, so a partial copy never stands for the whole push. After the runner passes, the block reopens the hook's standard input from that file, so another tool's lines after the block read the same lines; a large-file extension's pre-push hook is one such reader. Removing the file after `exec` is safe, because the open input stays readable until the hook exits.
 
 When that reopening fails, the push is refused after the checks ran. A plain `/bin/sh` exits at the failed redirection before the block's message and removal run, so the author may see only the shell's own error and a leftover temporary file.
-The block holds no machine paths: both paths come from per-clone Git settings, so the block can also live in a tracked hooks folder.
+The block holds no machine path: the command's path comes from the clone setting, so the block can also live in a tracked hooks folder.
 
 The install handles each existing hook file one way:
 
@@ -605,11 +618,10 @@ The runner prepares a revision once and reuses it:
 > - The environment's interpreter is the running one when the spec checker supports it, and otherwise the newest supported `python3.<minor>` on `PATH`.
 > - A revision or environment is built in a temporary folder whose name starts with `.partial-`, and renamed into place. Two hooks that prepare the same revision at once both end with one complete copy.
 > - The cache survives an interrupted process, because nothing uses an entry before its rename and no run reuses anything Git locks. An interrupted fetch leaves only its temporary repository, with any lock file Git left in it. No run ever uses a `.partial-` folder, so any of them may be deleted when no run is active.
-> - The cache is not built to survive a host power loss: an entry can then be incomplete. The repair has two steps: delete the cache folder, then run the install again from a House Rules checkout. The install prepares the cache and points [`house-rules.checks-runner`](#clone-settings) at the runner of the current commit, and the hooks work again after it. `checks.py prepare` alone is not enough when the branch moved since the install, because the hooks still name the earlier commit's runner.
+> - The cache is not built to survive a host power loss: an entry can then be incomplete. The repair is to delete the cache folder. No hook names a path inside the cache, so the next run fetches and builds what it needs again.
 > - Extracting a revision from its commit makes its files the commit's files; the runner trusts a cache entry after that and checks only that its folder exists.
 
-The runner in a hook is the one at the path in [`house-rules.checks-runner`](#clone-settings), at the commit the install prepared.
-After the House Rules branch moves, that runner resolves the new commit, prepares it and hands over. The runner that runs the checks is therefore always at the run's resolved commit.
+A hook starts the runner through the command that [`house-rules.command`](#clone-settings) names. Its `exec` resolves the House Rules layer at each run and starts the runner from that commit's tree. The runner that runs the checks is therefore always at the run's resolved commit.
 
 Offline use works for each layer as follows:
 
@@ -1334,12 +1346,11 @@ The runner reads those whose names start with `HOUSE_RULES_` and sets those whos
 ### Clone settings
 
 A clone setting is a per-clone Git setting that the install writes and the hook blocks read.
-Clone settings keep machine paths out of the hook blocks, so a block can also live in a tracked hooks folder.
+The clone setting keeps machine paths out of the hook blocks, so a block can also live in a tracked hooks folder.
 
 | Setting | Value |
 |---|---|
-| [`house-rules.checks-runner`](#clone-settings) | the runner's absolute path in the cache |
-| [`house-rules.checks-python`](#clone-settings) | an absolute interpreter path |
+| [`house-rules.command`](#clone-settings) | the absolute path of the `house-rules` command on `PATH` |
 
 <a id="naming-conventions"></a>
 ### Naming conventions
@@ -1347,7 +1358,7 @@ Clone settings keep machine paths out of the hook blocks, so a block can also li
 Each kind of public name in this design follows one convention:
 
 - Configuration fields, built-in definition fields and report fields are lower snake case: `skip_reason`, `requires`, `enforced`. A compound name puts its modifiers before the head noun, as in `skip_reason`, and a true-or-false field is one adjective or participle, as in `enabled` and `enforced`. They have no prefix or suffix.
-- Git settings sit in the `house-rules` section, and the key after it is lower kebab case, subject first: [`house-rules.checks-runner`](#clone-settings). The section is the only prefix; the key has no suffix.
+- Git settings sit in the `house-rules` section, and the key after it is lower kebab case, subject first: [`house-rules.command`](#clone-settings). The section is the only prefix; the key has no suffix.
 - Check identities are lower kebab case, noun first: `spec-docs`. They have no prefix or suffix.
 - Layer names are lower kebab case, noun first: `house-rules` for the House Rules layer, and `repository` for the configuration's own layer. They have no prefix or suffix.
 - Configuration files are named `house-rules` followed by their extension: `house-rules.json`. No other affix applies.
@@ -1410,18 +1421,50 @@ Entities in this example: [runner options](#runner-options).
 The runner reads the [runner environment variables](#runner-environment-variables) whose names start with `HOUSE_RULES_`.
 
 A pre-push rerun line also names the snapshot and its base, [`--head <commit> --base <base>`](#runner-options). With [`--head`](#runner-options) the runner checks that one commit and reads no standard input.
-A CI rerun line holds the CI machine's paths, such as `.tmp/house-rules`. To rerun it locally, the reader replaces them with the local runner.
+A CI rerun line holds the CI machine's paths, such as the runner's path in its House Rules cache. To rerun it locally, the reader passes the same arguments to `house-rules exec skills/repository-checks/scripts/checks.py`.
 
-The workflow the install writes for GitHub Actions has four steps. It checks out the repository with full history and sets up Python 3.13. It checks out nothing of House Rules; it clones House Rules main and runs that runner, which then resolves the configuration's layer:
+The workflow the install writes for GitHub Actions has four steps. It checks out the repository with its full history, so that the [`--base`](#runner-options) commit is in the clone, and sets up Python 3.13. It clones House Rules main into `.tmp/house-rules`. From the repository root it runs that clone's `house-rules exec`, which resolves the configuration's House Rules layer and runs the runner from that commit's tree:
+
+```yaml
+name: Repository checks
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  repository-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Clone House Rules
+        run: git clone --depth 1 https://github.com/symbiotic-build/house-rules .tmp/house-rules
+      - name: Run repository checks
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set --
+          case "$BASE" in ""|0000000000000000000000000000000000000000) ;; *) set -- --base "$BASE" ;; esac
+          python .tmp/house-rules/scripts/house_rules.py exec --rev "$GITHUB_SHA" skills/repository-checks/scripts/checks.py run --stage ci "$@" --head "$GITHUB_SHA"
+```
+
+The run step passes the PR's base commit, or for a push the commit before it, as `--base`. When GitHub names none, such as for a new branch, it leaves `--base` out and the runner compares the commit with its first parent.
+The job log holds the text report with each layer and each check's version.
+
+For another CI system the install prints the one command the job runs after it clones House Rules into `.tmp/house-rules`:
 
 ```text
-git clone --depth 1 https://github.com/symbiotic-build/house-rules .tmp/house-rules
-python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage ci --base <PR base or previous commit> --head <commit>
+python .tmp/house-rules/scripts/house_rules.py exec --rev <commit> skills/repository-checks/scripts/checks.py run --stage ci --base <PR base or previous commit> --head <commit>
 ```
 
 Entities in this example: [runner options](#runner-options).
-
-The runner then resolves the configuration's House Rules layer itself. For the default branch `main` it normally equals the clone's commit; after a House Rules merge between the two steps, or for another ref, the cloned runner hands over to the resolved one. The job log holds the text report with each layer and each check's version.
 
 <a id="runner-options"></a>
 #### Runner options
@@ -1429,6 +1472,7 @@ The runner then resolves the configuration's House Rules layer itself. For the d
 A runner option is one of the double-dash options of the runner's commands, such as `--stage` and `--dry-run`.
 
 [`--remote NAME`](#runner-options) names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. [`--index`](#runner-options) builds the snapshot from the staged index, as pre-commit does, for the install's preflight; [`--head`](#runner-options) names a commit instead. `--only` limits the run to named checks and is what the report's rerun line uses. `--base` accepts a commit or the empty tree's identity, so a rerun line can repeat any base the runner chose.
+[`--dry-run`](#runner-options) makes `install` list each item and write nothing. [`--ci github`](#runner-options) makes `install` write the GitHub Actions workflow also in a repository without `.github/workflows/`.
 
 <a id="report-format"></a>
 ### Report format
@@ -1476,20 +1520,20 @@ A snapshot without a configuration has `base` set to `null`, no checks, result `
 ## Acceptance
 
 The runner's cases are unit tests in `skills/repository-checks/scripts/test_checks.py`; CI runs them before it audits their selectors.
-Cases that need the install, its hook blocks, the measured machine's build queue or a private corpus are demonstrations or an analysis. Each names the work package or record that delivers its evidence.
+Cases that need the measured machine's build queue or a private corpus are demonstrations or an analysis. Each names the work package or record that delivers its evidence.
 
 <a id="test-checks-default-install"></a>
-### Demonstration: default install
+### Default install
 
-**Method:** demonstration.
+**Method:** test.
 
 **Requirements:** [One configuration](#req-checks-one-configuration), [same runner](#req-checks-same-runner).
 
-**Inputs:** A fixture clone with a registered specification, no hooks and no configuration; the tour's install and commits. After the install, the fixture adds one CI-only repository check that reads the working tree (a stub command without [`{snapshot}`](#run-placeholders)) to the configuration and stages it.
+**Inputs:** A fixture clone with a registered specification, a configuration, another workflow and no hooks; the tour's install and commits, with a stand-in `house-rules` command on `PATH` that runs the runner as `exec` does. After the install, the fixture adds one CI-only repository check that reads the working tree (a stub command without [`{snapshot}`](#run-placeholders)) to the configuration and stages it. Separately: a clone without a configuration, then with one only in the working tree and only in the index; a `PATH` without `house-rules`; a `PATH` that names the command's folder relative to the repository root; a [`--dry-run`](#runner-options); [`--ci github`](#runner-options), a rerun, and an existing workflow with its own runner step; a clone without `.github/workflows/`.
 
-**Expected:** The install writes the tour's configuration and both hook blocks. After the stub is added and staged, [`run --stage ci --index`](#runner-options) runs both default checks and lists the stub check as skipped with the reason "reads the working tree; runs in CI on the commit"; [`run --stage ci`](#runner-options) on the commit runs the stub. The hook and [`run --stage ci`](#runner-options) give the same result for the same commit.
+**Expected:** The install writes both hook blocks as [Hook block](#hook-block) shows them, the [clone setting](#clone-settings) and the workflow, and leaves the configuration unchanged. After the stub is added and staged, the install's preflight runs both default checks and lists the stub check as skipped with the reason "reads the working tree; runs in CI on the commit"; [`run --stage ci`](#runner-options) on the commit runs the stub. The hook and [`run --stage ci`](#runner-options) give the same result for the same commit. The clone without a configuration and the `PATH` without `house-rules` exit 2 with their lines from [Check installation](#check-installation) and write nothing; a configuration in the working tree or the index alone is enough. The setting holds the command's absolute path, also when `PATH` names its folder relatively. The dry run lists each item and writes nothing. The workflow is the template in [Runner commands](#runner-commands); a rerun leaves it unchanged, and reports a changed runner step with the template's step. The clone without workflows gets the other-CI command and no workflow file.
 
-Evidence: planned for the install work package, following the [tour](#tour). The runner's part, with a hand-written configuration and hook, is `test_default_install_preflight_and_hook_match_ci`.
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::InstallTest::test_default_install_follows_the_tour](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_without_a_configuration_is_refused_and_writes_nothing](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_without_house_rules_on_path_is_refused_and_writes_nothing](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_writes_both_hook_blocks_and_the_command_setting](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_dry_run_lists_each_item_and_writes_nothing](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_ci_workflow_is_written_once_and_a_changed_runner_step_is_reported](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_other_ci_system_gets_the_one_command_and_no_workflow](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-refused-commit"></a>
 ### Refused commit
@@ -1557,17 +1601,17 @@ Evidence: the [measurement after #198](#evidence), about 1.2 s.
 **Implementation:** [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_no_specifications_runs_whitespace_and_skips_spec_docs](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SelectionTest::test_required_file_is_not_satisfied_by_a_submodule](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-install-existing"></a>
-### Demonstration: install over existing hooks
+### Install over existing hooks
 
-**Method:** demonstration.
+**Method:** test.
 
 **Requirements:** [Install](#req-checks-install).
 
-**Inputs:** Clones with a tool-written `post-commit` and `pre-commit`, a non-executable `pre-commit`, a `core.hooksPath` Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook, a binary hook and an existing configuration; each installed twice. A pre-push hook file with another tool's line after the block that reads standard input. A pre-push whose temporary copy of the references fails to write.
+**Inputs:** Clones with a tool-written `post-commit` and `pre-commit`, a `pre-push` with an earlier block between other lines, a non-executable `pre-commit`, a `core.hooksPath` Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook, a binary hook, a hook in another language, a hook with only a begin marker and an existing configuration; each installed twice. A stand-in `house-rules` command that records its arguments and standard input and exits with status 0, 1 or 2, started by Git and by the hook files directly. A setting that is missing, names a missing file, names a file that is not executable, and names a folder. A pre-push hook file with another tool's line after the block that reads standard input. A pre-push whose temporary copy of the references cannot be created, and one whose copy cannot be written.
 
-**Expected:** Other tools' lines still run; the line after the pre-push block reads the same reference lines as the runner. The Husky folder receives the blocks; the non-executable, framework and binary hooks are refused with their stated output; the status line reports the linked worktree without its block; the configuration is unchanged; the second install reports every item unchanged. The failed temporary copy makes the [hook block](#hook-block) print its own line and refuse the push with status 1 before the runner starts.
+**Expected:** The pre-commit block starts [`exec --origin index skills/repository-checks/scripts/checks.py run --stage pre-commit`](#runner-options) and the pre-push block [`exec --rev HEAD skills/repository-checks/scripts/checks.py run --stage pre-push --remote <remote>`](#runner-options). Each block exits with the command's status, and the lines after it run only at status 0. Each unusable setting makes either block print the one line of [Hook block](#hook-block) and exit 1 without starting the command. Other tools' lines still run; the command and the line after the pre-push block read the same reference lines. The earlier block is replaced and the lines around it stay. The Husky folder receives the blocks and `core.hooksPath` stays; the non-executable, framework, binary, other-language and incomplete-marker hooks are refused with their stated output and stay unchanged; the status line reports the linked worktree without its block until its own install; the configuration is unchanged; the second install reports every item unchanged. The failed temporary copy makes the [hook block](#hook-block) print its own line and refuse the push with status 1 before the command starts, and leaves no temporary file.
 
-Evidence: planned for the install work package, following [Check installation](#check-installation).
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::InstallTest::test_hook_blocks_start_house_rules_exec_with_their_command_lines](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_hook_block_passes_the_exec_status_through](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_hook_block_without_a_usable_command_setting_names_the_command_install](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_pre_push_references_reach_house_rules_and_a_later_reader](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_failed_copy_of_the_pushed_references_refuses_before_house_rules_starts](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_keeps_other_tools_hooks_and_a_second_install_changes_nothing](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_refuses_hook_files_it_cannot_edit](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_writes_into_the_husky_hooks_folder](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_linked_worktree_with_a_relative_hooks_folder_needs_its_own_install](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-main-moves"></a>
 ### House Rules main moves

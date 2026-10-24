@@ -516,8 +516,7 @@
         "clone settings"
       ],
       "symbols": [
-        "house-rules.checks-runner",
-        "house-rules.checks-python"
+        "house-rules.command"
       ],
       "rejected_forms": []
     }
