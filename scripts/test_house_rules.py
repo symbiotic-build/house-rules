@@ -209,8 +209,8 @@ class ResolutionTests(Fixture):
         hr.write_links({config["sources"][1]["url"]: str(self.root / "gone")})
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(repo)
-        self.assertIn(f"is not the root of a Git working tree: {self.root / 'gone'}; run house-rules unlink "
-                      f"{config['sources'][1]['url']}", str(caught.exception))
+        self.assertTrue(str(caught.exception).endswith(f"house-rules unlink with its checkout path or URL: team-rules "
+                                                       f"{config['sources'][1]['url']} -> {self.root / 'gone'}"))
 
     def test_no_configuration_uses_the_global_sources_and_moves_default(self):
         fork = self.source("house-rules", {"INDEX.md": "fork rules\n"})
@@ -594,21 +594,28 @@ class SessionContextTests(Fixture):
         team = self.source("team-rules", {hr.RULESET: {"version": 1}})
         explanation = (". The House Rules below are the global default's, not this repository's resolved rules, and "
                        "this repository's custom layers are missing.")
-        linked = {"version": 2, "sources": [{"name": "house-rules", "url": house}, {"name": "team-rules", "url": team}]}
-        broken = ["house-rules: the link for team-rules is not the root of a Git working tree: /",
-                  f"; run house-rules unlink {team}. "]
+        def linked(name, url):
+            return {"version": 2, "sources": [{"name": "house-rules", "url": house}, {"name": name, "url": url}]}
+        broken = ["HOUSE RULES HOOK ERROR: house-rules: a linked checkout is not the root of a Git working tree; "
+                  "house-rules cache list shows the link, then run house-rules unlink with its checkout path or URL: "]
+        g7 = "/" + "/".join(["g" * 100] * 7)
         cases = [  # each configuration, the link it finds, and what its line keeps
             ({"version": 2, "sources": [{"name": "house-rules", "url": house}], "\udc80": 1}, None,
              ["house-rules: ", "house-rules.json: unknown field \\udc80; allowed: "]),
             ({"version": 2, "sources": [{"name": "house-rules", "url": house}, {"name": "team-rules", "url": house,
                                                                                "ref": "gone-" + "b" * 700}]}, None,
              ["team-rules: no branch gone-bbb", "; check the ref in house-rules.json"]),
-            (linked, "/" + "/".join(["g" * 100] * 30), broken),  # links to missing paths: a 3 030-character one,
-            (linked, "/" + "/".join(["g g " * 25] * 8), broken),  # one with spaces
-            (linked, "/" + "/".join(["g" * 100] * 7), broken)]  # and one just longer than the line
+            # links to missing checkouts: a 3 030-character path, a path with spaces, one just longer than the line,
+            (linked("team-rules", team), "/" + "/".join(["g" * 100] * 30), broken),
+            (linked("team-rules", team), "/" + "/".join(["g g " * 25] * 8), broken),
+            (linked("team-rules", team), g7, broken),
+            # a 700-character URL, a URL with a space, and a 700-character layer name
+            (linked("team-rules", "file:///tmp/" + "k" * 700 + "/missing"), g7, broken),
+            (linked("team-rules", "file:///tmp/team rules.git"), "/tmp/gone", broken),
+            (linked("t" * 700, team), g7, broken)]
         for config, link, kept in cases:
             if link:
-                hr.write_links({team: link})
+                hr.write_links({config["sources"][1]["url"]: link})
             repo = self.repository(config)
             proc = subprocess.run([sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py",
                                    "claude", "1"], input=json.dumps({"cwd": repo}).encode(), stdin=None,
@@ -621,9 +628,12 @@ class SessionContextTests(Fixture):
             for text in kept:
                 self.assertIn(text, first)
             self.assertIn("# Core rules", rest)  # the default's rules still follow
-            if link:  # the printed repair works as written
-                target = re.search(r"; run house-rules unlink (\S+)\. The House Rules below", first).group(1)
-                repair = subprocess.run([sys.executable, "-I", str(SCRIPT), "unlink", target], capture_output=True,
+            if link:  # the printed repair works: cache list shows the link, and unlink removes it by its URL
+                listed = subprocess.run([sys.executable, "-I", str(SCRIPT), "cache", "list"], capture_output=True,
+                                        stdin=subprocess.DEVNULL, env=os.environ).stdout.decode()
+                url = config["sources"][1]["url"]
+                self.assertIn(f"{url}\n  linked to {link}\n", listed)
+                repair = subprocess.run([sys.executable, "-I", str(SCRIPT), "unlink", url], capture_output=True,
                                         stdin=subprocess.DEVNULL, env=os.environ)
                 self.assertEqual(repair.returncode, 0, repair.stderr)
                 self.assertEqual(hr.read_links(), {})

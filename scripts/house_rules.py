@@ -661,8 +661,9 @@ def ref_kind(ref):
 def linked_layer(entry, path, how):
     state = checkout_state(path) if os.path.isdir(path) else None  # False, not an error, for a too-long path
     if state is None:
-        raise Failure(f"house-rules: the link for {entry['name']} is not the root of a Git working tree: {path}; "
-                      f"run house-rules unlink {entry['url']}" if how == "links.json"
+        raise Failure("house-rules: a linked checkout is not the root of a Git working tree; house-rules cache list "
+                      "shows the link, then run house-rules unlink with its checkout path or URL: "
+                      f"{entry['name']} {entry['url']} -> {path}" if how == "links.json"
                       else f"house-rules: {LINK}={path} is not the root of a Git working tree; unset it or name one")
     changes = " with uncommitted changes" if state["dirty"] else ""
     warning = (f"warning: LINKED {entry['name']} -> {path} at {state['head']}{changes}; "
