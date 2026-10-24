@@ -831,6 +831,10 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"],
                          [{"hooks": [self.unrelated]}, context.hooks("claude", sys.executable, self.root)])
         self.invoke("--install-hooks", "--command", str(command))
+        command.chmod(0o644)  # a command that cannot run delivers no rules
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: stale session context hook: {self.settings}", out)
         command.unlink()
         code, out, err = self.invoke()
         self.assertEqual(code, 1, out + err)

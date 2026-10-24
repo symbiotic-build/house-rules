@@ -147,6 +147,8 @@ def revision(base):
     record = resolution()
     if record:
         return record["layers"][0]["revision"][:12]
+    if base.parent.name == "revisions" and re.fullmatch(r"[0-9a-f]{40}", base.name):
+        return base.name[:12]  # a cached tree, as a hook fallback runs from, is named by its commit
     try:
         return subprocess.run(["git", "--no-optional-locks", "-C", str(base), "rev-parse", "--short=12", "HEAD"],
                               stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True,
@@ -156,33 +158,33 @@ def revision(base):
 
 
 def sources(base, failures=None):
-    """(name, text) for every injected file: INDEX.md, every context file, then this computer's local index.
+    """(name, text, path) for every injected file: INDEX.md, every context file, then this computer's local index.
 
-    A missing file becomes an error line. failures, when given, collects each House Rules file that could not be
-    supplied. A missing local index is the operator's state, not a House Rules failure, so it is not collected.
+    A missing file becomes an error line. failures, when given, collects each House Rules or layer file that could
+    not be supplied. A missing local index is the operator's state, not a House Rules failure, so it is not collected.
     """
     failures = [] if failures is None else failures
     index = base / "INDEX.md"
     # INDEX.md is the human index; the files it lists arrive through House Rules' ruleset context below.
     if index.is_file():
-        yield "INDEX.md", index.read_text(encoding="utf-8")
+        yield "INDEX.md", index.read_text(encoding="utf-8"), index
     else:
         failures.append("INDEX.md")
-        yield "INDEX.md", f"{ERROR} {index} is missing.\n"
+        yield "INDEX.md", f"{ERROR} {index} is missing.\n", index
     for name, path, own in context_files(base, failures):
         if path is None:  # ruleset.json itself could not be read; own holds the error line
-            yield name, own
+            yield name, own, base / name
         elif path.is_file() and own:  # a House Rules file that cannot be read reaches the caller, as INDEX.md does
-            yield name, path.read_text(encoding="utf-8")
+            yield name, path.read_text(encoding="utf-8"), path
         elif path.is_file():
             try:
-                yield name, path.read_text(encoding="utf-8")
+                yield name, path.read_text(encoding="utf-8"), path
             except (OSError, UnicodeDecodeError) as error:
-                yield name, f"{ERROR} cannot read {path}: {error}\n"
+                failures.append(name)  # a team file that could not be read is delivered again once repaired
+                yield name, f"{ERROR} cannot read {path}: {error}\n", path
         else:
-            if own:
-                failures.append(name)
-            yield name, f"{ERROR} {path} is missing.\n"
+            failures.append(name)
+            yield name, f"{ERROR} {path} is missing.\n", path
     path = local_index(base)
     # Only an absent local index is the operator's state; any other read failure (a denied folder, for
     # example) reaches the caller, so a Kimi session is not recorded as having the local policies.
@@ -191,7 +193,7 @@ def sources(base, failures=None):
     except FileNotFoundError:
         local = (f"{ERROR} this computer's local index {path} is missing, so its local policies are not loaded. "
                  "INSTALL-AGENTS.md §4 creates it.\n")
-    yield LOCAL_INDEX, local
+    yield LOCAL_INDEX, local, path
 
 
 def sections(name, text):
@@ -226,12 +228,17 @@ def parts(base=None, failures=None):
     base = base or root()
     limit = CAP - RESERVE
     blocks, too_long = [], []
-    for name, text in sources(base, failures):
+    # The resolution goes first and is packed like the files, one line per block, so it can never push a part
+    # over the cap however many layers it names.
+    for index, line in enumerate(resolution_lines()):
+        head = "\n===== House Rules resolution =====\n" if index == 0 else ""
+        blocks.append(("resolution", "resolution", head + line + "\n"))
+    for name, text, path in sources(base, failures):
         for index, (name, heading, section) in enumerate(sections(name, text)):
             if units(section) > limit:
                 too_long.append((name, heading))
                 section = (f"{ERROR} {name} section \"{heading}\" is {units(section)} characters, more than the "
-                           f"{limit} one part holds, so it is not in this context. Read it from {base / name}.\n")
+                           f"{limit} one part holds, so it is not in this context. Read it from {path}.\n")
             if index == 0:
                 section = f"\n===== House Rules file {name} =====\n{section}"
             blocks.append((name, heading, section))
@@ -267,10 +274,8 @@ def render(number, rev, packed):
     text_id = fingerprint(packed)
     lines = [label(number, total, rev, text_id, name, heading)]
     if number == 1:
-        lines.extend(resolution_lines())
-        governs = ("This part's resolution governs: read INDEX.md, its always-load rules, the operator-writing skill "
-                   "and every context file listed above from the trees this part names, directly."
-                   if resolution() else f"Read the files from {root()} directly.")
+        governs = ("Part 1's resolution governs: read INDEX.md and every context file its resolution lines list, "
+                   "at the paths they name, directly." if resolution() else f"Read the files from {root()} directly.")
         lines.append(f"House Rules INDEX.md, its always-load rules, the operator-writing skill and this computer's "
                      f"{LOCAL_INDEX}, then any custom layer's context files, follow in full, in {total} parts. "
                      "They apply to every reply in this session. The parts can arrive in any order: read them in "
@@ -308,8 +313,9 @@ def resolution_lines():
 
 
 def overflow(total):
+    where = ("the paths part 1's resolution lines list" if resolution() else f"{root()}")
     return (f"{ERROR} the rules need {total} parts but the hook delivers only {SLOTS}, so parts "
-            f"{SLOTS + 1} to {total} are not in this context. Read those files from {root()} directly; "
+            f"{SLOTS + 1} to {total} are not in this context. Read those files from {where} directly; "
             f"raise SLOTS in scripts/session_context.py.")
 
 

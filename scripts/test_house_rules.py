@@ -527,8 +527,8 @@ class SessionContextTests(Fixture):
         self.assertNotIn("HOUSE RULES HOOK ERROR", text)
         team_tree = re.search(r"house-rules: tree of team-rules: (\S+)", text).group(1)
         self.assertIn(f"house-rules: context of team-rules: {team_tree}/rules/team.md", text)
-        self.assertIn("This part's resolution governs: read INDEX.md, its always-load rules, the operator-writing "
-                      "skill and every context file listed above from the trees this part names, directly.", text)
+        self.assertIn("Part 1's resolution governs: read INDEX.md and every context file its resolution lines list, "
+                      "at the paths they name, directly.", text)
         first = re.search(r"text ([0-9a-f]{12})", text).group(1)
         self.push("team-rules", {"README.md": "a change outside the context files\n"})
         self.expire_answers()
@@ -546,7 +546,48 @@ class SessionContextTests(Fixture):
         proc = subprocess.run(command, input=json.dumps({"cwd": str(broken)}).encode(), stdin=None,
                               capture_output=True, env=os.environ)
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertIn("# This computer", proc.stdout.decode())  # a fallback still reads this machine's index
+        fallback = proc.stdout.decode()
+        self.assertIn("# This computer", fallback)  # a fallback still reads this machine's index
+        default = Path(os.path.realpath(str(hr.cache_root() / "default")))
+        self.assertIn(f"(revision {default.name[:12]}, ", fallback)  # the cached tree's commit, not "unknown"
+
+    def test_large_resolutions_and_unreadable_team_files(self):
+        here = Path(__file__).resolve().parent
+        names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(200)]  # 200 resolution lines: more than one part
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n\n## Load when needed\n",
+            "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": [*names, "rules/big.md", "rules/bad.md"]},
+                                          "rules/big.md": "# Big\n\n" + "word " * 3000 + "\n", "rules/bad.md": "# Bad\n",
+                                          **{name: "# r\n" for name in names}})
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": "team-rules", "url": team}]})
+        record = hr.resolve(repo)
+        tree = Path(hr.layer_tree(record, "team-rules"))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("context", hr.layer_tree(record) / "scripts/session_context.py")
+        context = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(context)  # the script as the resolved tree holds it
+        with mock.patch.dict(os.environ, {hr.RESOLVED: json.dumps(record)}):
+            failures = []
+            real = Path.read_text
+
+            def read_text(path, *args, **kwargs):  # rules/bad.md is not UTF-8
+                if path.name == "bad.md":
+                    raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+                return real(path, *args, **kwargs)
+            with mock.patch.object(Path, "read_text", new=read_text):
+                rev, packed, too_long = context.parts(context.root(), failures)
+            outputs = [context.render(n, rev, packed) for n in range(1, len(packed) + 1)]  # none over the cap
+        self.assertGreater(len(packed), 1)
+        whole = "".join(outputs)
+        self.assertIn("\n===== House Rules resolution =====\n", outputs[0])  # part 1 starts with the resolution
+        self.assertLess(whole.index("House Rules resolution ====="), whole.index("House Rules file INDEX.md"))
+        self.assertIn("team-rules rules/bad.md", failures)  # Kimi delivers it again once it can be read
+        text = "".join(outputs)
+        self.assertIn(f"Read it from {tree / 'rules/big.md'}.", text)  # the real file, not a path under House Rules
 
 
 class RoundOneTests(Fixture):

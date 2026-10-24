@@ -346,7 +346,8 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset(), gener
     python = commands[0][0] if commands[0] else ""
     through = exec_form(commands[0]) if commands[0] else False
     expected = (generator or session_context).hooks(product, python, root, *((python,) if through else ()))
-    if len(owned) != 1 or not Path(python).is_absolute() or not is_file(Path(python)) or entry != expected:
+    if len(owned) != 1 or not Path(python).is_absolute() or not is_file(Path(python)) or entry != expected or \
+            (through and not os.access(python, os.X_OK)):  # a command that cannot run delivers no rules
         findings.append(f"stale session context hook: {path}")
     elif not through and any(len(tokens) > 2 and not is_file(Path(tokens[2])) for tokens in commands):
         findings.append(f"session context hook runs a missing script: {path}")
@@ -430,7 +431,7 @@ def check_kimi_hook(root, roots, path, findings, generator=None):
     interpreter = through or PYTHON.fullmatch(Path(python).name) or same_file(python, sys.executable)
     expected = (generator or session_context).hooks("kimi", python, root, *((python,) if through else ()))["hooks"]
     if not Path(python).is_absolute() or not is_file(Path(python)) or not interpreter or \
-            [table for table, _ in ours] != expected:
+            (through and not os.access(python, os.X_OK)) or [table for table, _ in ours] != expected:
         findings.append(f"stale session context hook: {path}")
 
 
