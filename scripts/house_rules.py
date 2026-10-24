@@ -61,10 +61,22 @@ TRANSPORT = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9+.-]*)?::")  # Git's <transport
 # A fetch fails on lack of progress, never on elapsed time: below 1 byte/s for 30 s over HTTP.
 PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
 NO_REPLACE = {"GIT_NO_REPLACE_OBJECTS": "1"}
+# Git starts a detached `git maintenance run --auto` after a fetch or commit. In a repository this command removes
+# when it is done, such as a fetch's temporary one, that background repack races the removal ("Directory not empty").
+NO_MAINTENANCE = (("maintenance.auto", "false"), ("gc.auto", "0"))
 # Extraction reads attributes only from the commit: no system or personal attributes file can drop a file, such as
 # ruleset.json, from a tree that every later run reuses. The checks runner shuts them out of its checks the same way.
-ARCHIVE_ATTRIBUTES = {"GIT_ATTR_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.attributesFile",
-                      "GIT_CONFIG_VALUE_0": os.devnull}
+ARCHIVE_ATTRIBUTES = (("core.attributesFile", os.devnull),)
+
+
+def with_settings(environ, settings):
+    """Give Git exactly `settings` through GIT_CONFIG_COUNT. Only for an environment without the caller's
+    GIT_CONFIG_COUNT and GIT_CONFIG_PARAMETERS (LOCAL_GIT_ENV), so nothing a caller passed can override them."""
+    for index, (key, value) in enumerate(settings):
+        environ[f"GIT_CONFIG_KEY_{index}"] = key
+        environ[f"GIT_CONFIG_VALUE_{index}"] = value
+    environ["GIT_CONFIG_COUNT"] = str(len(settings))
+    return environ
 # Variables that bind a Git command to the calling repository; a hook inherits some of them.
 LOCAL_GIT_ENV = ("GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_CONFIG_COUNT",
                  "GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE",
@@ -110,6 +122,8 @@ def git(cwd, *args, foreign=False, check=True, deadline=None, keep=()):
             if name not in keep:
                 environ.pop(name, None)
     environ.update(NO_REPLACE)
+    if foreign:  # the cache's own repositories, which a fetch's cleanup removes
+        with_settings(environ, NO_MAINTENANCE)
     left = deadline.left() if deadline is not None else None
     if left is not None and left <= 0:
         raise DeadlinePassed()
@@ -541,7 +555,8 @@ def write_answer(url, kind, record):
 
 
 def extract(repository, commit, folder, deadline=NO_DEADLINE):
-    environ = dict({k: v for k, v in os.environ.items() if k not in LOCAL_GIT_ENV}, **NO_REPLACE, **ARCHIVE_ATTRIBUTES)
+    environ = dict({k: v for k, v in os.environ.items() if k not in LOCAL_GIT_ENV}, **NO_REPLACE, GIT_ATTR_NOSYSTEM="1")
+    with_settings(environ, ARCHIVE_ATTRIBUTES + NO_MAINTENANCE)
     archive = subprocess.Popen(["git", "archive", "--format=tar", commit], cwd=str(repository),
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, env=environ)
     try:
