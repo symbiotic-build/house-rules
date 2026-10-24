@@ -1303,7 +1303,8 @@ class ResolverRoundEightTests(Fixture):
         (shims / "tar").write_text(  # each fetch extracts, then waits at the gate until the test lets it publish
             f"#!/bin/sh\n{tar} \"$@\" || exit $?\n"
             f"if mkdir {gate}/arrived-1 2>/dev/null; then n=1; else mkdir {gate}/arrived-2; n=2; fi\n"
-            f"i=0; while [ ! -e {gate}/go-$n ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done\n")
+            f"i=0; while [ ! -e {gate}/go-$n ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done\n"
+            f"[ -e {gate}/go-$n ] || exit 1\n")  # an expired gate fails the fetch, never lets it publish
         (shims / "tar").chmod(0o755)
         tree = hr.tree_folder(url, commit)
         results = []
