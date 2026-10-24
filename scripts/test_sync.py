@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -66,9 +67,11 @@ class SyncFixture:
         shutil.copyfile(REPO / "scripts/session_context.py", self.origin / "scripts/session_context.py")
         self.write(self.origin / "INDEX.md", "# Index\n\n## Always load\n\n" + "".join(
             f"- [{name}](rules/{name}.md)\n" for name in RULES) + "\n## Load when needed\n")
+        self.write(self.origin / "ruleset.json", json.dumps({"version": 1, "context": [
+            *(f"rules/{name}.md" for name in RULES), "skills/operator-writing/SKILL.md"]}))
         for name in RULES:
             self.write(self.origin / f"rules/{name}.md", f"# {name} rules\n")
-        self.commit(self.origin, [".gitignore", "INSTALL-AGENTS.md", "INDEX.md", "skills/sample/SKILL.md",
+        self.commit(self.origin, [".gitignore", "INSTALL-AGENTS.md", "INDEX.md", "ruleset.json", "skills/sample/SKILL.md",
                                   "skills/operator-writing/SKILL.md", "scripts/session_context.py",
                                   *(f"rules/{name}.md" for name in RULES)])
         self.root = self.base / "House Rules checkout"
@@ -804,6 +807,39 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual(self.backups(self.codex_hooks), [])
         self.assertFalse((self.kimi / "settings.json").exists() or (self.kimi / "hooks.json").exists())
 
+    def test_hooks_through_the_house_rules_command_replace_the_interpreter_form(self):
+        command = self.base / "bin" / "house-rules"
+        self.write(command, "#!/bin/sh\n")
+        command.chmod(0o755)
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": [
+            {"hooks": [self.unrelated]}, context.hooks("claude", sys.executable, self.root)]}}))
+        code, out, err = self.invoke("--install-hooks", "--command", str(command))
+        self.assertEqual(code, 0, out + err)
+        for path, product in ((self.settings, "claude"), (self.codex_hooks, "codex")):
+            entry = context.hooks(product, house_rules=str(command))
+            self.assertTrue(all(handler["command"].startswith(f"{command} exec --hook scripts/session_context.py ")
+                                for handler in entry["hooks"]))
+            entries = self.read(path)["hooks"]["SessionStart"]
+            self.assertEqual(entries[-1], entry)
+            self.assertFalse([handler for other in entries[:-1] for handler in other["hooks"]
+                              if "session_context.py" in handler["command"]])
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"][0], {"hooks": [self.unrelated]})
+        code, out, err = self.invoke()
+        self.assertEqual(code, 0, out + err)
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"],
+                         [{"hooks": [self.unrelated]}, context.hooks("claude", sys.executable, self.root)])
+        self.invoke("--install-hooks", "--command", str(command))
+        command.chmod(0o644)  # a command that cannot run delivers no rules
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: stale session context hook: {self.settings}", out)
+        command.unlink()
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: stale session context hook: {self.settings}", out)
+
     def test_replaces_older_versions_and_hooks_a_receipt_lists_as_replaced(self):
         legacy = [{"type": "command", "command": f"{sys.executable} -I {shlex.quote(self.legacy)} session {n}"}
                   for n in (1, 2)]
@@ -1288,6 +1324,8 @@ class SessionContextTests(unittest.TestCase):
         self.write("rules/core.md", "# Core rules\n\n" + sections)
         self.write("rules/writing.md", "# Writing rules\n\n```markdown\n## Not a heading\n```\n\n" + sections)
         self.write("skills/operator-writing/SKILL.md", "# Operator writing\n\nWrite plainly.\n")
+        self.write("ruleset.json", json.dumps({"version": 1, "context": [
+            "rules/core.md", "rules/writing.md", "skills/operator-writing/SKILL.md"]}))
         self.write("custom/INDEX.md", "# Machine-local capability index\n\nLocal policy line.\n")
 
     def write(self, name, text):
@@ -1296,8 +1334,9 @@ class SessionContextTests(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
 
     def rendered(self):
-        rev, packed, _ = context.parts(self.root)
+        context.capacity.cache_clear()  # a part's room depends on the tree's path, which each test sets
         with mock.patch.object(context, "root", return_value=self.root):
+            rev, packed, _ = context.parts(self.root)
             return [context.render(number, rev, packed) for number in range(1, len(packed) + 1)]
 
     def bodies(self, outputs):
@@ -1344,7 +1383,7 @@ class SessionContextTests(unittest.TestCase):
             self.assertEqual(match[5], heading)
             self.assertIn(match[4], ("INDEX.md", "rules/core.md", "rules/writing.md"))
             self.assertEqual(match[3], self.LABEL.match(outputs[0])[3])
-        self.assertIn("The parts can arrive in any order: read them in part-number order.", outputs[0])
+        self.assertIn("Read them in part-number order.", outputs[0])
 
     def test_custom_index_is_injected_last_and_its_absence_is_a_visible_error(self):
         outputs = self.rendered()
@@ -1360,12 +1399,139 @@ class SessionContextTests(unittest.TestCase):
         self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root / 'rules/writing.md'} is missing.", text)
         self.assertIn("# Operator writing", text)
 
+    def test_a_long_checkout_path_keeps_a_nearly_full_section(self):
+        place = tempfile.TemporaryDirectory(prefix="house-rules-long-")
+        self.addCleanup(place.cleanup)
+        tree = Path(place.name).joinpath(*(letter * 100 for letter in "defghij"))  # a 700-character checkout path
+        files = {"INDEX.md": "# Index\n\n## Always load\n\n- [core](rules/core.md)\n",
+                 "rules/core.md": "# Core rules\n\n## Big\n\n" + "w " * 4320 + "\n",
+                 "ruleset.json": json.dumps({"version": 1, "context": ["rules/core.md"]}),
+                 "custom/INDEX.md": "# Machine\n"}
+        for name, text in files.items():
+            (tree / name).parent.mkdir(parents=True, exist_ok=True)
+            (tree / name).write_text(text, encoding="utf-8")
+        (tree / "scripts").mkdir()
+        for name in ("session_context.py", "house_rules.py"):
+            shutil.copyfile(REPO / "scripts" / name, tree / "scripts" / name)
+        environ = {k: v for k, v in os.environ.items() if not k.startswith("HOUSE_RULES_")}
+        environ["XDG_CONFIG_HOME"] = str(Path(place.name) / "config")  # no configuration folder: the tree's own index
+        proc = subprocess.run([sys.executable, "-I", str(tree / "scripts/session_context.py"), "codex"],
+                              stdin=subprocess.DEVNULL, capture_output=True, env=environ)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn(context.ERROR, text)  # neither a cap error nor a section replaced by one
+        self.assertIn("## Big\n\n" + "w " * 4320 + "\n", text)  # the whole section, in the part it starts
+        self.assertIn(f"Read the files from {tree.resolve()} directly.", text)  # the introduction names the long path
+
+    def test_a_wide_label_never_pushes_a_part_over_the_cap(self):
+        place = tempfile.TemporaryDirectory(prefix="house-rules-wide-")
+        self.addCleanup(place.cleanup)
+        tree = Path(place.name)
+        name = "rules/" + "n" * 100 + ".md"  # a label shows 100 characters of it
+        heading = "\U0001F600" * 100  # 100 characters of two UTF-16 units each
+        widest = "\U0001F600" * 100
+        room = context.CAP - context.units(context.label(1000, 1000, "0" * 12, "0" * 12, widest, widest)) - \
+            context.units(context.end_line(1000, 1000)) - 4  # a later part's room with every label field at its widest
+        files = {"INDEX.md": "# Index\n\n## Always load\n\n- [core](rules/core.md)\n",
+                 "rules/core.md": "# Core rules\n\n" + "Filler. " * 900 + "\n",
+                 name: f"## {heading}\n\n" + "w " * ((room - 147) // 2) + "\n",  # fits an ASCII estimate only
+                 "ruleset.json": json.dumps({"version": 1, "context": ["rules/core.md", name]}),
+                 "custom/INDEX.md": "# Machine\n"}
+        for path, text in files.items():
+            (tree / path).parent.mkdir(parents=True, exist_ok=True)
+            (tree / path).write_text(text, encoding="utf-8")
+        (tree / "scripts").mkdir()
+        for script in ("session_context.py", "house_rules.py"):
+            shutil.copyfile(REPO / "scripts" / script, tree / "scripts" / script)
+        environ = {k: v for k, v in os.environ.items() if not k.startswith("HOUSE_RULES_")}
+        environ["XDG_CONFIG_HOME"] = str(tree / "config")
+        proc = subprocess.run([sys.executable, "-I", str(tree / "scripts/session_context.py"), "codex"],
+                              stdin=subprocess.DEVNULL, capture_output=True, env=environ)
+        text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertNotIn("-character cap", text)  # the parts render; the rules are not replaced by one error
+        self.assertIn("# Core rules", text)
+
+    def test_both_packing_passes_use_one_reading_of_the_files(self):
+        place = tempfile.TemporaryDirectory(prefix="house-rules-repack-")
+        self.addCleanup(place.cleanup)
+        tree = Path(place.name)
+        sections = "".join(f"## Section {n}\n\n" + "Rule sentence with several words. " * 250 + "\n\n" for n in range(14))
+        files = {"INDEX.md": "# Index\n\n## Always load\n\n- [core](rules/core.md)\n",
+                 "rules/core.md": "# Core rules\n\n" + sections, "rules/writing.md": "# Writing rules\n\nWrite plainly.\n",
+                 "ruleset.json": json.dumps({"version": 1, "context": ["rules/writing.md", "rules/core.md"]}),
+                 "custom/INDEX.md": "# Machine\n"}
+        for path, text in files.items():
+            (tree / path).parent.mkdir(parents=True, exist_ok=True)
+            (tree / path).write_text(text, encoding="utf-8")
+        (tree / "scripts").mkdir()
+        for script in ("session_context.py", "house_rules.py"):
+            shutil.copyfile(REPO / "scripts" / script, tree / "scripts" / script)
+        spec = importlib.util.spec_from_file_location("fixture_context", tree / "scripts/session_context.py")
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)  # the hook as its own tree holds it, finding that tree itself
+        real, writing = Path.read_text, (tree / "rules/writing.md").resolve()
+
+        def read_once(path, *args, **kwargs):
+            text = real(path, *args, **kwargs)
+            if Path(path).resolve() == writing:
+                writing.unlink()  # removed after its first reading, as an edit during the hook would
+            return text
+        failures = []
+        environ = {k: v for k, v in os.environ.items() if not k.startswith("HOUSE_RULES_")}
+        with mock.patch.dict(os.environ, dict(environ, XDG_CONFIG_HOME=str(tree / "config")), clear=True), \
+                mock.patch.object(Path, "read_text", read_once):
+            text = hook.every_part(failures)
+        self.assertIn("are missing", text)  # more than the registered parts, so the second pass ran
+        self.assertIn("# Writing rules", text)  # and packed what the first pass read
+        self.assertNotIn("is missing", text)
+
+    def test_a_linked_overflow_says_start_a_new_session(self):
+        place = tempfile.TemporaryDirectory(prefix="house-rules-linked-")
+        self.addCleanup(place.cleanup)
+        tree, team = Path(place.name) / "house", Path(place.name) / "team"
+        sections = "".join(f"## Section {n}\n\n" + "Rule sentence with several words. " * 250 + "\n\n" for n in range(14))
+        files = {tree / "INDEX.md": "# Index\n", tree / "rules/core.md": "# Core rules\n\n" + sections,
+                 tree / "custom/INDEX.md": "# Machine\n"}
+        names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(200)]
+        for path, text in files.items():
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        (tree / "scripts").mkdir()
+        for script in ("session_context.py", "house_rules.py"):
+            shutil.copyfile(REPO / "scripts" / script, tree / "scripts" / script)
+        spec = importlib.util.spec_from_file_location("linked_context", tree / "scripts/session_context.py")
+        hook = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hook)
+
+        def layer(name, path):
+            return {"name": name, "url": f"file:///{name}", "ref": "main", "ref_kind": "branch", "revision": "a" * 40,
+                    "source": "link", "fetched": None, "tree": str(path.resolve()),
+                    "link": {"path": str(path), "head": "a" * 40, "dirty": True}}
+
+        def record(count):
+            return {"version": 1, "repository": str(Path(place.name)), "profiles": [], "warnings": [],
+                    "configuration": {"origin": "working tree", "commit": None},
+                    "layers": [layer("house-rules", tree), layer("team-rules", team)],
+                    "context": [{"layer": "house-rules", "path": "rules/core.md"}] +
+                               [{"layer": "team-rules", "path": name} for name in names[:count]]}
+        count = max(n for n in range(200) if hook.too_large(record(n)) is None)  # the resolution at its full size
+        for name in names[:count]:  # only the files the resolution lists
+            (team / name).parent.mkdir(parents=True, exist_ok=True)
+            (team / name).write_text("# r\n", encoding="utf-8")
+        environ = {k: v for k, v in os.environ.items() if not k.startswith("HOUSE_RULES_")}
+        with mock.patch.dict(os.environ, dict(environ, XDG_CONFIG_HOME=str(Path(place.name) / "config"),
+                                              HOUSE_RULES_RESOLVED=json.dumps(record(count))), clear=True):
+            text = hook.every_part()
+        self.assertNotIn("-character cap", text)  # part 1 holds the full resolution, the warning and the notice
+        self.assertIn("are missing; a linked layer cannot be reread: say so and start a new session", text)
+        self.assertNotIn("read their files from", text)
+
     def test_section_longer_than_a_part_is_a_visible_error_and_never_split(self):
         self.write("rules/core.md", "# Core rules\n\n## Long section\n\n" + "word " * 3000 + "\n\n## Short\n\nKept.\n")
         _, packed, too_long = context.parts(self.root)
         self.assertEqual(too_long, [("rules/core.md", "Long section")])
         text = "".join(self.rendered())
-        self.assertRegex(text, r'HOUSE RULES HOOK ERROR: rules/core\.md section "Long section" is \d+ characters, '
+        self.assertRegex(text, r'HOUSE RULES HOOK ERROR: the section "Long section" is \d+ characters, '
                                r'more than the \d+ one part holds, so it is not in this context\.')
         self.assertNotIn("word word", text)
         self.assertIn("## Short\n\nKept.", text)
@@ -1376,9 +1542,9 @@ class SessionContextTests(unittest.TestCase):
         slots = len(packed) - 1
         with mock.patch.object(context, "SLOTS", slots), mock.patch.object(context, "root", return_value=self.root):
             first, last = context.claude(1), context.claude(slots)
-        message = f"HOUSE RULES HOOK ERROR: the rules need {len(packed)} parts but the hook delivers only {slots}"
-        self.assertIn(message, first)
-        self.assertIn(message, last)
+        message = rf"HOUSE RULES HOOK ERROR: the rules need (\d+) parts but the hook delivers only {slots}, "
+        self.assertGreater(int(re.search(message, first).group(1)), slots)  # the notice's room can add a part
+        self.assertRegex(last, message)
         for output in (first, last):
             self.assertLess(context.units(output), context.CAP)
 
@@ -1397,7 +1563,7 @@ class SessionContextTests(unittest.TestCase):
         self.write("custom/INDEX.md", "# Machine-local capability index\n\nChanged policy line.\n")
         after = self.rendered()
         self.assertNotEqual(self.LABEL.match(before[0])[3], self.LABEL.match(after[-1])[3])
-        self.assertIn(f"Every part names text {self.LABEL.match(before[0])[3]}. A missing part number", before[0])
+        self.assertIn(f"Every part names text {self.LABEL.match(before[0])[3]}. A missing part,", before[0])
 
     def test_unreadable_rule_file_prints_a_visible_error_instead_of_nothing(self):
         (self.root / "rules/core.md").write_bytes(b"# Core rules\n\xff\xfe not UTF-8\n")
@@ -1511,7 +1677,7 @@ class SessionContextTests(unittest.TestCase):
         prompt = {"session_id": "session_a"}
         self.write("rules/core.md", "# Core rules\n\n## Long section\n\n" + "word " * 3000 + "\n")
         for _ in range(2):
-            self.assertIn('rules/core.md section "Long section" is', self.kimi("prompt", prompt))
+            self.assertIn('the section "Long section" is', self.kimi("prompt", prompt))
 
     def delivered_with_index_changing(self, first_read, later_reads):
         """Delivered text and failures while INDEX.md changes between filesystem checks."""
@@ -1715,6 +1881,15 @@ class ApprovedWorkListingTests(unittest.TestCase):
                 "- example-org/tool#7 Ship the cache — Owner: lane-3, after the parser PR",
                 "- example-org/tool#9 No owner yet — Owner: no Owner: line"]))
 
+    def test_the_configuration_folder_lists_without_its_machine_index(self):
+        self.configure("base-org\n")
+        config = Path(self.tmp.name) / "config"
+        (config / "house-rules" / "custom").mkdir(parents=True)  # no INDEX.md beside the file
+        (config / "house-rules" / "custom" / "approved-work.conf").write_text("config-org\n")
+        with self.fake_gh("[]"), mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            self.assertEqual(context.approved(self.base), "")
+        self.assertEqual((self.bin / "calls").read_text().split()[2:4], ["--owner", "config-org"])
+
     def test_comments_are_not_scopes(self):
         self.configure("example-org  # approved backlog\n   # indented comment\n")
         with self.fake_gh("[]"):
@@ -1755,11 +1930,21 @@ class ApprovedWorkListingTests(unittest.TestCase):
     def test_no_search_starts_after_the_shared_deadline(self):
         self.configure("example-org\nother-org\n")
         clock = iter([0.0, 1.0, context.GH_TIMEOUT + 1.0])
-        with self.fake_gh("[]"), mock.patch.object(context.time, "monotonic", lambda: next(clock)):
+        issues = [self.issue(7, "Found before the deadline")]
+        with self.fake_gh(json.dumps(issues)), mock.patch.object(context.time, "monotonic", lambda: next(clock)):
             listing = context.approved(self.base)
-        self.assertEqual(listing, f"{context.ERROR} approved-work listing used its {context.GH_TIMEOUT} s "
-                                  "before searching other-org.")
+        self.assertEqual(listing, "\n".join([
+            self.HEAD, self.row(7, "Found before the deadline"),
+            f"{context.ERROR} the approved-work search was cut short at the hook's deadline before searching other-org."]))
         self.assertEqual(len((self.bin / "calls").read_text().splitlines()), 1)
+
+    def test_the_search_stops_at_the_deadline_house_rules_exec_passes(self):
+        self.configure("example-org\n")
+        with self.fake_gh("[]"), mock.patch.dict(os.environ, {"HOUSE_RULES_DEADLINE": str(time.time() - 1)}):
+            listing = context.approved(self.base)
+        self.assertEqual(listing, "\n".join([self.HEAD, f"{context.ERROR} the approved-work search was cut short at "
+                                                          "the hook's deadline before searching example-org."]))
+        self.assertFalse((self.bin / "calls").exists())
 
     NOTICE = ("HOUSE RULES HOOK ERROR: this list may not show every open approved item. Close the issues of "
               "finished approved work, so the label marks only work that still waits.")

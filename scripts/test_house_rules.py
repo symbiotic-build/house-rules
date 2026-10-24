@@ -57,7 +57,10 @@ class Fixture(unittest.TestCase):
         for path, content in files.items():
             target = Path(work) / path
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content if isinstance(content, str) else json.dumps(content))
+            if isinstance(content, bytes):
+                target.write_bytes(content)
+            else:
+                target.write_text(content if isinstance(content, str) else json.dumps(content))
         run(work, "add", "-A")
         run(work, "commit", "-q", "-m", "change")
         return run(work, "rev-parse", "HEAD")
@@ -471,6 +474,262 @@ class CommandTests(Fixture):
         self.assertEqual(record["layers"][1]["fetched"], answer["fetched"])  # a branch: when the remote answered
         self.assertIsNone(record["layers"][2]["fetched"])  # a pin asks nothing
         self.assertFalse(any(p.name.endswith(".fetched") for p in (hr.cache_root() / "revisions").iterdir()))
+
+
+class SessionContextTests(Fixture):
+    def test_session_context_prints_the_resolution_and_custom_layer_context(self):
+        here = Path(__file__).resolve().parent
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n\n## Load when needed\n",
+            "rules/core.md": "# Core rules\n", "skills/operator-writing/SKILL.md": "# Operator writing\n",
+            hr.RULESET: {"version": 1, "context": ["rules/core.md", "skills/operator-writing/SKILL.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": ["rules/team.md"]},
+                                          "rules/team.md": "# Team rules\n\nReview every migration twice.\n"})
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": "team-rules", "url": team}]})
+        custom = self.root / "config" / "house-rules" / "custom"
+        custom.mkdir(parents=True)
+        (custom / "INDEX.md").write_text("# This computer\n")
+        revision = run(self.root / "work" / "house-rules", "rev-parse", "HEAD")
+        command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py", "codex"]
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(f"House Rules part 1 of 1 (revision {revision[:12]},", text)
+        self.assertIn(f"house-rules: repository {repo}, configuration house-rules.json (working tree)", text)
+        self.assertRegex(text, rf"house-rules: layer team-rules  {team} ref main -> [0-9a-f]{{40}} \(fetched ")
+        self.assertIn("# This computer", text)
+        self.assertIn("===== House Rules file rules/core.md =====\n# Core rules", text)  # through the ruleset context
+        self.assertIn("===== House Rules file team-rules rules/team.md =====\n# Team rules", text)
+        self.assertNotIn("HOUSE RULES HOOK ERROR", text)
+        self.assertRegex(text, r"house-rules: tree of team-rules: \S+/revisions/[0-9a-f]{40}\n")
+        self.assertIn("house-rules: context of team-rules: rules/team.md\n", text)  # inside its layer's tree line
+        self.assertIn("Part 1's resolution governs: read INDEX.md and every file its lines list, inside its layer's "
+                      "tree.", text)
+        first = re.search(r"text ([0-9a-f]{12})", text).group(1)
+        self.push("team-rules", {"README.md": "a change outside the context files\n"})
+        self.expire_answers()
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
+        again = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertNotEqual(re.search(r"text ([0-9a-f]{12})", again).group(1), first)  # every layer's commit counts
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        hr.resolve(None)  # the global default's tree, which a fallback runs from
+        broken = self.root / "broken"
+        broken.mkdir()
+        run(broken, "init", "-q", "-b", "main")
+        (broken / hr.CONFIG).write_text(json.dumps({"version": 2, "sources": [{"name": "house-rules", "url": house,
+                                                                               "ref": "gone"}]}))
+        proc = subprocess.run(command, input=json.dumps({"cwd": str(broken)}).encode(), stdin=None,
+                              capture_output=True, env=os.environ)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        fallback = proc.stdout.decode()
+        self.assertIn("# This computer", fallback)  # a fallback still reads this machine's index
+        default = Path(os.path.realpath(str(hr.cache_root() / "default")))
+        self.assertIn(f"(revision {default.name[:12]}, ", fallback)  # the cached tree's commit, not "unknown"
+        linked = "A layer here has source link, so a split cannot be recovered by rereading"
+        self.assertNotIn(linked, text)  # fetched and pinned trees can be reread
+        self.assertEqual(hr.main(["link", str(self.root / "work" / "team-rules"), "--url", team]), 0)
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
+        self.assertIn(linked, json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"])
+
+    def test_large_resolutions_name_their_files(self):
+        here = Path(__file__).resolve().parent
+        names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(60)]  # 60 resolution lines still fit in part 1
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n\n## Load when needed\n",
+            "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        long = "rules/" + "/".join(["n" * 60] * 11) + ".md"  # a 680-character path its banner and label repeat
+        import session_context
+        room = session_context.capacity(2, long, "Long")  # a later part's room, which the section's body alone fits
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": [*names, "rules/big.md", long]},
+                                          "rules/big.md": "# Big\n\n" + "word " * 3000 + "\n",
+                                          long: "# Long\n\n" + "w " * ((room - 30) // 2) + "\n",
+                                          **{name: "# r\n" for name in names}})
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": "team-rules", "url": team}]})
+        record = hr.resolve(repo)
+        tree = Path(hr.layer_tree(record, "team-rules"))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("context", hr.layer_tree(record) / "scripts/session_context.py")
+        context = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(context)  # the script as the resolved tree holds it
+        with mock.patch.dict(os.environ, {hr.RESOLVED: json.dumps(record)}):
+            rev, packed, too_long = context.parts(context.root(), [])
+            outputs = [context.render(n, rev, packed) for n in range(1, len(packed) + 1)]  # none over the cap
+        whole = "".join(outputs)
+        self.assertIn("\n===== House Rules resolution =====\n", outputs[0])  # part 1 starts with the resolution
+        self.assertLess(whole.index("House Rules resolution ====="), whole.index("House Rules file INDEX.md"))
+        self.assertTrue(all(f"context of team-rules: {name}\n" in outputs[0] for name in names))  # all in part 1
+        text = "".join(outputs)
+        self.assertIn(f"Read it from {tree / 'rules/big.md'}.", text)  # the real file, not a path under House Rules
+        self.assertIn(f"Read it from {tree / long}.", text)  # fits alone, but not with its banner: the error instead
+        self.assertEqual(text.count(long), 2)  # in full only in its resolution line and the error; labels shorten it
+
+    def test_an_oversized_resolution_delivers_the_default_it_names(self):
+        here = Path(__file__).resolve().parent
+        names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(200)]  # resolution lines too large for part 1
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index A\n\n## Always load\n\n- [core rules](rules/core.md)\n",
+            "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": names}, **{n: "# r\n" for n in names}})
+        record = hr.resolve(self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                                      {"name": "team-rules", "url": team}]}))
+        first = Path(hr.layer_tree(record))
+        second = self.root / "second"
+        shutil.copytree(str(first), str(second))
+        link = hr.cache_root() / "default"
+        if link.is_symlink():
+            link.unlink()
+        link.symlink_to(second)
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("context", first / "scripts/session_context.py")
+        context = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(context)
+        with mock.patch.dict(os.environ, {hr.RESOLVED: json.dumps(record)}):
+            context.oversized()  # the run decides on its default here, before the changes below
+            link.unlink()
+            link.symlink_to(first)  # the default moves while the run builds its part
+            (second / "INDEX.md").unlink()  # and an editor removes the decided tree's index
+            text = context.claude(1)
+        self.assertIn(f"the global default's ({second.resolve()})", text)  # the tree the run decided on
+        self.assertIn(str(second.resolve()), text.split("\n", 1)[1])  # is the tree it gives
+        self.assertNotIn("# Index A", text)  # never the repository's own tree under that name
+
+    def test_kimi_records_a_session_only_after_complete_rules(self):
+        here = Path(__file__).resolve().parent
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n\n## Load when needed\n",
+            "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": ["rules/bad.md"]},
+                                          "rules/bad.md": b"# Bad \xff\n"})  # not UTF-8
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": "team-rules", "url": team}]})
+        custom = self.root / "config" / "house-rules" / "custom"
+        custom.mkdir(parents=True)
+        (custom / "INDEX.md").write_text("# This computer\n")
+        kimi = self.root / "kimi"
+        command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py", "kimi", "prompt"]
+
+        def prompt():
+            proc = subprocess.run(command, input=json.dumps({"cwd": repo, "session_id": "s1"}).encode(), stdin=None,
+                                  capture_output=True, env=dict(os.environ, KIMI_CODE_HOME=str(kimi)))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return proc.stdout.decode()
+        self.assertIn("HOUSE RULES HOOK ERROR: cannot read ", prompt())
+        self.assertFalse((kimi / "house-rules-sessions" / "s1").exists())  # incomplete rules record nothing
+        self.push("team-rules", {"rules/bad.md": "# Bad, repaired\n"})
+        self.expire_answers()
+        self.assertIn("# Bad, repaired", prompt())  # the next prompt delivers the repaired file
+        self.assertTrue((kimi / "house-rules-sessions" / "s1").exists())
+        self.assertEqual(prompt(), "")  # a session that has the complete rules gets nothing more
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        hr.resolve(None)  # the global default's tree, which a failed resolution falls back to
+        (Path(repo) / hr.CONFIG).write_text(json.dumps({"version": 2, "sources": [
+            {"name": "house-rules", "url": house, "ref": "gone"}]}))
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo, "session_id": "s2"}).encode(), stdin=None,
+                              capture_output=True, env=dict(os.environ, KIMI_CODE_HOME=str(kimi)))
+        self.assertIn("HOUSE RULES HOOK ERROR: house-rules: house-rules: no branch gone", proc.stdout.decode())
+        self.assertFalse((kimi / "house-rules-sessions" / "s2").exists())  # the default's rules are not complete
+        tree = hr.layer_tree(hr.resolve(None))
+        direct = subprocess.run([sys.executable, "-I", str(tree / "scripts/session_context.py"), "kimi", "prompt"],
+                                input=json.dumps({"session_id": "s3"}).encode(), stdin=None, capture_output=True,
+                                env={k: v for k, v in dict(os.environ, KIMI_CODE_HOME=str(kimi)).items()
+                                     if k not in (hr.DEADLINE, hr.RESOLVED)})
+        self.assertIn("# Core rules", direct.stdout.decode())
+        self.assertTrue((kimi / "house-rules-sessions" / "s3").exists())  # a direct hook in revisions/ completes
+        checkout = self.root / "work" / "house-rules"
+        self.assertEqual(hr.main(["link", str(checkout), "--url", house]), 0)
+        hr.resolve(None)  # the global default now points to the linked checkout
+        (Path(repo) / hr.CONFIG).write_text(json.dumps({"version": 2, "sources": [
+            {"name": "house-rules", "url": house}, {"name": "team-rules", "url": team, "ref": "gone"}]}))
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo, "session_id": "s4"}).encode(), stdin=None,
+                              capture_output=True, env=dict(os.environ, KIMI_CODE_HOME=str(kimi)))
+        self.assertIn("HOUSE RULES HOOK ERROR: house-rules: team-rules: no branch gone", proc.stdout.decode())
+        self.assertIn(f"global default's ({checkout.resolve()})", proc.stdout.decode())
+        self.assertFalse((kimi / "house-rules-sessions" / "s4").exists())  # a linked default's fallback is not complete
+
+    def test_an_older_default_names_its_repair_and_keeps_the_machine_index(self):
+        here = Path(__file__).resolve().parent
+        names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(200)]
+        loader = "print('older loader ran')\n"
+        older = self.source("older", {"INDEX.md": "# Index\n\n## Always load\n\n- [core](rules/core.md)\n",
+                                      "rules/core.md": "# Older core\n", "scripts/session_context.py": loader})
+        (self.root / "config" / "house-rules" / "custom").mkdir(parents=True)
+        (self.root / "config" / "house-rules" / "custom" / "INDEX.md").write_text("# This machine\n")
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": older}]}))
+        tree = Path(hr.layer_tree(hr.resolve(None)))  # the default, from before ruleset.json
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n", "rules/core.md": "# Core rules\n",
+            hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": names}, **{n: "# r\n" for n in names}})
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": "team-rules", "url": team}]})
+        command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py", "codex"]
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
+        text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("HOUSE RULES HOOK ERROR: the resolution lines need ", text)
+        self.assertIn(f"HOUSE RULES HOOK ERROR: {tree.resolve() / hr.RULESET} is missing, so this tree's always-load "
+                      "rules are not in this context", text)
+        self.assertIn("scripts/house_rules.py install", text)
+        self.assertIn("# This machine", text)  # the configuration folder's index, chosen by the current script
+        self.assertNotIn("older loader ran", text)  # the default's own script never runs
+        self.assertNotIn("# Older core", text)
+
+    def test_a_resolution_too_large_for_part_1_gives_the_default_rules(self):
+        here = Path(__file__).resolve().parent
+        names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(200)]  # about 17 000 characters of resolution lines
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n\n## Load when needed\n",
+            "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": names}, **{n: "# r\n" for n in names}})
+        layer = "team-" + "rules-" * 18 + "x"  # 114 characters: the message shortens it after counting its files
+        (self.root / "config" / "house-rules").mkdir(parents=True)
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        hr.resolve(None)  # the global default's tree
+        (self.root / "config" / "house-rules" / "custom").mkdir()
+        (self.root / "config" / "house-rules" / "custom" / "INDEX.md").write_text("# This machine\n")
+        self.push("house-rules", {"rules/later.md": "# Later\n"})  # the repository resolves a newer commit
+        self.expire_answers()
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": layer, "url": team}]})
+        command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py", "codex"]
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        default = Path(os.path.realpath(str(hr.cache_root() / "default")))
+        self.assertNotEqual(default.name, run(self.root / "work" / "house-rules", "rev-parse", "HEAD"))
+        self.assertRegex(text, r"HOUSE RULES HOOK ERROR: the resolution lines need \d+ characters, more than the 8800 "
+                               rf"part 1 holds; {layer[:99]}… lists the most context files \(200\)\. The House Rules "
+                               rf"below are the global default's \({re.escape(str(default))}\)")
+        self.assertNotIn("context of team-", text)  # no part of the oversized resolution is given
+        self.assertNotIn("rules/r000-", text)
+        self.assertIn("===== House Rules file rules/core.md =====", text)  # the default's own rules
+        self.assertIn(f"Read the files from {default} directly.", text)
+        self.assertIn("# This machine", text)  # the configuration folder's machine index
+        kimi = self.root / "kimi"
+        command[-1:] = ["kimi", "prompt"]
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo, "session_id": "s1"}).encode(), stdin=None,
+                              capture_output=True, env=dict(os.environ, KIMI_CODE_HOME=str(kimi)))
+        self.assertIn("the resolution lines need", proc.stdout.decode())
+        self.assertFalse((kimi / "house-rules-sessions" / "s1").exists())  # the default's rules are not complete
+
 
 class RoundOneTests(Fixture):
     """Defects Warden's round 1 on the resolver found, one test each."""
