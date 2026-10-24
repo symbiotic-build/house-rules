@@ -209,7 +209,7 @@ class ResolutionTests(Fixture):
         hr.write_links({config["sources"][1]["url"]: str(self.root / "gone")})
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(repo)
-        self.assertTrue(str(caught.exception).endswith(f"house-rules unlink with its checkout path or URL: team-rules "
+        self.assertTrue(str(caught.exception).endswith(f"house-rules unlink with its checkout path: team-rules "
                                                        f"{config['sources'][1]['url']} -> {self.root / 'gone'}"))
 
     def test_no_configuration_uses_the_global_sources_and_moves_default(self):
@@ -597,7 +597,7 @@ class SessionContextTests(Fixture):
         def linked(name, url):
             return {"version": 2, "sources": [{"name": "house-rules", "url": house}, {"name": name, "url": url}]}
         broken = ["HOUSE RULES HOOK ERROR: house-rules: a linked checkout is not the root of a Git working tree; "
-                  "house-rules cache list shows the link, then run house-rules unlink with its checkout path or URL: "]
+                  "house-rules cache list shows the link, then run house-rules unlink with its checkout path: "]
         g7 = "/" + "/".join(["g" * 100] * 7)
         cases = [  # each configuration, the link it finds, and what its line keeps
             ({"version": 2, "sources": [{"name": "house-rules", "url": house}], "\udc80": 1}, None,
@@ -628,15 +628,20 @@ class SessionContextTests(Fixture):
             for text in kept:
                 self.assertIn(text, first)
             self.assertIn("# Core rules", rest)  # the default's rules still follow
-            if link:  # the printed repair works: cache list shows the link, and unlink removes it by its URL
+            if link:  # the printed repair works: cache list shows the link, and unlink removes it by its path
                 listed = subprocess.run([sys.executable, "-I", str(SCRIPT), "cache", "list"], capture_output=True,
                                         stdin=subprocess.DEVNULL, env=os.environ).stdout.decode()
-                url = config["sources"][1]["url"]
-                self.assertIn(f"{url}\n  linked to {link}\n", listed)
-                repair = subprocess.run([sys.executable, "-I", str(SCRIPT), "unlink", url], capture_output=True,
+                self.assertIn(f"{config['sources'][1]['url']}\n  linked to {link}\n", listed)
+                repair = subprocess.run([sys.executable, "-I", str(SCRIPT), "unlink", link], capture_output=True,
                                         stdin=subprocess.DEVNULL, env=os.environ)
                 self.assertEqual(repair.returncode, 0, repair.stderr)
                 self.assertEqual(hr.read_links(), {})
+        healthy = str((self.root / "work" / "team-rules").resolve())  # a broken link whose URL is a healthy link's path
+        hr.write_links({healthy: "/tmp/gone", house: healthy})
+        repair = subprocess.run([sys.executable, "-I", str(SCRIPT), "unlink", "/tmp/gone"], capture_output=True,
+                                stdin=subprocess.DEVNULL, env=os.environ)
+        self.assertEqual(repair.returncode, 0, repair.stderr)
+        self.assertEqual(hr.read_links(), {house: healthy})  # the repair removes only the broken link
 
     def test_large_resolutions_name_their_files(self):
         here = Path(__file__).resolve().parent

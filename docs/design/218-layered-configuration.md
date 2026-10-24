@@ -1522,7 +1522,7 @@ A command environment variable is an environment variable of the [House Rules co
 | missing commit | `house-rules: <layer>: commit <commit> not found at <url> (<git error>); check the ref` | 2 |
 | offline, no record | `house-rules: cannot reach <url> (<git error>) and no earlier fetch of <layer> <ref> is cached; run again when online` | 2 |
 | both [`HOUSE_RULES_LINK`](#environment-variables) and [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) set | "house-rules: set HOUSE_RULES_LINK or HOUSE_RULES_REVISION, not both" | 1 |
-| broken link | `house-rules: a linked checkout is not the root of a Git working tree; house-rules cache list shows the link, then run house-rules unlink with its checkout path or URL: <layer> <url> -> <path>` | 2 |
+| broken link | `house-rules: a linked checkout is not the root of a Git working tree; house-rules cache list shows the link, then run house-rules unlink with its checkout path: <layer> <url> -> <path>` | 2 |
 | cache not writable | [`house-rules: cannot write the cache <folder> (<system error>); free space, make it writable or set HOUSE_RULES_CACHE`](194-repository-checks.md#runner-environment-variables) | 2 |
 | old command | `house-rules: <file> has version <n>; this house-rules command knows version 2; install the newer command: python3 <House Rules checkout>/scripts/house_rules.py install` | 2 |
 | hook deadline | `warning: the remote did not answer within 8 s; using <layer> <ref> as last answered <time>, <commit>` | 0 |
