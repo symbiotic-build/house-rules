@@ -1114,9 +1114,22 @@ class AnsweredRestoreTest(unittest.TestCase):
 
     def test_external_and_paid_boundary_only(self):
         rules = self.text("rules/delivery.md")
-        self.assertIn("Require an explicit maximum cost/token/runtime boundary before "
-                      "launching external or paid work.", rules)
-        self.assertIn("Apply this launch-boundary requirement only to external or paid work.", rules)
+        self.assertIn("Make the cost, token and runtime ceilings of external or paid runs "
+                      "configurable.", rules)
+        self.assertIn("Leave those ceilings off while testing or debugging inside an approved task; "
+                      "the run's progress decides when it stops.", rules)
+        self.assertIn("Apply these ceiling requirements only to external or paid work.", rules)
+
+    def test_paid_runs_are_reported_and_retries_need_no_approval(self):
+        delivery = self.text("rules/delivery.md")
+        self.assertIn("Report each paid run's start, failure and finish to the operator at once.", delivery)
+        self.assertIn("Report retries and test runs the same way; no failed or new paid run goes "
+                      "unreported.", delivery)
+        self.assertIn("Never stop a paid run that is progressing at a reasonable pace.", delivery)
+        outcome = self.text("rules/outcome.md")
+        self.assertIn("Treat retries and test runs inside an approved task's scope as part of that task.",
+                      outcome)
+        self.assertIn("Do not ask the operator before such a retry or test run; finish the work.", outcome)
 
     def test_council_pointer_without_workflow(self):
         rules = self.text("rules/core.md")
@@ -1820,7 +1833,7 @@ class AcceptedScopeRegressionTest(unittest.TestCase):
     def test_routine_commands_are_exempt_from_expensive_work_requirements(self):
         delivery = (ROOT / "rules/delivery.md").read_text()
         self.assertIn(
-            "Apply this launch-boundary requirement only to external or paid work.\n"
+            "Apply these ceiling requirements only to external or paid work.\n"
             "- Exempt routine short, cheap, reproducible commands from these expensive-work requirements.",
             delivery,
         )
@@ -1834,7 +1847,7 @@ class AcceptedScopeRegressionTest(unittest.TestCase):
     def test_preventive_safety_stops_do_not_require_operator_approval(self):
         delivery = (ROOT / "rules/delivery.md").read_text()
         self.assertIn(
-            "Obtain operator approval before stopping materially paid work, except under "
+            "Obtain operator approval before stopping progressing, materially paid work, except under "
             "rules/core.md §Operator correction or safety requirements.", delivery,
         )
         self.assertNotIn("urgent safety requirements", delivery)

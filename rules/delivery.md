@@ -29,16 +29,23 @@
 - Do not rely only on programmatic assertions.
 - Follow `../prompts/skills/test-discipline.md` §Test discipline for what each test must prove, which browser automated tests and UI checks may start, tests for systems that keep durable state, duration, hanging-test removal, build-queue hold limits, and scale-test replacement.
 - Follow `../skills/pr-ready/references/guards.md` for guard/test upkeep and daily whole-system audits.
-- Require an explicit maximum cost/token/runtime boundary before launching external or paid work.
-- Apply this launch-boundary requirement only to external or paid work.
+- Make the cost, token and runtime ceilings of external or paid runs configurable.
+- Leave those ceilings off while testing or debugging inside an approved task; the run's progress decides when it stops.
+- Outside testing, set the ceilings the approved envelope names before launch.
+- Apply these ceiling requirements only to external or paid work.
 - Exempt routine short, cheap, reproducible commands from these expensive-work requirements.
 - Keep paid, long-running, or non-reproducible external runs primary or proportionally supporting within approved envelopes.
 - Examples include agents, model command-line interfaces, remote jobs, benchmarks, and crawls.
 - Require a durable transcript or checkpoint before the first substantive call for those runs.
 - Require a recorded session ID before that call.
 - Record spend at milestones.
+- Report each paid run's start, failure and finish to the operator at once.
+- Include the run's identifier, its target and its spend so far in each report.
+- Report retries and test runs the same way; no failed or new paid run goes unreported.
 - Inspect process state before stopping runs because of silence or wrapper timeouts.
-- Obtain operator approval before stopping materially paid work, except under rules/core.md §Operator correction or safety requirements.
+- Never stop a paid run that is progressing at a reasonable pace.
+- Investigate a paid run that stops progressing, stop it early when it has stalled, and report the stop at once.
+- Obtain operator approval before stopping progressing, materially paid work, except under rules/core.md §Operator correction or safety requirements.
 - Follow `handoff-continuity` §Authorized, bounded, and durable external runs for procedure.
 
 <a id="git"></a>
