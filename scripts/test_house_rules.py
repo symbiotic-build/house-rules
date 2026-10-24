@@ -256,19 +256,9 @@ class ConfigurationTests(Fixture):
         self.refused({"version": 3}, "has version 3; this house-rules command knows version 2; run house-rules self-update")
         self.refused({"version": 2, "pin": "x"}, "unknown field pin")
         self.refused({"version": 2}, "sources is required")
-        for value in (False, "input", {"value": "input"}, {"value": "input", "reason": " "}):
-            self.refused({"version": 2, "sources": [source], "git_settings": {"core.autocrlf": value}},
-                         "git_settings must map Git setting names")
-        setting = {"value": "x", "reason": "r"}
-        for key in ("core.attributesFile", "core.bare", "extensions.objectFormat", "include.path", "includeIf.x.path"):
-            self.refused({"version": 2, "sources": [source], "git_settings": {key: setting}},
-                         f"git_settings.{key}: a repository cannot set this Git setting")
+        self.refused({"version": 2, "sources": [source], "git_settings": {}}, "unknown field git_settings")
         self.refused({"version": 2, "sources": [dict(source, ref="a" * 64)]},
                      "house-rules: house-rules: SHA-256 sources are not supported yet")
-        whitespace = {"value": "blank-at-eol", "reason": "Trailing spaces fail everywhere."}
-        self.assertEqual(hr.repository_config(json.dumps({"version": 2, "sources": [source], "git_settings": {
-            "core.whitespace": whitespace, "diff.my driver.command": setting}}))["git_settings"]["core.whitespace"],
-                         whitespace)
         self.assertEqual(hr.repository_config(json.dumps({"version": 2, "sources": [source]}))["sources"],
                          [{"name": "house-rules", "url": hr.DEFAULT_URL, "ref": "main"}])
 
@@ -354,8 +344,14 @@ class CommandTests(Fixture):
             with self.assertRaises(hr.Failure) as caught:
                 hr.repository_config(json.dumps({"version": 2, "sources": [source, {"name": "team", "url": url}]}))
             self.assertIn("the URL of team carries credentials; use a Git credential helper", str(caught.exception))
-        self.assertEqual(hr.repository_config(json.dumps({"version": 2, "sources": [
-            source, {"name": "team", "url": "ssh://git@host/rules"}]}))["sources"][1]["url"], "ssh://git@host/rules")
+        for url in ("https::https://user:token@host/rules", "ext::ssh -i key host %S rules"):
+            with self.assertRaises(hr.Failure) as caught:  # the address inside is never checked, so the form is refused
+                hr.repository_config(json.dumps({"version": 2, "sources": [source, {"name": "team", "url": url}]}))
+            self.assertIn("the URL of team uses Git's <transport>::<address> form; write the address itself",
+                          str(caught.exception))
+        for url in ("ssh://git@host/rules", "file:///srv/a::b/rules"):  # "::" after the first "/" is a path
+            self.assertEqual(hr.repository_config(json.dumps({"version": 2, "sources": [
+                source, {"name": "team", "url": url}]}))["sources"][1]["url"], url)
 
     def test_text_form_of_the_tour(self):
         config, pin = self.tour()

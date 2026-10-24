@@ -70,12 +70,7 @@ LOCAL_GIT_ENV = ("GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONF
 PROFILE_MARKERS = (("rust", ("Cargo.toml",)), ("typescript", ("package.json", "tsconfig.json")),
                    ("python", ("pyproject.toml",)), ("svelte", ("svelte.config.js",)),
                    ("specs", ("docs/ENTITIES.json",)))
-GIT_SETTING = re.compile(r"[A-Za-z][A-Za-z0-9-]*(?:\.[^\n]+)?\.[A-Za-z][A-Za-z0-9-]*")
-# Keys a repository cannot set: the checks runner sets core.attributesFile itself, the others change how Git finds
-# or reads the repository, and an include would pull in settings nobody declared.
-RESERVED_GIT_SETTINGS = ("core.bare", "core.worktree", "core.repositoryformatversion", "core.attributesfile")
-RESERVED_GIT_PREFIXES = ("extensions.", "include.", "includeif.")
-REPOSITORY_FIELDS = ("version", "sources", "profiles", "budgets", "checks", "git_settings")
+REPOSITORY_FIELDS = ("version", "sources", "profiles", "budgets", "checks")
 RULESET_FIELDS = ("version", "context", "checks", "budgets", "profiles")
 PROFILE_FIELDS = ("context", "checks", "budgets")
 GLOBAL_FIELDS = ("version", "sources", "budgets", "checks")
@@ -292,6 +287,9 @@ def check_sources(sources, where):
         url = entry.get("url", DEFAULT_URL if name == "house-rules" else None)
         if not isinstance(url, str) or not url:
             raise Failure(f"house-rules: {at}: layer {name} needs a url")
+        if "::" in url.split("/", 1)[0]:  # Git's <transport>::<address>: the address inside escapes every check
+            raise Failure(f"house-rules: {at}: the URL of {name} uses Git's <transport>::<address> form; "
+                          "write the address itself")
         if credentials(url):
             raise Failure(f"house-rules: {at}: the URL of {name} carries credentials; use a Git credential helper")
         ref = entry.get("ref", "main")
@@ -336,16 +334,6 @@ def repository_config(data, where=CONFIG):
     if "sources" not in value:
         raise Failure(f"house-rules: {where}: sources is required; list at least "
                       '{"name": "house-rules", "ref": "main"}')
-    settings = value.get("git_settings", {})
-    if not isinstance(settings, dict) or not all(
-            isinstance(k, str) and GIT_SETTING.fullmatch(k) and isinstance(v, dict) and set(v) == {"value", "reason"}
-            and isinstance(v["value"], str) and isinstance(v["reason"], str) and v["reason"].strip()
-            for k, v in settings.items()):
-        raise Failure(f"house-rules: {where}: git_settings must map Git setting names (section.key or "
-                      'section.subsection.key) to {"value": "<string>", "reason": "<text>"}')
-    for key in settings:
-        if key.lower() in RESERVED_GIT_SETTINGS or key.lower().startswith(RESERVED_GIT_PREFIXES):
-            raise Failure(f"house-rules: {where}: git_settings.{key}: a repository cannot set this Git setting")
     profiles = value.get("profiles", [])
     if not isinstance(profiles, list) or not all(isinstance(p, str) and NAME.fullmatch(p) for p in profiles) \
             or len(set(profiles)) != len(profiles):
@@ -356,7 +344,7 @@ def repository_config(data, where=CONFIG):
             raise Failure(f"house-rules: {where}: checks.{identity}.enforced: only a layer file decides whether a "
                           "check refuses or warns")
     return {"sources": check_sources(value["sources"], where), "profiles": profiles,
-            "budgets": check_budgets(value.get("budgets", {}), where), "checks": checks, "git_settings": settings}
+            "budgets": check_budgets(value.get("budgets", {}), where), "checks": checks}
 
 
 def ruleset_entry(value, where):
