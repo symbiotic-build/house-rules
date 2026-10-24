@@ -254,7 +254,7 @@ Each layer entry has three fields:
 - `url` is the repository to fetch. The `house-rules` layer may omit it; its default is `https://github.com/symbiotic-build/house-rules`. Every other layer needs it.
 - `ref` is a branch name or a full commit identity. It is optional and defaults to `main`.
 
-A `ref` of 40 or 64 hexadecimal digits is a commit; any other value is a branch name.
+A `ref` of 40 hexadecimal digits is a commit. A `ref` of 64 hexadecimal digits, a SHA-256 commit, stops resolution with "SHA-256 sources are not supported yet", as the [SHA-1 sources decision](#decision-sha1-sources) records; it is never taken as a branch name. Any other value is a branch name.
 A branch always resolves to its latest commit, so a layer that follows `main` gets every change at the next run.
 A commit is a deliberate pin: it is visible in the file and changes only through a reviewed PR.
 Tags and other references are not refs; a value such as `v1` is read as the branch `v1`, and a missing branch stops resolution with an error naming it.
@@ -413,7 +413,7 @@ It runs once per run of any consumer, so every part of one run uses one set of c
 > - Each fetch creates a new temporary bare repository inside its source's cache folder, fetches the one commit with depth 1, extracts it into a temporary folder there, renames that folder to `revisions/<commit>/` and deletes the repository. It then writes the commit's first-fetch time to `revisions/<commit>.fetched`. A tree counts as prepared only when its `.fetched` file exists: a tree left without one by an interrupted fetch is not used, and the next fetch of that commit replaces the tree and writes the file.
 > - Fetching a commit by its identity needs a server that allows it. GitHub does. A server that refuses stops resolution with an error that names the commit and the server's answer.
 > - Every `ls-remote` and fetch passes `-c http.lowSpeedLimit=1 -c http.lowSpeedTime=30`, so Git stops a transfer that moves less than 1 byte per second for 30 s. Resolution adds no timer of its own, except in hook mode.
-> - In hook mode (`house-rules exec --hook`), the agent product kills the hook after its timeout, 10 s, which would leave no visible line. Resolution there has a deadline 2 s before that timeout, for lock waits, `ls-remote` and fetches together. At the deadline, a branch takes the [offline resolution](#offline-use) path with the warning "the remote did not answer within 8 s", and a layer with nothing cached stops with the resolution failure below. This is the one place resolution fails on elapsed time, because the host's timeout is not progress-based and a killed hook reports nothing.
+> - In hook mode (`house-rules exec --hook`), the agent product kills the hook after its timeout, 10 s, which would leave no visible line. `exec` owns one deadline for the whole hook, 8 s after the hook starts: lock waits, `ls-remote`, fetches and the started script all share it. `exec` passes it to the script in [`HOUSE_RULES_DEADLINE`](#environment-variables), so the script knows the time left. At the deadline during resolution, a branch takes the [offline resolution](#offline-use) path with the warning "the remote did not answer within 8 s", and a layer with nothing cached stops with the resolution failure below. A script that reaches the deadline stops its slow work and prints a visible line that names what was cut short. This is the one place House Rules stops on elapsed time, because the host's timeout is not progress-based and a killed hook reports nothing.
 > - Messages show each URL without the user name and password of its authority; Git itself receives the full URL.
 
 A consumer that hands its run to a tool at another House Rules revision passes the resolution in [`HOUSE_RULES_RESOLVED`](#environment-variables), as the checks runner already does. The started tool uses it and resolves nothing again.
@@ -432,7 +432,7 @@ It makes every resolution after the first local and fast, and it is what an offl
 > - `revisions/<commit>.used` is an empty file whose modification time is the last resolution that used the commit. A consumer holds a shared advisory lock on it for as long as it uses the tree, as [Cache pruning](#cache-pruning) requires.
 > - The source key names one source: the URL's transport, host and path, such as `https/github.com/symbiotic-build/house-rules`. The transport is `https`, `http`, `ssh` (an scp-like `git@host:path` too) or `file`, so an answer read over HTTP can never stand for an HTTPS source. The host is lower case. For `https` and `http`, user name and password are dropped, because the user name is often a token. For `ssh`, the login stays before the host, as in `ssh/git@github.com/owner/repo`: the login can choose the repository, since a relative scp-like path starts in that login's home folder, so `alice@host:rules.git` and `bob@host:rules.git` are two sources. The path stays as written, except that the default port and a trailing `.git` are dropped; a `file:` URL's path is its absolute path.
 > - `sources/<source hash>/` holds one source's files. The source hash is the lowercase hexadecimal SHA-256 of the source key's UTF-8 bytes, so every folder name has the same length and no source key or branch name can collide with another file. `source.json` in it holds `url` without user name and password, `scheme` and `key`, so `house-rules cache list` can name the source.
-> - `sources/<source hash>/branches/<branch hash>.json` records the last published answer for one branch. The branch hash is the lowercase hexadecimal SHA-256 of the branch name's UTF-8 bytes. The record holds `url` without user name and password, `branch`, `revision` and `fetched`, an ISO 8601 UTC time. A record belongs to the source whose hash names its folder, and its `url` must give that source key. The checks runner of [#212](https://github.com/symbiotic-build/house-rules/pull/212) writes the same record, so both tools share one answer. A resolution that uses the record, also when it reuses or falls back to it, touches the file, so its modification time is its last use.
+> - `sources/<source hash>/branches/<branch hash>.json` records the last published answer for one branch. The branch hash is the lowercase hexadecimal SHA-256 of the branch name's UTF-8 bytes, with undecodable bytes kept as they are (Python's `surrogateescape`). The record holds `url` without user name and password, `branch`, `revision` and `fetched`, an ISO 8601 UTC time. A record belongs to the source whose hash names its folder, and its `url` must give that source key. The checks runner of [#212](https://github.com/symbiotic-build/house-rules/pull/212) writes the same record, so both tools share one answer. A resolution that uses the record, also when it reuses or falls back to it, touches the file, so its modification time is its last use.
 > - `sources/<source hash>/lock` is the empty file whose lock serializes resolution of that source and pruning of its branch records and temporary folders.
 > - `environments/<digest>/` holds the virtual environments of the checks runner, unchanged from the runner PRs.
 > - `default` is a symbolic link to the House Rules tree of the last resolution of the global default sources. Agent-home skill links point through it, as [Agent sessions](#consumer-sessions) explains.
@@ -444,12 +444,12 @@ It makes every resolution after the first local and fast, and it is what an offl
 #### Cache pruning
 
 Cache pruning is `house-rules cache prune`, which removes cache entries that no run needs and never one that a running process uses.
-It keeps the cache from growing without bound while every consumer keeps working.
+It keeps the cache bounded while every consumer keeps working: what stays after pruning grows only with the number of distinct sources the machine has used, one small folder with its lock file each, as the [side files decision](#decision-side-files) records.
 
 It removes, in this order:
 
 - **An abandoned branch record:** one whose last use is more than 30 days old. Prune removes it while it holds its source's `lock`, after checking its last use again under that lock, so a resolution that uses or replaces the record meanwhile keeps it. The branch then has no offline fallback until it is resolved online again.
-- **A tree:** one that no remaining branch record names, that is not the `default` target and whose last use is more than 7 days old.
+- **A tree:** one that no remaining branch record names, that is not the `default` target and whose last use is more than 7 days old. Its `.fetched` and `.used` files go with it, removed under the same exclusive lock.
 - **A temporary fetch folder:** a `.partial-` folder in a source's folder older than 1 day.
 - **An old record:** `main.json` or `main.lock` of an earlier runner draft at the cache root. The `revisions/` folder is the current layout and is never removed whole.
 
@@ -655,9 +655,9 @@ Agent session hooks put House Rules rules into an agent's context at session sta
 
 - **Session context.** Each registered hook runs `house-rules exec --hook scripts/session_context.py <part>`. The script runs from the resolved House Rules tree and prints that tree's rules. The first part starts with the resolution record.
 - **Custom layer context.** After the House Rules parts, the script prints each layer's `context` files in layer order, as further parts with the same part labels.
-- **One event, one text.** Claude Code starts a session's parts as parallel hooks and passes them no shared event identity, so each part resolves on its own. Two parts can therefore straddle a branch's 60 s window or an edit of `house-rules.json`. Every part names the revision and the text fingerprint it was cut from, as today; parts that differ tell the agent to read the files from the named tree directly. The design detects a split rather than preventing it, as the [split detection decision](#decision-split-detection) records.
+- **One event, one text.** Claude Code starts a session's parts as parallel hooks and passes them no shared event identity, so each part resolves on its own. Two parts can therefore straddle a branch's 60 s window or an edit of `house-rules.json`. Every part names the revision and the text fingerprint it was cut from, as today. The fingerprint covers every layer's commit, not only House Rules', so a change in a team layer also shows. Part 1 prints every layer's tree path and its context files. Part 1's resolution governs: a part whose fingerprint differs tells the agent to read all the files part 1 lists from part 1's trees. The trees stay on disk, because prune removes only trees unused for 7 days. The design detects a split rather than preventing it, as the [split detection decision](#decision-split-detection) records.
 - **Compaction.** Claude Code and Codex run the same hooks after a compaction, so the re-injected rules come from a new resolution of the same repository.
-- **Approved-work listing.** Its hook runs `house-rules exec --hook scripts/session_context.py approved` in the same way.
+- **Approved-work listing.** Its hook runs `house-rules exec --hook scripts/session_context.py approved` in the same way. Its GitHub searches stop at the hook's deadline from `HOUSE_RULES_DEADLINE`, not at a budget of their own; a listing cut short prints the issues found so far and a line that says the search was cut short.
 - **Machine index.** The script reads this computer's `custom/INDEX.md` from the global configuration folder. A linked House Rules checkout that holds its own `custom/` folder uses that one.
 - **End-of-turn guard.** A local guard that names a House Rules tool, such as the PR watcher, names it through `house-rules exec`, so the tool's revision matches the repository's.
 
@@ -954,7 +954,7 @@ A run that uses a link or an override says so, and no repository file can create
 <a id="req-layers-cache"></a>
 ### Requirement: the cache can be listed and pruned safely
 
-The version cache never grows without bound, and pruning never breaks a running process.
+The version cache never grows without bound: after pruning, what stays besides the kept trees grows only with the number of distinct sources the machine has used. Pruning never breaks a running process.
 
 **Actor:** House Rules command.
 
@@ -1210,24 +1210,24 @@ The lead's recommendations follow; the operator saw them and did not contest the
 <a id="decision-split-detection"></a>
 ### Decision: session parts detect a split resolution instead of preventing it
 
-**Choice:** Each session part resolves on its own. The text fingerprint and revision every part already carries detect parts cut from different resolutions, and the parts then tell the agent to read the files from the named tree.
+**Choice:** Each session part resolves on its own. The text fingerprint and revision every part already carries detect parts cut from different resolutions; the fingerprint covers every layer's commit. Part 1 prints every layer's tree path and context files, and its resolution governs: on a split, the parts tell the agent to read all the files part 1 lists from part 1's trees.
 
-**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 1 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which asked how all parts of one session event receive one resolution.
+**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 1 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which asked how all parts of one session event receive one resolution. Completed by a lead decision, 2026-10-24, on the blocking lead decision of the Warden round 2 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed that the House Rules tree alone holds no team layer's context files.
 
 **Reason:** Claude Code starts the parts as independent processes and passes them no identity of the event they belong to; a session identity is shared by later compactions too. Any capture keyed on time would be another window with the same edge. Detection already exists, costs nothing in the normal case, and tells the agent exactly what to do in the rare one.
 
-**Rejected alternatives:** A per-session capture file reused for a few seconds: the same window problem, plus state to clean up. One hook that prints every part: Claude Code caps one hook's output at 10 000 characters, which is why the parts exist.
+**Rejected alternatives:** A per-session capture file reused for a few seconds: the same window problem, plus state to clean up. One hook that prints every part: Claude Code caps one hook's output at 10 000 characters, which is why the parts exist. Telling the agent to run `house-rules resolve` on a split: a third resolution, which may match neither part.
 
 <a id="decision-hook-deadline"></a>
-### Decision: hook-mode resolution ends 2 s before the hook timeout
+### Decision: a hook has one deadline, 2 s before the hook timeout
 
-**Choice:** In hook mode, lock waits, `ls-remote` and fetches together have a deadline 2 s before the product's 10 s hook timeout. At the deadline a branch uses its last answer with a warning, and a layer with nothing cached is a visible resolution failure.
+**Choice:** In hook mode, `exec` owns one deadline, 8 s after the hook starts, which is 2 s before the product's 10 s hook timeout. Lock waits, `ls-remote`, fetches and the started script share it; `exec` passes it to the script in `HOUSE_RULES_DEADLINE`. At the deadline a branch uses its last answer with a warning, a layer with nothing cached is a visible resolution failure, and a script prints what it has with a line that says it was cut short.
 
-**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the same triage, which asked for a timing contract that ends in complete context or a visible failure.
+**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the same triage, which asked for a timing contract that ends in complete context or a visible failure. Extended by a lead decision, 2026-10-24, on the blocking lead decision of the Warden round 2 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed that a resolution of 7.5 s followed by the approved-work listing's own 7 s budget still runs past the host's timeout.
 
 **Reason:** The product kills a hook at its timeout, and a killed hook shows the agent nothing, which breaks the rule that every failure is visible. The verification rules prefer progress-based limits, but here the host's limit is fixed and elapsed; the deadline only turns a silent kill into a named fallback. Everywhere else resolution keeps Git's progress-based limit.
 
-**Rejected alternatives:** A longer hook timeout: it delays every session start on a stalled network and still ends in a silent kill. Resolving in a separate background step before the session: the hooks are the only code that runs at session start.
+**Rejected alternatives:** A longer hook timeout: it delays every session start on a stalled network and still ends in a silent kill. Resolving in a separate background step before the session: the hooks are the only code that runs at session start. Fixed shares, such as 3 s for resolution and 5 s for the script: two timers, and a slow fetch would fail even when the script needs no time.
 
 <a id="decision-prune-locks"></a>
 ### Decision: pruning skips anything a running process holds
@@ -1250,6 +1250,28 @@ The lead's recommendations follow; the operator saw them and did not contest the
 **Reason:** Without expiry, every source or branch ever resolved would keep its last tree forever, and the cache would grow with every experiment. A branch unused for a month is unlikely to be needed offline; when it is, the run says so and names the repair.
 
 **Rejected alternatives:** Keeping every record: unbounded growth. A count limit per source: it would expire an actively used branch on a machine that uses many.
+
+<a id="decision-sha1-sources"></a>
+### Decision: source layers are SHA-1 repositories for now
+
+**Choice:** A `ref` of 64 hexadecimal digits stops resolution with "SHA-256 sources are not supported yet". A source must be a repository in SHA-1 format. A repository in SHA-256 format can still adopt House Rules and run its checks.
+
+**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 2 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which asked how the resolver and the checks runner of [#212](https://github.com/symbiotic-build/house-rules/pull/212) accept the same refs. The lead stated that this concerns the commit hash format, not the ref kinds the operator is reviewing.
+
+**Reason:** The runner's fetch, branch records and handover are built for SHA-1, and both tools must accept the same refs. No source in use is SHA-256. Adding the format later is one change to both tools.
+
+**Rejected alternatives:** SHA-256 in the resolver only: the two tools would disagree about a valid file. SHA-256 in both now: it grows the runner's change for no current user.
+
+<a id="decision-side-files"></a>
+### Decision: pruning removes a tree's side files and keeps source folders
+
+**Choice:** Pruning removes `revisions/<commit>.fetched` and `revisions/<commit>.used` together with their tree, under the tree's exclusive lock. Source folders and their `lock` files stay. The design promises that what stays after pruning grows only with the number of distinct sources a machine has used.
+
+**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 2 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which counted two side files per commit and one folder per source that pruning never removed.
+
+**Reason:** The side files mean nothing without their tree; a later fetch of the commit writes new ones. Sources are listed by hand in configuration files, so their number stays small. Removing a source's lock file would make every lock taker check, after locking, that the file is still the same one, in both the resolver and the checks runner.
+
+**Rejected alternatives:** Also removing empty source folders: a change to how both tools take locks. Keeping everything and narrowing the promise to one pair of side files per commit ever used: it grows with every commit a branch passes through.
 
 <a id="questions"></a>
 ## Open questions
@@ -1384,8 +1406,9 @@ A command environment variable is an environment variable of the [House Rules co
 | `HOUSE_RULES_REVISION` | revision override of the `house-rules` layer for one run |
 | `HOUSE_RULES_CACHE` | cache root |
 | `HOUSE_RULES_RESOLVED` | set by a starting tool: the [resolution record](#resolution-record) in JSON |
+| `HOUSE_RULES_DEADLINE` | set by `exec --hook`: the hook's deadline, in seconds since 1970-01-01 UTC |
 
-The last three keep the names and meanings the runner PRs gave them; `HOUSE_RULES_RESOLVED` now holds the whole resolution record. The runner PRs' `HOUSE_RULES_URL` is retired: a fork or a fixture is a `url` in the repository configuration.
+`HOUSE_RULES_REVISION`, `HOUSE_RULES_CACHE` and `HOUSE_RULES_RESOLVED` keep the names and meanings the runner PRs gave them; `HOUSE_RULES_RESOLVED` now holds the whole resolution record. The runner PRs' `HOUSE_RULES_URL` is retired: a fork or a fixture is a `url` in the repository configuration.
 
 <a id="schema-resolution"></a>
 ### Resolution record format
@@ -1429,6 +1452,7 @@ The last three keep the names and meanings the runner PRs gave them; `HOUSE_RULE
 | unknown profile | `house-rules: profile <name> is defined by no layer (<layer names>)` | 2 |
 | missing reason | `house-rules: <layer> <key>: changes <earlier layer>'s value; add a reason` | 2 |
 | missing branch | `house-rules: <layer>: no branch <branch> at <url>; check the ref in house-rules.json` | 2 |
+| SHA-256 source | `house-rules: <layer>: SHA-256 sources are not supported yet` | 2 |
 | missing commit | `house-rules: <layer>: commit <commit> not found at <url> (<git error>); check the ref` | 2 |
 | offline, no record | `house-rules: cannot reach <url> (<git error>) and no earlier fetch of <layer> <branch> is cached; run again when online` | 2 |
 | both one-run variables | `house-rules: set HOUSE_RULES_LINK or HOUSE_RULES_REVISION, not both` | 1 |
