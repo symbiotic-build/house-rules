@@ -981,14 +981,12 @@ def check_complete(identity, fields, where):
                       "hook stage needs a check that reads the snapshot, otherwise list only ci")
 
 
-def rebinds(field, value, current, label):
-    """True when a run that names {layer} is set by another layer: the same text then runs another layer's files."""
-    return (field == "run" and any("{layer}" in arg for arg in value)
-            and current[field][1].split("/", 1)[0] != label.split("/", 1)[0])
-
-
 def merge_entry(state, settings, section, key, entry, label, need_reason, earlier_defined):
-    """Apply one entry field by field; record each changed value with its layer, and require a reason for it."""
+    """Apply one entry field by field; record each value it sets with its layer, and require a reason for it.
+
+    One rule: an entry that sets any field of a check an earlier step defined carries a reason, whether or not
+    the value is equal, so every value after House Rules' top level says why it is there.
+    """
     current = state[section].get(key)
     if current is None:
         check_complete(key, entry, label)  # an identity is introduced whole; a later file only changes it
@@ -999,11 +997,10 @@ def merge_entry(state, settings, section, key, entry, label, need_reason, earlie
             settings.append({"key": f"{section}.{key}", "value": entry, "layer": label, "replaces": None,
                              "reason": entry.get("reason")})
         return
-    changed = [field for field, value in entry.items() if field != "reason"
-               and (field not in current or current[field][0] != value or rebinds(field, value, current, label))]
+    changed = [field for field in entry if field != "reason"]
     if changed and need_reason and not isinstance(entry.get("reason"), str):
         earlier = current[changed[0]][1] if changed[0] in current else current[next(iter(current))][1]
-        raise Failure(f"house-rules: {label} {section}.{key}.{changed[0]}: changes {earlier}'s value; add a reason")
+        raise Failure(f"house-rules: {label} {section}.{key}.{changed[0]}: sets a field that {earlier} set; add a reason")
     for field in changed:
         replaces = current[field][1] if field in current else None
         settings.append({"key": f"{section}.{key}.{field}", "value": entry[field], "layer": label,
@@ -1015,12 +1012,10 @@ def merge_entry(state, settings, section, key, entry, label, need_reason, earlie
 
 
 def merge_budget(state, settings, stage, entry, label, need_reason):
-    """A budget entry replaces the earlier entry for its stage whole; a changed value needs a reason."""
+    """A budget entry replaces the earlier entry for its stage whole, and needs a reason, as a check entry does."""
     current = state["budgets"].get(stage)
-    if current is not None and current.get("seconds", (None,))[0] == entry.get("seconds"):
-        return
     if current is not None and need_reason and not isinstance(entry.get("reason"), str):
-        raise Failure(f"house-rules: {label} budgets.{stage}: changes {current['seconds'][1]}'s value; add a reason")
+        raise Failure(f"house-rules: {label} budgets.{stage}: sets a field that {current['seconds'][1]} set; add a reason")
     if current is not None or need_reason:
         settings.append({"key": f"budgets.{stage}", "value": entry, "layer": label,
                          "replaces": current["seconds"][1] if current else None, "reason": entry.get("reason")})

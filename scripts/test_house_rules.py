@@ -288,8 +288,12 @@ class ConfigurationTests(Fixture):
         repo = self.repository(config)
         with self.assertRaises(hr.Failure) as caught:
             hr.effective(hr.resolve(repo), hr.repository_config(json.dumps(config)), repo)
-        self.assertEqual(str(caught.exception), "house-rules: repository checks.spec-docs.stages: changes "
-                                                "rust-settings/rust's value; add a reason")
+        self.assertEqual(str(caught.exception), "house-rules: repository checks.spec-docs.stages: sets a field "
+                                                "that rust-settings/rust set; add a reason")
+        config["checks"] = {"spec-docs": {"stages": ["pre-push", "ci"]}}  # the value it already has
+        with self.assertRaises(hr.Failure) as caught:  # an equal value needs a reason too: one merge rule
+            hr.effective(hr.resolve(repo), hr.repository_config(json.dumps(config)), repo)
+        self.assertIn("checks.spec-docs.stages: sets a field that ", str(caught.exception))
 
     def test_a_layer_file_that_lists_sources_is_refused(self):
         config, _ = self.tour()
@@ -525,8 +529,8 @@ class RoundOneTests(Fixture):
         self.push("house-rules", {hr.RULESET: ruleset})
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(self.repository(config))
-        self.assertEqual(str(caught.exception), "house-rules: house-rules/rust checks.spec-docs.stages: changes "
-                                                "house-rules's value; add a reason")
+        self.assertEqual(str(caught.exception), "house-rules: house-rules/rust checks.spec-docs.stages: sets a "
+                                                "field that house-rules set; add a reason")
 
     def test_an_explicit_repository_wins_over_inherited_git_bindings(self):
         config, _ = self.tour()
@@ -708,17 +712,17 @@ class RoundTwoTests(Fixture):
         code, out, err = self.command("exec", "--rev", "HEAD", "scripts/show.py", cwd=repo, stdin=lines.encode())
         self.assertEqual((code, out), (0, f"commit 3\n{lines}"), err)  # passed on to the runner unchanged
 
-    def test_a_command_naming_its_layer_changes_with_the_layer(self):
+    def test_a_field_set_again_needs_a_reason_even_with_the_same_text(self):
         config, _ = self.tour()
         run_layer = ["{python}", "{layer}/scripts/lint.py", "{snapshot}"]
         lint = {"run": run_layer, "stages": ["ci"], "paths": ["**"], "fix": "fix it"}
         self.push("team-rules", {hr.RULESET: {"version": 1, "checks": {"lint": lint}}})
         self.push("rust-settings", {hr.RULESET: {"version": 1, "checks": {"lint": {"run": run_layer}}}})
         config["sources"][2]["ref"] = run(self.root / "work" / "rust-settings", "rev-parse", "HEAD")
-        with self.assertRaises(hr.Failure) as caught:  # the same text runs rust-settings' script: a change
+        with self.assertRaises(hr.Failure) as caught:  # the same text set again needs a reason, as every field does
             hr.resolve(self.repository(config))
-        self.assertEqual(str(caught.exception), "house-rules: rust-settings checks.lint.run: changes team-rules's value; "
-                                                "add a reason")
+        self.assertEqual(str(caught.exception), "house-rules: rust-settings checks.lint.run: sets a field that team-rules "
+                                                "set; add a reason")
 
     def test_a_hook_passes_its_deadline_to_the_script(self):
         house = self.source("house-rules", {"scripts/show.py": "import os\nprint(os.environ['HOUSE_RULES_DEADLINE'])\n"})
@@ -810,8 +814,8 @@ class RoundThreeTests(Fixture):
         self.expire_answers()
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(repo)
-        self.assertEqual(str(caught.exception), "house-rules: team-rules/rust budgets.pre-commit: changes team-rules's "
-                                                "value; add a reason")
+        self.assertEqual(str(caught.exception), "house-rules: team-rules/rust budgets.pre-commit: sets a field that "
+                                                "team-rules set; add a reason")
 
     def test_a_tree_is_published_whole_and_never_replaced(self):
         config, pin = self.tour()
