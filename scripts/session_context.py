@@ -6,8 +6,9 @@ files its "Always load" section lists, the operator-writing skill and this compu
 custom/INDEX.md, read live from the House Rules tree that holds this script. Registered through
 `house-rules exec --hook`, it runs from the tree the House Rules command resolved for the session's
 repository; part 1 then starts with that resolution, and each custom source layer's context files follow
-the House Rules files. This computer's custom/ folder is the tree's own when it has one (a checkout),
-and otherwise the one in the House Rules configuration folder (~/.config/house-rules/custom).
+the House Rules files. This computer's custom/INDEX.md is the one in the House Rules configuration
+folder (~/.config/house-rules/custom) when that file exists, and otherwise the one in this script's own
+checkout, as an install from before the House Rules command has it.
 
   session_context.py claude <n>      part <n> for Claude Code; one hook per part
   session_context.py codex           every part, as one Codex additionalContext value
@@ -80,6 +81,7 @@ def house_rules():
     return module
 
 
+@functools.lru_cache(maxsize=None)
 def handed():
     """The resolution `house-rules exec` handed this run, when it resolved this script's own tree."""
     module = house_rules()
@@ -109,6 +111,7 @@ def oversized():
     for item in record.get("context", []):
         counts[item["layer"].split("/", 1)[0]] = counts.get(item["layer"].split("/", 1)[0], 0) + 1
     most = max(counts, key=counts.get) if counts else record["layers"][0]["name"]
+    most = most if len(most) <= 100 else most[:99] + "…"
     tree = default_tree()
     given = (f"the global default's ({tree})" if tree is not None else
              f"this repository's House Rules layer alone ({root()}), because no global default is cached")
@@ -132,20 +135,19 @@ def delivered():
     return default_tree() or root()
 
 
+@functools.lru_cache(maxsize=None)
 def default_tree():
-    """The global default's cached House Rules tree, or None when none is cached."""
+    """The global default's cached House Rules tree, or None when none is cached; read once, so a run that moves
+    the `default` link meanwhile cannot make one part give one tree and name another."""
     default = Path(os.path.realpath(str(house_rules().cache_root() / "default")))
     return default if (default / "INDEX.md").is_file() else None
 
 
 def local_index(base):
-    """This computer's custom/INDEX.md: the configuration folder's when house-rules exec started this run, also as
-    a fallback (HOUSE_RULES_FALLBACK, or a resolution too large for part 1), else the custom/ folder of the checkout
-    the hook runs from, as an install that predates the command registers it."""
+    """This computer's custom/INDEX.md: the configuration folder's when it exists, else `base`'s own."""
     module = house_rules()
-    if module is None or (handed() is None and not os.environ.get(module.FALLBACK)):
-        return base / LOCAL_INDEX
-    return module.config_home() / LOCAL_INDEX
+    configured = module.config_home() / LOCAL_INDEX if module else None
+    return configured if configured is not None and configured.is_file() else base / LOCAL_INDEX
 
 
 def context_files(base, failures):
@@ -289,13 +291,12 @@ def parts(base=None, failures=None):
         blocks.append(("resolution", "resolution", RESOLUTION_HEAD + error + "\n"))
     for name, text, path in sources(base, failures):
         for index, (name, heading, section) in enumerate(sections(name, text)):
-            if units(section) > limit:
+            banner = f"\n===== House Rules file {name} =====\n" if index == 0 else ""
+            if units(banner + section) > limit:
                 too_long.append((name, heading))
-                section = (f"{ERROR} {name} section \"{heading}\" is {units(section)} characters, more than the "
-                           f"{limit} one part holds, so it is not in this context. Read it from {path}.\n")
-            if index == 0:
-                section = f"\n===== House Rules file {name} =====\n{section}"
-            blocks.append((name, heading, section))
+                section = (f"{ERROR} {name} section \"{heading[:100]}\" is {units(section)} characters, more than "
+                           f"the {limit} one part holds, so it is not in this context. Read it from {path}.\n")
+            blocks.append((name, heading, banner + section))
     packed = []
     for name, heading, text in blocks:
         if not packed or units(packed[-1][2] + text) > limit:
@@ -315,6 +316,7 @@ def fingerprint(packed):
 
 def label(number, total, rev, text_id, name, heading):
     heading = heading if len(heading) <= 100 else heading[:99] + "…"
+    name = name if len(name) <= 100 else name[:99] + "…"
     return (f"===== House Rules part {number} of {total} (revision {rev}, text {text_id}); "
             f"starts at {name}, heading \"{heading}\" =====")
 
@@ -465,6 +467,8 @@ def every_part(failures=None):
     """
     failures = [] if failures is None else failures
     rev, packed, too_long = parts(failures=failures)
+    if oversized():
+        failures.append("the resolution, too large for part 1")
     failures.extend(f"{name}, heading \"{heading}\"" for name, heading in too_long)
     if len(packed) > SLOTS:
         failures.append(f"parts {SLOTS + 1} to {len(packed)}")

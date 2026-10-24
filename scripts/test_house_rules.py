@@ -55,7 +55,10 @@ class Fixture(unittest.TestCase):
         for path, content in files.items():
             target = Path(work) / path
             target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content if isinstance(content, str) else json.dumps(content))
+            if isinstance(content, bytes):
+                target.write_bytes(content)
+            else:
+                target.write_text(content if isinstance(content, str) else json.dumps(content))
         run(work, "add", "-A")
         run(work, "commit", "-q", "-m", "change")
         return run(work, "rev-parse", "HEAD")
@@ -513,7 +516,7 @@ class SessionContextTests(Fixture):
         default = Path(os.path.realpath(str(hr.cache_root() / "default")))
         self.assertIn(f"(revision {default.name[:12]}, ", fallback)  # the cached tree's commit, not "unknown"
 
-    def test_large_resolutions_and_unreadable_team_files(self):
+    def test_large_resolutions_name_their_files(self):
         here = Path(__file__).resolve().parent
         names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(60)]  # 60 resolution lines still fit in part 1
         house = self.source("house-rules", {
@@ -521,8 +524,10 @@ class SessionContextTests(Fixture):
             "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
             "scripts/session_context.py": (here / "session_context.py").read_text(),
             "scripts/house_rules.py": (here / "house_rules.py").read_text()})
-        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": [*names, "rules/big.md", "rules/bad.md"]},
-                                          "rules/big.md": "# Big\n\n" + "word " * 3000 + "\n", "rules/bad.md": "# Bad\n",
+        long = "rules/" + "/".join(["n" * 60] * 5) + ".md"  # its banner and label repeat the long path
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": [*names, "rules/big.md", long]},
+                                          "rules/big.md": "# Big\n\n" + "word " * 3000 + "\n",
+                                          long: "# Long\n\n" + "w " * 4300 + "\n",
                                           **{name: "# r\n" for name in names}})
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
                                                           {"name": "team-rules", "url": team}]})
@@ -533,23 +538,45 @@ class SessionContextTests(Fixture):
         context = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(context)  # the script as the resolved tree holds it
         with mock.patch.dict(os.environ, {hr.RESOLVED: json.dumps(record)}):
-            failures = []
-            real = Path.read_text
-
-            def read_text(path, *args, **kwargs):  # rules/bad.md is not UTF-8
-                if path.name == "bad.md":
-                    raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
-                return real(path, *args, **kwargs)
-            with mock.patch.object(Path, "read_text", new=read_text):
-                rev, packed, too_long = context.parts(context.root(), failures)
+            rev, packed, too_long = context.parts(context.root(), [])
             outputs = [context.render(n, rev, packed) for n in range(1, len(packed) + 1)]  # none over the cap
         whole = "".join(outputs)
         self.assertIn("\n===== House Rules resolution =====\n", outputs[0])  # part 1 starts with the resolution
         self.assertLess(whole.index("House Rules resolution ====="), whole.index("House Rules file INDEX.md"))
         self.assertTrue(all(f"context of team-rules: {name}\n" in outputs[0] for name in names))  # all in part 1
-        self.assertIn("team-rules rules/bad.md", failures)  # Kimi delivers it again once it can be read
         text = "".join(outputs)
         self.assertIn(f"Read it from {tree / 'rules/big.md'}.", text)  # the real file, not a path under House Rules
+        self.assertIn(f"Read it from {tree / long}.", text)  # fits alone, but not with its banner: the error instead
+
+    def test_kimi_records_a_session_only_after_complete_rules(self):
+        here = Path(__file__).resolve().parent
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n\n## Load when needed\n",
+            "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": ["rules/bad.md"]},
+                                          "rules/bad.md": b"# Bad \xff\n"})  # not UTF-8
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": "team-rules", "url": team}]})
+        custom = self.root / "config" / "house-rules" / "custom"
+        custom.mkdir(parents=True)
+        (custom / "INDEX.md").write_text("# This computer\n")
+        kimi = self.root / "kimi"
+        command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py", "kimi", "prompt"]
+
+        def prompt():
+            proc = subprocess.run(command, input=json.dumps({"cwd": repo, "session_id": "s1"}).encode(), stdin=None,
+                                  capture_output=True, env=dict(os.environ, KIMI_CODE_HOME=str(kimi)))
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            return proc.stdout.decode()
+        self.assertIn("HOUSE RULES HOOK ERROR: cannot read ", prompt())
+        self.assertFalse((kimi / "house-rules-sessions" / "s1").exists())  # incomplete rules record nothing
+        self.push("team-rules", {"rules/bad.md": "# Bad, repaired\n"})
+        self.expire_answers()
+        self.assertIn("# Bad, repaired", prompt())  # the next prompt delivers the repaired file
+        self.assertTrue((kimi / "house-rules-sessions" / "s1").exists())
+        self.assertEqual(prompt(), "")  # a session that has the complete rules gets nothing more
 
     def test_a_resolution_too_large_for_part_1_gives_the_default_rules(self):
         here = Path(__file__).resolve().parent
@@ -563,6 +590,8 @@ class SessionContextTests(Fixture):
         (self.root / "config" / "house-rules").mkdir(parents=True)
         hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
         hr.resolve(None)  # the global default's tree
+        (self.root / "config" / "house-rules" / "custom").mkdir()
+        (self.root / "config" / "house-rules" / "custom" / "INDEX.md").write_text("# This machine\n")
         self.push("house-rules", {"rules/later.md": "# Later\n"})  # the repository resolves a newer commit
         self.expire_answers()
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
@@ -581,7 +610,13 @@ class SessionContextTests(Fixture):
         self.assertNotIn("team-rules rules/r000", text)
         self.assertIn("===== House Rules file rules/core.md =====", text)  # the default's own rules
         self.assertIn(f"Read the files from {default} directly.", text)
-        self.assertIn(str(self.root / "config" / "house-rules" / "custom" / "INDEX.md"), text)  # the machine's index
+        self.assertIn("# This machine", text)  # the configuration folder's machine index
+        kimi = self.root / "kimi"
+        command[-1:] = ["kimi", "prompt"]
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo, "session_id": "s1"}).encode(), stdin=None,
+                              capture_output=True, env=dict(os.environ, KIMI_CODE_HOME=str(kimi)))
+        self.assertIn("the resolution lines need", proc.stdout.decode())
+        self.assertFalse((kimi / "house-rules-sessions" / "s1").exists())  # the default's rules are not complete
 
 
 class RoundOneTests(Fixture):
