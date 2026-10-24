@@ -85,13 +85,20 @@ def check(root):
     try:
         failures = check_staged(root, Path(tmp))
     except BaseException:
-        shutil.rmtree(tmp, ignore_errors=True)
+        cleanup = remove(tmp)
+        if cleanup:  # the staging error propagates; the cleanup error is still reported, on its own line
+            print(f"ERROR cleanup: {cleanup}", file=sys.stderr)
         raise
+    return failures, remove(tmp)
+
+
+def remove(tmp):
+    """None when `tmp` is gone, else the error that names it and its repair."""
     try:
         shutil.rmtree(tmp)
     except OSError as exc:
-        return failures, f"cannot remove the temporary folder {tmp} ({exc.strerror or exc}); remove it by hand"
-    return failures, None
+        return f"cannot remove the temporary folder {tmp} ({exc.strerror or exc}); remove it by hand"
+    return None
 
 
 def check_staged(root, tmp):

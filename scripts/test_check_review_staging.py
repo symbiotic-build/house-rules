@@ -198,6 +198,19 @@ class ReviewStagingTest(unittest.TestCase):
             self.assertIn("FAILED: roles and lenses prepared", out.getvalue())
             self.assertIn("ERROR cleanup: cannot remove the temporary folder", err.getvalue())
 
+    def test_a_cleanup_failure_after_a_staging_error_is_reported_too(self):
+        real = shutil.rmtree
+
+        def stuck(path, *args, **kwargs):
+            real(path, *args, **kwargs)
+            raise OSError(66, "Directory not empty")
+        err = io.StringIO()
+        with unittest.mock.patch.object(check_review_staging, "check_staged", side_effect=RuntimeError("staging")), \
+                unittest.mock.patch.object(check_review_staging.shutil, "rmtree", stuck), \
+                contextlib.redirect_stderr(err), self.assertRaisesRegex(RuntimeError, "staging"):
+            check_review_staging.check(REPO)  # the staging error still propagates
+        self.assertIn("ERROR cleanup: cannot remove the temporary folder", err.getvalue())
+
     def test_missing_matching_checker_fails_documentation_staging(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
