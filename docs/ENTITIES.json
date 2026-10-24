@@ -496,7 +496,6 @@
         "HOUSE_RULES_CACHE",
         "HOUSE_RULES_CHECK_QUEUE",
         "HOUSE_RULES_RESOLVED",
-        "HOUSE_RULES_SNAPSHOT",
         "CHECK_STAGE",
         "CHECK_BASE",
         "CHECK_SNAPSHOT"
