@@ -61,6 +61,10 @@ TRANSPORT = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9+.-]*)?::")  # Git's <transport
 # A fetch fails on lack of progress, never on elapsed time: below 1 byte/s for 30 s over HTTP.
 PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
 NO_REPLACE = {"GIT_NO_REPLACE_OBJECTS": "1"}
+# Extraction reads attributes only from the commit: no system or personal attributes file can drop a file, such as
+# ruleset.json, from a tree that every later run reuses. The checks runner shuts them out of its checks the same way.
+ARCHIVE_ATTRIBUTES = {"GIT_ATTR_NOSYSTEM": "1", "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "core.attributesFile",
+                      "GIT_CONFIG_VALUE_0": os.devnull}
 # Variables that bind a Git command to the calling repository; a hook inherits some of them.
 LOCAL_GIT_ENV = ("GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_CONFIG_COUNT",
                  "GIT_CONFIG_PARAMETERS", "GIT_DIR", "GIT_GRAFT_FILE", "GIT_IMPLICIT_WORK_TREE",
@@ -537,7 +541,7 @@ def write_answer(url, kind, record):
 
 
 def extract(repository, commit, folder, deadline=NO_DEADLINE):
-    environ = dict({k: v for k, v in os.environ.items() if k not in LOCAL_GIT_ENV}, **NO_REPLACE)
+    environ = dict({k: v for k, v in os.environ.items() if k not in LOCAL_GIT_ENV}, **NO_REPLACE, **ARCHIVE_ATTRIBUTES)
     archive = subprocess.Popen(["git", "archive", "--format=tar", commit], cwd=str(repository),
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, env=environ)
     try:
