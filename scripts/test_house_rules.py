@@ -209,8 +209,8 @@ class ResolutionTests(Fixture):
         hr.write_links({config["sources"][1]["url"]: str(self.root / "gone")})
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(repo)
-        self.assertIn(f"is not the root of a Git working tree; run house-rules unlink {self.root / 'gone'}",
-                      str(caught.exception))
+        self.assertTrue(str(caught.exception).endswith(f"house-rules unlink with its checkout path: team-rules "
+                                                       f"{config['sources'][1]['url']} -> {self.root / 'gone'}"))
 
     def test_no_configuration_uses_the_global_sources_and_moves_default(self):
         fork = self.source("house-rules", {"INDEX.md": "fork rules\n"})
@@ -415,7 +415,7 @@ class CommandTests(Fixture):
         lines = proc.stdout.decode().splitlines()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(lines[0].startswith("HOUSE RULES HOOK ERROR: house-rules: house-rules: no branch gone at file://"))
-        self.assertIn(f"The House Rules below are the global default's ({tree}), not this repository's resolved rules, "
+        self.assertIn("The House Rules below are the global default's, not this repository's resolved rules, "
                       "and this repository's custom layers are missing.", lines[0])
         self.assertEqual(lines[1], f"rules from {tree}/scripts/show.py")
 
@@ -537,6 +537,112 @@ class SessionContextTests(Fixture):
                               env=os.environ)
         self.assertIn(linked, json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"])
 
+    def test_a_fallback_part_and_its_failure_line_stay_under_the_cap(self):
+        here = Path(__file__).resolve().parent
+        import session_context
+        banner = "\n===== House Rules file rules/big.md =====\n"
+        most = 10 ** len(str(session_context.SLOTS * 100))  # a later part's room before any fallback reserve
+        room = session_context.CAP - 4 - session_context.units(session_context.end_line(most, most)) - \
+            session_context.units(session_context.label(most, most, "0" * 12, "0" * 12, "rules/big.md", "Big"))
+        # A part holds big.md with 300 units to spare after the 601 a fallback line and its end take; small.md takes
+        # more than those 300, so it shares big.md's part only when that room is not kept.
+        body = "w " * ((room - 601 - 300 - session_context.units(banner) - len("# Big\n\n")) // 2)
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n",
+            "rules/core.md": "# Core rules\n", "rules/big.md": "# Big\n\n" + body + "\n",
+            "rules/small.md": "# Small\n\n" + "s " * 200 + "\n",
+            hr.RULESET: {"version": 1, "context": ["rules/core.md", "rules/big.md", "rules/small.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        (self.root / "config" / "house-rules" / "custom").mkdir(parents=True)
+        (self.root / "config" / "house-rules" / "custom" / "INDEX.md").write_text("# This machine\n")
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        hr.resolve(None)  # the global default's tree
+        missing = "file://" + str(self.root / "missing" / ("g/" * 300)) + "rules.git"  # its error repeats the URL
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": "team-rules", "url": missing}]})
+        for part, content in (("1", "# Core rules"), ("2", "w w w"), ("3", "s s s")):
+            proc = subprocess.run([sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py",
+                                   "claude", part], input=json.dumps({"cwd": repo}).encode(), stdin=None,
+                                  capture_output=True, env=os.environ)
+            out = proc.stdout.decode().rstrip("\n")
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            first, rest = out.split("\n", 1)
+            self.assertTrue(first.startswith("HOUSE RULES HOOK ERROR: house-rules: "), first)
+            self.assertRegex(first, r" file://\S*…\S*g/grules\.git ")  # the long URL gives way in its middle
+            self.assertIn("is cached; run again when online. ", first)  # the failure's repair stays
+            self.assertTrue(first.endswith("The House Rules below are the global default's, not this repository's "
+                                           "resolved rules, and this repository's custom layers are missing."), first)
+            self.assertLessEqual(len(first.encode("utf-16-le")) // 2, 600)  # the line the issue bounds
+            self.assertIn(f"===== House Rules part {part} of 3 ", rest)
+            self.assertIn(content, rest)  # each section arrives whole, in its own part
+            self.assertNotIn("is not in this context", rest)
+            self.assertLess(len(out.encode("utf-16-le")) // 2, 10_000)  # the hook output Claude Code takes
+            self.assertNotIn("-character cap", out)
+
+    def test_a_fallback_line_keeps_its_cause_repair_and_explanation(self):
+        here = Path(__file__).resolve().parent
+        long = self.root / "/".join(["c" * 100] * 7)  # a cache path longer than the whole line
+        os.environ["HOUSE_RULES_CACHE"] = str(long)
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n", "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        (self.root / "config" / "house-rules").mkdir(parents=True)
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        hr.resolve(None)  # the global default's tree
+        team = self.source("team-rules", {hr.RULESET: {"version": 1}})
+        explanation = (". The House Rules below are the global default's, not this repository's resolved rules, and "
+                       "this repository's custom layers are missing.")
+        def linked(name, url):
+            return {"version": 2, "sources": [{"name": "house-rules", "url": house}, {"name": name, "url": url}]}
+        broken = ["HOUSE RULES HOOK ERROR: house-rules: a linked checkout is not the root of a Git working tree; "
+                  "house-rules cache list shows the link, then run house-rules unlink with its checkout path: "]
+        g7 = "/" + "/".join(["g" * 100] * 7)
+        cases = [  # each configuration, the link it finds, and what its line keeps
+            ({"version": 2, "sources": [{"name": "house-rules", "url": house}], "\udc80": 1}, None,
+             ["house-rules: ", "house-rules.json: unknown field \\udc80; allowed: "]),
+            ({"version": 2, "sources": [{"name": "house-rules", "url": house}, {"name": "team-rules", "url": house,
+                                                                               "ref": "gone-" + "b" * 700}]}, None,
+             ["team-rules: no branch gone-bbb", "; check the ref in house-rules.json"]),
+            # links to missing checkouts: a 3 030-character path, a path with spaces, one just longer than the line,
+            (linked("team-rules", team), "/" + "/".join(["g" * 100] * 30), broken),
+            (linked("team-rules", team), "/" + "/".join(["g g " * 25] * 8), broken),
+            (linked("team-rules", team), g7, broken),
+            # a 700-character URL, a URL with a space, and a 700-character layer name
+            (linked("team-rules", "file:///tmp/" + "k" * 700 + "/missing"), g7, broken),
+            (linked("team-rules", "file:///tmp/team rules.git"), "/tmp/gone", broken),
+            (linked("t" * 700, team), g7, broken)]
+        for config, link, kept in cases:
+            if link:
+                hr.write_links({config["sources"][1]["url"]: link})
+            repo = self.repository(config)
+            proc = subprocess.run([sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py",
+                                   "claude", "1"], input=json.dumps({"cwd": repo}).encode(), stdin=None,
+                                  capture_output=True, env=os.environ)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            first, rest = proc.stdout.decode().split("\n", 1)
+            self.assertLessEqual(len(first.encode("utf-16-le")) // 2, 600, first)
+            self.assertTrue(first.startswith("HOUSE RULES HOOK ERROR: house-rules: "), first)
+            self.assertTrue(first.endswith(explanation), first)
+            for text in kept:
+                self.assertIn(text, first)
+            self.assertIn("# Core rules", rest)  # the default's rules still follow
+            if link:  # the printed repair works: cache list shows the link, and unlink removes it by its path
+                listed = subprocess.run([sys.executable, "-I", str(SCRIPT), "cache", "list"], capture_output=True,
+                                        stdin=subprocess.DEVNULL, env=os.environ).stdout.decode()
+                self.assertIn(f"{config['sources'][1]['url']}\n  linked to {link}\n", listed)
+                repair = subprocess.run([sys.executable, "-I", str(SCRIPT), "unlink", link], capture_output=True,
+                                        stdin=subprocess.DEVNULL, env=os.environ)
+                self.assertEqual(repair.returncode, 0, repair.stderr)
+                self.assertEqual(hr.read_links(), {})
+        healthy = str((self.root / "work" / "team-rules").resolve())  # a broken link whose URL is a healthy link's path
+        hr.write_links({healthy: "/tmp/gone", house: healthy})
+        repair = subprocess.run([sys.executable, "-I", str(SCRIPT), "unlink", "/tmp/gone"], capture_output=True,
+                                stdin=subprocess.DEVNULL, env=os.environ)
+        self.assertEqual(repair.returncode, 0, repair.stderr)
+        self.assertEqual(hr.read_links(), {house: healthy})  # the repair removes only the broken link
+
     def test_large_resolutions_name_their_files(self):
         here = Path(__file__).resolve().parent
         names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(60)]  # 60 resolution lines still fit in part 1
@@ -656,7 +762,7 @@ class SessionContextTests(Fixture):
         proc = subprocess.run(command, input=json.dumps({"cwd": repo, "session_id": "s4"}).encode(), stdin=None,
                               capture_output=True, env=dict(os.environ, KIMI_CODE_HOME=str(kimi)))
         self.assertIn("HOUSE RULES HOOK ERROR: house-rules: team-rules: no branch gone", proc.stdout.decode())
-        self.assertIn(f"global default's ({checkout.resolve()})", proc.stdout.decode())
+        self.assertIn(f"Read the files from {checkout.resolve()} directly.", proc.stdout.decode())  # the linked default
         self.assertFalse((kimi / "house-rules-sessions" / "s4").exists())  # a linked default's fallback is not complete
 
     def test_an_older_default_names_its_repair_and_keeps_the_machine_index(self):

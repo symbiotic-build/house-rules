@@ -53,6 +53,7 @@ OVERRIDE = "HOUSE_RULES_REVISION"
 LINK = "HOUSE_RULES_LINK"
 DEADLINE = "HOUSE_RULES_DEADLINE"  # set by exec --hook: the hook's deadline, in seconds since 1970-01-01 UTC
 HOOK_ERROR = "HOUSE RULES HOOK ERROR:"  # the error prefix agent session hooks print, as session_context.py does
+HOOK_LINE_UNITS = 600  # the most UTF-16 units of the fallback line; session_context.py keeps this room in every part
 COMMIT = re.compile(r"[0-9a-f]{40}")  # a source layer's commit: sources are SHA-1 repositories for now
 SHA256_COMMIT = re.compile(r"[0-9a-f]{64}")
 TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")  # an exact release tag; no version ranges
@@ -658,10 +659,11 @@ def ref_kind(ref):
 
 
 def linked_layer(entry, path, how):
-    state = checkout_state(path) if Path(path).is_dir() else None
+    state = checkout_state(path) if os.path.isdir(path) else None  # False, not an error, for a too-long path
     if state is None:
-        raise Failure(f"house-rules: link {entry['url']}: {path} is not the root of a Git working tree; "
-                      f"run house-rules unlink {path}" if how == "links.json"
+        raise Failure("house-rules: a linked checkout is not the root of a Git working tree; house-rules cache list "
+                      "shows the link, then run house-rules unlink with its checkout path: "
+                      f"{entry['name']} {entry['url']} -> {path}" if how == "links.json"
                       else f"house-rules: {LINK}={path} is not the root of a Git working tree; unset it or name one")
     changes = " with uncommitted changes" if state["dirty"] else ""
     warning = (f"warning: LINKED {entry['name']} -> {path} at {state['head']}{changes}; "
@@ -1222,6 +1224,29 @@ def script_in(tree, relative):
     return script
 
 
+def clip(text, most):
+    """`text` within `most` UTF-16 units, its start and end kept around an ellipsis, and a lone surrogate, as from an
+    undecodable branch byte, as its printable escape. Only `most` characters at each end are read, whatever the length."""
+    head, tail = (part.encode("utf-8", "backslashreplace").decode() for part in (text[:most], text[-most:]))
+    if len(text) <= most and len(head.encode("utf-16-le")) // 2 <= most:
+        return head
+    room, used, kept = max(most - 1, 0), 0, ["", ""]
+    for side, part, limit in ((0, head, room // 2), (1, tail[::-1], room)):
+        for char in part:
+            width = 1 + (ord(char) > 0xFFFF)
+            if used + width > limit:
+                break
+            used, kept[side] = used + width, kept[side] + char
+    return kept[0] + "…" + kept[1][::-1]
+
+
+def fallback_line(failure, explanation):
+    """The hook's failure line within HOOK_LINE_UNITS UTF-16 units: a failure names its cause first and its repair
+    last, so it gives way in its middle, where a URL, path or Git error sits, and the fixed explanation follows whole."""
+    room = HOOK_LINE_UNITS - len(f"{HOOK_ERROR} . {explanation}".encode("utf-16-le")) // 2
+    return f"{HOOK_ERROR} {clip(failure, room)}. {explanation}"
+
+
 def cmd_exec(args):
     stdin = None
     folder = args.repo
@@ -1256,10 +1281,10 @@ def cmd_exec(args):
         repository = None
         tree, record = Path(os.path.realpath(str(cache_root() / "default"))), None
         known = prepared(tree) and (tree / args.path).is_file()
-        print(f"{HOOK_ERROR} {failure}. " + (
-            f"The House Rules below are the global default's ({tree}), not this repository's resolved rules, and "
+        print(fallback_line(str(failure), (
+            "The House Rules below are the global default's, not this repository's resolved rules, and "
             "this repository's custom layers are missing." if known else "No House Rules tree is cached, so this "
-            "context holds no House Rules; fix the cause above and start a new session."))
+            "context holds no House Rules; fix the cause above and start a new session.")))
         sys.stdout.flush()
         if not known:
             return 0
