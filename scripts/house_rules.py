@@ -138,16 +138,17 @@ def config_home():
     return Path.home() / ".config" / "house-rules"
 
 
-def credentials(url):
+def credentials(url, what):
     """True when a URL carries a password, or any user name over http or https; an ssh login is part of the URL.
 
-    A URL Python cannot parse, such as one with a bad port or IPv6 authority, is a configuration error.
+    A URL Python cannot parse, such as one with a bad port or IPv6 authority, is a configuration error. Neither
+    message shows the URL, which may hold the credentials; `what` names where it came from.
     """
     try:
         parts = urllib.parse.urlsplit(url)
         parts.port  # parsing the port is where a malformed authority shows
-    except ValueError as exc:
-        raise Failure(f"house-rules: {url} is not a URL Git can use ({exc})")
+    except ValueError:
+        raise Failure(f"house-rules: {what} is not a URL Git can use; check its host and port")
     if "@" not in parts.netloc:
         return False
     return parts.password is not None or parts.scheme.lower() in ("http", "https")
@@ -244,8 +245,10 @@ def load_json(data, where):
         value = json.loads(data)
     except UnicodeDecodeError as exc:
         raise Failure(f"house-rules: {where}: not UTF-8 ({exc.reason})")
-    except ValueError as exc:
+    except json.JSONDecodeError as exc:
         raise Failure(f"house-rules: {where}: invalid JSON at line {exc.lineno} column {exc.colno}: {exc.msg}")
+    except ValueError as exc:  # such as an integer longer than Python converts
+        raise Failure(f"house-rules: {where}: invalid JSON: {exc}")
     if not isinstance(value, dict):
         raise Failure(f"house-rules: {where}: the file must hold one JSON object")
     return value
@@ -291,10 +294,12 @@ def check_sources(sources, where):
         if TRANSPORT.match(url):  # the address inside escapes every check, so the form is refused
             raise Failure(f"house-rules: {at}: the URL of {name} uses Git's <transport>:: form, which this command "
                           "does not accept; use a plain URL and a Git credential helper")
-        if credentials(url):
+        if "\0" in url:
+            raise Failure(f"house-rules: {at}: the URL of {name} contains a NUL character")
+        if credentials(url, f"{at}: the URL of {name}"):
             raise Failure(f"house-rules: {at}: the URL of {name} carries credentials; use a Git credential helper")
         ref = entry.get("ref", "main")
-        if not isinstance(ref, str) or not ref:
+        if not isinstance(ref, str) or not ref or "\0" in ref:
             raise Failure(f"house-rules: {at}: ref must be a branch name, a full commit identity or a release tag")
         if SHA256_COMMIT.fullmatch(ref.lower()):
             raise Failure(f"house-rules: {name}: SHA-256 sources are not supported yet")
@@ -319,8 +324,8 @@ def check_budgets(budgets, where):
             raise Failure(f"house-rules: {where}: budgets.{stage}: the stages are {', '.join(STAGES)}")
         known_fields(entry, BUDGET_FIELDS, f"{where}: budgets.{stage}")
         seconds = entry.get("seconds")
-        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) \
-                or seconds <= 0:
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds <= 0 \
+                or (isinstance(seconds, float) and not math.isfinite(seconds)):
             raise Failure(f"house-rules: {where}: budgets.{stage}.seconds must be a positive number")
         if "reason" in entry and not (isinstance(entry["reason"], str) and entry["reason"].strip()):
             raise Failure(f"house-rules: {where}: budgets.{stage}.reason must be text")
@@ -434,20 +439,47 @@ def read_configuration(repository, rev=None):
     if commit.returncode:
         raise Failure(f"house-rules: {rev} is no commit in {repository}")
     commit = commit.stdout.decode().strip()
-    shown = git(repository, "show", f"{commit}:{CONFIG}", check=False, foreign=True)
-    return (None if shown.returncode else shown.stdout), {"origin": "commit", "commit": commit}
+    return staged_or_committed(repository, ["ls-tree", "-z", commit, "--", CONFIG], 2, f"commit {commit}"), \
+        {"origin": "commit", "commit": commit}
+
+
+def staged_or_committed(repository, listing, column, where, keep=()):
+    """The bytes of house-rules.json in a commit or the index, or None when it has none.
+
+    `listing` is the ls-tree or ls-files command that lists the file, and `column` the field holding its object.
+    A listing or read that Git fails is a failure that names it, never a missing file.
+    """
+    listed = git(repository, *listing, check=False, foreign=True, keep=keep)
+    if listed.returncode:
+        raise Failure(f"house-rules: cannot read {CONFIG} from {where} in {repository} ({last_line(listed.stderr)})")
+    if not listed.stdout:
+        return None
+    blob = listed.stdout.split(b"\t", 1)[0].split(b" ")[column].decode()
+    shown = git(repository, "cat-file", "blob", blob, check=False, foreign=True, keep=keep)
+    if shown.returncode:
+        raise Failure(f"house-rules: cannot read {CONFIG} from {where} in {repository} ({last_line(shown.stderr)})")
+    return shown.stdout
 
 
 NOTHING_TO_PUSH = "nothing to check: the push only deletes references"
 
 
 def pushed_commits(stdin):
-    """The local commits of Git's pre-push lines; a line that deletes a ref names no commit."""
+    """The local commits of Git's pre-push lines; a line that deletes a ref names no commit.
+
+    Git writes "<local ref> SP <local object> SP <remote ref> SP <remote object> LF"; a ref holds no space, so the
+    line is split at single spaces only. A line in any other shape is a failure, never a push with nothing to check.
+    """
     commits = []
-    for line in stdin.decode(errors="replace").splitlines():
-        fields = line.split()
-        if len(fields) == 4 and OBJECT.fullmatch(fields[1]) and set(fields[1]) != {"0"}:
-            commits.append(fields[1])
+    for line in stdin.split(b"\n"):
+        if not line:
+            continue
+        fields = line.split(b" ")
+        local = fields[1].decode("ascii", "replace") if len(fields) == 4 else ""
+        if not OBJECT.fullmatch(local):
+            raise Failure("house-rules: cannot read a pre-push line from Git; run the push again")
+        if set(local) != {"0"}:
+            commits.append(local)
     return commits
 
 
@@ -458,8 +490,9 @@ def hook_configuration(repository, origin, stdin):
     hook reads Git's lines from standard input; the caller handles a push that only deletes refs first.
     """
     if origin == "index":
-        shown = git(repository, "show", f":{CONFIG}", check=False, foreign=True, keep=("GIT_INDEX_FILE",))
-        return (None if shown.returncode else shown.stdout), {"origin": "index", "commit": None}
+        data = staged_or_committed(repository, ["ls-files", "-s", "-z", "--", CONFIG], 1, "the index",
+                                   keep=("GIT_INDEX_FILE",))
+        return data, {"origin": "index", "commit": None}
     return read_configuration(repository, pushed_commits(stdin)[0])
 
 
@@ -571,7 +604,7 @@ def fetch_commit(url, commit, deadline=NO_DEADLINE):
     if prepared(final):
         return None
     repository = partial(source_folder(url))
-    cause = None  # the fetch's own failure, kept when cleaning up fails as well
+    cause = temporary = None  # the fetch's own failure, kept when cleaning up fails as well
     try:
         git(repository, "init", "--quiet", "--bare", "--template=", "--object-format=sha1", ".", foreign=True)
         proc = git(repository, *PROGRESS, "fetch", "--quiet", "--depth=1", "--no-tags", url,
@@ -599,13 +632,18 @@ def fetch_commit(url, commit, deadline=NO_DEADLINE):
     except (Failure, OSError) as exc:
         cause = str(exc)
         raise
+    except DeadlinePassed:
+        cause = "the deadline passed"
+        raise
     finally:
-        try:
-            remove_tree(repository)
-        except OSError as exc:
-            earlier = f"; the fetch had failed first: {cause}" if cause else ""
-            raise Failure(f"house-rules: cannot remove the temporary fetch repository {repository} "
-                          f"({exc.strerror or exc}){earlier}; remove it by hand and run again")
+        for folder in (temporary, repository):  # the extraction is already gone when the rename published it
+            try:
+                if folder is not None:
+                    remove_tree(folder)
+            except OSError as exc:
+                earlier = f"; the fetch had failed first: {cause}" if cause else ""
+                raise Failure(f"house-rules: cannot remove the temporary fetch folder {folder} "
+                              f"({exc.strerror or exc}){earlier}; remove it by hand and run again")
 
 
 def placed_at(tree):
@@ -838,8 +876,7 @@ def write_links(links):
 
 # Resolution
 
-def default_sources(warnings):
-    configured = global_config(warnings, need_sources=True)
+def default_sources(configured):
     if configured and configured["sources"]:
         return configured["sources"], "global"
     return [{"name": "house-rules", "url": DEFAULT_URL, "ref": "main"}], "default"
@@ -861,10 +898,12 @@ def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADL
         data, origin = read_configuration(repository, rev)
     if data is not None:
         config = repository_config(data)
+    # Read once: its sources when the repository names none, its budgets and personal checks on this machine.
+    configured = global_config(warnings, need_sources=config is None) if config is None or machine else None
     if config is not None:
         sources = config["sources"]
     else:
-        sources, kind = default_sources(warnings)
+        sources, kind = default_sources(configured)
         origin = {"origin": kind, "commit": None}
     links = read_links()
     layers = [resolve_layer(entry, links, warnings, deadline) for entry in sources]
@@ -872,7 +911,7 @@ def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADL
               "profiles": config["profiles"] if config else [], "layers": layers, "context": [],
               "warnings": warnings}
     # Every resolution builds the effective configuration, so a broken ruleset or unknown profile fails here.
-    built = effective(record, config, repository, hooks=machine)
+    built = effective(record, config, repository, hooks=machine, configured=configured)
     record["context"] = [{"layer": label, "path": str(Path(path).relative_to(layer_tree(record, label.split("/")[0])))}
                          for label, path in built["context"]]
     warnings.extend(built["warnings"])
@@ -1000,6 +1039,8 @@ def check_entry(entry, where, enforced_allowed):
                 valid = valid and bool(value) and all(v in STAGES for v in value)
             if field == "run":
                 valid = valid and bool(value)
+        if field == "reason":
+            valid = valid and bool(value.strip())
         if not valid:
             raise Failure(f"house-rules: {where}: {field} has the wrong type or value")
 
@@ -1094,7 +1135,10 @@ def read_ruleset(layer):
     return ruleset(data, f"{layer['name']} {RULESET}")
 
 
-def effective(record, config=None, repository=None, hooks=False):
+UNREAD = object()  # effective() reads the global configuration itself unless its caller already did
+
+
+def effective(record, config=None, repository=None, hooks=False, configured=UNREAD):
     """Build the effective configuration: each layer's ruleset top level then its selected profiles, the
     repository's settings, and in hooks the global configuration. Every value keeps the label of the step that set
     it. Checks merge field by field, budgets replace per stage and context appends.
@@ -1149,7 +1193,7 @@ def effective(record, config=None, repository=None, hooks=False):
         check_complete(identity, fields, next(iter(fields.values()), (None, "repository"))[1])
     personal = []
     if hooks:
-        configured = global_config(warnings)
+        configured = global_config(warnings) if configured is UNREAD else configured
         if configured:
             for stage, entry in configured["budgets"].items():
                 merge_budget(state, settings, stage, entry, "global", False)
@@ -1159,6 +1203,7 @@ def effective(record, config=None, repository=None, hooks=False):
                                     "repository; personal checks need new names; ignored")
                     continue
                 try:
+                    check_identity(identity, "global configuration checks")
                     check_entry(entry, f"global configuration checks.{identity}", False)
                     check_complete(identity, entry, "global configuration")
                     if not isinstance(entry.get("reason"), str):
@@ -1276,6 +1321,10 @@ def cmd_exec(args):
         data = origin = None
         if args.origin:
             data, origin = hook_configuration(repository, args.origin, stdin or b"")
+            if data is None:  # the snapshot has adopted no repository checks, so no dependency may refuse it
+                snapshot = "staged index" if args.origin == "index" else f"pushed commit {origin['commit']}"
+                print(f"nothing to check: the {snapshot} has no {CONFIG}")
+                return 0
         record = resolve(repository, data=data, origin=origin, deadline=deadline)
         tree = layer_tree(record)
     except Failure as failure:
@@ -1324,8 +1373,9 @@ def cmd_link(args):
         if proc.returncode:
             raise Failure(f"house-rules: {checkout} has no remote.origin.url; name the source with --url URL", status=1)
         url = proc.stdout.decode().strip()
-    if credentials(url):
-        raise Failure(f"house-rules: the URL {url} carries credentials; use a Git credential helper", status=1)
+    what = "the --url value" if args.url is not None else f"remote.origin.url of {checkout}"
+    if credentials(url, what):
+        raise Failure(f"house-rules: {what} carries credentials; use a Git credential helper", status=1)
     key = url
     with links_lock():
         links = read_links()
@@ -1354,12 +1404,15 @@ def cmd_unlink(args):
     return 0
 
 
-def folder_size(path):
+def folder_size(path, skip=()):
+    """The bytes of every file below `path`, leaving out the folders in `skip`; an unreadable path is an error."""
+    def fail(exc):
+        raise exc
     total = 0
-    for folder, _, names in os.walk(str(path)):
+    for folder, subfolders, names in os.walk(str(path), onerror=fail):
+        subfolders[:] = [name for name in subfolders if os.path.join(folder, name) not in skip]
         for name in names:
-            with contextlib.suppress(OSError):
-                total += os.lstat(os.path.join(folder, name)).st_size
+            total += os.lstat(os.path.join(folder, name)).st_size
     return total
 
 
@@ -1378,7 +1431,9 @@ def answers(source):
         for path in sorted((source / folder).glob("*.json")):
             with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
                 value = json.loads(path.read_text())
-                records.append((path, kind, value[kind], value["revision"], value["fetched"], value["url"]))
+                fields = (value[kind], value["revision"], value["fetched"], value["url"])
+                if all(isinstance(field, str) for field in fields):
+                    records.append((path, kind, *fields))
     return records
 
 
@@ -1409,9 +1464,11 @@ def cmd_cache_list(args):
             print(f"  linked to {links.pop(key)}")
     for key, path in sorted(links.items()):  # a link to a source this machine never fetched
         print(f"{key}\n  linked to {path}")
-    for tree in trees():
-        print(f"tree {tree.name} {folder_size(tree) / 1_048_576:.1f} MiB, first fetched {placed_at(tree)}")
-    print(f"cache {cache_root()} {folder_size(cache_root()) / 1_048_576:.1f} MiB in total")
+    sizes = {str(tree): folder_size(tree) for tree in trees()}
+    for tree, size in sizes.items():
+        print(f"tree {Path(tree).name} {size / 1_048_576:.1f} MiB, first fetched {placed_at(Path(tree))}")
+    total = sum(sizes.values()) + (folder_size(cache_root(), skip=set(sizes)) if cache_root().is_dir() else 0)
+    print(f"cache {cache_root()} {total / 1_048_576:.1f} MiB in total")
     return 0
 
 
