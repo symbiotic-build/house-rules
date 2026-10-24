@@ -489,10 +489,10 @@ class SessionContextTests(Fixture):
         self.assertIn("===== House Rules file rules/core.md =====\n# Core rules", text)  # through the ruleset context
         self.assertIn("===== House Rules file team-rules rules/team.md =====\n# Team rules", text)
         self.assertNotIn("HOUSE RULES HOOK ERROR", text)
-        team_tree = re.search(r"house-rules: tree of team-rules: (\S+)", text).group(1)
-        self.assertIn(f"house-rules: context of team-rules: {team_tree}/rules/team.md", text)
+        self.assertRegex(text, r"house-rules: tree of team-rules: \S+/revisions/[0-9a-f]{40}\n")
+        self.assertIn("house-rules: context of team-rules: rules/team.md\n", text)  # inside its layer's tree line
         self.assertIn("Part 1's resolution governs: read INDEX.md and every context file its resolution lines list, "
-                      "at the paths they name, directly.", text)
+                      "each inside the tree line of its layer, directly.", text)
         first = re.search(r"text ([0-9a-f]{12})", text).group(1)
         self.push("team-rules", {"README.md": "a change outside the context files\n"})
         self.expire_answers()
@@ -517,7 +517,7 @@ class SessionContextTests(Fixture):
 
     def test_large_resolutions_and_unreadable_team_files(self):
         here = Path(__file__).resolve().parent
-        names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(200)]  # 200 resolution lines: more than one part
+        names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(60)]  # 60 resolution lines still fit in part 1
         house = self.source("house-rules", {
             "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n\n## Load when needed\n",
             "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
@@ -545,13 +545,45 @@ class SessionContextTests(Fixture):
             with mock.patch.object(Path, "read_text", new=read_text):
                 rev, packed, too_long = context.parts(context.root(), failures)
             outputs = [context.render(n, rev, packed) for n in range(1, len(packed) + 1)]  # none over the cap
-        self.assertGreater(len(packed), 1)
         whole = "".join(outputs)
         self.assertIn("\n===== House Rules resolution =====\n", outputs[0])  # part 1 starts with the resolution
         self.assertLess(whole.index("House Rules resolution ====="), whole.index("House Rules file INDEX.md"))
+        self.assertTrue(all(f"context of team-rules: {name}\n" in outputs[0] for name in names))  # all in part 1
         self.assertIn("team-rules rules/bad.md", failures)  # Kimi delivers it again once it can be read
         text = "".join(outputs)
         self.assertIn(f"Read it from {tree / 'rules/big.md'}.", text)  # the real file, not a path under House Rules
+
+    def test_a_resolution_too_large_for_part_1_gives_the_default_rules(self):
+        here = Path(__file__).resolve().parent
+        names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(200)]  # about 17 000 characters of resolution lines
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n\n## Load when needed\n",
+            "rules/core.md": "# Core rules\n", hr.RULESET: {"version": 1, "context": ["rules/core.md"]},
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": names}, **{n: "# r\n" for n in names}})
+        (self.root / "config" / "house-rules").mkdir(parents=True)
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        hr.resolve(None)  # the global default's tree
+        self.push("house-rules", {"rules/later.md": "# Later\n"})  # the repository resolves a newer commit
+        self.expire_answers()
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": "team-rules", "url": team}]})
+        command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py", "codex"]
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        default = Path(os.path.realpath(str(hr.cache_root() / "default")))
+        self.assertNotEqual(default.name, run(self.root / "work" / "house-rules", "rev-parse", "HEAD"))
+        self.assertRegex(text, r"HOUSE RULES HOOK ERROR: the resolution lines need \d+ characters, more than the 8800 "
+                               r"part 1 holds; team-rules lists the most context files \(200\)\. The House Rules "
+                               rf"below are the global default's \({re.escape(str(default))}\)")
+        self.assertNotIn("context of team-rules", text)  # no part of the oversized resolution is given
+        self.assertNotIn("team-rules rules/r000", text)
+        self.assertIn("===== House Rules file rules/core.md =====", text)  # the default's own rules
+        self.assertIn(f"Read the files from {default} directly.", text)
+        self.assertIn(str(self.root / "config" / "house-rules" / "custom" / "INDEX.md"), text)  # the machine's index
 
 
 class RoundOneTests(Fixture):

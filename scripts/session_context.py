@@ -33,6 +33,7 @@ A missing file, a section larger than one part or more parts than hooks prints a
 error line in place of the text.
 """
 
+import functools
 import hashlib
 import importlib.util
 import json
@@ -52,6 +53,7 @@ TIMEOUT = 10      # Seconds each product waits for one hook.
 ERROR = "HOUSE RULES HOOK ERROR:"
 RULESET = "ruleset.json"  # House Rules' own defaults; its context lists the files every session receives
 LOCAL_INDEX = "custom/INDEX.md"
+RESOLUTION_HEAD = "\n===== House Rules resolution =====\n"
 APPROVED_CONF = "custom/approved-work.conf"
 APPROVED_CAP = 3_000  # characters the hook prints; issue rows that do not fit give way to one notice
 GH_TIMEOUT = 7        # seconds for the listing's GitHub searches when no house-rules exec deadline is set
@@ -66,8 +68,9 @@ def root():
     return Path(__file__).resolve().parents[1]
 
 
+@functools.lru_cache(maxsize=None)
 def house_rules():
-    """scripts/house_rules.py beside this script, or None in a tree that predates it."""
+    """scripts/house_rules.py beside this script, or None in a tree that predates it; loaded once per run."""
     path = Path(__file__).with_name("house_rules.py")
     if not path.is_file():
         return None
@@ -77,7 +80,7 @@ def house_rules():
     return module
 
 
-def resolution():
+def handed():
     """The resolution `house-rules exec` handed this run, when it resolved this script's own tree."""
     module = house_rules()
     record = module.handed() if module else None
@@ -86,12 +89,61 @@ def resolution():
     return None
 
 
+def too_large(record):
+    """The characters a resolution's lines need when they do not fit in part 1, else None."""
+    size = units(RESOLUTION_HEAD + "".join(line + "\n" for line in resolution_lines(record)))
+    return size if size > CAP - RESERVE else None
+
+
+def oversized():
+    """The error line when the handed resolution's lines do not fit in part 1, else None.
+
+    Every part resolves on its own, so part 1's resolution governs only when part 1 holds all of its lines; a
+    resolution that needs more is a failed resolution, and the run gives the global default's rules instead.
+    """
+    record = handed()
+    size = too_large(record) if record is not None else None
+    if size is None:
+        return None
+    counts = {}
+    for item in record.get("context", []):
+        counts[item["layer"].split("/", 1)[0]] = counts.get(item["layer"].split("/", 1)[0], 0) + 1
+    most = max(counts, key=counts.get) if counts else record["layers"][0]["name"]
+    tree = default_tree()
+    given = (f"the global default's ({tree})" if tree is not None else
+             f"this repository's House Rules layer alone ({root()}), because no global default is cached")
+    return (f"{ERROR} the resolution lines need {size} characters, more than the {CAP - RESERVE} part 1 holds; "
+            f"{most} lists the most context files ({counts.get(most, 0)}). The House Rules below are {given}, not "
+            "this repository's resolved rules, and this repository's custom layers are missing.")
+
+
+def resolution():
+    """The handed resolution that governs this run: None when there is none or its lines do not fit in part 1."""
+    record = handed()
+    return None if record is None or oversized() else record
+
+
+def delivered():
+    """The House Rules tree whose files this run gives: its own, or the global default's when the resolution it was
+    handed is too large for part 1 and the default's tree is cached."""
+    record = handed()
+    if record is None or too_large(record) is None:
+        return root()
+    return default_tree() or root()
+
+
+def default_tree():
+    """The global default's cached House Rules tree, or None when none is cached."""
+    default = Path(os.path.realpath(str(house_rules().cache_root() / "default")))
+    return default if (default / "INDEX.md").is_file() else None
+
+
 def local_index(base):
     """This computer's custom/INDEX.md: the configuration folder's when house-rules exec started this run, also as
-    a fallback (HOUSE_RULES_FALLBACK), else the custom/ folder of the checkout the hook runs from, as an install that
-    predates the command registers it."""
+    a fallback (HOUSE_RULES_FALLBACK, or a resolution too large for part 1), else the custom/ folder of the checkout
+    the hook runs from, as an install that predates the command registers it."""
     module = house_rules()
-    if module is None or (resolution() is None and not os.environ.get(module.FALLBACK)):
+    if module is None or (handed() is None and not os.environ.get(module.FALLBACK)):
         return base / LOCAL_INDEX
     return module.config_home() / LOCAL_INDEX
 
@@ -225,14 +277,16 @@ def parts(base=None, failures=None):
     one part). A section is never split: one too long for a part becomes a visible error line.
     failures, when given, collects the House Rules files sources() could not supply.
     """
-    base = base or root()
+    base = base or delivered()
     limit = CAP - RESERVE
     blocks, too_long = [], []
-    # The resolution goes first and is packed like the files, one line per block, so it can never push a part
-    # over the cap however many layers it names.
-    for index, line in enumerate(resolution_lines()):
-        head = "\n===== House Rules resolution =====\n" if index == 0 else ""
-        blocks.append(("resolution", "resolution", head + line + "\n"))
+    # The resolution goes first, whole: oversized() made sure all its lines fit in part 1.
+    record, error = resolution(), oversized()
+    if record is not None:
+        blocks.append(("resolution", "resolution",
+                       RESOLUTION_HEAD + "".join(line + "\n" for line in resolution_lines(record))))
+    elif error:
+        blocks.append(("resolution", "resolution", RESOLUTION_HEAD + error + "\n"))
     for name, text, path in sources(base, failures):
         for index, (name, heading, section) in enumerate(sections(name, text)):
             if units(section) > limit:
@@ -275,7 +329,8 @@ def render(number, rev, packed):
     lines = [label(number, total, rev, text_id, name, heading)]
     if number == 1:
         governs = ("Part 1's resolution governs: read INDEX.md and every context file its resolution lines list, "
-                   "at the paths they name, directly." if resolution() else f"Read the files from {root()} directly.")
+                   "each inside the tree line of its layer, directly." if resolution()
+                   else f"Read the files from {delivered()} directly.")
         lines.append(f"House Rules INDEX.md, its always-load rules, the operator-writing skill and this computer's "
                      f"{LOCAL_INDEX}, then any custom layer's context files, follow in full, in {total} parts. "
                      "They apply to every reply in this session. The parts can arrive in any order: read them in "
@@ -292,17 +347,16 @@ def render(number, rev, packed):
     return output
 
 
-def resolution_lines():
-    """Part 1's account of the resolved layers, and where skills are when they differ from the agent home's."""
-    record = resolution()
-    if record is None:
-        return []
+def resolution_lines(record):
+    """Part 1's account of the resolved layers, and where skills are when they differ from the agent home's.
+
+    Each context file is named inside its layer's tree line, so part 1 holds a few hundred of them.
+    """
     module = house_rules()
     lines = module.describe(record)
     lines += [f"house-rules: tree of {layer['name']}: {layer['tree']}" for layer in record["layers"]]
     for item in record.get("context", []):
-        tree = Path(module.layer_tree(record, item["layer"].split("/", 1)[0]))
-        lines.append(f"house-rules: context of {item['layer']}: {tree / item['path']}")
+        lines.append(f"house-rules: context of {item['layer']}: {item['path']}")
     default = module.cache_root() / "default"
     tree = Path(record["layers"][0]["tree"])
     if default.is_symlink() and Path(os.path.realpath(str(default))) != tree.resolve():
@@ -313,7 +367,7 @@ def resolution_lines():
 
 
 def overflow(total):
-    where = ("the paths part 1's resolution lines list" if resolution() else f"{root()}")
+    where = ("the paths part 1's resolution lines list" if resolution() else f"{delivered()}")
     return (f"{ERROR} the rules need {total} parts but the hook delivers only {SLOTS}, so parts "
             f"{SLOTS + 1} to {total} are not in this context. Read those files from {where} directly; "
             f"raise SLOTS in scripts/session_context.py.")
