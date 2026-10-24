@@ -6,7 +6,6 @@ standard library and runs on CPython 3.9 or later.
 """
 import argparse
 import contextlib
-import fcntl
 import hashlib
 import json
 import os
@@ -24,8 +23,6 @@ RUNNER = "skills/repository-checks/scripts/checks.py"
 SPEC_SCRIPTS = "skills/spec-writing/scripts"
 CONFIG = "house-rules.json"
 CONFIG_VERSION = 2
-# The untracked file in the working tree that may change only budgets, never whether a check passes.
-LOCAL_CONFIG = "house-rules.local.json"
 HOUSE_RULES = "house-rules"  # the name of the House Rules source layer
 HOOK_MARKER = "# house-rules:repository-checks:begin"
 STAGES = ("pre-commit", "pre-push", "ci")
@@ -43,19 +40,14 @@ OBJECT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 DEFAULT_BUDGET = 10
 # The URL of the House Rules layer when its entry names none; the install writes the branch main beside it.
 DEFAULT_URL = "https://github.com/symbiotic-build/house-rules"
-DEFAULT_SOURCE = {"name": HOUSE_RULES, "ref": "main"}
-# The most entries `sources` may list.
-MAX_SOURCES = 32
 # A Git setting name: section.key or section.subsection.key, as git-config defines them.
 GIT_SETTING = re.compile(r"[A-Za-z0-9-]+(?:\.[^\n\0]+)?\.[A-Za-z][A-Za-z0-9-]*")
 # A Git setting the runner passes to every check itself; no configuration may change it.
 RUNNER_GIT_SETTINGS = ("core.attributesfile",)
 # A House Rules fetch fails on lack of progress, never on elapsed time: below 1 byte/s for 30 s over HTTP.
 PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
-# The handing runner passes the run's resolved House Rules revision to the runner it starts,
+# The handing runner passes the run's resolved House Rules revision to the runner it starts.
 RESOLVED = "HOUSE_RULES_RESOLVED"
-# and the snapshot it built before resolving, so the started runner checks that same snapshot.
-SNAPSHOT = "HOUSE_RULES_SNAPSHOT"
 # Where a layer's commit came from: its branch fetched now, its branch as last resolved (offline), a commit ref
 # (pinned), or the HOUSE_RULES_REVISION test override.
 SOURCES = ("fetched", "offline", "pinned", "override")
@@ -223,20 +215,12 @@ def staged_tree(root, index, copy):
     return proc.stdout.decode().strip()
 
 
-def build_snapshot(root, head, from_index, handed=None):
+def build_snapshot(root, head, from_index):
     """Return (commit, tree, parent) of one snapshot: a commit, or a new commit of the staged index.
 
     For an index snapshot, `parent` is the commit HEAD named when the run read it, or None before the first
-    commit; HEAD is read once, so the snapshot's parent and its base are the same commit. `handed` is the
-    snapshot the handing runner built before it resolved House Rules; it is used as it is, never built again.
+    commit; HEAD is read once, so the snapshot's parent and its base are the same commit.
     """
-    if handed:
-        snapshot, tree, parent = handed["snapshot"], handed["tree"], handed["parent"]
-        if (commit_id(root, snapshot) != snapshot or out(root, "rev-parse", snapshot + "^{tree}") != tree
-                or (from_index and commit_id(root, snapshot + "^1") != parent)):
-            raise Failure(f"the handing runner passed snapshot {snapshot[:7]}, which this clone does not hold as "
-                          "passed", "run again")
-        return snapshot, tree, parent
     if not from_index:
         commit = commit_id(root, head or "HEAD")
         if commit is None:
@@ -307,18 +291,16 @@ def pushed_references(data):
 
 
 def tree_files(root, rev):
-    """Return (every path in the snapshot, the paths that hold a file: a regular file or a symbolic link).
+    """Return the paths in the snapshot that hold a file: a regular file or a symbolic link.
 
     A submodule's path holds a commit of another repository (a gitlink), so it is a path but no file.
     """
-    files, blobs = set(), set()
+    blobs = set()
     for entry in git(root, "ls-tree", "-r", "-z", "--full-tree", rev).stdout.split(b"\0"):
-        if entry:
-            meta, _, path = entry.partition(b"\t")
-            files.add(os.fsdecode(path))
-            if meta.split()[1] == b"blob":
-                blobs.add(os.fsdecode(path))
-    return files, blobs
+        meta, _, path = entry.partition(b"\t")
+        if entry and meta.split()[1] == b"blob":
+            blobs.add(os.fsdecode(path))
+    return blobs
 
 
 def changed_files(root, base, snapshot):
@@ -412,42 +394,23 @@ def check_definition(where, definition):
                            "a hook stage needs a check that reads the snapshot, otherwise list only ci")
 
 
-def unencodable(value, where=""):
-    """Yield the field path of every string in a parsed JSON value that the file system encoding cannot encode.
+def printable(document):
+    """Refuse a document that holds text the runner could not print or pass to a program.
 
-    A surrogate escape of a file name byte encodes; an unpaired surrogate from a JSON escape does not, and would
-    crash the text report or process start. A path names fields and list positions, never the rejected text, which
-    can hold a password; a field name that cannot be encoded is named by the object that holds it.
+    A surrogate escape of a file name byte encodes; an unpaired surrogate from a JSON escape does not, and would crash
+    the text report or a process start. The error names no field and repeats no text.
     """
-    if isinstance(value, str):
-        try:
-            os.fsencode(value)
-        except UnicodeEncodeError:
-            yield where or "the file"
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            if next(unencodable(key), None) is not None:
-                yield f"a field name in {where or 'the file'}"
-                continue
-            yield from unencodable(item, f"{where}.{key}" if where else key)
-    elif isinstance(value, list):
-        for number, item in enumerate(value):
-            yield from unencodable(item, f"{where}[{number}]")
-
-
-def printable(document, error):
-    """Refuse a document that holds text the runner could not print or pass to a program."""
-    where = next(unencodable(document), None)
-    if where is not None:
-        raise error(f"{where} holds text that cannot be printed or passed to a program")
+    try:
+        json.dumps(document, ensure_ascii=False).encode(sys.getfilesystemencoding(), "surrogateescape")
+    except UnicodeEncodeError:
+        raise config_error("the file holds text that cannot be printed or passed to a program") from None
 
 
 def load_document(data):
     """Parse the file and validate what every runner reads before the handover: `version` and `sources`.
 
-    Returns (the document, its House Rules source layer {"name", "url", "ref"}). A `house_rules` field, the pin of
-    an earlier design, is refused here too. Only the runner at the run's resolved House Rules revision judges the
-    rest (`effective_checks`).
+    Returns (the document, its House Rules source layer {"name", "url", "ref"}). Only the runner at the run's
+    resolved House Rules revision judges the rest (`effective_checks`).
     """
     try:
         document = json.loads(data.decode("utf-8"))
@@ -458,16 +421,9 @@ def load_document(data):
     if "version" not in document:
         raise config_error("the file lacks version")
     version = document["version"]
-    if type(version) is int and version == 1:
-        raise Failure(f"configuration error in {CONFIG}: version 1 is no longer read; version {CONFIG_VERSION} names "
-                      "its House Rules source in a sources list",
-                      f'set "version": {CONFIG_VERSION} and add "sources": {json.dumps([DEFAULT_SOURCE])}, '
-                      "through a reviewed change")
     if type(version) is not int or version != CONFIG_VERSION:
         raise config_error(f"unsupported version {version!r}; this runner reads version {CONFIG_VERSION}")
-    printable(document, config_error)
-    if "house_rules" in document:
-        raise config_error("remove house_rules: sources names the House Rules source")
+    printable(document)
     return document, source_layer(document)
 
 
@@ -478,22 +434,25 @@ def source_layer(document):
     sources = document["sources"]
     if not isinstance(sources, list) or not sources:
         raise config_error("sources must be a nonempty list")
-    if len(sources) > MAX_SOURCES:
-        raise config_error(f"sources lists {len(sources)} entries; at most {MAX_SOURCES} are allowed")
     entry = sources[0]
     fields(entry, "sources[0]", ("name", "ref"), ("url",))
     if entry["name"] != HOUSE_RULES:
         raise config_error(f'sources[0].name must be "{HOUSE_RULES}": the first layer is House Rules')
-    for number, later in enumerate(sources[1:], 1):
-        if isinstance(later, dict) and later.get("name") == HOUSE_RULES:
-            raise config_error(f'sources[{number}] is named "{HOUSE_RULES}"; only the first source is House Rules')
     if len(sources) > 1:
         raise Failure(f"{HOUSE_RULES}: {CONFIG}: custom source layers are not supported by this runner yet (#217)",
                       f"remove the extra entry from sources in {CONFIG}")
     url = entry.get("url", DEFAULT_URL)
     if not text(url) or "\0" in url:
         raise config_error("sources[0].url must be nonempty text")
-    shown_url(url)  # a URL that cannot be parsed stops here, before any message could show it
+    try:
+        parts = urllib.parse.urlsplit(url)
+    except ValueError:  # the parser's message can repeat the URL, so it is left out
+        raise Failure(f"the House Rules URL in {CONFIG} cannot be parsed", "correct it") from None
+    # Credentials belong to a Git credential helper, never to a tracked file; an ssh login without a password names
+    # the account, which can choose the repository.
+    userinfo = parts.netloc.rpartition("@")[0]
+    if ":" in userinfo or (userinfo and parts.scheme.lower() in ("http", "https")):
+        raise Failure(f"the House Rules URL in {CONFIG} carries credentials", "use a Git credential helper")
     ref = entry["ref"]
     if isinstance(ref, str) and SHA256_COMMIT.fullmatch(ref):
         raise Failure(f"configuration error in {CONFIG}: sources[0].ref names a 64-digit commit; SHA-256 sources are "
@@ -511,8 +470,9 @@ def branch_name(ref):
     return git(".", "check-ref-format", "--branch", ref, foreign=True, check=False).returncode == 0
 
 
-def check_budgets(budgets, error):
-    """Validate a `budgets` object; `error` builds the configuration error of the file it came from."""
+def check_budgets(budgets):
+    """Validate a `budgets` object."""
+    error = config_error
     if not isinstance(budgets, dict):
         raise error("budgets must be an object")
     unknown = [k for k in budgets if k not in HOOK_STAGES]
@@ -557,41 +517,20 @@ def check_git_settings(settings):
     return values
 
 
-def local_error(message):
-    return Failure(f"configuration error in {LOCAL_CONFIG}: {message}",
-                   f"fix or remove {LOCAL_CONFIG}, which the working tree of this clone holds")
-
-
-def parse_local(data):
-    """Validate the local file: an object that may set only `budgets`, so it can never change a check's result."""
-    try:
-        document = json.loads(data.decode("utf-8"))
-    except (UnicodeError, ValueError) as exc:
-        raise local_error(f"not valid JSON ({exc})")
-    if not isinstance(document, dict):
-        raise local_error("the file must be an object")
-    printable(document, local_error)
-    for key in document:
-        if key != "budgets":
-            raise local_error(f"{key} is not allowed: the local file may set only budgets, because it may not "
-                              "change whether a check passes")
-    return check_budgets(document.get("budgets", {}), local_error)
-
-
-def budget_override(stage, entry, layer):
-    return {"id": f"budgets.{stage}", "layer": layer, "change": f"seconds: {json.dumps(entry['seconds'])}",
+def budget_override(stage, entry):
+    return {"id": f"budgets.{stage}", "layer": "repository", "change": f"seconds: {json.dumps(entry['seconds'])}",
             "reason": entry["reason"]}
 
 
-def effective_checks(data, local=None):
+def effective_checks(data):
     """Validate the whole file against this runner's built-in definitions and return the effective set.
 
-    The layers apply in order: the House Rules built-ins, the repository's entries, then the local file's budgets,
-    each replacing what an earlier layer set for the same check or stage. `local` is the local file's bytes or None.
+    The layers apply in order: the House Rules built-ins, then the repository's entries, which replace what the
+    built-ins set for the same check.
     """
     document, _ = load_document(data)
     fields(document, "the file", ("version", "sources", "checks"), ("budgets", "git_settings"))
-    budgets = dict(check_budgets(document.get("budgets", {}), config_error))
+    budgets = check_budgets(document.get("budgets", {}))
     git_settings = check_git_settings(document.get("git_settings", {}))
     setting_overrides = [{"id": f"git_settings.{name}", "layer": "repository",
                           "change": f"value: {json.dumps(value)}", "reason": document["git_settings"][name]["reason"]}
@@ -608,9 +547,6 @@ def effective_checks(data, local=None):
         entry = entries.get(identity, {})
         default = BUILTINS.get(identity)
         required = () if default else REPOSITORY_REQUIRED
-        if isinstance(entry, dict) and "enforced" in entry:
-            raise config_error(f"{where}.enforced is set by House Rules, not by the configuration; "
-                               "to turn the check off, set enabled: false with a reason")
         fields(entry, where, required, [f for f in FIELDS if f not in required])
         check_entry(where, entry)
         base = dict(DEFINITION_DEFAULTS, **(default or {}))
@@ -624,10 +560,7 @@ def effective_checks(data, local=None):
                                   "change": ", ".join(f"{k}: {json.dumps(entry[k])}" for k in changed)})
         check_definition(where, definition)
         checks.append(dict(definition, id=identity, layer=HOUSE_RULES if default else "repository"))
-    layers = {stage: "repository" for stage in budgets}
-    for stage, entry in (parse_local(local) if local is not None else {}).items():
-        budgets[stage], layers[stage] = entry, "local"
-    overrides += [budget_override(stage, budgets[stage], layers[stage]) for stage in budgets] + setting_overrides
+    overrides += [budget_override(stage, entry) for stage, entry in budgets.items()] + setting_overrides
     return {"checks": checks, "overrides": overrides, "budgets": budgets, "git_settings": git_settings}
 
 
@@ -640,16 +573,6 @@ def config_data(root, rev, blobs):
 def staged_data(root):
     proc = git(root, "cat-file", "blob", ":" + CONFIG, check=False)
     return proc.stdout if proc.returncode == 0 else None
-
-
-def local_data(root):
-    """The local file's bytes from the working tree, or None when the clone has none."""
-    try:
-        return (root / LOCAL_CONFIG).read_bytes()
-    except FileNotFoundError:
-        return None
-    except OSError as exc:
-        raise local_error(f"cannot read it ({exc.strerror or exc})")
 
 
 # Pinning and cache -----------------------------------------------------------------------
@@ -698,177 +621,51 @@ def utc(seconds=None):
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(seconds))
 
 
-def url_parts(url):
-    """The URL split into its parts; a URL the parser refuses is a preparation failure that shows nothing of it."""
-    try:
-        return urllib.parse.urlsplit(url)
-    except ValueError:
-        # The parser's message can hold the URL's authority, with its user name and password, so it is left out.
-        raise Failure(f"the House Rules URL in {CONFIG} cannot be parsed", "correct it") from None
-
-
-def kept_login(parts):
-    """The user name an ssh URL keeps in messages and in its cache key, or None.
-
-    An ssh login can choose the repository, such as through its home folder, so it is part of the source; its
-    password, and the user name and password of any other transport, are not.
-    """
-    if parts.scheme.lower() != "ssh" or "@" not in parts.netloc:
-        return None
-    return parts.netloc.rpartition("@")[0].split(":", 1)[0] or None
-
-
-def shown_url(url):
-    """The URL as messages and reports show it: without the password, and without the user name except an ssh login."""
-    parts = url_parts(url)
-    if "@" not in parts.netloc:
-        return url
-    login, host = kept_login(parts), parts.netloc.rpartition("@")[2]
-    return urllib.parse.urlunsplit(parts._replace(netloc=f"{login}@{host}" if login else host))
-
-
-def hidden(text, url):
-    """`text`, such as Git's error, with the URL's user name and password removed wherever they appear.
-
-    Git itself always receives the full URL; only what the runner prints is changed.
-    """
-    parts = url_parts(url)
-    if "@" not in parts.netloc:
-        return text
-    userinfo, login = parts.netloc.rpartition("@")[0], kept_login(parts)
-    if login is None:
-        secrets = {userinfo, *userinfo.split(":", 1)}
-    else:  # an ssh login stays; only its password is hidden
-        secrets = {userinfo.split(":", 1)[1]} if ":" in userinfo else set()
-    secrets = {value for secret in secrets for value in (secret, urllib.parse.unquote(secret)) if value}
-    text = text.replace(url, "\0")  # Git's error text holds no NUL, so this stands for the URL alone
-    for secret in sorted(secrets, key=len, reverse=True):
-        text = text.replace(secret + "@", "") if login is None else text.replace(":" + secret + "@", "@")
-        text = text.replace(secret, "***")
-    return text.replace("\0", shown_url(url))
-
-
 def revision_folder(revision):
     return cache_root() / "revisions" / revision
 
 
 def prepared(revision):
-    """Whether the cache holds the commit's complete tree and the time it was first placed."""
-    folder = revision_folder(revision)
-    return (folder / RUNNER).is_file() and fetch_time_path(folder).is_file()
+    """Whether the cache holds the commit's tree: a fetch renames the folder into place only once it is complete."""
+    return revision_folder(revision).is_dir()
 
 
 def fetch_time_path(tree):
-    """revisions/<commit>.fetched: one line, the UTC time the commit's folder was first placed in the cache."""
+    """revisions/<commit>.fetched: one line, the UTC time of the first fetch that placed the commit's folder."""
     return Path(str(tree) + ".fetched")
 
 
 def record_fetch_time(tree):
-    """Write the commit's first-fetch time once; when another process already wrote it, keep that time."""
-    path = fetch_time_path(tree)
-    descriptor, temporary = tempfile.mkstemp(prefix=".fetched-", dir=str(path.parent))
+    """Write the commit's fetch time once, create-only; when another process already wrote it, keep that time."""
     try:
-        with os.fdopen(descriptor, "w") as handle:
-            handle.write(utc() + "\n")
-        try:
-            os.link(temporary, str(path))  # fails when the time is there already, so the first one stays
-        except FileExistsError:
-            pass
-    finally:
-        os.unlink(temporary)
-
-
-def source_key(url):
-    """The source's identity in the cache: (scheme, key text), from its URL without passwords.
-
-    The scheme is the transport, such as https, http, ssh or file. An ssh URL keeps its login and its path exactly as
-    written: ssh://<login>@<host><path>. An scp-like URL, login@host:path, counts as ssh and gives
-    ssh:<login>@<host>:<path>, so a path relative to the login's home folder stays relative. Any other URL gives
-    <scheme>://<host>/<path> without user name and password; a file URL or a plain path is file, with its absolute
-    path and no host. There empty path segments are dropped, so a trailing or doubled slash names the same source.
-    """
-    parts = url_parts(url)
-    scp = not parts.scheme and ":" in url.split("/", 1)[0]
-    if scp:
-        return "ssh", "ssh:" + url
-    if parts.scheme.lower() == "ssh":
-        login, host = kept_login(parts), parts.netloc.rpartition("@")[2]
-        return "ssh", f"ssh://{login + '@' if login else ''}{host}{parts.path}"
-    if parts.scheme and parts.scheme != "file":
-        scheme, host, path = parts.scheme.lower(), parts.netloc.rpartition("@")[2], parts.path
-    else:
-        scheme, host, path = "file", "", parts.path if parts.scheme == "file" else url
-    return scheme, f"{scheme}://{host}" + "".join("/" + segment for segment in path.split("/") if segment)
-
-
-def hashed(name):
-    """A cache file or folder name for `name`: its SHA-256, so any length or character makes one bounded name."""
-    return hashlib.sha256(name.encode("utf-8", "surrogateescape")).hexdigest()
+        descriptor = os.open(str(fetch_time_path(tree)), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+    except FileExistsError:
+        return
+    with os.fdopen(descriptor, "w") as handle:
+        handle.write(utc() + "\n")
 
 
 def source_folder(url):
-    """The cache folder of one source: sources/<SHA-256 of its key>, holding source.json, branches/ and lock."""
-    return cache_root() / "sources" / hashed(source_key(url)[1])
-
-
-@contextlib.contextmanager
-def source_lock(url):
-    """Hold the source's lock: one process at a time asks for its branches, fetches its commits into temporary
-    repositories in the source's folder and writes its branch records.
-
-    The lock is advisory (flock) and the system releases it when its process ends, however it ends.
-    """
-    folder = source_folder(url)
-    folder.mkdir(parents=True, exist_ok=True)
-    descriptor = os.open(str(folder / "lock"), os.O_RDWR | os.O_CREAT, 0o644)
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
-        if not (folder / "source.json").is_file():  # names the source for a reader of the cache; no run reads it
-            scheme, key = source_key(url)
-            publish(folder / "source.json", {"url": shown_url(url), "scheme": scheme, "key": key})
-        yield
-    finally:
-        os.close(descriptor)
+    """The cache folder of one source: sources/<SHA-256 of its URL as written>, holding branches/ and the
+    temporary repositories of its fetches."""
+    return cache_root() / "sources" / hashlib.sha256(url.encode("utf-8", "surrogateescape")).hexdigest()
 
 
 def fetch_revision(url, revision):
-    """Put one House Rules commit into the cache unless it is there; return (Git's error, removal error).
+    """Put one House Rules commit into the cache unless it is there; return None, or Git's error.
 
-    Both are None after a successful fetch. Call it under the source's lock. Each fetch uses its own new bare
-    repository, a .partial-* folder in the source's folder, fetches the
-    commit with depth 1, extracts it into a temporary revision folder, renames that folder into place and deletes
-    the repository. Nothing Git locks is ever used again, so an interrupted fetch leaves only a temporary folder
-    that no run uses. When the fetch failed and removing its repository failed too, the removal error names that
-    removal; the caller then reports the fetch with its own repair and adds the removal to the cause.
+    Each fetch uses its own new bare repository, a .partial-* folder in the source's folder, fetches the commit with
+    depth 1, extracts it into a temporary revision folder, renames that folder into place and deletes the
+    repository. Nothing Git locks is ever used again, so an interrupted fetch, or a repository that could not be
+    deleted, leaves only a temporary folder that no run uses.
     """
     if prepared(revision):
-        return None, None
+        return None
     repository = partial(source_folder(url))
-    failure = error = None
     try:
-        error = fetch_into(repository, url, revision)
-    except Failure as exc:
-        failure = exc
-    except OSError as exc:
-        failure = cache_failure(exc)
-    try:
-        shutil.rmtree(str(repository))
-    except OSError as exc:
-        if failure is None and error is None:
-            raise  # the caller reports it as a cache failure
-        removal = f"removing the temporary repository {repository} failed too ({exc})"
-        if failure is None:
-            return error, removal
-        # Keep the preparation failure and its repair, with the failed removal added to its cause.
-        raise Failure(f"{failure.cause}; {removal}", failure.repair)
-    if failure is not None:
-        raise failure
-    return error, None
-
-
-def fetch_failure(cause, removal, repair):
-    """The preparation failure of a failed fetch; a failed removal of its repository is added to the cause."""
-    return Failure(f"{cause}; {removal}" if removal else cause, repair)
+        return fetch_into(repository, url, revision)
+    finally:
+        shutil.rmtree(str(repository), ignore_errors=True)
 
 
 def fetch_into(repository, url, revision):
@@ -889,7 +686,8 @@ def fetch_into(repository, url, revision):
             path = os.path.join(folder, name)
             if not os.path.islink(path):
                 os.chmod(path, os.stat(path).st_mode & ~0o222)
-    record_fetch_time(place(temporary, revision_folder(revision), lambda path: (path / RUNNER).is_file()))
+    record_fetch_time(revision_folder(revision))  # before the rename, so a ready tree normally has its time
+    place(temporary, revision_folder(revision), lambda path: path.is_dir())  # an existing tree is never replaced
     return None
 
 
@@ -900,6 +698,7 @@ def ask_branch(url, branch):
     delimit, so a branch name keeps every other character, such as U+2028. Names decode losslessly.
     """
     name = "refs/heads/" + branch
+    cache_root().mkdir(parents=True, exist_ok=True)  # Git runs there, outside any clone and its configuration
     proc = git(cache_root(), *PROGRESS, "ls-remote", url, name, foreign=True, check=False)
     if proc.returncode:
         return None, last_line(proc.stderr)
@@ -913,42 +712,32 @@ def ask_branch(url, branch):
 
 def branch_record_path(url, branch):
     """Where the cache records the commit last resolved for one source and branch: branches/<SHA-256 of branch>.json."""
-    return source_folder(url) / "branches" / (hashed(branch) + ".json")
+    return source_folder(url) / "branches" / (hashlib.sha256(branch.encode("utf-8", "surrogateescape")).hexdigest()
+                                              + ".json")
 
 
 def branch_record(url, branch):
-    """The commit last resolved for `branch` of `url`, as {"url", "branch", "revision", "fetched"}, or None.
-
-    The record's URL holds no user name or password. A record counts only when its URL has this source's key and its
-    branch is `branch`, so a record in the wrong place, such as after a hash collision, is never used.
-    """
+    """The commit last resolved for `branch` of `url`, as {"url", "branch", "revision", "fetched"}, or None."""
     try:
         record = json.loads(branch_record_path(url, branch).read_text())
     except (OSError, ValueError):
         return None
-    if not (isinstance(record, dict) and isinstance(record.get("url"), str) and record.get("branch") == branch
-            and isinstance(record.get("revision"), str) and COMMIT.fullmatch(record["revision"])
-            and isinstance(record.get("fetched"), str)):
+    if not (isinstance(record, dict) and all(isinstance(record.get(k), str) for k in ("url", "branch", "fetched"))
+            and isinstance(record.get("revision"), str) and COMMIT.fullmatch(record["revision"])):
         return None
-    try:
-        owner = source_key(record["url"])[1]
-    except Failure:
-        return None
-    return record if owner == source_key(url)[1] else None
+    return record
 
 
 def write_branch_record(url, record):
-    """Publish `record` for its source and branch; under the source's lock the latest successful resolution wins."""
+    """Publish `record` for its source and branch through a temporary file, so a reader sees the old or new record.
+
+    Two runs that resolve at the same time may leave either result; the next run asks again.
+    """
     path = branch_record_path(url, record["branch"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    publish(path, record)
-
-
-def publish(path, data):
-    """Write `data` as JSON to `path` through a temporary file in its folder, so a reader sees the old or new file."""
     descriptor, temporary = tempfile.mkstemp(prefix=".partial-", dir=str(path.parent))
     with os.fdopen(descriptor, "w") as handle:
-        json.dump(data, handle)
+        json.dump(record, handle)
     os.replace(temporary, str(path))
 
 
@@ -982,64 +771,40 @@ def handed_resolution(source=None):
     return resolution
 
 
-def handed_snapshot():
-    """The snapshot the handing runner built, accepted only together with its resolution."""
-    if handed_resolution() is None:
-        return None
-    try:
-        snapshot = json.loads(HANDED_SNAPSHOT or "null")
-    except ValueError:
-        return None
-    if (isinstance(snapshot, dict) and snapshot.get("source") in ("index", "commit")
-            and all(isinstance(snapshot.get(k), str) and OBJECT.fullmatch(snapshot[k]) for k in ("snapshot", "tree"))
-            and (snapshot.get("parent") is None or (isinstance(snapshot["parent"], str)
-                                                    and OBJECT.fullmatch(snapshot["parent"])))):
-        return snapshot
-    return None
-
-
 def resolve(source, offline_repair=None):
     """Resolve the House Rules layer `source` for this run: the override, else its commit ref, else its branch
     fetched now, else the commit last resolved for that branch.
 
-    Returns the layer {"name", "url", "ref", "revision", "source", "fetched"}, its URL without authentication, plus
-    "warning" for a cached branch. Called once per run; the revision it returns is prepared in the cache.
+    Returns the layer {"name", "url", "ref", "revision", "source", "fetched"}, plus "warning" for a cached branch. Called once per run; the revision it returns is prepared in the cache.
     """
     resolution = handed_resolution(source)
     if resolution:
         return resolution
     url, ref = source["url"], source["ref"]
-    shown = shown_url(url)
-    layer = {"name": source["name"], "url": shown, "ref": ref}
+    layer = {"name": source["name"], "url": url, "ref": ref}
     try:
         override = override_revision()
         if override or COMMIT.fullmatch(ref):
             revision = override or ref
-            with source_lock(url):
-                error, removal = fetch_revision(url, revision)
+            error = fetch_revision(url, revision)
             if error:
                 repair = ("run again when online, or set HOUSE_RULES_REVISION to a commit that exists there" if override
                           else f"run again when online, or set the ref in {CONFIG} to a commit that exists there")
-                raise fetch_failure(f"cannot fetch House Rules {revision} from {shown} ({hidden(error, url)})",
-                                    removal, repair)
+                raise Failure(f"cannot fetch House Rules {revision} from {url} ({error})", repair)
             return dict(layer, revision=revision, source="override" if override else "pinned", fetched=None)
-        with source_lock(url):
-            fetched = utc()
-            revision, error = ask_branch(url, ref)
-            removal = None
-            if not error:
-                error, removal = fetch_revision(url, revision)
-            if not error:
-                write_branch_record(url, {"url": shown, "branch": ref, "revision": revision, "fetched": fetched})
-                return dict(layer, revision=revision, source="fetched", fetched=fetched)
-            record = branch_record(url, ref)
-        # A failed removal stops the run even when the cache holds an earlier commit, as every cache failure does.
-        if removal or record is None or not prepared(record["revision"]):
-            raise fetch_failure(f"cannot fetch House Rules {ref} from {shown} ({hidden(error, url)})", removal,
-                                offline_repair or "run again when online")
+        fetched = utc()
+        revision, error = ask_branch(url, ref)
+        if not error:
+            error = fetch_revision(url, revision)
+        if not error:
+            write_branch_record(url, {"url": url, "branch": ref, "revision": revision, "fetched": fetched})
+            return dict(layer, revision=revision, source="fetched", fetched=fetched)
+        record = branch_record(url, ref)
+        if record is None or not prepared(record["revision"]):
+            raise Failure(f"cannot fetch House Rules {ref} from {url} ({error})", offline_repair or "run again when online")
         return dict(layer, revision=record["revision"], source="offline", fetched=record["fetched"],
-                    warning=f"cannot fetch House Rules {ref} from {shown} ({hidden(error, url)}); using the {ref} "
-                            f"last fetched, {record['revision']}, fetched {record['fetched']}")
+                    warning=f"cannot fetch House Rules {ref} from {url} ({error}); using the {ref} last fetched, "
+                            f"{record['revision']}, fetched {record['fetched']}")
     except OSError as exc:
         raise cache_failure(exc)
 
@@ -1063,10 +828,10 @@ def extract(source, revision, folder):
 
 
 def prepared_at(tree):
-    """When the cache first placed the commit's folder `tree`, from revisions/<commit>.fetched.
+    """When a fetch first placed the commit's folder `tree`, from revisions/<commit>.fetched.
 
-    A tree outside this cache that has no such file, such as a runner started from another cache folder, gives
-    the folder's modification time instead.
+    A tree without that file, such as one placed by an older runner or one outside this cache, gives the folder's
+    modification time instead.
     """
     try:
         recorded = fetch_time_path(tree).read_text().strip()
@@ -1075,12 +840,11 @@ def prepared_at(tree):
     return recorded if re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", recorded) else utc(os.stat(str(tree)).st_mtime)
 
 
-def dispatch(tree, argv, resolution, stdin=None, snapshot=None):
+def dispatch(tree, argv, resolution, stdin=None):
     """Replace this process by the runner in `tree`, unless this file is that runner.
 
-    The started runner receives `resolution`, so it uses the same revision without resolving again,
-    `snapshot`, the snapshot this process built, so it checks that same content, and `stdin`, the input this
-    process already read, as its standard input.
+    The started runner receives `resolution`, so it uses the same revision without resolving again, and `stdin`,
+    the input this process already read, as its standard input.
     """
     runner = tree / RUNNER
     if runner.resolve() == Path(__file__).resolve():
@@ -1096,8 +860,6 @@ def dispatch(tree, argv, resolution, stdin=None, snapshot=None):
             raise Failure(f"cannot save standard input for the resolved runner ({exc})",
                           "free space in or repair access to the temporary folder, and run again")
     os.environ[RESOLVED] = json.dumps(resolution)
-    if snapshot is not None:
-        os.environ[SNAPSHOT] = json.dumps(snapshot)
     try:
         os.execv(sys.executable, [sys.executable, "-I", str(runner), *argv])
     except OSError as exc:
@@ -1120,14 +882,14 @@ def resolve_layers(data, offline_repair=None):
     return [dict(layer, tree=str(tree))]
 
 
-def resolved_tree(argv, data, stdin=None, offline_repair=None, snapshot=None):
+def resolved_tree(argv, data, stdin=None, offline_repair=None):
     """Resolve the layers `data` names; return (the House Rules tree, the layers), or start the runner there.
 
-    The started runner replaces this process and receives the same House Rules layer and `snapshot`.
+    The started runner replaces this process and receives the same House Rules layer.
     """
     layers = resolve_layers(data, offline_repair)
     tree = Path(layers[0]["tree"])
-    dispatch(tree, argv, layers[0], stdin, snapshot)
+    dispatch(tree, argv, layers[0], stdin)
     return tree, layers
 
 
@@ -1139,7 +901,7 @@ def cached_resolution(source):
     """
     resolution = handed_resolution(source)
     if resolution is None:
-        layer = {"name": source["name"], "url": shown_url(source["url"]), "ref": source["ref"]}
+        layer = {"name": source["name"], "url": source["url"], "ref": source["ref"]}
         override = override_revision()
         if override or COMMIT.fullmatch(source["ref"]):
             resolution = dict(layer, revision=override or source["ref"], source="override" if override else "pinned",
@@ -1168,7 +930,7 @@ def label(layer):
 
 def same_source(layer, source):
     """Whether a snapshot's House Rules source is the one the run resolved."""
-    return (layer["name"], layer["url"], layer["ref"]) == (source["name"], shown_url(source["url"]), source["ref"])
+    return (layer["name"], layer["url"], layer["ref"]) == (source["name"], source["url"], source["ref"])
 
 
 def runtime_interpreter(tree):
@@ -1298,9 +1060,6 @@ def check_stage(args, argv, run):
             return "the push only deletes references"
     offline = PUSH_AGAIN if pushing else None
     house_rules = layer = None
-    local = None
-    # A run that one runner handed over checks the snapshot that runner built; a push names its own commits.
-    handed = None if pushing else handed_snapshot()
     for ref, head, remote_commit in items:
         try:
             if pushing:
@@ -1308,23 +1067,21 @@ def check_stage(args, argv, run):
                 if head is None:
                     raise Failure(f"the pushed reference {ref} points at {pushed[:7]}, which resolves to no commit",
                                   "change the reference, or push it without the hook's check under the rule line")
-            target = snapshot_target(root, ref, head, from_index, remote_commit, handed)
+            target = snapshot_target(root, ref, head, from_index, remote_commit)
             if target["data"] is None:
                 snapshots.append(unadopted(target))
             else:
                 # Read only the version and sources before handing over: the resolved runner judges the rest.
                 _, source = load_document(target["data"])
                 if house_rules is None:
-                    passed = None if pushing else {k: target[k] for k in ("snapshot", "tree", "parent", "source")}
-                    house_rules, layers = resolved_tree(argv, target["data"], stdin, offline, passed)
+                    house_rules, layers = resolved_tree(argv, target["data"], stdin, offline)
                     layer = layers[0]
                     run["layers"] = [{k: layer[k] for k in ("name", "url", "ref", "revision", "source", "fetched")}]
                     run["warnings"] += [layer["warning"]] if layer.get("warning") else []
-                    local = local_data(root)
                 if not same_source(layer, source):
                     # The shared resolver of #217 replaces this with a handover per snapshot.
                     raise Failure("the pushed commits declare different House Rules sources", "push them separately")
-                config = effective_checks(target["data"], local)
+                config = effective_checks(target["data"])
                 known = [c["id"] for c in config["checks"]]
                 for name in args.only or ():
                     if name not in known:
@@ -1339,10 +1096,10 @@ def check_stage(args, argv, run):
     return None
 
 
-def snapshot_target(root, ref, head, from_index, remote_commit, handed=None):
-    snapshot, tree, parent = build_snapshot(root, head, from_index, handed)
-    files, blobs = tree_files(root, snapshot)
-    return {"ref": ref, "snapshot": snapshot, "tree": tree, "parent": parent, "files": files, "blobs": blobs,
+def snapshot_target(root, ref, head, from_index, remote_commit):
+    snapshot, tree, parent = build_snapshot(root, head, from_index)
+    blobs = tree_files(root, snapshot)
+    return {"ref": ref, "snapshot": snapshot, "tree": tree, "parent": parent, "blobs": blobs,
             "remote_commit": remote_commit, "source": "index" if from_index else "commit",
             "data": config_data(root, snapshot, blobs)}
 
@@ -1435,15 +1192,14 @@ def select(check, stage, from_index, target, changed):
     if changed is None:
         inputs = matches(blobs)
         if check["scope"] == "files" and not inputs:
-            return "no matching input", None
+            return "no matching file", None
         return None, inputs
     selected = matches(changed)
     if not selected:
         return ("no staged input" if stage == "pre-commit" else "no changed input"), None
     inputs = [n for n in selected if n in blobs]
-    if check["scope"] == "files" and not inputs:
-        # A changed path that is still in the snapshot but holds no file is a submodule.
-        return ("no matching input" if any(n in target["files"] for n in selected) else "only deleted inputs"), None
+    if check["scope"] == "files" and not inputs:  # the changed paths were deleted, or are submodules
+        return "no matching file", None
     return None, inputs
 
 
@@ -1567,7 +1323,7 @@ def command_prepare(args, argv):
     if data is None:
         raise Failure(f"no {CONFIG} in the index", f"run `{runner_command('install')}` first")
     tree, (resolution,) = resolved_tree(argv, data)
-    config = effective_checks(data, local_data(root))
+    config = effective_checks(data)
     print(f"repository checks: House Rules {resolution['revision']} ({label(resolution)}) ready at {tree}")
     if resolution.get("warning"):
         print("warning: " + resolution["warning"])
@@ -1603,7 +1359,7 @@ def command_status(args, argv):
               f"(run: {prepare})")
         return 0
     dispatch(tree, argv, resolution)  # the resolved runner prints the effective set of its own built-ins
-    config = effective_checks(data, local_data(root))
+    config = effective_checks(data)
     print(f"repository checks: House Rules {resolution['revision']} ({label(resolution)})")
     print(f"revision: in the cache at {tree}")
     if any(c["enabled"] and uses(c, "python") for c in config["checks"]):
@@ -1645,7 +1401,7 @@ def session_line(argv):
         problems.append(f"House Rules {resolution['revision'][:7]} not prepared in the cache "
                         f"(run: {runner_command('prepare')})")
     else:
-        problem = environment_problem(effective_checks(data, local_data(root)), tree)
+        problem = environment_problem(effective_checks(data), tree)
         problems += [problem] if problem else []
     where = f"House Rules {resolution['revision'][:7]}, {label(resolution)}" if resolution else ""
     if problems:
@@ -1661,14 +1417,12 @@ def has_block(path):
 
 
 HANDED = None  # the resolution the handing runner passed, read once at start
-HANDED_SNAPSHOT = None  # the snapshot the handing runner passed with it
 
 
 def main(argv=None):
-    global HANDED, HANDED_SNAPSHOT
+    global HANDED
     argv = sys.argv[1:] if argv is None else argv
     HANDED = os.environ.pop(RESOLVED, None)  # so no check inherits it
-    HANDED_SNAPSHOT = os.environ.pop(SNAPSHOT, None)
     for stream in (sys.stdout, sys.stderr):
         # UTF-8 with surrogate escapes reverses how the runner decodes output and paths, so every byte prints as
         # it came, whatever output encoding the interpreter inherited, such as from PYTHONIOENCODING.
