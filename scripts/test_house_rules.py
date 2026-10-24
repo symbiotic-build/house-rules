@@ -20,7 +20,7 @@ GIT_ENV = {"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COM
 
 
 def run(cwd, *args):
-    return subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True,
+    return subprocess.run(["git", *args], cwd=str(cwd), check=True, capture_output=True, stdin=subprocess.DEVNULL,
                           env=dict(os.environ, **GIT_ENV)).stdout.decode().strip()
 
 
@@ -40,8 +40,8 @@ class Fixture(unittest.TestCase):
             for name in names:
                 with contextlib.suppress(OSError):
                     os.chmod(os.path.join(folder, name), 0o755)
-        subprocess.run(["chmod", "-R", "u+w", str(self.root)], check=False)
-        subprocess.run(["rm", "-rf", str(self.root)], check=False)
+        subprocess.run(["chmod", "-R", "u+w", str(self.root)], check=False, stdin=subprocess.DEVNULL)
+        subprocess.run(["rm", "-rf", str(self.root)], check=False, stdin=subprocess.DEVNULL)
 
     def source(self, name, files):
         """A bare fixture source with one commit on main holding `files`; returns its file:// URL."""
@@ -137,7 +137,7 @@ class ResolutionTests(Fixture):
         self.assertEqual(offline["layers"][1]["revision"], fetched["layers"][1]["revision"])
         self.assertTrue(any(w.startswith("warning: cannot reach file://") and "team-rules main last fetched" in w
                             for w in offline["warnings"]), offline["warnings"])
-        subprocess.run(["rm", "-rf", str(self.root / "cache")], check=True)
+        subprocess.run(["rm", "-rf", str(self.root / "cache")], check=True, stdin=subprocess.DEVNULL)
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(repo)
         self.assertIn("no earlier fetch of house-rules main is cached; run again when online", str(caught.exception))
@@ -370,7 +370,7 @@ class CommandTests(Fixture):
         revision = run(self.root / "work" / "house-rules", "rev-parse", "HEAD")
         hook_input = json.dumps({"cwd": repo, "session_id": "s"})
         proc = subprocess.run([sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/show.py"],
-                              input=hook_input.encode(), capture_output=True, cwd=str(self.root), env=os.environ)
+                              input=hook_input.encode(), stdin=None, capture_output=True, cwd=str(self.root), env=os.environ)
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.decode().splitlines(), [revision, hook_input])
 
@@ -383,7 +383,8 @@ class CommandTests(Fixture):
         tree = hr.resolve(None)["layers"][0]["tree"]
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house, "ref": "gone"}]})
         command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/show.py"]
-        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), capture_output=True, env=os.environ)
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
         lines = proc.stdout.decode().splitlines()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(lines[0].startswith("HOUSE RULES HOOK ERROR: house-rules: house-rules: no branch gone at file://"))

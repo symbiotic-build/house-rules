@@ -938,7 +938,10 @@ def cmd_exec(args):
     environ.pop(LINK, None)
     environ.pop(OVERRIDE, None)
     command = [sys.executable, "-I", str(script), *args.arguments] if script.suffix == ".py" else [str(script), *args.arguments]
-    proc = subprocess.run(command, input=stdin, env=environ, cwd=repository or None)
+    if stdin is not None:  # a hook's input, already read for its cwd, goes on to the script
+        proc = subprocess.run(command, input=stdin, stdin=None, env=environ, cwd=repository or None)
+    else:  # any other script reads this command's own standard input, as a Git hook's references
+        proc = subprocess.run(command, stdin=sys.stdin, env=environ, cwd=repository or None)
     return proc.returncode
 
 
