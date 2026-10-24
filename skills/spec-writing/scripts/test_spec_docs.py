@@ -1002,6 +1002,22 @@ class CorpusTests(CorpusFixture, unittest.TestCase):
         edit(self.paths, ACCEPTANCE, 'defines the refusal.', 'defines the acceptance gate.')
         self.red_green("D13")
 
+    def test_rejected_form_is_diagnosed_when_the_text_holds_all_its_runs(self):
+        # Each rejected form is searched only in a text that holds every one of its ASCII runs.
+        metadata(self.paths, s.JSON_PATHS[0], lambda v: v["entities"]["example.writer"]["rejected_forms"].extend(
+            dict(text=text, replacement="writer", reason="Fixture.") for text in ("kit maker", "set up", "naïve")))
+        accepted = self.paths.copy()
+        refresh(accepted)
+        texts = {"two runs": "the kit maker", "folded case": "the \u017fET UP", "no ASCII run": "a naïve one"}
+        for label, text in texts.items():
+            with self.subTest(label):
+                paths = accepted.copy()
+                paths[ACCEPTANCE] += f"\nNote {text}.\n".encode()
+                diagnosed = [d.message for d in s.check(corpus(paths)).errors if d.code == "D13"]
+                self.assertEqual(diagnosed, ["rejected form for entity 'example.writer'; use its registered replacement"])
+        accepted[ACCEPTANCE] += b"\nNote the maker kit and the kit's maker.\n"
+        self.assertTrue((result := s.check(refresh(accepted))).ok, result.errors)
+
     def test_case_sensitive_rejected_form_keeps_corrected_spelling_accepted(self):
         edit(self.paths, SETTINGS, "bounds encoded bytes in one log group.",
              "bounds encoded bytes in one log group; its code spelling is `log_group_max_bytes`.")
