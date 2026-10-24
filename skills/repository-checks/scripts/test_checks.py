@@ -35,6 +35,7 @@ EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 TOUR_FIX = ("apply the remedy for each code in the spec checker's diagnostic table, "
             "run spec_docs.py generate, stage the result")
 DURATION = r"\d+\.\d s"
+VERSION = r"      version: (?:\S+@[0-9a-f]{12} ?)+"
 
 
 def base_env():
@@ -229,6 +230,10 @@ class Repo:
                 self.git("stash", "list"), files)
 
 
+def sha256(path):
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
 def sha256_hex(text):
     return hashlib.sha256(text.encode("utf-8", "surrogateescape")).hexdigest()
 
@@ -313,6 +318,7 @@ class DefaultsTest(RunnerCase):
         self.assertLines(proc.stdout, [
             re.escape("repository checks: pre-commit on the staged index, ") + self.repo.header(self.repo.main),
             "PASS  whitespace   " + DURATION,
+            VERSION,
             re.escape("SKIP  spec-docs    requires docs/DOCUMENTS.json"),
             re.escape("All 1 selected check passed; 1 skipped."),
         ])
@@ -502,6 +508,77 @@ class DefaultsTest(RunnerCase):
         self.assertEqual((report["result"], snapshot["result"], lint["status"], lint["output"]),
                          ("fail", "fail", "error",
                           "cannot start 'no-such-program-for-checks': No such file or directory\n"))
+
+    def test_check_queue_command_starts_each_check(self):
+        queue = self.repo.path.parent / "queue"
+        queue.write_text('#!/bin/sh\necho "queued: $1"\nexec "$@"\n')
+        queue.chmod(0o755)
+        self.repo.configure()
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit",
+                                        env=dict(self.repo.env, HOUSE_RULES_CHECK_QUEUE=str(queue)))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(report["checks"][0]["output"], "queued: git\n")
+
+    def test_check_queue_command_runs_without_personal_git_configuration(self):
+        queue = self.repo.path.parent / "queue"
+        queue.write_text('#!/bin/sh\necho "queue sees: $(git config --get user.name || echo no name)"\nexec "$@"\n')
+        queue.chmod(0o755)
+        name = check(["sh", "-c", 'git config --get user.name || echo "check sees: no name"', "{snapshot}"],
+                     ["pre-commit"])
+        self.repo.configure(dict(NO_SPEC, name=name))
+        personal = self.repo.path.parent / "global-config"
+        personal.write_text("[user]\n\tname = Personal User\n")
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "name", env=dict(
+            self.repo.env, HOUSE_RULES_CHECK_QUEUE=str(queue), GIT_CONFIG_GLOBAL=str(personal)))
+        self.assertEqual((proc.returncode, report["checks"][0]["output"]),
+                         (0, "queue sees: no name\ncheck sees: no name\n"), proc.stderr)
+
+    def test_program_on_a_relative_path_entry_is_versioned_from_the_repository_root(self):
+        self.repo.write("bin/lint", "#!/bin/sh\necho linted\n")
+        (self.repo.path / "bin/lint").chmod(0o755)
+        self.repo.write("sub/file.txt", "text\n")
+        self.repo.stage("bin/lint", "sub/file.txt")
+        self.repo.configure({"lint": check(["lint", "{snapshot}"], ["pre-commit"])})
+        env = dict(self.repo.env, PATH=f"bin{os.pathsep}{os.environ['PATH']}")
+        proc, report = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint", cwd=self.repo.path / "sub",
+                                          env=env)
+        lint = {c["id"]: c for c in report["checks"]}["lint"]
+        program = os.path.join(self.repo.root, "bin", "lint")
+        self.assertEqual((proc.returncode, lint["status"], lint["output"], lint["version"]),
+                         (0, "pass", "linted\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
+
+    def test_check_whose_version_file_cannot_be_read_is_an_error_and_the_others_run(self):
+        if os.geteuid() == 0:
+            self.skipTest("the superuser reads every file")
+        self.repo.write("tools/lint.sh", "echo linted\n")
+        script = self.repo.path / "tools/lint.sh"
+        script.chmod(0)
+        self.addCleanup(script.chmod, 0o644)
+        self.repo.configure({"first": check(["sh", "-c", "echo first finding; exit 1", "{snapshot}"], ["pre-commit"]),
+                             "lint": check(["sh", "tools/lint.sh", "{snapshot}"], ["pre-commit"])})
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit")
+        results = {c["id"]: c for c in entry["checks"]}
+        self.assertEqual((proc.returncode, entry["result"], results["first"]["status"], results["whitespace"]["status"]),
+                         (1, "fail", "fail", "pass"), proc.stderr)
+        self.assertEqual((results["lint"]["status"], results["lint"]["output"]),
+                         ("error", "version unreadable: tools/lint.sh (Permission denied)\n"))
+        text = self.repo.run("run", "--stage", "pre-commit")
+        self.assertEqual(text.returncode, 1, text.stderr)
+        self.assertIn("\nERROR lint         ", text.stdout)
+        self.assertIn("\n      version unreadable: tools/lint.sh (Permission denied)\n", text.stdout)
+
+    def test_check_whose_version_file_is_in_a_folder_that_cannot_be_searched_is_an_error(self):
+        if os.geteuid() == 0:
+            self.skipTest("the superuser searches every folder")
+        self.repo.write("tools/locked/lint.sh", "echo linted\n")
+        folder = self.repo.path / "tools/locked"
+        folder.chmod(0o600)  # readable listing, but no search permission: no lookup of the script can succeed
+        self.addCleanup(folder.chmod, 0o755)
+        self.repo.configure({"lint": check(["sh", "tools/locked/lint.sh", "{snapshot}"], ["pre-commit"])})
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint")
+        lint = entry["checks"][0]
+        self.assertEqual((proc.returncode, lint["status"], lint["output"]),
+                         (1, "error", "version unreadable: tools/locked/lint.sh (Permission denied)\n"), proc.stderr)
 
     def test_repository_whose_path_ends_in_a_space_is_checked(self):
         repo = Repo(Path(tempfile.mkdtemp(dir=str(self.folder))), self.house_rules, self.cache, name="repo ")
@@ -1147,12 +1224,14 @@ class SpecDocsTest(RunnerCase):
         self.assertLines(proc.stdout, [
             re.escape("repository checks: pre-commit on the staged index, ") + self.repo.header(self.repo.main),
             "FAIL  spec-docs    " + DURATION,
+            VERSION,
             re.escape("      spec-docs: error D13 docs/example.md:") + r"\d+" + re.escape(
                 ": rejected form for entity 'example.batcher'; use its registered replacement"),
             re.escape("      spec-docs: 1 error, 0 warnings"),
             re.escape("      fix: " + TOUR_FIX),
             re.escape("      rerun: " + rerun),
             "PASS  whitespace   " + DURATION,
+            VERSION,
             re.escape("Commit refused: 1 of 2 checks failed. Fix the findings, stage the fixes and commit again."),
         ])
         self.assertEqual((self.repo.state(), self.repo.git("rev-parse", "HEAD")), (before, head))
@@ -1185,11 +1264,14 @@ class SpecDocsTest(RunnerCase):
             "checks": [
                 {"id": "spec-docs", "layer": "house-rules", "status": "fail",
                  "command": [str(python), "-I", checker, "check", "--root", ".", "--rev", snapshot],
+                 "version": [{"path": str(python), "sha256": sha256(python)},
+                             {"path": checker, "sha256": sha256(checker)}],
                  "fix": TOUR_FIX, "skip_reason": None,
                  "rerun": shlex.join([sys.executable, runner, "run", "--stage", "pre-commit", "--only", "spec-docs"])},
                 {"id": "whitespace", "layer": "house-rules", "status": "pass", "output": "", "fix": None,
                  "skip_reason": None,
                  "command": ["git", f"--attr-source={snapshot}", "diff", "--check", head, snapshot],
+                 "version": [{"path": shutil.which("git"), "sha256": sha256(shutil.which("git"))}],
                  "rerun": shlex.join([sys.executable, runner, "run", "--stage", "pre-commit", "--only",
                                       "whitespace"])}],
             "overrides": []}]})
@@ -1201,7 +1283,7 @@ class SpecDocsTest(RunnerCase):
         proc = subprocess.run(shlex.split(report["checks"][0]["rerun"]), cwd=str(self.repo.path),
                               env=self.repo.env, capture_output=True, text=True, stdin=subprocess.DEVNULL)
         self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
-        self.assertLines(proc.stdout, [r"repository checks: .*", "PASS  spec-docs    " + DURATION,
+        self.assertLines(proc.stdout, [r"repository checks: .*", "PASS  spec-docs    " + DURATION, VERSION,
                                        re.escape("      spec-docs: 0 errors, 0 warnings"),
                                        re.escape("All 1 selected check passed.")])
 
@@ -1390,9 +1472,9 @@ class RevisionTest(RunnerCase):
         self.assertLines(text.stdout, [
             re.escape("repository checks: pre-commit on the staged index, ")
             + self.repo.header(revision, "override HOUSE_RULES_REVISION"),
-            "WARN  draft        " + DURATION, re.escape("      draft finding"),
+            "WARN  draft        " + DURATION, VERSION, re.escape("      draft finding"),
             re.escape("      fix: Fix the draft finding."), r"      rerun: .* --only draft",
-            "PASS  whitespace   " + DURATION,
+            "PASS  whitespace   " + DURATION, VERSION,
             re.escape("SKIP  spec-docs    requires docs/DOCUMENTS.json"),
             re.escape("No enforced check failed; 1 of 2 selected checks warned, because House Rules does not "
                       "enforce them yet; 1 skipped.")])
@@ -1412,6 +1494,120 @@ class RevisionTest(RunnerCase):
         status = self.repo.run("status")
         self.assertEqual(status.returncode, 0, status.stderr)
         self.assertIn("pre-commit: plain, whitespace, spec-docs", status.stdout.splitlines())
+
+    def test_queued_check_whose_program_is_missing_is_an_error_even_when_not_enforced(self):
+        missing = ["no-such-program-for-checks", "{snapshot}"]
+        draft = ('    "draft": {"enabled": True, "enforced": False, "scope": "tree", "stages": ["pre-commit", "ci"], '
+                 f'"paths": ["**"], "requires": [], "run": {json.dumps(missing)}, "fix": "Fix the draft finding."}},\n')
+        revision = self.house_rules.runner_variant("Add a check whose program is missing",
+                                                   [("BUILTINS = {\n", "BUILTINS = {\n" + draft)])
+        queue = self.repo.path.parent / "queue"
+        queue.write_text('#!/bin/sh\nexec "$@"\n')
+        queue.chmod(0o755)
+        self.repo.configure({"lint": check(missing, ["pre-commit"])})
+        env = dict(self.repo.env, HOUSE_RULES_REVISION=revision, HOUSE_RULES_CHECK_QUEUE=str(queue))
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit", env=env)
+        results = {c["id"]: c for c in entry["checks"]}
+        self.assertEqual((proc.returncode, entry["result"]), (1, "fail"), proc.stderr)
+        for name in ("draft", "lint"):
+            self.assertEqual((results[name]["status"], results[name]["output"]),
+                             ("error", "cannot start 'no-such-program-for-checks': No such file or directory\n"))
+
+    def lookup(self, prepare, entries, expected):
+        """Run `lint` with PATH `entries` after `prepare`; assert it ran `ran/lint` and the version names `expected`."""
+        self.repo.write("ran/lint", "#!/bin/sh\necho working\n")
+        (self.repo.path / "ran/lint").chmod(0o755)
+        prepare()
+        self.repo.configure({"lint": check(["lint", "{snapshot}"], ["pre-commit"])})
+        env = dict(self.repo.env, PATH=os.pathsep.join([*entries, os.environ["PATH"]]))
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint", env=env)
+        lint = entry["checks"][0]
+        program = os.path.join(self.repo.root, expected)
+        self.assertEqual((proc.returncode, lint["status"], lint["output"], lint["version"]),
+                         (0, "pass", "working\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
+
+    def test_program_lookup_finds_a_relative_path_entry_in_a_repository_whose_path_holds_a_colon(self):
+        self.repo = Repo(Path(tempfile.mkdtemp(dir=str(self.folder))), self.house_rules, self.cache, name="repo:one")
+        self.repo.write("bin/lint", "#!/bin/sh\necho linted\n")
+        (self.repo.path / "bin/lint").chmod(0o755)
+        self.repo.configure({"lint": check(["lint", "{snapshot}"], ["pre-commit"])})
+        env = dict(self.repo.env, PATH=os.pathsep.join(["bin", os.environ["PATH"]]))
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint", env=env)
+        lint = entry["checks"][0]
+        program = os.path.join(self.repo.root, "bin", "lint")
+        self.assertEqual((proc.returncode, lint["status"], lint["output"], lint["version"]),
+                         (0, "pass", "linted\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
+
+    def test_program_lookup_skips_an_executable_named_pipe(self):
+        # Reading a named pipe for the version would wait for a writer forever, so the run is bounded.
+        self.repo.write("ran/lint", "#!/bin/sh\necho working\n")
+        (self.repo.path / "ran/lint").chmod(0o755)
+        (self.repo.path / "first").mkdir()
+        os.mkfifo(str(self.repo.path / "first/lint"), 0o755)
+        self.repo.configure({"lint": check(["lint", "{snapshot}"], ["pre-commit"])})
+        env = dict(self.repo.env, PATH=os.pathsep.join(["first", "ran", os.environ["PATH"]]))
+        try:
+            proc = subprocess.run([sys.executable, "-B", str(SCRIPT), "run", "--stage", "pre-commit", "--only", "lint",
+                                   "--json"], cwd=str(self.repo.path), env=env, capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL, timeout=120)
+        except subprocess.TimeoutExpired:
+            self.fail("the run waited on the named pipe")
+        (entry,) = json.loads(proc.stdout)["snapshots"]
+        lint = entry["checks"][0]
+        program = os.path.join(self.repo.root, "ran", "lint")
+        self.assertEqual((proc.returncode, lint["status"], lint["output"], lint["version"]),
+                         (0, "pass", "working\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
+
+    def test_version_names_the_first_candidate_when_the_start_passes_it(self):
+        # The start passes a script whose first line names a missing interpreter; the version names it all the same.
+        def broken():
+            self.repo.write("first/lint", "#!/nonexistent/interpreter\n")
+            (self.repo.path / "first/lint").chmod(0o755)
+        self.lookup(broken, ["first", "ran"], "first/lint")
+
+    def test_program_lookup_skips_a_path_entry_that_is_no_folder(self):
+        self.lookup(lambda: self.repo.write("plain", "a file, not a folder\n"), ["plain", "ran"], "ran/lint")
+
+    def test_program_lookup_skips_an_unreadable_candidate_that_is_not_executable(self):
+        if os.geteuid() == 0:
+            self.skipTest("the superuser reads every file")
+
+        def unreadable():
+            self.repo.write("first/lint", "not a program\n")
+            (self.repo.path / "first/lint").chmod(0)
+            self.addCleanup((self.repo.path / "first/lint").chmod, 0o644)
+        self.lookup(unreadable, ["first", "ran"], "ran/lint")
+
+    def test_program_lookup_resolves_parent_folders_through_links(self):
+        # link/.. is the folder that holds the link's target, not the repository root as lexical normalization says.
+        def linked():
+            self.repo.write("deep/target/keep", "\n")
+            os.symlink("deep/target", str(self.repo.path / "link"))
+            self.repo.write("deep/ran/lint", "#!/bin/sh\necho working\n")
+            (self.repo.path / "deep/ran/lint").chmod(0o755)
+            (self.repo.path / "ran/lint").write_text("#!/bin/sh\necho wrong program; exit 1\n")
+        self.lookup(linked, ["link/../ran"], "link/../ran/lint")
+
+    def test_versions_name_each_program_and_script_but_not_file_inputs(self):
+        self.repo.write("tools/lint.sh", 'echo "linted $1"\n')
+        self.repo.write("notes.txt", "notes\n")
+        self.repo.stage("tools/lint.sh", "notes.txt")
+        self.repo.configure({
+            "lint": check(["sh", "tools/lint.sh", "{snapshot}"], ["pre-commit"]),
+            "list": check(["sh", "tools/lint.sh", "{snapshot}", "{files}"], ["pre-commit"], ["*.txt"], scope="files")})
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        results = {c["id"]: c for c in entry["checks"]}
+        shell, program = shutil.which("sh"), shutil.which("git")
+        script = {"path": "tools/lint.sh", "sha256": sha256(self.repo.path / "tools/lint.sh")}
+        self.assertEqual(results["lint"]["version"], [{"path": shell, "sha256": sha256(shell)}, script])
+        self.assertEqual(results["list"]["command"][-1], "notes.txt")  # an input, so not part of the version
+        self.assertEqual(results["list"]["version"], [{"path": shell, "sha256": sha256(shell)}, script])
+        self.assertEqual(results["whitespace"]["version"], [{"path": program, "sha256": sha256(program)}])
+        self.assertIsNone(results["spec-docs"]["version"])  # skipped, so it ran no program
+        text = self.repo.run("run", "--stage", "pre-commit").stdout.splitlines()
+        line = f"      version: {shell}@{sha256(shell)[:12]} tools/lint.sh@{script['sha256'][:12]}"
+        self.assertEqual(text.count(line), 2, text)
 
     def test_check_that_a_signal_ends_is_not_a_pass(self):
         self.repo.configure({"piped": check(["sh", "-c", "kill -s PIPE $$; echo survived", "{snapshot}"],
