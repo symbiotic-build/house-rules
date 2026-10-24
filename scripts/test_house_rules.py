@@ -504,7 +504,7 @@ class SessionContextTests(Fixture):
         text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertIn(f"House Rules part 1 of 1 (revision {revision[:12]},", text)
         self.assertIn(f"house-rules: repository {repo}, configuration house-rules.json (working tree)", text)
-        self.assertRegex(text, r"house-rules: layer team-rules  ref main   -> [0-9a-f]{40} \(fetched ")
+        self.assertRegex(text, rf"house-rules: layer team-rules  {team} ref main -> [0-9a-f]{{40}} \(fetched ")
         self.assertIn("# This computer", text)
         self.assertIn("===== House Rules file team-rules rules/team.md =====\n# Team rules", text)
         self.assertNotIn("HOUSE RULES HOOK ERROR", text)

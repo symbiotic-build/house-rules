@@ -96,20 +96,15 @@ def local_index(base):
 
 
 def layer_context(record):
-    """(name, text) of each custom layer's context file, in layer order; a failure becomes an error line."""
+    """(name, text) of each custom layer's context file, in layer order, from the resolution's `context` list."""
     if record is None:
         return
     module = house_rules()
-    try:
-        context = module.effective(record)["context"]
-    except module.Failure as failure:
-        yield "layer context", f"{ERROR} {failure}; the custom layers' context files are not in this context.\n"
-        return
-    for label, path in context:
-        tree = Path(module.layer_tree(record, label.split("/", 1)[0]))
-        name = f"{label} {Path(path).relative_to(tree)}"
+    for item in record.get("context", []):
+        tree = Path(module.layer_tree(record, item["layer"].split("/", 1)[0]))
+        name, path = f"{item['layer']} {item['path']}", tree / item["path"]
         try:
-            yield name, Path(path).read_text(encoding="utf-8")
+            yield name, path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError) as error:
             yield name, f"{ERROR} cannot read {path}: {error}\n"
 
