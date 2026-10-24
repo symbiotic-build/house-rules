@@ -63,8 +63,9 @@ Paths for runs, reports, ledgers, debug evidence, and scratch: `STRUCTURE.md`.
 
 Scope and authorization: rules/delivery.md §Verification. Before launch, record the envelope that
 authorizes the run (rules/outcome.md §Resource envelopes) in the active work record: approved
-agents/providers, concurrency, round limits, cost/token/runtime boundary, and stop
-condition.
+agents/providers, concurrency, round limits, any configured cost/token/runtime ceiling (off
+while testing), and stop condition. Report the run's start, failure and finish to the
+operator as rules/delivery.md §Verification requires.
 
 Before the first substantive call of any paid, long-running, or non-reproducible external
 agent/model/tool run:
@@ -72,7 +73,7 @@ agent/model/tool run:
 1. Choose a durable path for stdout/stderr or the native session transcript. Apply
    rules/core.md §Security: redact at capture and restrict any necessary sensitive raw records.
 2. Enable the tool's persistent/resumable session mode where available.
-3. Record the session/process ID, exact model/tool, start time, cost/budget boundary, and
+3. Record the session/process ID, exact model/tool, start time, any configured ceiling, and
    output path in the active work record.
 4. Confirm that output is actually being appended or that the native session can be
    resumed before allowing major spend or runtime to accumulate.
