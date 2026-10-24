@@ -233,7 +233,7 @@ The file has six top-level fields:
 - `profiles` lists [profile](#profile) names in order. It is optional and defaults to none.
 - `budgets` maps a [check stage](194-repository-checks.md#check-stage) to an entry with `seconds` and `reason`, as the repository checks design defines.
 - `checks` maps a check identity to an entry, with the fields of the [check configuration](194-repository-checks.md#check-configuration).
-- `git_settings` maps a Git configuration key to a string value. They apply to every check on top of the clone's own settings, as [Isolated Git environment](#git-isolation) explains.
+- `git_settings` maps a Git configuration key to `{"value": "<string>", "reason": "<text>"}`. Each entry applies to every check on top of the clone's own settings, as [Isolated Git environment](#git-isolation) explains, and the check report lists it as a changed value with its reason. `core.attributesFile`, `core.bare`, `core.worktree`, `core.repositoryformatversion`, `extensions.*`, `include.*` and `includeIf.*` are refused: the runner sets the first itself, the next ones change how Git finds or reads the repository, and an include would bring in settings nobody declared.
 
 The tour's file lists three sources and two profiles and changes no check. The exact schema is in [the schema reference](#schema-repository).
 
@@ -1341,7 +1341,7 @@ This chapter lists the exact schemas, commands, variables, record formats, messa
 | `profiles` | list of names | no | profiles in order |
 | `budgets` | map of stage to budget entry | no | warning budgets |
 | `checks` | map of identity to check entry | no | check changes and repository checks |
-| `git_settings` | map of Git key to string | no | Git settings every check gets |
+| `git_settings` | map of Git key to `{value, reason}` | no | Git settings every check gets |
 
 A layer entry has `name` (required), `url` (required except for `house-rules`) and `ref` (default `main`).
 A budget entry has `seconds`, a positive number, and `reason`. A check entry has the fields of the repository checks design's [configuration fields](194-repository-checks.md#configuration-fields); it cannot set `enforced`.
@@ -1446,6 +1446,7 @@ A command environment variable is an environment variable of the [House Rules co
 | missing branch | `house-rules: <layer>: no branch <branch> at <url>; check the ref in house-rules.json` | 2 |
 | SHA-256 source | `house-rules: <layer>: SHA-256 sources are not supported yet` | 2 |
 | missing tag | `house-rules: <layer>: no release tag <tag> at <url>; check the ref in house-rules.json` | 2 |
+| refused Git setting | `house-rules: house-rules.json: git_settings.<key>: a repository cannot set this Git setting` | 2 |
 | missing commit | `house-rules: <layer>: commit <commit> not found at <url> (<git error>); check the ref` | 2 |
 | offline, no record | `house-rules: cannot reach <url> (<git error>) and no earlier fetch of <layer> <branch> is cached; run again when online` | 2 |
 | both one-run variables | `house-rules: set HOUSE_RULES_LINK or HOUSE_RULES_REVISION, not both` | 1 |
