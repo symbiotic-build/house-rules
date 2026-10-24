@@ -58,6 +58,7 @@ SHA256_COMMIT = re.compile(r"[0-9a-f]{64}")
 OBJECT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")  # a commit of a consuming repository, in either format
 TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")  # an exact release tag; no version ranges
 NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
+TRANSPORT = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9+.-]*)?::")  # Git's <transport>::<address>, as Git detects it
 # A fetch fails on lack of progress, never on elapsed time: below 1 byte/s for 30 s over HTTP.
 PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
 NO_REPLACE = {"GIT_NO_REPLACE_OBJECTS": "1"}
@@ -287,9 +288,9 @@ def check_sources(sources, where):
         url = entry.get("url", DEFAULT_URL if name == "house-rules" else None)
         if not isinstance(url, str) or not url:
             raise Failure(f"house-rules: {at}: layer {name} needs a url")
-        if "::" in url.split("/", 1)[0]:  # Git's <transport>::<address>: the address inside escapes every check
-            raise Failure(f"house-rules: {at}: the URL of {name} uses Git's <transport>::<address> form; "
-                          "write the address itself")
+        if TRANSPORT.match(url):  # the address inside escapes every check, so the form is refused
+            raise Failure(f"house-rules: {at}: the URL of {name} uses Git's <transport>:: form, which this command "
+                          "does not accept; use a plain URL and a Git credential helper")
         if credentials(url):
             raise Failure(f"house-rules: {at}: the URL of {name} carries credentials; use a Git credential helper")
         ref = entry.get("ref", "main")
