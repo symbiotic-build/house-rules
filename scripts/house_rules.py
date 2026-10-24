@@ -37,13 +37,11 @@ from pathlib import Path
 
 DEFAULT_URL = "https://github.com/symbiotic-build/house-rules"
 CONFIG = "house-rules.json"
-LOCAL_CONFIG = "house-rules.local.json"
 VERSION = 2        # the repository configuration version this command knows
 FILE_VERSION = 1   # the version of layer files and the global configuration
-BASE_FILE = "checks/base.json"
-PROFILE_FOLDER = "checks/profiles"
+RULESET = "ruleset.json"  # a rule repository's defaults, at its root
 COMMAND = "scripts/house_rules.py"
-MAX_SOURCES = 32  # the resolution record of 32 layers fits in one environment value (HOUSE_RULES_RESOLVED)
+MAX_RECORD_BYTES = 64 * 1024  # the serialized resolution record fits in one environment value (HOUSE_RULES_RESOLVED)
 REUSE_SECONDS = 60          # a branch answer younger than this is reused without asking the remote
 PRUNE_UNUSED_SECONDS = 7 * 86_400   # a tree no branch record names is removed after this long unused
 RECORD_UNUSED_SECONDS = 30 * 86_400  # a branch record unused this long expires; its branch loses offline fallback
@@ -76,9 +74,9 @@ GIT_SETTING = re.compile(r"[A-Za-z][A-Za-z0-9-]*(?:\.[^\n]+)?\.[A-Za-z][A-Za-z0-
 RESERVED_GIT_SETTINGS = ("core.bare", "core.worktree", "core.repositoryformatversion", "core.attributesfile")
 RESERVED_GIT_PREFIXES = ("extensions.", "include.", "includeif.")
 REPOSITORY_FIELDS = ("version", "sources", "profiles", "budgets", "checks", "git_settings")
-LAYER_FIELDS = ("version", "checks", "budgets", "context")
+RULESET_FIELDS = ("version", "context", "checks", "budgets", "profiles")
+PROFILE_FIELDS = ("context", "checks", "budgets")
 GLOBAL_FIELDS = ("version", "sources", "budgets", "checks")
-LOCAL_FIELDS = ("budgets",)
 BUDGET_FIELDS = ("seconds", "reason")
 
 
@@ -142,63 +140,12 @@ def config_home():
     return Path.home() / ".config" / "house-rules"
 
 
-def shown_url(url):
-    """The URL as messages show it: without the user name and password in its authority.
-
-    An ssh URL keeps its login, which can choose the repository; it never carries a password.
-    """
+def credentials(url):
+    """True when a URL carries a password, or any user name over http or https; an ssh login is part of the URL."""
     parts = urllib.parse.urlsplit(url)
     if "@" not in parts.netloc:
-        return url
-    host = parts.netloc.rpartition("@")[2]
-    if parts.scheme.lower() == "ssh" and parts.username:
-        host = f"{parts.username}@{host}"
-    return urllib.parse.urlunsplit(parts._replace(netloc=host))
-
-
-def hidden(text, url):
-    """`text`, such as Git's error, with the URL's user name and password removed wherever they appear."""
-    netloc = urllib.parse.urlsplit(url).netloc
-    if "@" not in netloc:
-        return text
-    userinfo = netloc.rpartition("@")[0]
-    secrets = {userinfo, *userinfo.split(":", 1)}
-    secrets = {value for secret in secrets for value in (secret, urllib.parse.unquote(secret)) if value}
-    text = text.replace(url, "\0")
-    for secret in sorted(secrets, key=len, reverse=True):
-        text = text.replace(secret + "@", "").replace(secret, "***")
-    return text.replace("\0", shown_url(url))
-
-
-def source_key(url):
-    """One source's key: transport, host and path, as in https/github.com/owner/repository.
-
-    The transport is https, http, ssh (an scp-like git@host:path too) or file, so an answer read over HTTP never
-    stands for an HTTPS source. The host is lower case. https and http drop user name and password, because the
-    user name is often a token; ssh keeps the login before the host, because the login can choose the repository:
-    a relative scp-like path starts in that login's home folder. The path stays as written, without a trailing
-    slash, a trailing .git and the default port. A file URL or a local path is file/<absolute path>.
-    """
-    scp = re.fullmatch(r"(?:([^@/:]+)@)?([^/:]+):(?!//)(.+)", url)
-    if scp and "://" not in url and not os.path.exists(url):
-        login = f"{scp.group(1)}@" if scp.group(1) else ""
-        scheme, host, path = "ssh", login + scp.group(2).lower(), scp.group(3)
-    else:
-        parts = urllib.parse.urlsplit(url)
-        if parts.scheme in ("", "file") or not parts.hostname:
-            scheme, host = "file", None
-            path = os.path.abspath(urllib.parse.unquote(parts.path) if parts.scheme == "file" else url)
-        else:
-            scheme = parts.scheme.lower()
-            default = {"https": 443, "http": 80, "ssh": 22}.get(scheme)
-            host = parts.hostname.lower() + (f":{parts.port}" if parts.port and parts.port != default else "")
-            if scheme == "ssh" and parts.username:
-                host = f"{parts.username}@{host}"
-            path = parts.path
-    path = path.strip("/")
-    if path.endswith(".git"):
-        path = path[:-4]
-    return "/".join(part for part in (scheme, host, path) if part)
+        return False
+    return parts.password is not None or parts.scheme.lower() in ("http", "https")
 
 
 def digest(text):
@@ -207,8 +154,11 @@ def digest(text):
 
 
 def source_folder(url):
-    """sources/<SHA-256 of the source key>/: every folder name has one length and none collides with another."""
-    return cache_root() / "sources" / digest(source_key(url))
+    """sources/<SHA-256 of the URL as written>/: every folder name has one length and none collides with another.
+
+    Two spellings of one URL are two sources; an ssh login is part of the URL and keeps two accounts apart.
+    """
+    return cache_root() / "sources" / digest(url)
 
 
 def tree_folder(url, commit):
@@ -217,8 +167,8 @@ def tree_folder(url, commit):
 
 
 def prepared(tree):
-    """A tree counts only once revisions/<commit>.fetched exists, as the checks runner decides."""
-    return Path(tree).is_dir() and Path(str(tree) + ".fetched").is_file()
+    """A tree is ready when its folder exists: it is renamed into place whole, after its .fetched file."""
+    return Path(tree).is_dir()
 
 
 def partial(folder):
@@ -268,8 +218,8 @@ def take_lock(descriptor, mode, deadline):
 
 @contextlib.contextmanager
 def source_lock(url, deadline=NO_DEADLINE):
-    """Hold one source's lock: one process at a time asks for a branch, fetches, writes the branch record or prunes
-    the source's temporary folders.
+    """Hold one source's lock: one resolver process at a time asks for a branch, fetches or writes a record, and
+    prune removes the source's records only under it.
 
     The lock is advisory (flock), so the system releases it when its process ends, however it ends.
     """
@@ -278,9 +228,6 @@ def source_lock(url, deadline=NO_DEADLINE):
     descriptor = os.open(str(folder / "lock"), os.O_RDWR | os.O_CREAT, 0o644)
     try:
         take_lock(descriptor, fcntl.LOCK_EX, deadline)
-        if not (folder / "source.json").is_file():  # names the source for `cache list`; the folder name is a hash
-            key = source_key(url)
-            write_json(folder / "source.json", {"url": shown_url(url), "scheme": key.split("/", 1)[0], "key": key})
         yield
     finally:
         os.close(descriptor)
@@ -318,8 +265,6 @@ def check_sources(sources, where):
     """Validate a sources list and return it with defaults filled in: url for house-rules, ref main."""
     if not isinstance(sources, list) or not sources:
         raise Failure(f"house-rules: {where}: sources must be a non-empty list of layer entries")
-    if len(sources) > MAX_SOURCES:
-        raise Failure(f"house-rules: {where}: sources lists {len(sources)} layers; at most {MAX_SOURCES} are supported")
     result, names = [], set()
     for index, entry in enumerate(sources):
         at = f"{where}: sources[{index}]"
@@ -339,6 +284,8 @@ def check_sources(sources, where):
         url = entry.get("url", DEFAULT_URL if name == "house-rules" else None)
         if not isinstance(url, str) or not url:
             raise Failure(f"house-rules: {at}: layer {name} needs a url")
+        if credentials(url):
+            raise Failure(f"house-rules: {at}: the URL of {name} carries credentials; use a Git credential helper")
         ref = entry.get("ref", "main")
         if not isinstance(ref, str) or not ref:
             raise Failure(f"house-rules: {at}: ref must be a branch name, a full commit identity or a release tag")
@@ -398,18 +345,31 @@ def repository_config(data, where=CONFIG):
             "budgets": check_budgets(value.get("budgets", {}), where), "checks": checks, "git_settings": settings}
 
 
-def layer_file(data, where):
-    value = load_json(data, where)
-    if "sources" in value:
-        raise Failure(f"house-rules: {where}: only house-rules.json lists sources")
-    check_version(value, where)
-    known_fields(value, LAYER_FIELDS, where)
+def ruleset_entry(value, where):
+    """The context, checks and budgets of a ruleset's top level or one profile entry."""
     context = value.get("context", [])
     if not isinstance(context, list) or not all(isinstance(p, str) and p.endswith(".md") and not p.startswith("/")
                                                 and ".." not in Path(p).parts for p in context):
         raise Failure(f"house-rules: {where}: context must list Markdown files inside the layer")
     return {"checks": check_map(value.get("checks", {}), "checks", where),
             "budgets": check_budgets(value.get("budgets", {}), where), "context": context}
+
+
+def ruleset(data, where):
+    """Parse a ruleset.json: its top level and {profile: entry}, each with context, checks and budgets."""
+    value = load_json(data, where)
+    if "sources" in value:
+        raise Failure(f"house-rules: {where}: only house-rules.json lists sources")
+    check_version(value, where)
+    known_fields(value, RULESET_FIELDS, where)
+    profiles = check_map(value.get("profiles", {}), "profiles", where)
+    entries = {}
+    for name, entry in profiles.items():
+        if not NAME.fullmatch(name):
+            raise Failure(f"house-rules: {where}: profiles.{name}: a profile name is lower kebab case")
+        known_fields(entry, PROFILE_FIELDS, f"{where}: profiles.{name}")
+        entries[name] = ruleset_entry(entry, f"{where}: profiles.{name}")
+    return {"top": ruleset_entry(value, where), "profiles": entries}
 
 
 def global_path():
@@ -439,30 +399,6 @@ def global_config(warnings, need_sources=False):
             raise
         warnings.append(f"warning: {str(failure)[len('house-rules: '):]}; ignoring the global configuration")
         return None
-
-
-def local_config(repository, warnings):
-    """The repository's untracked local configuration: budgets only.
-
-    A tracked file is ignored with a warning. Any field other than budgets is a configuration error: it
-    refuses, and never makes a failing check pass.
-    """
-    path = Path(repository) / LOCAL_CONFIG
-    if not path.is_file():
-        return None
-    if not git(repository, "ls-files", "--error-unmatch", "--", LOCAL_CONFIG, check=False, foreign=True).returncode:
-        warnings.append(f"warning: {LOCAL_CONFIG} is tracked by Git; it holds machine budgets only and must stay "
-                        "untracked; ignoring it")
-        return None
-    try:
-        data = path.read_bytes()
-    except OSError as exc:
-        raise Failure(f"house-rules: cannot read {path} ({exc.strerror or exc})")
-    value = load_json(data, LOCAL_CONFIG)
-    extra = sorted(set(value) - set(LOCAL_FIELDS))
-    if extra:
-        raise Failure(f"house-rules: {LOCAL_CONFIG}: {extra[0]} is not allowed; the local file holds budgets only")
-    return {"budgets": check_budgets(value.get("budgets", {}), LOCAL_CONFIG)}
 
 
 # Finding the repository configuration
@@ -609,24 +545,21 @@ def extract(repository, commit, folder):
 def fetch_commit(url, commit, deadline=NO_DEADLINE):
     """Put one commit's files into the cache unless they are there; return None, or Git's error.
 
-    Each fetch uses its own new SHA-1 bare repository in the source's folder, fetches the commit with depth 1,
-    extracts it into a temporary folder there, renames that folder to
-    revisions/<commit>/ and deletes the repository, so an interrupted fetch leaves only an unused temporary folder
-    in the source's folder. The first fetch's time is written once to revisions/<commit>.fetched, just after the
-    rename, and a tree counts as prepared only then. The caller holds the source's lock.
+    Each fetch uses its own new SHA-1 bare repository in the source's folder, fetches the commit with depth 1 and
+    extracts it into a temporary folder there. It writes revisions/<commit>.fetched once, create-only, and only
+    then renames the folder into place, so a tree at its ready path is always complete and has its first-fetch
+    time. An existing tree is never replaced: a fetch that loses the rename uses the winner's tree.
     """
     final = tree_folder(url, commit)
     if prepared(final):
         return None
     repository = partial(source_folder(url))
-    error = None
     try:
         git(repository, "init", "--quiet", "--bare", "--template=", "--object-format=sha1", ".", foreign=True)
         proc = git(repository, *PROGRESS, "fetch", "--quiet", "--depth=1", "--no-tags", url,
                    f"{commit}:refs/pins/{commit}", foreign=True, check=False, deadline=deadline)
         if proc.returncode:
-            error = last_line(proc.stderr)
-            return error
+            return last_line(proc.stderr)
         temporary = partial(source_folder(url))
         extract(repository, commit, temporary)
         for folder, _, names in os.walk(str(temporary)):
@@ -635,32 +568,26 @@ def fetch_commit(url, commit, deadline=NO_DEADLINE):
                 if not os.path.islink(path):
                     os.chmod(path, os.stat(path).st_mode & ~0o222)
         final.parent.mkdir(parents=True, exist_ok=True)
-        if final.exists() and not prepared(final):
-            # An interrupted placement or removal left a folder without its .fetched stamp: never trust it.
-            stale = Path(tempfile.mkdtemp(prefix=".partial-stale-", dir=str(source_folder(url))))
-            os.rename(str(final), str(stale / "tree"))
-            remove_tree(stale)
+        with contextlib.suppress(FileExistsError):
+            create_once(Path(str(final) + ".fetched"), utc() + "\n")
         try:
             os.rename(str(temporary), str(final))
         except OSError:
             if not final.is_dir():
                 raise
             remove_tree(temporary)  # another process placed the same commit first
-        stamp = Path(str(final) + ".fetched")
-        if not stamp.exists():
-            stamp.write_text(utc() + "\n")
         return None
     finally:
         try:
             remove_tree(repository)
         except OSError as exc:
-            cause = f"; Git's error was: {error}" if error else ""
             raise Failure(f"house-rules: cannot remove the temporary fetch repository {repository} "
-                          f"({exc.strerror or exc}){cause}; remove it by hand and run again")
+                          f"({exc.strerror or exc}); remove it by hand and run again")
 
 
 def placed_at(tree):
-    """When the cache first received a commit's files: revisions/<commit>.fetched, else the folder's time."""
+    """When the cache first received a commit's files: revisions/<commit>.fetched, else the folder's time for a tree
+    another tool placed."""
     try:
         return Path(str(tree) + ".fetched").read_text().strip()
     except OSError:
@@ -668,42 +595,20 @@ def placed_at(tree):
 
 
 def mark_used(tree):
-    """Record a use of a cached tree, under a shared lock on its marker so that a running prune cannot interleave.
+    """Record a use of a cached tree in revisions/<commit>.used, which prune reads; False when the tree is gone.
 
-    Returns False when the tree is gone (pruned meanwhile), so the caller fetches it again. A failure to record
-    the use is an error: an unrecorded use would let prune treat the tree as unused.
+    A failure to record the use is an error: an unrecorded use would let prune treat the tree as unused.
     """
+    if not prepared(tree):
+        return False
     marker = Path(str(tree) + ".used")
     try:
-        descriptor = os.open(str(marker), os.O_RDWR | os.O_CREAT, 0o644)
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_SH)
-            if not prepared(tree):
-                return False
-            os.utime(str(marker), None)
-        finally:
-            os.close(descriptor)
+        open(str(marker), "a").close()
+        os.utime(str(marker), None)
     except OSError as exc:
         raise Failure(f"house-rules: cannot record the use of {tree} in {marker} ({exc.strerror or exc}); "
                       "make the cache writable and run again")
     return True
-
-
-def hold_tree(tree):
-    """Take a shared lock on revisions/<commit>.used for this process's lifetime, so prune leaves the tree alone.
-
-    Returns the descriptor, which the caller keeps open while it, or a script it starts, uses the tree. A linked
-    checkout has no marker and returns None.
-    """
-    tree = Path(tree)
-    if tree.parent != cache_root() / "revisions":
-        return None
-    descriptor = os.open(str(tree) + ".used", os.O_RDWR | os.O_CREAT, 0o644)
-    fcntl.flock(descriptor, fcntl.LOCK_SH)
-    if not prepared(tree):  # pruned between resolution and the lock
-        os.close(descriptor)
-        raise Failure(f"house-rules: {tree} was removed while this run started; run again")
-    return descriptor
 
 
 def touch_answer(url, kind, name):
@@ -726,11 +631,6 @@ def checkout_state(path):
     return {"path": str(path), "head": head.stdout.decode().strip(), "dirty": bool(dirty.stdout.strip())}
 
 
-def public(entry):
-    """The layer entry as records show it: the URL without user name and password. Git keeps the full URL."""
-    return dict(entry, url=shown_url(entry["url"]))
-
-
 def ref_kind(ref):
     return "commit" if COMMIT.fullmatch(ref) else "tag" if TAG.fullmatch(ref) else "branch"
 
@@ -738,19 +638,19 @@ def ref_kind(ref):
 def linked_layer(entry, path, how):
     state = checkout_state(path) if Path(path).is_dir() else None
     if state is None:
-        raise Failure(f"house-rules: link {source_key(entry['url'])}: {path} is not the root of a Git working tree; "
+        raise Failure(f"house-rules: link {entry['url']}: {path} is not the root of a Git working tree; "
                       f"run house-rules unlink {path}" if how == "links.json"
                       else f"house-rules: {LINK}={path} is not the root of a Git working tree; unset it or name one")
     changes = " with uncommitted changes" if state["dirty"] else ""
     warning = (f"warning: LINKED {entry['name']} -> {path} at {state['head']}{changes}; "
                "this run does not use the fetched source")
-    layer = dict(public(entry), ref_kind=ref_kind(entry["ref"]), revision=state["head"], source="link", fetched=None,
+    layer = dict(entry, ref_kind=ref_kind(entry["ref"]), revision=state["head"], source="link", fetched=None,
                  tree=str(path), link=state)
     return layer, warning
 
 
 def offline_text(error, url):
-    return error if error.startswith("the remote did not answer") else f"cannot reach {shown_url(url)} ({hidden(error, url)})"
+    return error if error.startswith("the remote did not answer") else f"cannot reach {url} ({error})"
 
 
 def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
@@ -761,13 +661,12 @@ def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
     a remote that names a commit it then refuses to send is a failure, never a quiet return to older rules.
     """
     url, ref, name = entry["url"], entry["ref"], entry["name"]
-    shown = shown_url(url)
     override = os.environ.get(OVERRIDE) if name == "house-rules" else None
     if name == "house-rules" and os.environ.get(LINK):
         layer, warning = linked_layer(entry, os.path.abspath(os.path.expanduser(os.environ[LINK])), LINK)
         warnings.append(warning)
         return layer
-    link = links.get(source_key(url)) if override is None else None
+    link = links.get(url) if override is None else None
     if link:
         layer, warning = linked_layer(entry, link, "links.json")
         warnings.append(warning)
@@ -798,7 +697,7 @@ def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
             raise Failure(f"house-rules: {tree} was removed twice while this run prepared it; run again")
         if kind != "commit" and source != "override":
             touch_answer(url, kind, ref)
-        return dict(public(entry), ref_kind=kind, revision=commit, source=source, fetched=placed_at(tree),
+        return dict(entry, ref_kind=kind, revision=commit, source=source, fetched=placed_at(tree),
                     tree=str(tree), link=None)
     except OSError as exc:
         raise Failure(f"house-rules: cannot write the cache {cache_root()} ({exc.strerror or exc}); free space, "
@@ -817,7 +716,7 @@ def fetch_pinned(entry, commit, deadline):
         if error.startswith("the remote did not answer") or reachable(url, deadline):
             raise Failure(f"house-rules: {offline_text(error, url)} and {name} {commit} is not cached; "
                           "run again when online")
-        raise Failure(f"house-rules: {name}: commit {commit} not found at {shown_url(url)} ({hidden(error, url)}); "
+        raise Failure(f"house-rules: {name}: commit {commit} not found at {url} ({error}); "
                       "check the ref")
 
 
@@ -828,7 +727,6 @@ def resolve_tag(entry, deadline):
     a repository. Without a record there is no earlier answer, so an unreachable remote is a failure.
     """
     url, tag, name = entry["url"], entry["ref"], entry["name"]
-    shown = shown_url(url)
     record = read_answer(url, "tag", tag)
     if record is None:
         try:
@@ -838,16 +736,16 @@ def resolve_tag(entry, deadline):
                     asked = time.time()
                     commit, error = ask_ref(url, f"refs/tags/{tag}", deadline)
                     if error == "missing":
-                        raise Failure(f"house-rules: {name}: no release tag {tag} at {shown}; "
+                        raise Failure(f"house-rules: {name}: no release tag {tag} at {url}; "
                                       f"check the ref in {CONFIG}")
                     if error:
                         raise Failure(f"house-rules: {offline_text(error, url)} and no earlier fetch of {name} {tag} "
                                       "is cached; run again when online")
                     failed = fetch_commit(url, commit, deadline)
                     if failed:
-                        raise Failure(f"house-rules: {name}: {shown} names {commit} for {tag} but cannot send it "
-                                      f"({hidden(failed, url)}); run again, or check the server")
-                    write_answer(url, "tag", {"url": shown, "tag": tag, "revision": commit, "fetched": utc(asked)})
+                        raise Failure(f"house-rules: {name}: {url} names {commit} for {tag} but cannot send it "
+                                      f"({failed}); run again, or check the server")
+                    write_answer(url, "tag", {"url": url, "tag": tag, "revision": commit, "fetched": utc(asked)})
                     return commit, "fetched"
         except DeadlinePassed:
             raise Failure(f"house-rules: the remote did not answer within {HOOK_SECONDS} s and no earlier fetch of "
@@ -859,7 +757,6 @@ def resolve_tag(entry, deadline):
 def resolve_branch(entry, warnings, deadline):
     """(commit, source) for a branch ref: reused, fetched, or offline from the last answer."""
     url, ref, name = entry["url"], entry["ref"], entry["name"]
-    shown = shown_url(url)
     record, error = read_answer(url, "branch", ref), None
     try:
         with source_lock(url, deadline):
@@ -870,7 +767,7 @@ def resolve_branch(entry, warnings, deadline):
             asked = time.time()  # the answer's time is when the remote gave it, not when preparation ended
             commit, error = ask_ref(url, f"refs/heads/{ref}", deadline)
             if error == "missing":
-                raise Failure(f"house-rules: {name}: no branch {ref} at {shown}; check the ref in {CONFIG}")
+                raise Failure(f"house-rules: {name}: no branch {ref} at {url}; check the ref in {CONFIG}")
             if not error:
                 try:
                     fetched = fetch_commit(url, commit, deadline)
@@ -878,11 +775,11 @@ def resolve_branch(entry, warnings, deadline):
                     fetched = None
                     error = f"the remote did not answer within {HOOK_SECONDS} s"
                 if fetched:
-                    raise Failure(f"house-rules: {name}: {shown} names {commit} for {ref} but cannot send it "
-                                  f"({hidden(fetched, url)}); run again, or check the server")
+                    raise Failure(f"house-rules: {name}: {url} names {commit} for {ref} but cannot send it "
+                                  f"({fetched}); run again, or check the server")
                 if not error:
                     # Published only now that the commit's tree is complete.
-                    write_answer(url, "branch", {"url": shown, "branch": ref, "revision": commit,
+                    write_answer(url, "branch", {"url": url, "branch": ref, "revision": commit,
                                                  "fetched": utc(asked)})
                     return commit, "fetched"
     except DeadlinePassed:
@@ -957,8 +854,8 @@ def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADL
 
     The configuration is `data` when the caller read it (the checks runner reads it from its snapshot, with its
     own `origin`; an origin without data means that snapshot has none), else the file at commit `rev`, else the
-    working tree's file. The record's `context` lists each
-    custom layer's context files in layer order, read from the resolved trees.
+    working tree's file. The record's `context` lists every layer's context files in layer order, House Rules'
+    always-load rules first. Its serialized JSON is at most MAX_RECORD_BYTES, so it fits in one environment value.
     """
     if os.environ.get(LINK) and os.environ.get(OVERRIDE):
         raise Failure(f"house-rules: set {LINK} or {OVERRIDE}, not both", status=1)
@@ -977,9 +874,17 @@ def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADL
     record = {"version": 1, "repository": repository, "configuration": origin,
               "profiles": config["profiles"] if config else [], "layers": layers, "context": [],
               "warnings": warnings}
-    # Every resolution builds the effective configuration, so a broken layer file or unknown profile fails here.
+    # Every resolution builds the effective configuration, so a broken ruleset or unknown profile fails here.
     record["context"] = [{"layer": label, "path": str(Path(path).relative_to(layer_tree(record, label.split("/")[0])))}
                          for label, path in effective(record, config, repository)["context"]]
+    size = len(json.dumps(record).encode())
+    if size > MAX_RECORD_BYTES:
+        counts = {}
+        for item in record["context"]:
+            counts[item["layer"].split("/")[0]] = counts.get(item["layer"].split("/")[0], 0) + 1
+        most = max(counts, key=counts.get) if counts else layers[0]["name"]
+        raise Failure(f"house-rules: the record for this run is {size} bytes, over the 64 KiB limit; {most} lists "
+                      f"the most context files ({counts.get(most, 0)})")
     if config is None:
         point_default(layers[0])
     return record
@@ -1042,7 +947,7 @@ def describe_configuration(record):
 
 def describe_layer(layer, width):
     """One layer's line: name, URL without credentials, ref, commit, source and first fetch."""
-    name, url = layer["name"].ljust(width), shown_url(layer["url"])
+    name, url = layer["name"].ljust(width), layer["url"]
     if layer["source"] == "link":
         changes = " with uncommitted changes" if layer["link"]["dirty"] else ""
         return f"house-rules: layer {name} {url} ref {layer['ref']} link {layer['tree']} at {layer['revision']}{changes}"
@@ -1127,20 +1032,35 @@ def merge_entry(state, settings, section, key, entry, label, need_reason, earlie
         current[field] = (value, label)
 
 
-def read_layer_file(layer, relative):
-    path = Path(layer["tree"]) / relative
+def merge_budget(state, settings, stage, entry, label, need_reason):
+    """A budget entry replaces the earlier entry for its stage whole; a changed value needs a reason."""
+    current = state["budgets"].get(stage)
+    if current is not None and current.get("seconds", (None,))[0] == entry.get("seconds"):
+        return
+    if current is not None and need_reason and not isinstance(entry.get("reason"), str):
+        raise Failure(f"house-rules: {label} budgets.{stage}: changes {current['seconds'][1]}'s value; add a reason")
+    if current is not None or need_reason:
+        settings.append({"key": f"budgets.{stage}", "value": entry, "layer": label,
+                         "replaces": current["seconds"][1] if current else None, "reason": entry.get("reason")})
+    state["budgets"][stage] = {field: (value, label) for field, value in entry.items()}
+
+
+def read_ruleset(layer):
+    """A layer's ruleset.json, parsed, or None when the layer has none."""
+    path = Path(layer["tree"]) / RULESET
     try:
         data = path.read_bytes()
     except FileNotFoundError:
         return None
     except OSError as exc:
-        raise Failure(f"house-rules: {layer['name']} {relative}: cannot read ({exc.strerror or exc})")
-    return layer_file(data, f"{layer['name']} {relative}")
+        raise Failure(f"house-rules: {layer['name']} {RULESET}: cannot read ({exc.strerror or exc})")
+    return ruleset(data, f"{layer['name']} {RULESET}")
 
 
 def effective(record, config=None, repository=None, hooks=False):
-    """Build the effective configuration: each layer's base then its profiles, the repository's settings, and in
-    hooks the global and local configuration. Every value keeps the label of the step that set it.
+    """Build the effective configuration: each layer's ruleset top level then its selected profiles, the
+    repository's settings, and in hooks the global configuration. Every value keeps the label of the step that set
+    it. Checks merge field by field, budgets replace per stage and context appends.
 
     Returns {"checks": {id: {field: value}}, "budgets": {...}, "context": [(label, path)], "layers_of": {...},
     "settings": [...], "personal": [ids], "warnings": [...]}.
@@ -1149,21 +1069,24 @@ def effective(record, config=None, repository=None, hooks=False):
     settings, context, warnings = [], [], []
     profiles = record["profiles"]
     defined = {profile: False for profile in profiles}
-    first = True  # only House Rules' base file sets defaults without reasons; every later file's change is listed
+    first = True  # only House Rules' top level sets defaults without reasons; every later step's change is listed
     for layer in record["layers"]:
-        steps = [(layer["name"], BASE_FILE)]
-        steps += [(f"{layer['name']}/{profile}", f"{PROFILE_FOLDER}/{profile}.json") for profile in profiles]
+        content = read_ruleset(layer)
+        steps = []
+        if content is not None:
+            steps = [(layer["name"], content["top"])]
+            for profile in profiles:
+                if profile in content["profiles"]:
+                    defined[profile] = True
+                    steps.append((f"{layer['name']}/{profile}", content["profiles"][profile]))
         root = os.path.realpath(layer["tree"])
-        for label, relative in steps:
-            content = read_layer_file(layer, relative)
+        for label, content in steps:
             if content is not None:
-                if "/" in label:
-                    defined[label.split("/", 1)[1]] = True
                 for key, entry in content["checks"].items():
                     check_entry(entry, f"{label} checks.{key}", True)
-                for section in ("checks", "budgets"):
-                    for key, entry in content[section].items():
-                        merge_entry(state, settings, section, key, entry, label, not first, not first)
+                    merge_entry(state, settings, "checks", key, entry, label, not first, not first)
+                for stage, entry in content["budgets"].items():
+                    merge_budget(state, settings, stage, entry, label, not first)
                 for name in content["context"]:
                     path = Path(layer["tree"]) / name
                     real = os.path.realpath(str(path))
@@ -1178,9 +1101,10 @@ def effective(record, config=None, repository=None, hooks=False):
     if config is not None:
         for key, entry in config["checks"].items():
             check_entry(entry, f"{CONFIG} checks.{key}", False)
-        for section in ("checks", "budgets"):
-            for key, entry in config[section].items():
-                merge_entry(state, settings, section, key, entry, "repository", True, True)
+        for key, entry in config["checks"].items():
+            merge_entry(state, settings, "checks", key, entry, "repository", True, True)
+        for stage, entry in config["budgets"].items():
+            merge_budget(state, settings, stage, entry, "repository", True)
     for identity, fields in state["checks"].items():
         check_complete(identity, fields, next(iter(fields.values()), (None, "repository"))[1])
     personal = []
@@ -1188,7 +1112,7 @@ def effective(record, config=None, repository=None, hooks=False):
         configured = global_config(warnings)
         if configured:
             for stage, entry in configured["budgets"].items():
-                merge_entry(state, settings, "budgets", stage, entry, "global", False, True)
+                merge_budget(state, settings, stage, entry, "global", False)
             for identity, entry in configured["checks"].items():
                 if identity in state["checks"]:
                     warnings.append(f"warning: global configuration check {identity} names a check of this "
@@ -1205,11 +1129,6 @@ def effective(record, config=None, repository=None, hooks=False):
                     continue
                 merge_entry(state, settings, "checks", identity, dict(entry, enforced=False), "global", False, True)
                 personal.append(identity)
-        if repository is not None:
-            local = local_config(repository, warnings)
-            if local:
-                for stage, entry in local["budgets"].items():
-                    merge_entry(state, settings, "budgets", stage, entry, "local", False, True)
     flat = {section: {key: {field: value for field, (value, _) in entry.items()} for key, entry in state[section].items()}
             for section in state}
     layers_of = {key: {field: label for field, (_, label) in entry.items()} for key, entry in state["checks"].items()}
@@ -1338,8 +1257,6 @@ def cmd_exec(args):
         environ[RESOLVED] = json.dumps(record)
     environ.pop(LINK, None)
     environ.pop(OVERRIDE, None)
-    # Shared locks on every tree this run uses, held until the script ends, so `cache prune` leaves them alone.
-    held = [hold_tree(layer["tree"]) for layer in record["layers"]] if record else [hold_tree(tree)]
     command = [sys.executable, "-I", str(script), *args.arguments] if script.suffix == ".py" else [str(script), *args.arguments]
     try:
         if stdin is not None:  # a hook's input, already read for its cwd, goes on to the script
@@ -1348,10 +1265,6 @@ def cmd_exec(args):
             proc = subprocess.run(command, stdin=sys.stdin, env=environ, cwd=repository or None)
     except OSError as exc:
         raise Failure(f"house-rules: cannot start {script} ({exc.strerror or exc})")
-    finally:
-        for descriptor in held:
-            if descriptor is not None:
-                os.close(descriptor)
     return proc.returncode
 
 
@@ -1365,7 +1278,9 @@ def cmd_link(args):
         if proc.returncode:
             raise Failure(f"house-rules: {checkout} has no remote.origin.url; name the source with --url URL", status=1)
         url = proc.stdout.decode().strip()
-    key = source_key(url)
+    if credentials(url):
+        raise Failure(f"house-rules: the URL {url} carries credentials; use a Git credential helper", status=1)
+    key = url
     with links_lock():
         links = read_links()
         links[key] = checkout
@@ -1381,8 +1296,7 @@ def cmd_unlink(args):
         links = read_links()
         keys = [key for key, path in links.items() if path == target]
         if not keys:
-            with contextlib.suppress(Failure):
-                keys = [key for key in links if key == source_key(args.target)]
+            keys = [key for key in links if key == args.target]
         if not keys:
             raise Failure(f"house-rules: no link names {args.target}; house-rules cache list shows the links",
                           status=1)
@@ -1422,13 +1336,13 @@ def cache_sources():
 
 
 def answers(source):
-    """(record path, kind, name, revision, fetched) of every branch and tag record of one source."""
+    """(record path, kind, name, revision, fetched, url) of every branch and tag record of one source."""
     records = []
     for kind, folder in ANSWER_FOLDERS.items():
         for path in sorted((source / folder).glob("*.json")):
             with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
                 value = json.loads(path.read_text())
-                records.append((path, kind, value[kind], value["revision"], value["fetched"]))
+                records.append((path, kind, value[kind], value["revision"], value["fetched"], value["url"]))
     return records
 
 
@@ -1442,12 +1356,11 @@ def trees():
 def cmd_cache_list(args):
     links = read_links()
     for source in cache_sources():
-        try:
-            key = json.loads((source / "source.json").read_text())["key"]
-        except (OSError, ValueError, KeyError, TypeError):
-            key = f"{source.name} (no source.json)"
+        records = answers(source)
+        urls = {url for *_, url in records}
+        key = urls.pop() if len(urls) == 1 else f"source {source.name}"  # every record holds its source's URL
         print(key)
-        for _, kind, name, commit, fetched in answers(source):
+        for _, kind, name, commit, fetched, _ in records:
             print(f"  {kind} {name} -> {commit} (fetched {fetched})")
         if key in links:
             print(f"  linked to {links.pop(key)}")
@@ -1463,7 +1376,7 @@ def protection(now):
     """(commits a live branch record names, the `default` target) at this moment."""
     named = set()
     for source in cache_sources():
-        for path, _, _, commit, _ in answers(source):
+        for path, _, _, commit, _, _ in answers(source):
             with contextlib.suppress(OSError):
                 if now - path.stat().st_mtime <= RECORD_UNUSED_SECONDS:
                     named.add(commit)
@@ -1482,15 +1395,15 @@ def prune_plan(now=None):
     """What `cache prune` removes, as (path, reason, source folder or None), in removal order.
 
     Per docs/design/218-layered-configuration.md §Cache pruning: abandoned branch and tag records, then unnamed
-    old trees with their .fetched and .used files, then old temporary fetch folders. Environments belong to the
-    checks runner, which records no use of them, so prune leaves them. Eligibility is decided again at removal,
-    under the tree's exclusive lock or the record's source lock.
+    old trees with their .fetched and .used files, then temporary folders older than a day, which no fetch or
+    prune still uses. Environments belong to the checks runner, which records no use of them, so prune leaves them.
+    A tree's eligibility is checked again just before removal, and a record's under its source lock.
     """
     now = time.time() if now is None else now
     root = cache_root()
     plan = []
     for source in cache_sources():
-        for path, kind, _, _, _ in answers(source):
+        for path, kind, _, _, _, _ in answers(source):
             if now - path.stat().st_mtime > RECORD_UNUSED_SECONDS:
                 plan.append((path, f"{kind} record unused since {utc(path.stat().st_mtime)}", source))
     named, default = protection(now)
@@ -1500,7 +1413,7 @@ def prune_plan(now=None):
     for folder in (*cache_sources(), root / "revisions"):
         for path in sorted(folder.glob(".partial-*")) + sorted(folder.glob(".removing-*")):
             if now - path.lstat().st_mtime > PARTIAL_SECONDS:
-                plan.append((path, "unfinished fetch or removal", folder if folder != root / "revisions" else None))
+                plan.append((path, "unfinished fetch or removal", None))
     return plan
 
 
@@ -1515,35 +1428,22 @@ def remove_tree(path):
 
 
 def prune_tree(tree):
-    """Remove one cached tree unless a process holds it or it became protected; return what happened.
+    """Remove one cached tree unless a run used or named it since the plan; return what happened.
 
-    Under the exclusive lock on its marker, eligibility is checked again, then the tree is renamed out of
-    revisions/ before anything is deleted, so an interrupted removal never leaves a published, partial tree.
+    No lock: prune goes by last use alone. The tree is renamed out of revisions/ before anything is deleted, so an
+    interrupted removal never leaves a partial tree at its ready path; its .fetched and .used files go with it.
     """
-    marker = Path(str(tree) + ".used")
-    created = not marker.exists()
-    descriptor = os.open(str(marker), os.O_RDWR | os.O_CREAT, 0o644)
-    if created:  # a marker made only to lock it must not look like a use: it takes the tree's own time
-        stamp = os.stat(str(tree)).st_mtime
-        os.utime(str(marker), (stamp, stamp))
-    try:
-        try:
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            return "keep", "in use"
-        now = time.time()
-        named, default = protection(now)
-        if not tree_unused(tree, now, named, default):
-            return "keep", "used or named again"
-        doomed = tree.parent / f".removing-{tree.name}-{os.getpid()}"
-        os.rename(str(tree), str(doomed))
-        for suffix in (".fetched", ".used"):
-            with contextlib.suppress(FileNotFoundError):
-                Path(str(tree) + suffix).unlink()
-        remove_tree(doomed)
-        return "remove", None
-    finally:
-        os.close(descriptor)
+    now = time.time()
+    named, default = protection(now)
+    if not tree_unused(tree, now, named, default):
+        return "keep", "used or named again"
+    doomed = tree.parent / f".removing-{tree.name}-{os.getpid()}"
+    os.rename(str(tree), str(doomed))
+    for suffix in (".fetched", ".used"):
+        with contextlib.suppress(FileNotFoundError):
+            Path(str(tree) + suffix).unlink()
+    remove_tree(doomed)
+    return "remove", None
 
 
 def cmd_cache_prune(args):
@@ -1559,18 +1459,14 @@ def cmd_cache_prune(args):
                 if action == "keep":
                     print(f"keep {path} ({why})")
                     continue
-            elif source is not None:
+            elif source is not None:  # a record, checked again under its source's lock
                 descriptor = os.open(str(source / "lock"), os.O_RDWR | os.O_CREAT, 0o644)
                 try:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX)  # no fetch or resolution of this source is running
-                    if path.parent.name in ANSWER_FOLDERS.values() and \
-                            time.time() - path.stat().st_mtime <= RECORD_UNUSED_SECONDS:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX)  # no resolution of this source is running
+                    if time.time() - path.stat().st_mtime <= RECORD_UNUSED_SECONDS:
                         print(f"keep {path} (used again)")  # a resolution used it after the plan
                         continue
-                    if path.is_dir() and not path.is_symlink():
-                        remove_tree(path)
-                    elif path.exists():
-                        path.unlink()
+                    path.unlink()
                 finally:
                     os.close(descriptor)
             elif path.is_dir() and not path.is_symlink():

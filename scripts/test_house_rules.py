@@ -100,15 +100,15 @@ class Fixture(unittest.TestCase):
                            "paths": ["**"], "fix": "remove the whitespace"},
             "spec-docs": {"run": ["spec"], "stages": ["pre-commit", "ci"], "enforced": True, "paths": ["**"],
                           "fix": "fix the specification"}}}
-        house = self.source("house-rules", {hr.BASE_FILE: base, "checks/profiles/rust.json": {"version": 1},
-                                            "checks/profiles/specs.json": {"version": 1}, "INDEX.md": "rules\n"})
-        team = self.source("team-rules", {hr.BASE_FILE: {
+        house = self.source("house-rules", {hr.RULESET: dict(base, profiles={"rust": {}, "specs": {}}),
+                                            "INDEX.md": "rules\n"})
+        team = self.source("team-rules", {hr.RULESET: {
             "version": 1, "budgets": {"pre-commit": {"seconds": 20, "reason": "Our pre-commit includes a slower lint."}},
             "context": ["rules/team.md"]}, "rules/team.md": "# Team\n"})
-        rust = self.source("rust-settings", {"checks/profiles/rust.json": {"version": 1, "checks": {
+        rust = self.source("rust-settings", {hr.RULESET: {"version": 1, "profiles": {"rust": {"checks": {
             "spec-docs": {"stages": ["pre-push", "ci"], "reason": "Spec checks run at pre-push in Rust services."},
             "cargo-deny": {"run": ["cargo", "deny", "check"], "stages": ["ci"], "paths": ["Cargo.lock"],
-                           "fix": "update the dependency", "reason": "Licences and advisories."}}}})
+                           "fix": "update the dependency", "reason": "Licences and advisories."}}}}}})
         pin = run(self.root / "work" / "rust-settings", "rev-parse", "HEAD")
         config = {"version": 2, "sources": [{"name": "house-rules", "url": house},
                                             {"name": "team-rules", "url": team, "ref": "main"},
@@ -184,7 +184,7 @@ class ResolutionTests(Fixture):
         repo = self.repository(config)
         checkout = self.root / "work" / "team-rules"
         (checkout / "rules/team.md").write_text("# Team, edited\n")
-        self.assertEqual(hr.main(["link", str(checkout)]), 0)
+        self.assertEqual(hr.main(["link", str(checkout), "--url", config["sources"][1]["url"]]), 0)
         record = hr.resolve(repo)
         layer = record["layers"][1]
         self.assertEqual((layer["source"], layer["tree"], layer["link"]["dirty"]), ("link", str(checkout), True))
@@ -204,7 +204,7 @@ class ResolutionTests(Fixture):
                 hr.resolve(repo)
         self.assertEqual((str(caught.exception), caught.exception.status),
                          ("house-rules: set HOUSE_RULES_LINK or HOUSE_RULES_REVISION, not both", 1))
-        hr.write_links({hr.source_key(config["sources"][1]["url"]): str(self.root / "gone")})
+        hr.write_links({config["sources"][1]["url"]: str(self.root / "gone")})
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(repo)
         self.assertIn(f"is not the root of a Git working tree; run house-rules unlink {self.root / 'gone'}",
@@ -305,11 +305,11 @@ class ConfigurationTests(Fixture):
 
     def test_a_layer_file_that_lists_sources_is_refused(self):
         config, _ = self.tour()
-        self.push("team-rules", {hr.BASE_FILE: {"version": 1, "sources": []}})
+        self.push("team-rules", {hr.RULESET: {"version": 1, "sources": []}})
         repo = self.repository(config)
         with self.assertRaises(hr.Failure) as caught:
             hr.effective(hr.resolve(repo), hr.repository_config(json.dumps(config)), repo)
-        self.assertEqual(str(caught.exception), "house-rules: team-rules checks/base.json: only house-rules.json lists "
+        self.assertEqual(str(caught.exception), "house-rules: team-rules ruleset.json: only house-rules.json lists "
                                                 "sources")
 
     def test_an_unknown_profile_is_refused(self):
@@ -332,10 +332,8 @@ class ConfigurationTests(Fixture):
                                                 "checks": {"whitespace": {"stages": []},
                                                            "todo-scan": {"run": ["grep"], "stages": ["pre-commit"],
                                                                          "paths": ["**"], "fix": "f", "reason": "Mine."}}}))
-        (Path(repo) / hr.LOCAL_CONFIG).write_text(json.dumps({"budgets": {"pre-push": {"seconds": 99}}}))
         result = hr.effective(record, parsed, repo, hooks=True)
-        self.assertEqual(result["budgets"]["pre-commit"]["seconds"], 1)
-        self.assertEqual(result["budgets"]["pre-push"]["seconds"], 99)
+        self.assertEqual(result["budgets"]["pre-commit"], {"seconds": 1})  # a budget replaces its stage's entry whole
         self.assertEqual(result["personal"], ["todo-scan"])
         self.assertFalse(result["checks"]["todo-scan"]["enforced"])
         self.assertIn("warning: global configuration check whitespace names a check of this repository; personal "
@@ -345,34 +343,21 @@ class ConfigurationTests(Fixture):
         warnings = hr.effective(record, parsed, repo, hooks=True)["warnings"]
         self.assertTrue(any(w.startswith("warning: ") and "invalid JSON" in w and "ignoring the global configuration" in w
                             for w in warnings), warnings)
-        (Path(repo) / hr.LOCAL_CONFIG).write_text(json.dumps({"budgets": {}, "checks": {"spec-docs": {"enabled": False}}}))
-        with self.assertRaises(hr.Failure) as caught:
-            hr.effective(record, parsed, repo, hooks=True)
-        self.assertEqual(str(caught.exception), "house-rules: house-rules.local.json: checks is not allowed; the local "
-                                                "file holds budgets only")
-        run(repo, "add", "-f", hr.LOCAL_CONFIG)
-        self.assertIn("warning: house-rules.local.json is tracked by Git; it holds machine budgets only and must stay "
-                      "untracked; ignoring it", hr.effective(record, parsed, repo, hooks=True)["warnings"])
 
 
 class CommandTests(Fixture):
-    def test_source_keys(self):
-        self.assertEqual(hr.source_key("https://user:secret@GitHub.com/symbiotic-build/house-rules.git/"),
-                         "https/github.com/symbiotic-build/house-rules")
-        self.assertEqual(hr.source_key("git@github.com:symbiotic-build/house-rules.git"),
-                         "ssh/git@github.com/symbiotic-build/house-rules")
-        self.assertEqual(hr.source_key("ssh://git@GitHub.com:22/symbiotic-build/house-rules"),
-                         "ssh/git@github.com/symbiotic-build/house-rules")
-        self.assertNotEqual(hr.source_key("alice@host:rules.git"), hr.source_key("bob@host:rules.git"))
-        self.assertEqual(hr.source_key("http://github.com/symbiotic-build/house-rules"),
-                         "http/github.com/symbiotic-build/house-rules")
-        self.assertEqual(hr.source_key("https://git.example.com:8443/team/rules"), "https/git.example.com:8443/team/rules")
-        self.assertEqual(hr.source_key("file:///tmp/a b/x.git"), "file/tmp/a b/x")
-        self.assertEqual(hr.source_key("https://example.com/team/../rules//x"), "https/example.com/team/../rules//x")
-        key = "https/github.com/symbiotic-build/house-rules"
-        self.assertEqual(hr.source_folder("https://github.com/symbiotic-build/house-rules").name,
-                         __import__("hashlib").sha256(key.encode()).hexdigest())
-        self.assertEqual(hr.shown_url("ssh://git:pw@host/rules"), "ssh://git@host/rules")
+    def test_urls_key_the_cache_as_written_and_carry_no_credentials(self):
+        self.assertEqual(hr.source_folder("git@github.com:owner/rules.git").name,
+                         __import__("hashlib").sha256(b"git@github.com:owner/rules.git").hexdigest())
+        self.assertNotEqual(hr.source_folder("alice@host:rules.git"), hr.source_folder("bob@host:rules.git"))
+        self.assertNotEqual(hr.source_folder("https://example.com/rules"), hr.source_folder("https://example.com/rules/"))
+        source = {"name": "house-rules"}
+        for url in ("https://token@github.com/owner/rules", "http://user:pw@host/rules", "ssh://git:pw@host/rules"):
+            with self.assertRaises(hr.Failure) as caught:
+                hr.repository_config(json.dumps({"version": 2, "sources": [source, {"name": "team", "url": url}]}))
+            self.assertIn("the URL of team carries credentials; use a Git credential helper", str(caught.exception))
+        self.assertEqual(hr.repository_config(json.dumps({"version": 2, "sources": [
+            source, {"name": "team", "url": "ssh://git@host/rules"}]}))["sources"][1]["url"], "ssh://git@host/rules")
 
     def test_text_form_of_the_tour(self):
         config, pin = self.tour()
@@ -449,21 +434,17 @@ class CommandTests(Fixture):
         with contextlib.redirect_stdout(io.StringIO()):
             hr.main(["cache", "prune", "--dry-run"])
         self.assertTrue(old.exists() and house_record.exists())
-        lock = hr.hold_tree(held)  # another process uses this tree
-        output = io.StringIO()
-        with contextlib.redirect_stdout(output):
+        with contextlib.redirect_stdout(io.StringIO()):
             hr.main(["cache", "prune"])
-        os.close(lock)
-        self.assertIn(f"keep {held} (in use)", output.getvalue())
-        self.assertFalse(any(p.exists() for p in (old, partial, pinned, house_tree, house_record,
+        self.assertFalse(any(p.exists() for p in (old, held, partial, pinned, house_tree, house_record,
                                                    Path(str(old) + ".fetched"), Path(str(pinned) + ".used"))))
-        self.assertTrue(held.exists() and recent.exists() and named.exists())
+        self.assertTrue(recent.exists() and named.exists())
         self.assertTrue((hr.cache_root() / "revisions").is_dir())
 
     def test_one_run_variables_win_over_links_json(self):
         config, _ = self.tour()
         repo = self.repository(config)
-        hr.write_links({hr.source_key(config["sources"][0]["url"]): str(self.root / "work" / "house-rules")})
+        hr.write_links({config["sources"][0]["url"]: str(self.root / "work" / "house-rules")})
         old = run(self.root / "work" / "house-rules", "rev-parse", "HEAD")
         with mock.patch.dict(os.environ, {hr.OVERRIDE: old}):
             self.assertEqual(hr.resolve(repo)["layers"][0]["source"], "override")
@@ -513,16 +494,6 @@ class CommandTests(Fixture):
 
 class RoundOneTests(Fixture):
     """Defects Warden's round 1 on the resolver found, one test each."""
-
-    def test_records_never_show_url_credentials(self):
-        config, _ = self.tour()
-        bare = config["sources"][1]["url"][len("file://"):]
-        config["sources"][1]["url"] = f"file://user:secret@localhost{bare}"
-        with mock.patch.object(hr, "git", wraps=hr.git):
-            record = hr.resolve(self.repository(config))
-        text = json.dumps(record) + "\n".join(hr.describe(record))
-        self.assertNotIn("secret", text)
-        self.assertEqual(record["layers"][1]["url"], f"file://localhost{bare}")
 
     def test_resolve_refuses_an_unknown_profile_on_the_command_line(self):
         config, _ = self.tour()
@@ -576,22 +547,24 @@ class RoundOneTests(Fixture):
         folder = hr.source_folder(config["sources"][1]["url"]) / "branches"
         self.assertEqual(sorted(p.name for p in folder.iterdir() if not p.name.startswith(".")),
                          sorted(f"{hr.digest(b)}.json" for b in ("a", "a.json/b", "feature/x")))
-        self.assertEqual(sorted(name for _, _, name, _, _ in hr.answers(folder.parent)), ["a", "a.json/b", "feature/x"])
+        self.assertEqual(sorted(name for _, _, name, *_ in hr.answers(folder.parent)), ["a", "a.json/b", "feature/x"])
 
-    def test_equal_spellings_of_one_source_share_its_answer(self):
+    def test_another_spelling_of_a_url_is_another_source(self):
         config, _ = self.tour()
         repo = self.repository(config)
         hr.resolve(repo)
         os.rename(str(self.root / "remotes"), str(self.root / "remotes-away"))
         self.expire_answers()
-        config["sources"][1]["url"] += "/"  # the same source, spelled with a trailing slash
-        record = hr.resolve(self.repository(config))
-        self.assertEqual(record["layers"][1]["source"], "offline")
+        config["sources"][1]["url"] += "/"  # the same repository, spelled with a trailing slash: no shared answer
+        with self.assertRaises(hr.Failure) as caught:
+            hr.resolve(self.repository(config))
+        self.assertIn("no earlier fetch of team-rules main is cached", str(caught.exception))
 
     def test_house_rules_profiles_need_reasons_too(self):
         config, _ = self.tour()
-        self.push("house-rules", {"checks/profiles/rust.json": {"version": 1, "checks": {
-            "spec-docs": {"stages": ["ci"]}}}})
+        ruleset = json.loads((self.root / "work" / "house-rules" / hr.RULESET).read_text())
+        ruleset["profiles"]["rust"] = {"checks": {"spec-docs": {"stages": ["ci"]}}}
+        self.push("house-rules", {hr.RULESET: ruleset})
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(self.repository(config))
         self.assertEqual(str(caught.exception), "house-rules: house-rules/rust checks.spec-docs.stages: changes "
@@ -640,7 +613,7 @@ class RoundOneTests(Fixture):
         config, _ = self.tour()
         work = self.root / "work" / "team-rules"
         os.symlink(str(outside), str(work / "rules" / "escape.md"))
-        self.push("team-rules", {hr.BASE_FILE: {"version": 1, "context": ["rules/escape.md"]}})
+        self.push("team-rules", {hr.RULESET: {"version": 1, "context": ["rules/escape.md"]}})
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(self.repository(config))
         self.assertIn("context file rules/escape.md is not a file inside the layer", str(caught.exception))
@@ -663,7 +636,7 @@ class RoundOneTests(Fixture):
 
     def test_a_linked_layer_keeps_its_configured_ref_kind(self):
         config, pin = self.tour()
-        hr.write_links({hr.source_key(config["sources"][2]["url"]): str(self.root / "work" / "rust-settings")})
+        hr.write_links({config["sources"][2]["url"]: str(self.root / "work" / "rust-settings")})
         layer = hr.resolve(self.repository(config))["layers"][2]
         self.assertEqual((layer["source"], layer["ref_kind"]), ("link", "commit"))
         self.assertIn(f"ref {pin} link ", hr.describe_layer(layer, 13))
@@ -685,7 +658,7 @@ class RoundOneTests(Fixture):
         hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
         hr.resolve(None)
         checkout = str(self.root / "work" / "house-rules")
-        hr.write_links({hr.source_key(house): checkout})
+        hr.write_links({house: checkout})
         hr.resolve(None)
         self.assertEqual(os.readlink(str(hr.cache_root() / "default")), checkout)
         (hr.cache_root() / "default").unlink()
@@ -721,7 +694,7 @@ class RoundOneTests(Fixture):
         self.assertFalse(tree.exists())  # renamed away before deletion started
         self.assertTrue(any(p.name.startswith(".removing-") for p in tree.parent.iterdir()))
         layer = hr.resolve(self.repository(config))["layers"][2]
-        self.assertTrue((Path(layer["tree"]) / hr.PROFILE_FOLDER / "rust.json").is_file())  # fetched again, whole
+        self.assertTrue((Path(layer["tree"]) / hr.RULESET).is_file())  # fetched again, whole
 
     def test_init_never_overwrites_a_file_created_meanwhile(self):
         repo = self.repository()
@@ -847,11 +820,72 @@ class RoundTwoTests(Fixture):
         config, _ = self.tour()
         hr.resolve(self.repository(config))
         checkout = str(self.root / "work" / "team-rules")
-        hr.write_links({hr.source_key(config["sources"][1]["url"]): checkout})
+        hr.write_links({config["sources"][1]["url"]: checkout})
         code, out, _ = self.command("cache", "list")
         self.assertEqual(code, 0)
-        self.assertIn(hr.source_key(config["sources"][1]["url"]) + "\n  branch main -> ", out)
+        self.assertIn(config["sources"][1]["url"] + "\n  branch main -> ", out)
         self.assertIn(f"  linked to {checkout}", out)
+
+
+
+class RoundThreeTests(Fixture):
+    """The design's round 3, the lead's simplifications and the ruleset format, one test each."""
+
+    def test_house_rules_ruleset_starts_with_the_index_always_load_list(self):
+        repo = Path(__file__).resolve().parents[1]
+        index = (repo / "INDEX.md").read_text().split("## Always load", 1)[1].split("\n## ", 1)[0]
+        listed = __import__("re").findall(r"\]\((rules/[^)]+\.md)\)", index)
+        context = hr.ruleset((repo / hr.RULESET).read_bytes(), hr.RULESET)["top"]["context"]
+        self.assertTrue(listed, "INDEX.md lists no always-load rules")
+        self.assertEqual(context[:len(listed)], listed)
+        self.assertTrue(all((repo / path).is_file() for path in context), context)
+
+    def test_profiles_apply_after_the_top_level_and_budgets_replace_per_stage(self):
+        config, _ = self.tour()
+        self.push("team-rules", {hr.RULESET: {"version": 1, "context": ["rules/team.md"],
+                                              "budgets": {"pre-commit": {"seconds": 20, "reason": "Slow lint."}},
+                                              "profiles": {"rust": {"context": ["rules/rust.md"], "budgets": {
+                                                  "pre-commit": {"seconds": 30, "reason": "Rust lint."}}}}},
+                                 "rules/rust.md": "# Rust\n"})
+        repo = self.repository(config)
+        record = hr.resolve(repo)
+        self.assertEqual([(item["layer"], item["path"]) for item in record["context"]],
+                         [("team-rules", "rules/team.md"), ("team-rules/rust", "rules/rust.md")])
+        result = hr.effective(record, hr.repository_config(json.dumps(config)), repo)
+        self.assertEqual(result["budgets"]["pre-commit"], {"seconds": 30, "reason": "Rust lint."})
+        self.push("team-rules", {hr.RULESET: {"version": 1, "profiles": {"rust": {"budgets": {
+            "pre-commit": {"seconds": 30}}}}, "budgets": {"pre-commit": {"seconds": 20, "reason": "Slow lint."}}}})
+        self.expire_answers()
+        with self.assertRaises(hr.Failure) as caught:
+            hr.resolve(repo)
+        self.assertEqual(str(caught.exception), "house-rules: team-rules/rust budgets.pre-commit: changes team-rules's "
+                                                "value; add a reason")
+
+    def test_a_tree_is_ready_with_its_first_fetch_time_and_never_replaced(self):
+        config, pin = self.tour()
+        real = os.rename
+        seen = []
+
+        def rename(source, target):
+            if Path(target).parent == hr.cache_root() / "revisions":
+                seen.append(Path(target + ".fetched").is_file())
+            return real(source, target)
+        with mock.patch.object(hr.os, "rename", side_effect=rename):
+            record = hr.resolve(self.repository(config))
+        self.assertTrue(seen and all(seen), seen)  # .fetched exists before every tree is renamed into place
+        tree = Path(record["layers"][2]["tree"])
+        (tree / "marker").write_text("the existing tree\n")
+        self.assertIsNone(hr.fetch_commit(config["sources"][2]["url"], pin))
+        self.assertTrue((tree / "marker").is_file())  # an existing tree is never replaced
+
+    def test_a_record_over_64_kib_is_refused_naming_the_layer(self):
+        config, _ = self.tour()
+        names = [f"rules/{'x' * 60}-{n}.md" for n in range(1200)]
+        self.push("team-rules", {hr.RULESET: {"version": 1, "context": names}, **{name: "# r\n" for name in names}})
+        with self.assertRaises(hr.Failure) as caught:
+            hr.resolve(self.repository(config))
+        self.assertRegex(str(caught.exception), r"^house-rules: the record for this run is \d+ bytes, over the 64 KiB "
+                                                r"limit; team-rules lists the most context files \(1200\)$")
 
 
 if __name__ == "__main__":
