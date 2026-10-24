@@ -247,7 +247,7 @@ Layers let a team share rules and settings in their own repositories, after Hous
 Each layer entry has three fields:
 
 - `name` is the layer's name in logs and reports, in lower kebab case, unique in the list. The first layer is always `house-rules`, and no other layer may use that name.
-- `url` is the repository to fetch. The `house-rules` layer may omit it; its default is `https://github.com/symbiotic-build/house-rules`. Every other layer needs it. A URL that carries a password, or any user name over `http` or `https`, stops resolution with a configuration error that says to use a Git credential helper, as the [credentials decision](#decision-no-credentials) records. An `ssh` login without a password is part of the URL. A URL in Git's `<transport>::<address>` form, which has `::` before its first `/`, such as `https::https://host/rules`, stops resolution too, because the address inside escapes that check; a `::` after the first `/` is part of a path.
+- `url` is the repository to fetch. The `house-rules` layer may omit it; its default is `https://github.com/symbiotic-build/house-rules`. Every other layer needs it. A URL that carries a password, or any user name over `http` or `https`, stops resolution with a configuration error that says to use a Git credential helper, as the [credentials decision](#decision-no-credentials) records. An `ssh` login without a password is part of the URL. A URL in Git's `<transport>::<address>` form, such as `https::https://host/rules`, stops resolution too, because the address inside escapes that check. The form is detected as Git detects it: the URL starts with `::`, or with a letter or digit, then letters, digits, `+`, `-` or `.`, then `::`. An scp-like address such as `[::1]:rules` is not that form.
 - `ref` is a branch name, a full commit identity or an exact release tag. It is optional and defaults to `main`.
 
 A `ref` of 40 hexadecimal digits is a commit. A `ref` of 64 hexadecimal digits, a SHA-256 commit, stops resolution with "SHA-256 sources are not supported yet", as the [SHA-1 sources decision](#decision-sha1-sources) records; it is never taken as a branch name. A `ref` of the form `v<major>.<minor>.<patch>`, digits only, such as `v1.4.0`, is a release tag. Any other value is a branch name.
@@ -1257,7 +1257,7 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 
 **Reason:** Redacting credentials from every record, message and Git error was a mechanism with many places to get wrong. Git credential helpers already keep secrets out of URLs. Without credentials, the URL as written is a safe key and a safe display string, and an `ssh` login stays part of it.
 
-A URL in Git's `<transport>::<address>` form is refused as well. Python's URL parser sees an empty address in front of the `::`, so the check never looks at the address inside, and a Warden probe on [#212](https://github.com/symbiotic-build/house-rules/pull/212) printed a token from such a URL in both reports. The lead added this on 2026-10-24, relayed by the owner of [#212](https://github.com/symbiotic-build/house-rules/pull/212); both tools refuse any URL with `::` before its first `/`.
+A URL in Git's `<transport>::<address>` form is refused as well. Python's URL parser sees an empty address in front of the `::`, so the check never looks at the address inside, and a Warden probe on [#212](https://github.com/symbiotic-build/house-rules/pull/212) printed a token from such a URL in both reports. The lead added this on 2026-10-24, relayed by the owner of [#212](https://github.com/symbiotic-build/house-rules/pull/212); both tools detect the form with Git's own rule.
 
 **Rejected alternatives:** Normalizing URLs into a canonical key: equal spellings would share answers, at the cost of rules for logins, ports and suffixes that two tools must keep identical. Parsing the address inside the transport form: one more URL grammar to keep identical in two tools, for a form no source needs.
 
@@ -1487,7 +1487,7 @@ A command environment variable is an environment variable of the [House Rules co
 | first layer | `house-rules: <file>: sources[0] must be house-rules; House Rules is always the first layer` | 2 |
 | record too large | `house-rules: the record for this run is <n> bytes, over the 64 KiB limit; <layer> lists the most context files (<count>)` | 2 |
 | credentials in a URL | `house-rules: <file>: sources[<i>]: the URL of <layer> carries credentials; use a Git credential helper` | 2 |
-| transport form | `house-rules: <file>: sources[<i>]: the URL of <layer> uses Git's <transport>::<address> form; write the address itself` | 2 |
+| transport form | `house-rules: <file>: sources[<i>]: the URL of <layer> uses Git's <transport>:: form, which this command does not accept; use a plain URL and a Git credential helper` | 2 |
 | [ruleset](#ruleset) lists sources | `house-rules: <layer> <file>: only house-rules.json lists sources` | 2 |
 | unknown profile | `house-rules: profile <name> is defined by no layer (<layer names>)` | 2 |
 | missing reason | `house-rules: <layer> <key>: changes <earlier layer>'s value; add a reason` | 2 |
