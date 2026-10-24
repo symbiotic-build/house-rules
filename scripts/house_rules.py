@@ -43,9 +43,9 @@ BASE_FILE = "checks/base.json"
 PROFILE_FOLDER = "checks/profiles"
 COMMAND = "scripts/house_rules.py"
 REUSE_SECONDS = 60          # a branch answer younger than this is reused without asking the remote
-PRUNE_UNUSED_SECONDS = 7 * 86_400
-PRUNE_RECENT_SECONDS = 86_400  # never prune a tree used this recently: a running process may still read it
-PARTIAL_SECONDS = 86_400
+PRUNE_UNUSED_SECONDS = 7 * 86_400   # a tree no branch record names is removed after this long unused
+RECORD_UNUSED_SECONDS = 30 * 86_400  # a branch record unused this long expires; its branch loses offline fallback
+PARTIAL_SECONDS = 86_400             # a temporary fetch folder older than this belongs to no running fetch
 RESOLVED = "HOUSE_RULES_RESOLVED"
 OVERRIDE = "HOUSE_RULES_REVISION"
 LINK = "HOUSE_RULES_LINK"
@@ -88,16 +88,24 @@ def last_line(data):
     return lines[-1] if lines else "no output"
 
 
-def git(cwd, *args, foreign=False, check=True):
-    """Run Git; `foreign` drops variables that bind it to a calling repository, as for the cache's own repositories."""
+def git(cwd, *args, foreign=False, check=True, deadline=None):
+    """Run Git; `foreign` drops variables that bind it to a calling repository, as for the cache's own repositories.
+
+    With a deadline that has a limit, a command still running at it is stopped and DeadlinePassed is raised.
+    """
     environ = dict(os.environ)
     if foreign:
         for name in LOCAL_GIT_ENV:
             environ.pop(name, None)
     environ.update(NO_REPLACE)
+    left = deadline.left() if deadline is not None else None
+    if left is not None and left <= 0:
+        raise DeadlinePassed()
     try:
         proc = subprocess.run(["git", *args], cwd=str(cwd), env=environ, stdin=subprocess.DEVNULL,
-                              capture_output=True)
+                              capture_output=True, timeout=left)
+    except subprocess.TimeoutExpired:
+        raise DeadlinePassed()
     except OSError as exc:
         raise Failure(f"house-rules: cannot run git in {cwd} ({exc.strerror or exc}); install Git and run again")
     if check and proc.returncode:
@@ -150,26 +158,30 @@ def escape(segment):
 
 
 def source_key(url):
-    """The cache folder of a source: host and path, as in github.com/owner/repository.
+    """The cache folder of a source: transport, host and path, as in https/github.com/owner/repository.
 
-    The host is lower case; user name, password, port 443, a trailing slash and a trailing .git are dropped.
-    An scp-like address (git@host:owner/repository) has the same key as its https URL. A file URL or a local
-    path is file/<absolute path>. Characters outside [A-Za-z0-9._-] are escaped in each segment.
+    The transport is https, http, ssh (an scp-like git@host:path too) or file, so an answer read over HTTP never
+    stands for an HTTPS source. The host is lower case; user name, password, the default port, a trailing slash and
+    a trailing .git are dropped. A file URL or a local path is file/<absolute path>. Characters outside
+    [A-Za-z0-9._-] are escaped in each segment.
     """
     scp = re.fullmatch(r"(?:[^@/:]+@)?([^/:]+):(?!//)(.+)", url)
     if scp and "://" not in url and not os.path.exists(url):
-        host, path = scp.group(1).lower(), scp.group(2)
+        scheme, host, path = "ssh", scp.group(1).lower(), scp.group(2)
     else:
         parts = urllib.parse.urlsplit(url)
         if parts.scheme in ("", "file") or not parts.hostname:
-            host, path = "file", os.path.abspath(urllib.parse.unquote(parts.path) if parts.scheme == "file" else url)
+            scheme, host = "file", None
+            path = os.path.abspath(urllib.parse.unquote(parts.path) if parts.scheme == "file" else url)
         else:
-            host = parts.hostname.lower() + (f":{parts.port}" if parts.port and parts.port != 443 else "")
+            scheme = parts.scheme.lower()
+            default = {"https": 443, "http": 80, "ssh": 22}.get(scheme)
+            host = parts.hostname.lower() + (f":{parts.port}" if parts.port and parts.port != default else "")
             path = parts.path
     path = path.strip("/")
     if path.endswith(".git"):
         path = path[:-4]
-    segments = [host, *path.split("/")]
+    segments = [scheme, *([host] if host else []), *path.split("/")]
     if any(segment in ("", ".", "..") for segment in segments):
         raise Failure(f"house-rules: cannot derive a cache folder from the URL {shown_url(url)}; check the url")
     return "/".join(escape(segment) for segment in segments)
@@ -189,9 +201,50 @@ def partial(folder):
     return Path(tempfile.mkdtemp(prefix=".partial-", dir=str(folder)))
 
 
+class Deadline:
+    """Hook mode's limit on lock waits, ls-remote and fetches: 2 s before the agent product's 10 s hook timeout.
+
+    Outside hook mode there is no deadline; Git's own progress limit (PROGRESS) is the only one.
+    """
+
+    def __init__(self, seconds=None):
+        self.seconds = seconds
+        self.end = None if seconds is None else time.monotonic() + seconds
+
+    def left(self):
+        return None if self.end is None else max(0.0, self.end - time.monotonic())
+
+    def passed(self):
+        return self.end is not None and time.monotonic() >= self.end
+
+
+HOOK_SECONDS = 8   # the hook timeout, 10 s, minus 2 s to print what happened
+NO_DEADLINE = Deadline()
+
+
+class DeadlinePassed(Exception):
+    pass
+
+
+def take_lock(descriptor, mode, deadline):
+    """flock with the deadline: a wait that would pass it raises DeadlinePassed."""
+    if deadline.end is None:
+        fcntl.flock(descriptor, mode)
+        return
+    while True:
+        try:
+            fcntl.flock(descriptor, mode | fcntl.LOCK_NB)
+            return
+        except BlockingIOError:
+            if deadline.passed():
+                raise DeadlinePassed()
+            time.sleep(0.05)
+
+
 @contextlib.contextmanager
-def source_lock(url):
-    """Hold one source's lock: one process at a time asks for a branch, fetches and writes the branch record.
+def source_lock(url, deadline=NO_DEADLINE):
+    """Hold one source's lock: one process at a time asks for a branch, fetches, writes the branch record or prunes
+    the source's temporary folders.
 
     The lock is advisory (flock), so the system releases it when its process ends, however it ends.
     """
@@ -199,7 +252,7 @@ def source_lock(url):
     folder.mkdir(parents=True, exist_ok=True)
     descriptor = os.open(str(folder / "lock"), os.O_RDWR | os.O_CREAT, 0o644)
     try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)
+        take_lock(descriptor, fcntl.LOCK_EX, deadline)
         yield
     finally:
         os.close(descriptor)
@@ -403,10 +456,10 @@ def read_configuration(repository, rev=None):
 
 # Resolving one layer
 
-def ask_branch(url, branch):
+def ask_branch(url, branch, deadline=NO_DEADLINE):
     """Return (the branch's latest commit, None), or (None, Git's error)."""
     reference = f"refs/heads/{branch}"
-    proc = git(cache_root(), *PROGRESS, "ls-remote", url, reference, foreign=True, check=False)
+    proc = git(cache_root(), *PROGRESS, "ls-remote", url, reference, foreign=True, check=False, deadline=deadline)
     if proc.returncode:
         return None, last_line(proc.stderr)
     heads = [line.split("\t") for line in proc.stdout.decode(errors="replace").splitlines()]
@@ -418,9 +471,10 @@ def ask_branch(url, branch):
     return commit, None
 
 
-def reachable(url):
+def reachable(url, deadline=NO_DEADLINE):
     """Git's error when the remote cannot be reached at all, else None."""
-    proc = git(cache_root(), *PROGRESS, "ls-remote", "--heads", url, "refs/heads/main", foreign=True, check=False)
+    proc = git(cache_root(), *PROGRESS, "ls-remote", "--heads", url, "refs/heads/main", foreign=True, check=False,
+               deadline=deadline)
     return last_line(proc.stderr) if proc.returncode else None
 
 
@@ -470,25 +524,30 @@ def extract(repository, commit, folder):
         raise Failure(f"house-rules: cannot extract {commit} ({last_line(error + tar.stderr)}); run again")
 
 
-def fetch_commit(url, commit):
+def fetch_commit(url, commit, deadline=NO_DEADLINE):
     """Put one commit's files into the cache unless they are there; return None, or Git's error.
 
-    Each fetch uses its own new bare repository, fetches the commit with depth 1, extracts it into a temporary
-    folder, renames that folder into place and deletes the repository, so an interrupted fetch leaves only an
-    unused temporary folder.
+    Each fetch uses its own new bare repository in the source's folder, fetches the commit with depth 1, extracts
+    it into a temporary folder there, renames that folder to revisions/<commit>/ and deletes the repository, so an
+    interrupted fetch leaves only an unused temporary folder in the source's folder. The first fetch's time is
+    written once to revisions/<commit>.fetched, just before the rename. The caller holds the source's lock.
     """
     final = tree_folder(url, commit)
     if final.is_dir():
         return None
     repository = partial(source_folder(url))
     try:
-        git(repository, "init", "--quiet", "--bare", ".", foreign=True)
+        git(repository, "init", "--quiet", "--bare", "--template=", ".", foreign=True)
         proc = git(repository, *PROGRESS, "fetch", "--quiet", "--depth=1", "--no-tags", url,
-                   f"{commit}:refs/pins/{commit}", foreign=True, check=False)
+                   f"{commit}:refs/pins/{commit}", foreign=True, check=False, deadline=deadline)
         if proc.returncode:
             return last_line(proc.stderr)
-        temporary = partial(final.parent)
+        temporary = partial(source_folder(url))
         extract(repository, commit, temporary)
+        final.parent.mkdir(parents=True, exist_ok=True)
+        stamp = Path(str(final) + ".fetched")
+        if not stamp.exists():
+            stamp.write_text(utc() + "\n")
         for folder, _, names in os.walk(str(temporary)):
             for name in names:
                 path = os.path.join(folder, name)
@@ -506,7 +565,11 @@ def fetch_commit(url, commit):
 
 
 def placed_at(tree):
-    return utc(os.stat(str(tree)).st_mtime)
+    """When the cache first received a commit's files: revisions/<commit>.fetched, else the folder's time."""
+    try:
+        return Path(str(tree) + ".fetched").read_text().strip()
+    except OSError:
+        return utc(os.stat(str(tree)).st_mtime)
 
 
 def mark_used(tree):
@@ -516,6 +579,28 @@ def mark_used(tree):
         os.utime(str(marker), None)
     except OSError:
         pass  # a read-only cache still resolves; prune then treats the tree as unused
+
+
+def hold_tree(tree):
+    """Take a shared lock on revisions/<commit>.used for this process's lifetime, so prune leaves the tree alone.
+
+    Returns the descriptor, which the caller keeps open while it, or a script it starts, uses the tree. A linked
+    checkout has no marker and returns None.
+    """
+    tree = Path(tree)
+    if tree.parent != cache_root() / "revisions":
+        return None
+    descriptor = os.open(str(tree) + ".used", os.O_RDWR | os.O_CREAT, 0o644)
+    fcntl.flock(descriptor, fcntl.LOCK_SH)
+    if not tree.is_dir():  # pruned between resolution and the lock
+        os.close(descriptor)
+        raise Failure(f"house-rules: {tree} was removed while this run started; run again")
+    return descriptor
+
+
+def touch_record(url, branch):
+    with contextlib.suppress(OSError):
+        os.utime(str(branch_record_path(url, branch)), None)
 
 
 def checkout_state(path):
@@ -540,20 +625,23 @@ def linked_layer(entry, path, how):
     return layer, warning
 
 
-def resolve_layer(entry, links, warnings):
-    """Resolve one layer entry to {name, url, ref, ref_kind, revision, source, fetched, tree, link}."""
+def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
+    """Resolve one layer entry to {name, url, ref, ref_kind, revision, source, fetched, tree, link}.
+
+    For the house-rules layer, the one-run variables HOUSE_RULES_LINK and HOUSE_RULES_REVISION win over links.json.
+    """
     url, ref, name = entry["url"], entry["ref"], entry["name"]
     shown = shown_url(url)
+    override = os.environ.get(OVERRIDE) if name == "house-rules" else None
     if name == "house-rules" and os.environ.get(LINK):
         layer, warning = linked_layer(entry, os.path.abspath(os.path.expanduser(os.environ[LINK])), LINK)
         warnings.append(warning)
         return layer
-    link = links.get(source_key(url))
+    link = links.get(source_key(url)) if override is None else None
     if link:
         layer, warning = linked_layer(entry, link, "links.json")
         warnings.append(warning)
         return layer
-    override = os.environ.get(OVERRIDE) if name == "house-rules" else None
     if override is not None:
         if not COMMIT.fullmatch(override.lower()):
             raise Failure(f"house-rules: {OVERRIDE}={override!r} is not a full commit identity; set a full commit "
@@ -566,44 +654,59 @@ def resolve_layer(entry, links, warnings):
         commit = None
     try:
         if commit is not None:
-            with source_lock(url):
-                error = fetch_commit(url, commit)
+            try:
+                with source_lock(url, deadline):
+                    error = fetch_commit(url, commit, deadline)
+            except DeadlinePassed:
+                error = f"the remote did not answer within {HOOK_SECONDS} s"
             if error:
-                if reachable(url):
+                if tree_folder(url, commit).is_dir():
+                    error = None
+                elif error.startswith("the remote did not answer") or reachable(url, deadline):
                     raise Failure(f"house-rules: cannot reach {shown} ({hidden(error, url)}) and {name} {commit} is "
                                   "not cached; run again when online")
-                raise Failure(f"house-rules: {name}: commit {commit} not found at {shown} ({hidden(error, url)}); "
-                              "check the ref")
+                else:
+                    raise Failure(f"house-rules: {name}: commit {commit} not found at {shown} ({hidden(error, url)}); "
+                                  "check the ref")
             tree = tree_folder(url, commit)
             mark_used(tree)
             return dict(entry, ref_kind="commit" if COMMIT.fullmatch(ref) else "branch", revision=commit, source=source,
                         fetched=placed_at(tree), tree=str(tree), link=None)
-        with source_lock(url):
-            record = branch_record(url, ref)
-            now = time.time()
-            if record and 0 <= now - record["seconds"] < REUSE_SECONDS and tree_folder(url, record["revision"]).is_dir():
-                commit, source, fetched_at = record["revision"], "reused", record["fetched"]
-            else:
-                commit, error = ask_branch(url, ref)
-                if error == "missing":
-                    raise Failure(f"house-rules: {name}: no branch {ref} at {shown}; check the ref in {CONFIG}")
-                if not error:
-                    error = fetch_commit(url, commit)
-                if not error:
-                    fetched_at = utc(now)
-                    write_branch_record({"url": shown_url(url), "branch": ref, "revision": commit,
-                                         "fetched": fetched_at})
-                    source = "fetched"
+        record, source, error = branch_record(url, ref), None, None
+        try:
+            with source_lock(url, deadline):
+                record = branch_record(url, ref)
+                now = time.time()
+                if record and 0 <= now - record["seconds"] < REUSE_SECONDS and \
+                        tree_folder(url, record["revision"]).is_dir():
+                    commit, source = record["revision"], "reused"
                 else:
-                    if record is None or not tree_folder(url, record["revision"]).is_dir():
-                        raise Failure(f"house-rules: cannot reach {shown} ({hidden(error, url)}) and no earlier fetch "
-                                      f"of {name} {ref} is cached; run again when online")
-                    commit, source, fetched_at = record["revision"], "offline", record["fetched"]
-                    warnings.append(f"warning: cannot reach {shown} ({hidden(error, url)}); using {name} {ref} last "
-                                    f"fetched {fetched_at}, {commit}")
+                    commit, error = ask_branch(url, ref, deadline)
+                    if error == "missing":
+                        raise Failure(f"house-rules: {name}: no branch {ref} at {shown}; check the ref in {CONFIG}")
+                    if not error:
+                        error = fetch_commit(url, commit, deadline)
+                    if not error:
+                        # Published only now that the commit's tree is complete.
+                        write_branch_record({"url": shown, "branch": ref, "revision": commit, "fetched": utc(now)})
+                        source = "fetched"
+        except DeadlinePassed:
+            commit, error = None, f"the remote did not answer within {HOOK_SECONDS} s"
+        if commit is None or source not in ("reused", "fetched"):
+            if record is None or not tree_folder(url, record["revision"]).is_dir():
+                raise Failure(f"house-rules: cannot reach {shown} ({hidden(error, url)}) and no earlier fetch of "
+                              f"{name} {ref} is cached; run again when online")
+            commit, source = record["revision"], "offline"
+            tree = tree_folder(url, commit)
+            if error.startswith("the remote did not answer"):
+                warnings.append(f"warning: {error}; using {name} {ref} last fetched {placed_at(tree)}, {commit}")
+            else:
+                warnings.append(f"warning: cannot reach {shown} ({hidden(error, url)}); using {name} {ref} last "
+                                f"fetched {placed_at(tree)}, {commit}")
+        touch_record(url, ref)
         tree = tree_folder(url, commit)
         mark_used(tree)
-        return dict(entry, ref_kind="branch", revision=commit, source=source, fetched=fetched_at, tree=str(tree),
+        return dict(entry, ref_kind="branch", revision=commit, source=source, fetched=placed_at(tree), tree=str(tree),
                     link=None)
     except OSError as exc:
         raise Failure(f"house-rules: cannot write the cache at {cache_root()} ({exc.strerror or exc}); make it "
@@ -646,11 +749,12 @@ def default_sources(warnings):
     return [{"name": "house-rules", "url": DEFAULT_URL, "ref": "main"}], "default"
 
 
-def resolve(repository=None, rev=None, data=None, origin=None):
+def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADLINE):
     """Resolve the layers for `repository` (or for no repository) and return the resolution record.
 
     The configuration is `data` when the caller read it (the checks runner reads it from its snapshot, with its
-    own `origin`), else the file at commit `rev`, else the working tree's file.
+    own `origin`), else the file at commit `rev`, else the working tree's file. The record's `context` lists each
+    custom layer's context files in layer order, read from the resolved trees.
     """
     if os.environ.get(LINK) and os.environ.get(OVERRIDE):
         raise Failure(f"house-rules: set {LINK} or {OVERRIDE}, not both", status=1)
@@ -667,9 +771,12 @@ def resolve(repository=None, rev=None, data=None, origin=None):
         sources, kind = default_sources(warnings)
         origin = {"origin": kind, "commit": None}
     links = read_links()
-    layers = [resolve_layer(entry, links, warnings) for entry in sources]
+    layers = [resolve_layer(entry, links, warnings, deadline) for entry in sources]
     record = {"version": 1, "repository": repository, "configuration": origin,
-              "profiles": config["profiles"] if config else [], "layers": layers, "warnings": warnings}
+              "profiles": config["profiles"] if config else [], "layers": layers, "context": [],
+              "warnings": warnings}
+    record["context"] = [{"layer": label, "path": str(Path(path).relative_to(layer_tree(record, label.split("/")[0])))}
+                         for label, path in effective(record)["context"]]
     if config is None:
         point_default(layers[0])
     return record
@@ -722,17 +829,18 @@ def describe_configuration(record):
 
 
 def describe_layer(layer, width):
-    name = layer["name"].ljust(width)
+    """One layer's line: name, URL without credentials, ref, commit, source and first fetch."""
+    name, url = layer["name"].ljust(width), shown_url(layer["url"])
     if layer["source"] == "link":
         changes = " with uncommitted changes" if layer["link"]["dirty"] else ""
-        return f"house-rules: layer {name} link {layer['tree']} at {layer['revision']}{changes}"
-    if layer["source"] == "pinned":
-        return f"house-rules: layer {name} ref {layer['ref']} (pinned)"
-    if layer["source"] == "override":
-        return f"house-rules: layer {name} ref {layer['ref']} -> {layer['revision']} (override {OVERRIDE})"
+        return f"house-rules: layer {name} {url} link {layer['tree']} at {layer['revision']}{changes}"
     when = f"fetched {layer['fetched']}"
+    if layer["source"] == "pinned":
+        return f"house-rules: layer {name} {url} ref {layer['ref']} (pinned, {when})"
+    if layer["source"] == "override":
+        return f"house-rules: layer {name} {url} ref {layer['ref']} -> {layer['revision']} (override {OVERRIDE}, {when})"
     detail = when if layer["source"] == "fetched" else f"{layer['source']}, {when}"
-    return f"house-rules: layer {name} ref {layer['ref'].ljust(6)} -> {layer['revision']} ({detail})"
+    return f"house-rules: layer {name} {url} ref {layer['ref']} -> {layer['revision']} ({detail})"
 
 
 def describe(record):
@@ -898,8 +1006,7 @@ def command_repository(args):
 
 def cmd_path(args):
     record = resolve(command_repository(args))
-    for line in record["warnings"]:
-        print(line, file=sys.stderr)
+    print("\n".join(describe(record)), file=sys.stderr)  # standard output carries only the path
     print(layer_tree(record, args.layer))
     return 0
 
@@ -915,19 +1022,24 @@ def cmd_exec(args):
             folder = folder or None
     repository = find_repository(folder) if folder else find_repository()
     try:
-        record = resolve(repository)
+        # A hook must finish before the agent product's timeout kills it without a trace.
+        record = resolve(repository, deadline=Deadline(HOOK_SECONDS) if args.hook else NO_DEADLINE)
         tree = layer_tree(record)
     except Failure as failure:
         if not args.hook:
             raise
-        # A failed resolution never stops an agent session: name it, then use the last global default tree.
+        # A failed resolution never stops an agent session: name it, then the global default's rules, labelled.
         tree, record = Path(os.path.realpath(str(cache_root() / "default"))), None
         known = (tree / args.path).is_file()
-        print(f"{HOOK_ERROR} {failure}; " + (f"using the House Rules tree last resolved for the global default, {tree}"
-                                             if known else "no earlier House Rules tree is cached"))
+        print(f"{HOOK_ERROR} {failure}. " + (
+            f"The House Rules below are the global default's ({tree}), not this repository's resolved rules, and "
+            "this repository's custom layers are missing." if known else "No House Rules tree is cached, so this "
+            "context holds no House Rules; fix the cause above and start a new session."))
         sys.stdout.flush()
         if not known:
             return 0
+    # Shared locks on every tree this run uses, held until the script ends, so `cache prune` leaves them alone.
+    held = [hold_tree(layer["tree"]) for layer in record["layers"]] if record else [hold_tree(tree)]
     script = tree / args.path
     if not script.is_file():
         raise Failure(f"house-rules: house-rules {record['layers'][0]['revision']} has no {args.path}; check the path "
@@ -942,6 +1054,9 @@ def cmd_exec(args):
         proc = subprocess.run(command, input=stdin, stdin=None, env=environ, cwd=repository or None)
     else:  # any other script reads this command's own standard input, as a Git hook's references
         proc = subprocess.run(command, stdin=sys.stdin, env=environ, cwd=repository or None)
+    for descriptor in held:
+        if descriptor is not None:
+            os.close(descriptor)
     return proc.returncode
 
 
@@ -1006,7 +1121,7 @@ def last_used(tree):
 
 
 def cache_sources():
-    """The folder of every source the cache has resolved: sources/<host>/<path>/, which holds its lock."""
+    """The folder of every source the cache has resolved: sources/<transport>/<host>/<path>/, which holds its lock."""
     root = cache_root() / "sources"
     if not root.is_dir():
         return []
@@ -1014,11 +1129,12 @@ def cache_sources():
 
 
 def branch_records(source):
+    """(record path, branch, revision, fetched) of every branch record of one source."""
     records = []
     for path in sorted((source / "branches").glob("*.json")):
         with contextlib.suppress(OSError, ValueError, KeyError):
             value = json.loads(path.read_text())
-            records.append((value["branch"], value["revision"], value["fetched"]))
+            records.append((path, value["branch"], value["revision"], value["fetched"]))
     return records
 
 
@@ -1032,17 +1148,21 @@ def trees():
 def cmd_cache_list(args):
     for source in cache_sources():
         print(source.relative_to(cache_root() / "sources"))
-        for branch, commit, fetched_at in branch_records(source):
-            print(f"  branch {branch} -> {commit} (fetched {fetched_at})")
+        for _, branch, commit, fetched in branch_records(source):
+            print(f"  branch {branch} -> {commit} (fetched {fetched})")
     for tree in trees():
-        print(f"tree {tree.name} {folder_size(tree) / 1_048_576:.1f} MiB, last used {utc(last_used(tree))}")
+        print(f"tree {tree.name} {folder_size(tree) / 1_048_576:.1f} MiB, first fetched {placed_at(tree)}, "
+              f"last used {utc(last_used(tree))}")
     return 0
 
 
 def prune_plan(now=None):
-    """What `cache prune` removes: (path, reason) pairs, per docs/design/218-layered-configuration.md §Version cache.
+    """What `cache prune` removes, as (path, reason, source folder or None), in removal order.
 
-    Environments belong to the checks runner, which records no use of them, so prune leaves them.
+    Per docs/design/218-layered-configuration.md §Cache pruning: abandoned branch records, then unnamed old
+    trees, then old temporary fetch folders, then an earlier draft's main.json and main.lock. Environments belong
+    to the checks runner, which records no use of them, so prune leaves them. Whether a tree is in use is decided
+    at removal, under its lock, not here.
     """
     now = time.time() if now is None else now
     root = cache_root()
@@ -1050,36 +1170,71 @@ def prune_plan(now=None):
     default = None
     with contextlib.suppress(OSError):
         default = os.path.realpath(str(root / "default"))
-    named = {commit for source in cache_sources() for _, commit, _ in branch_records(source)}
+    named = set()
+    for source in cache_sources():
+        for path, _, commit, _ in branch_records(source):
+            if now - path.stat().st_mtime > RECORD_UNUSED_SECONDS:
+                plan.append((path, f"branch record unused since {utc(path.stat().st_mtime)}", source))
+            else:
+                named.add(commit)
     for tree in trees():
         unused = now - last_used(tree)
-        if tree.name not in named and os.path.realpath(str(tree)) != default and unused > PRUNE_UNUSED_SECONDS \
-                and unused > PRUNE_RECENT_SECONDS:
-            plan.append((tree, f"unused since {utc(last_used(tree))}"))
-    folders = [root / "revisions", *cache_sources()] if (root / "revisions").is_dir() else cache_sources()
-    for folder in folders:
-        for path in sorted(folder.glob(".partial-*")):
+        if tree.name not in named and os.path.realpath(str(tree)) != default and unused > PRUNE_UNUSED_SECONDS:
+            plan.append((tree, f"unused since {utc(last_used(tree))}", None))
+    for source in cache_sources():
+        for path in sorted(source.glob(".partial-*")):
             if now - path.stat().st_mtime > PARTIAL_SECONDS:
-                plan.append((path, "unfinished"))
+                plan.append((path, "unfinished fetch", source))
+    for name in ("main.json", "main.lock"):
+        if (root / name).is_file():
+            plan.append((root / name, "record of an earlier checks runner draft", None))
     return plan
 
 
+def remove_tree(path):
+    for folder, _, _ in os.walk(str(path)):
+        with contextlib.suppress(OSError):
+            os.chmod(folder, 0o755)
+    shutil.rmtree(str(path))
+
+
 def cmd_cache_prune(args):
-    plan = prune_plan()
-    for path, reason in plan:
-        print(f"{'would remove' if args.dry_run else 'remove'} {path} ({reason})")
+    removed = 0
+    for path, reason, source in prune_plan():
         if args.dry_run:
+            print(f"would remove {path} ({reason})")
+            removed += 1
             continue
-        if path.is_dir() and not path.is_symlink():
-            for folder, _, _ in os.walk(str(path)):
-                with contextlib.suppress(OSError):
-                    os.chmod(folder, 0o755)
-            shutil.rmtree(str(path))
-            with contextlib.suppress(FileNotFoundError):
-                Path(str(path) + ".used").unlink()
+        if path.parent == cache_root() / "revisions":
+            # In use when another process holds its shared lock: keep it. Hold the lock through the removal.
+            descriptor = os.open(str(path) + ".used", os.O_RDWR | os.O_CREAT, 0o644)
+            try:
+                try:
+                    fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                except BlockingIOError:
+                    print(f"keep {path} (in use)")
+                    continue
+                remove_tree(path)
+                for suffix in (".fetched", ".used"):
+                    with contextlib.suppress(FileNotFoundError):
+                        Path(str(path) + suffix).unlink()
+            finally:
+                os.close(descriptor)
+        elif source is not None:
+            descriptor = os.open(str(source / "lock"), os.O_RDWR | os.O_CREAT, 0o644)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX)  # no fetch of this source is running
+                if path.is_dir():
+                    remove_tree(path)
+                elif path.exists():
+                    path.unlink()
+            finally:
+                os.close(descriptor)
         else:
             path.unlink()
-    if not plan:
+        print(f"remove {path} ({reason})")
+        removed += 1
+    if not removed:
         print("house-rules: nothing to prune")
     return 0
 
@@ -1143,16 +1298,29 @@ def cmd_install(args):
         if not args.dry_run:
             custom.parent.mkdir(parents=True, exist_ok=True)
             os.symlink(str(own), str(custom))
+    # Prepare the global default before anything points through the cache's `default` link.
+    print(f"{'would resolve' if args.dry_run else 'resolve'} the global default sources")
+    if not args.dry_run:
+        record = resolve(None)
+        print("\n".join(describe(record)))
     return 0
 
 
 def cmd_self_update(args):
-    record = resolve(None)
-    source = layer_tree(record) / COMMAND
+    if args.source:
+        source, origin = Path(args.source).resolve() / COMMAND, f"the checkout {Path(args.source).resolve()}"
+    else:
+        record = resolve(None)
+        source, origin = layer_tree(record) / COMMAND, f"House Rules {record['layers'][0]['revision']}"
     if not source.is_file():
-        raise Failure(f"house-rules: House Rules {record['layers'][0]['revision']} has no {COMMAND}")
+        raise Failure(f"house-rules: {origin} has no {COMMAND}")
+    target = install_target()
+    if target.is_file() and installed_text(source) == target.read_text():
+        raise Failure("house-rules: the global default's House Rules has the same command; run python3 "
+                      "<checkout>/scripts/house_rules.py install from a newer checkout" if not args.source else
+                      f"house-rules: {origin} has the command already installed")
     write_command(source, False)
-    print(f"house-rules: updated from House Rules {record['layers'][0]['revision']}")
+    print(f"house-rules: updated from {origin}")
     return 0
 
 
@@ -1201,7 +1369,9 @@ def parser():
     p = commands.add_parser("install")
     p.add_argument("--dry-run", action="store_true")
     p.set_defaults(run=cmd_install)
-    commands.add_parser("self-update").set_defaults(run=cmd_self_update)
+    p = commands.add_parser("self-update")
+    p.add_argument("--from", dest="source", metavar="CHECKOUT")
+    p.set_defaults(run=cmd_self_update)
     commands.add_parser("version").set_defaults(run=cmd_version)
     return top
 

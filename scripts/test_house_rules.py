@@ -337,10 +337,13 @@ class ConfigurationTests(Fixture):
 class CommandTests(Fixture):
     def test_source_keys(self):
         self.assertEqual(hr.source_key("https://user:secret@GitHub.com/symbiotic-build/house-rules.git/"),
-                         "github.com/symbiotic-build/house-rules")
+                         "https/github.com/symbiotic-build/house-rules")
         self.assertEqual(hr.source_key("git@github.com:symbiotic-build/house-rules.git"),
-                         "github.com/symbiotic-build/house-rules")
-        self.assertEqual(hr.source_key("https://git.example.com:8443/team/rules"), "git.example.com%3A8443/team/rules")
+                         "ssh/github.com/symbiotic-build/house-rules")
+        self.assertEqual(hr.source_key("http://github.com/symbiotic-build/house-rules"),
+                         "http/github.com/symbiotic-build/house-rules")
+        self.assertEqual(hr.source_key("https://git.example.com:8443/team/rules"),
+                         "https/git.example.com%3A8443/team/rules")
         self.assertEqual(hr.source_key("file:///tmp/a b/x.git"), "file/tmp/a%20b/x")
 
     def test_text_form_of_the_tour(self):
@@ -348,9 +351,11 @@ class CommandTests(Fixture):
         repo = self.repository(config)
         lines = hr.describe(hr.resolve(repo))
         self.assertEqual(lines[0], f"house-rules: repository {repo}, configuration house-rules.json (working tree)")
-        self.assertRegex(lines[1], r"^house-rules: layer house-rules   ref main   -> [0-9a-f]{40} \(fetched "
+        house = config["sources"][0]["url"]
+        self.assertRegex(lines[1], rf"^house-rules: layer house-rules   {house} ref main -> [0-9a-f]{{40}} \(fetched "
                                    r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\)$")
-        self.assertEqual(lines[3], f"house-rules: layer rust-settings ref {pin} (pinned)")
+        self.assertRegex(lines[3], rf"^house-rules: layer rust-settings {config['sources'][2]['url']} ref {pin} "
+                                   r"\(pinned, fetched \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\)$")
         self.assertEqual(lines[4], "house-rules: profiles rust, specs")
 
     def test_init_writes_detected_profiles_once(self):
@@ -388,32 +393,92 @@ class CommandTests(Fixture):
         lines = proc.stdout.decode().splitlines()
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertTrue(lines[0].startswith("HOUSE RULES HOOK ERROR: house-rules: house-rules: no branch gone at file://"))
-        self.assertTrue(lines[0].endswith(f"using the House Rules tree last resolved for the global default, {tree}"))
+        self.assertIn(f"The House Rules below are the global default's ({tree}), not this repository's resolved rules, "
+                      "and this repository's custom layers are missing.", lines[0])
         self.assertEqual(lines[1], f"rules from {tree}/scripts/show.py")
 
-    def test_cache_prune_removes_only_unused_unnamed_and_old_entries(self):
+    def test_cache_prune_removes_only_unused_unheld_and_expired_entries(self):
         config, _ = self.tour()
         record = hr.resolve(self.repository(config))
-        named = Path(record["layers"][1]["tree"])
-        pinned = Path(record["layers"][2]["tree"])
-        old, recent = named.parent / ("1" * 40), named.parent / ("2" * 40)
-        partial = named.parent / ".partial-x"
-        for folder in (old, recent, partial):
+        named, pinned = Path(record["layers"][1]["tree"]), Path(record["layers"][2]["tree"])
+        old, held, recent = (named.parent / (digit * 40) for digit in "123")
+        team = hr.source_folder(config["sources"][1]["url"])
+        partial = team / ".partial-x"
+        for folder in (old, held, recent, partial):
             folder.mkdir()
         now = time.time()
-        os.utime(str(old), (now - 8 * 86_400,) * 2)
-        os.utime(str(partial), (now - 2 * 86_400,) * 2)
-        os.utime(str(recent), (now - 7200,) * 2)
+        Path(str(held) + ".used").touch()
+        for path, age in ((old, 8), (held, 8), (Path(str(held) + ".used"), 8), (recent, 0.1), (partial, 2)):
+            os.utime(str(path), (now - age * 86_400,) * 2)
         os.utime(str(pinned) + ".used", (now - 8 * 86_400,) * 2)
         os.utime(str(named) + ".used", (now - 8 * 86_400,) * 2)  # only its branch record keeps it
-        self.assertEqual({path for path, _ in hr.prune_plan(now)}, {old, partial, pinned})
+        house_record = hr.branch_record_path(config["sources"][0]["url"], "main")
+        os.utime(str(house_record), (now - 31 * 86_400,) * 2)  # expired: House Rules' tree loses its protection
+        house_tree = Path(record["layers"][0]["tree"])
+        os.utime(str(house_tree) + ".used", (now - 8 * 86_400,) * 2)
+        (hr.cache_root() / "main.json").write_text("{}")
+        self.assertEqual({path for path, _, _ in hr.prune_plan(now)},
+                         {house_record, old, held, pinned, house_tree, partial, hr.cache_root() / "main.json"})
         with contextlib.redirect_stdout(io.StringIO()):
             hr.main(["cache", "prune", "--dry-run"])
-        self.assertTrue(old.exists() and pinned.exists())
-        with contextlib.redirect_stdout(io.StringIO()):
+        self.assertTrue(old.exists() and house_record.exists())
+        lock = hr.hold_tree(held)  # another process uses this tree
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
             hr.main(["cache", "prune"])
-        self.assertFalse(old.exists() or partial.exists() or pinned.exists())
-        self.assertTrue(recent.exists() and named.exists())
+        os.close(lock)
+        self.assertIn(f"keep {held} (in use)", output.getvalue())
+        self.assertFalse(any(p.exists() for p in (old, partial, pinned, house_tree, house_record,
+                                                   hr.cache_root() / "main.json")))
+        self.assertTrue(held.exists() and recent.exists() and named.exists())
+        self.assertTrue((hr.cache_root() / "revisions").is_dir())
+
+    def test_one_run_variables_win_over_links_json(self):
+        config, _ = self.tour()
+        repo = self.repository(config)
+        hr.write_links({hr.source_key(config["sources"][0]["url"]): str(self.root / "work" / "house-rules")})
+        old = run(self.root / "work" / "house-rules", "rev-parse", "HEAD")
+        with mock.patch.dict(os.environ, {hr.OVERRIDE: old}):
+            self.assertEqual(hr.resolve(repo)["layers"][0]["source"], "override")
+        self.assertEqual(hr.resolve(repo)["layers"][0]["source"], "link")
+
+    def test_hook_deadline_uses_the_last_answer_and_names_the_wait(self):
+        import fcntl
+        config, _ = self.tour()
+        repo = self.repository(config)
+        first = hr.resolve(repo)
+        folder = hr.source_folder(config["sources"][1]["url"])
+        descriptor = os.open(str(folder / "lock"), os.O_RDWR)
+        fcntl.flock(descriptor, fcntl.LOCK_EX)  # another resolver holds the source
+        try:
+            with mock.patch.object(hr, "REUSE_SECONDS", 0):
+                record = hr.resolve(repo, deadline=hr.Deadline(0.3))
+        finally:
+            os.close(descriptor)
+        self.assertEqual(record["layers"][1]["source"], "offline")
+        self.assertEqual(record["layers"][1]["revision"], first["layers"][1]["revision"])
+        self.assertTrue(any(w.startswith(f"warning: the remote did not answer within {hr.HOOK_SECONDS} s; using "
+                                         "team-rules main last fetched") for w in record["warnings"]), record["warnings"])
+
+    def test_a_branch_answer_is_published_only_after_its_tree_is_complete(self):
+        config, _ = self.tour()
+        repo = self.repository(config)
+        first = hr.resolve(repo)["layers"][1]["revision"]
+        self.push("team-rules", {"rules/team.md": "# Team v2\n"})
+        with mock.patch.object(hr, "REUSE_SECONDS", 0), \
+                mock.patch.object(hr, "fetch_commit", return_value="fatal: connection reset"):
+            record = hr.resolve(repo)
+        self.assertEqual((record["layers"][1]["source"], record["layers"][1]["revision"]), ("offline", first))
+        self.assertEqual(hr.branch_record(config["sources"][1]["url"], "main")["revision"], first)
+
+    def test_the_record_lists_custom_context_and_first_fetch_times(self):
+        config, _ = self.tour()
+        record = hr.resolve(self.repository(config))
+        self.assertEqual(record["context"], [{"layer": "team-rules", "path": "rules/team.md"}])
+        tree = Path(record["layers"][2]["tree"])
+        stamp = Path(str(tree) + ".fetched").read_text().strip()
+        os.utime(str(tree), (time.time() + 3600,) * 2)  # the folder's time no longer decides
+        self.assertEqual(hr.resolve(self.repository(config))["layers"][2]["fetched"], stamp)
 
 
 class SessionContextTests(Fixture):
