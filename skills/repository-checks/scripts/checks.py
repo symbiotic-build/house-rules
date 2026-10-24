@@ -40,10 +40,9 @@ OBJECT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 DEFAULT_BUDGET = 10
 # The URL of the House Rules layer when its entry names none; the install writes the branch main beside it.
 DEFAULT_URL = "https://github.com/symbiotic-build/house-rules"
-# A Git setting name: section.key or section.subsection.key, as git-config defines them.
-GIT_SETTING = re.compile(r"[A-Za-z0-9-]+(?:\.[^\n\0]+)?\.[A-Za-z][A-Za-z0-9-]*")
-# A Git setting the runner passes to every check itself; no configuration may change it.
-RUNNER_GIT_SETTINGS = ("core.attributesfile",)
+# Git's explicit remote-helper form, <transport>::<address>, by Git's own rule: URL-scheme characters, the first
+# a letter or digit, then "::" directly.
+REMOTE_HELPER = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9+.-]*)?::")
 # A House Rules fetch fails on lack of progress, never on elapsed time: below 1 byte/s for 30 s over HTTP.
 PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
 # The handing runner passes the run's resolved House Rules revision to the runner it starts.
@@ -444,6 +443,9 @@ def source_layer(document):
     url = entry.get("url", DEFAULT_URL)
     if not text(url) or "\0" in url:
         raise config_error("sources[0].url must be nonempty text")
+    if REMOTE_HELPER.match(url):  # the address after "::" goes to a helper unchecked; the message repeats none of it
+        raise Failure(f"the House Rules URL in {CONFIG} uses Git's <transport>:: form, which this runner does not "
+                      "accept", "use a plain URL and a Git credential helper")
     try:
         parts = urllib.parse.urlsplit(url)
     except ValueError:  # the parser's message can repeat the URL, so it is left out
@@ -489,34 +491,6 @@ def check_budgets(budgets):
     return budgets
 
 
-def check_git_settings(settings):
-    """Validate `git_settings`: Git setting names mapped to {"value", "reason"}; return {name: value}.
-
-    No entry may set what the runner sets, or include another configuration file, whose settings would come from
-    outside the configuration.
-    """
-    if not isinstance(settings, dict):
-        raise config_error("git_settings must be an object")
-    values = {}
-    for name, entry in settings.items():
-        if not GIT_SETTING.fullmatch(name):
-            raise config_error(f"git_settings has {name!r}, which is no Git setting name (section.key or "
-                               "section.subsection.key)")
-        section, key = name.split(".", 1)[0].lower(), name.rsplit(".", 1)[1].lower()
-        if f"{section}.{key}" in RUNNER_GIT_SETTINGS:
-            raise config_error(f"git_settings.{name} is set by the runner for every check")
-        if section in ("include", "includeif"):
-            raise config_error(f"git_settings.{name} would include another configuration file; set each setting "
-                               "itself")
-        fields(entry, f"git_settings.{name}", ("value", "reason"), ())
-        if not isinstance(entry["value"], str) or "\0" in entry["value"]:
-            raise config_error(f"git_settings.{name}.value must be text without a NUL character")
-        if not text(entry["reason"]):
-            raise config_error(f"git_settings.{name}.reason must be nonempty text")
-        values[name] = entry["value"]
-    return values
-
-
 def budget_override(stage, entry):
     return {"id": f"budgets.{stage}", "layer": "repository", "change": f"seconds: {json.dumps(entry['seconds'])}",
             "reason": entry["reason"]}
@@ -529,12 +503,8 @@ def effective_checks(data):
     built-ins set for the same check.
     """
     document, _ = load_document(data)
-    fields(document, "the file", ("version", "sources", "checks"), ("budgets", "git_settings"))
+    fields(document, "the file", ("version", "sources", "checks"), ("budgets",))
     budgets = check_budgets(document.get("budgets", {}))
-    git_settings = check_git_settings(document.get("git_settings", {}))
-    setting_overrides = [{"id": f"git_settings.{name}", "layer": "repository",
-                          "change": f"value: {json.dumps(value)}", "reason": document["git_settings"][name]["reason"]}
-                         for name, value in git_settings.items()]
     entries = document["checks"]
     if not isinstance(entries, dict):
         raise config_error("checks must be an object")
@@ -560,8 +530,8 @@ def effective_checks(data):
                                   "change": ", ".join(f"{k}: {json.dumps(entry[k])}" for k in changed)})
         check_definition(where, definition)
         checks.append(dict(definition, id=identity, layer=HOUSE_RULES if default else "repository"))
-    overrides += [budget_override(stage, entry) for stage, entry in budgets.items()] + setting_overrides
-    return {"checks": checks, "overrides": overrides, "budgets": budgets, "git_settings": git_settings}
+    overrides += [budget_override(stage, entry) for stage, entry in budgets.items()]
+    return {"checks": checks, "overrides": overrides, "budgets": budgets}
 
 
 def config_data(root, rev, blobs):
@@ -1144,7 +1114,7 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
                           "(--attr-source)", "install a Git that supports it")
 
     started, results = time.monotonic(), []
-    env = check_environment(args.stage, base, snapshot, config["git_settings"])
+    env = check_environment(args.stage, base, snapshot)
     for check, reason, inputs in plan:
         result = {"id": check["id"], "layer": check["layer"], "status": "skipped", "seconds": None,
                   "command": None, "output": "", "fix": None,
@@ -1207,21 +1177,18 @@ def select(check, stage, from_index, target, changed):
 CHECK_GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_ATTR_NOSYSTEM": "1", **NO_REPLACE}
 
 
-def check_environment(stage, base, snapshot, settings):
+def check_environment(stage, base, snapshot):
     """The environment of a check: the runner's own, without variables that bind Git to another repository or pass
-    it configuration, plus CHECK_GIT_ENV, the CHECK_ values and Git configuration the runner sets itself.
+    it configuration, plus CHECK_GIT_ENV and the CHECK_ values.
 
     Git finds the clone's own Git directory from the repository root, the check's working folder. The runner passes
-    core.attributesFile=/dev/null, so Git reads no personal attributes file such as ~/.config/git/attributes, which
-    it reads by default even without a global configuration, followed by the configuration's `git_settings`.
+    core.attributesFile=/dev/null as the one GIT_CONFIG_COUNT entry, so Git reads no personal attributes file such
+    as ~/.config/git/attributes, which it reads by default even without a global configuration.
     """
     env = {k: v for k, v in os.environ.items()
            if k not in LOCAL_GIT_ENV and not k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))}
-    env.update(CHECK_GIT_ENV, CHECK_STAGE=stage, CHECK_BASE=base, CHECK_SNAPSHOT=snapshot)
-    passed = [("core.attributesFile", os.devnull), *settings.items()]
-    env["GIT_CONFIG_COUNT"] = str(len(passed))
-    for number, (name, value) in enumerate(passed):
-        env[f"GIT_CONFIG_KEY_{number}"], env[f"GIT_CONFIG_VALUE_{number}"] = name, value
+    env.update(CHECK_GIT_ENV, CHECK_STAGE=stage, CHECK_BASE=base, CHECK_SNAPSHOT=snapshot, GIT_CONFIG_COUNT="1",
+               GIT_CONFIG_KEY_0="core.attributesFile", GIT_CONFIG_VALUE_0=os.devnull)
     return env
 
 

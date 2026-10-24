@@ -145,13 +145,11 @@ class Repo:
         self.git("commit", "-q", "--no-verify", "--allow-empty", "-m", message)
         return self.git("rev-parse", "HEAD")
 
-    def configure(self, checks=None, budgets=None, git_settings=None):
+    def configure(self, checks=None, budgets=None):
         config = {"version": 2, "sources": [{"name": "house-rules", "url": self.url, "ref": self.ref}],
                   "checks": checks or {}}
         if budgets:
             config["budgets"] = budgets
-        if git_settings is not None:
-            config["git_settings"] = git_settings
         self.write_config(config)
 
     def write_config(self, config):
@@ -376,20 +374,9 @@ class DefaultsTest(RunnerCase):
             "an ssh URL with a password": (
                 {"sources": [{"name": "house-rules", "url": "ssh://git:secret@host.invalid/x", "ref": "main"}]},
                 "use a Git credential helper", "the House Rules URL in house-rules.json carries credentials"),
-            "a Git setting name without a key": ({"git_settings": {"whitespace": "x"}}, None,
-                                                 "git_settings has 'whitespace', which is no Git setting name"),
-            "a Git setting the runner sets": ({"git_settings": {"core.attributesFile": {"value": "a", "reason": "x"}}},
-                                              None, "git_settings.core.attributesFile is set by the runner"),
-            "a Git setting that includes a file": ({"git_settings": {"include.path": {"value": "x", "reason": "x"}}},
-                                                   None, "git_settings.include.path would include another "
-                                                   "configuration file"),
-            "a Git setting that includes a file on a condition": (
-                {"git_settings": {"IncludeIf.gitdir:/srv/.Path": {"value": "x", "reason": "x"}}}, None,
-                "git_settings.IncludeIf.gitdir:/srv/.Path would include another configuration file"),
-            "a Git setting without a reason": ({"git_settings": {"core.whitespace": {"value": "-blank-at-eol"}}}, None,
-                                               "git_settings.core.whitespace lacks reason"),
-            "a Git setting given as plain text": ({"git_settings": {"core.whitespace": "-blank-at-eol"}}, None,
-                                                  "git_settings.core.whitespace must be an object"),
+            "a git_settings field, which this runner does not read": (
+                {"git_settings": {"core.whitespace": {"value": "-blank-at-eol", "reason": "x"}}}, None,
+                "the file has unknown field git_settings"),
             "entry that sets enforced": ({"checks": {"whitespace": {"enforced": False, "reason": "x"}}}, None,
                                          "checks.whitespace has unknown field enforced"),
             "unknown placeholder": ({"checks": {"lint": check(["lint", "{snap}"], ["ci"])}}, None,
@@ -432,20 +419,6 @@ class DefaultsTest(RunnerCase):
                 expected = message if message.startswith(("house-rules: ", "the House Rules URL")) else (
                     "configuration error in house-rules.json: " + message)
                 self.assertPreparationFailure(proc, expected, repair or "fix the file through a reviewed change")
-
-    def test_git_settings_are_overrides_with_their_reason(self):
-        reason = "Trailing spaces end Markdown line breaks."
-        self.repo.configure(NO_SPEC, git_settings={"core.whitespace": {"value": "-blank-at-eol", "reason": reason}})
-        self.repo.write("notes.txt", "trailing \n")
-        self.repo.stage("notes.txt")
-        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit")
-        setting = {"id": "git_settings.core.whitespace", "layer": "repository", "change": 'value: "-blank-at-eol"',
-                   "reason": reason}
-        self.assertEqual((proc.returncode, statuses(entry)["whitespace"], entry["overrides"][1:]),
-                         (0, "pass", [setting]), proc.stderr)
-        text = self.repo.run("run", "--stage", "pre-commit").stdout.splitlines()
-        self.assertIn(f'override: git_settings.core.whitespace value: "-blank-at-eol" (repository); reason: {reason}',
-                      text)
 
     def test_text_that_cannot_be_printed_is_refused_and_never_shown(self):
         self.repo.url = "https://example.invalid/house-rules"
@@ -572,28 +545,23 @@ class DefaultsTest(RunnerCase):
 
     def test_checks_run_isolated_from_the_clones_git_configuration(self):
         """Personal, system and inherited Git configuration and the personal attributes file change no result; the
-        configuration's git_settings do, and the clone's own .git/config still applies."""
+        clone's own .git/config still applies."""
         self.repo.write(".gitattributes", "*.txt diff=notes\n")  # a named diff driver the caller could make binary
         self.repo.stage(".gitattributes")
-        self.repo.configure(NO_SPEC)
+        name = check(["sh", "-c", 'git config --get user.name; echo "exit $?"', "{snapshot}"], ["ci"])
+        self.repo.configure(dict(NO_SPEC, name=name))
         base = self.repo.commit()
         self.repo.write("notes.txt", "trailing \n")
         self.repo.stage("notes.txt")
         added = self.repo.commit()
         self.repo.git("mv", "notes.txt", "moved.txt")
         renamed = self.repo.commit()  # only a rename: with Git's default rename detection, no line is added
-        name = check(["sh", "-c", 'git config --get user.name; echo "exit $?"', "{snapshot}"], ["ci"])
-        self.repo.configure(dict(NO_SPEC, name=name), git_settings={
-            "core.whitespace": {"value": "-blank-at-eol", "reason": "Trailing spaces end Markdown line breaks."}})
-        self.repo.write("other.txt", "trailing \n")
-        self.repo.stage("other.txt")
-        relaxed = self.repo.commit()
-        runs = [(added, base), (renamed, added), (relaxed, renamed)]
+        runs = [(added, base), (renamed, added)]
 
         def results(env):
             reports = [self.repo.snapshot("run", "--stage", "ci", "--head", head, "--base", base, env=env)[1]
                        for head, base in runs]
-            name_output = {c["id"]: c for c in reports[2]["checks"]}["name"]["output"]
+            name_output = {c["id"]: c for c in reports[1]["checks"]}["name"]["output"]
             return [statuses(r)["whitespace"] for r in reports], name_output
 
         clean = results(self.repo.env)
@@ -611,10 +579,11 @@ class DefaultsTest(RunnerCase):
                                   GIT_CONFIG_COUNT="1",
                                   GIT_CONFIG_KEY_0="core.whitespace", GIT_CONFIG_VALUE_0="-blank-at-eol",
                                   GIT_CONFIG_PARAMETERS="'diff.renames'='false'"))
-        self.assertEqual(clean, (["fail", "pass", "pass"], "exit 1\n"))
+        self.assertEqual(clean, (["fail", "pass"], "exit 1\n"))
         self.assertEqual(configured, clean)
-        self.repo.git("config", "user.name", "Clone User")  # the clone's own configuration still applies
-        self.assertEqual(results(self.repo.env)[1], "Clone User\nexit 0\n")
+        for setting, value in (("user.name", "Clone User"), ("core.whitespace", "-blank-at-eol")):
+            self.repo.git("config", setting, value)  # the clone's own configuration still applies
+        self.assertEqual(results(self.repo.env), (["pass", "pass"], "Clone User\nexit 0\n"))
 
 
 class SnapshotTest(RunnerCase):
@@ -1490,9 +1459,23 @@ class RevisionTest(RunnerCase):
         # Each fetch's repository is a temporary folder in its source's folder, not in the cache root.
         self.assertEqual(folders.read_text().splitlines(), [str(source_folder(cache, house_rules.url))] * 2)
 
+    def test_remote_helper_address_is_refused_and_never_shown(self):
+        cause = "the House Rules URL in house-rules.json uses Git's <transport>:: form, which this runner does not accept"
+        self.repo.configure(NO_SPEC)
+        for url in ("https::https://marker-user:marker-token@host.invalid/rules", "ext::sh -c marker-token"):
+            with self.subTest(url):
+                self.repo.reconfigure(url=url)
+                text = self.repo.run("run", "--stage", "pre-commit")
+                proc, report = self.repo.report("run", "--stage", "pre-commit")
+                self.assertEqual((text.returncode, text.stdout, text.stderr),
+                                 (2, "", f"repository checks: {cause}; use a plain URL and a Git credential helper\n"))
+                self.assertEqual((proc.returncode, report["error"]["cause"]), (2, cause))
+                for output in (text.stdout, text.stderr, proc.stdout, proc.stderr):
+                    self.assertNotIn("marker-token", output)
+
     def test_ssh_login_without_a_password_is_allowed(self):
         self.repo.configure(NO_SPEC)
-        for url in ("ssh://git@host.invalid/house-rules", "git@host.invalid:house-rules.git"):
+        for url in ("ssh://git@host.invalid/house-rules", "git@host.invalid:house-rules.git", "ssh://[::1]/house-rules"):
             with self.subTest(url):
                 self.repo.reconfigure(url=url)
                 path = self.racing_git("ls-remote", "echo 'fatal: offline' >&2; exit 128")  # no network
