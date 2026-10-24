@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from pathlib import Path
@@ -1007,15 +1008,22 @@ class ResolverRoundEightTests(Fixture):
         self.assertTrue(hr.answer_path(config["sources"][1]["url"], "branch", branch).is_file())
 
     def test_a_hook_deadline_starts_before_its_input(self):
-        house = self.source("house-rules", {"scripts/show.py": "import os\nprint(os.environ['HOUSE_RULES_DEADLINE'])\n"})
+        out = self.root / "deadline"
+        house = self.source("house-rules", {"scripts/show.py": "import os, sys\nopen(sys.argv[1], 'w').write("
+                                                                 "os.environ['HOUSE_RULES_DEADLINE'])\n"})
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house}]})
-        started = time.time()
-        proc = subprocess.Popen([sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/show.py"],
-                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        time.sleep(1.5)  # the agent product writes the hook's input late
-        out, err = proc.communicate(json.dumps({"cwd": repo}).encode())
-        self.assertEqual(proc.returncode, 0, err)
-        self.assertLess(float(out) - started, hr.HOOK_SECONDS + 1)  # counted from the start, not from the input
+        hr.resolve(repo)  # the tree is cached, so the hook does no fetch of its own
+        started = []
+
+        class SlowInput:
+            """The agent product writes the hook's input late: the read starts, then waits."""
+            def read(self):
+                started.append(time.time())
+                time.sleep(1.5)
+                return json.dumps({"cwd": repo}).encode()
+        with mock.patch.object(hr.sys, "stdin", mock.Mock(buffer=SlowInput())):
+            self.assertEqual(hr.main(["exec", "--hook", "scripts/show.py", str(out)]), 0)
+        self.assertLessEqual(float(out.read_text()) - started[0], hr.HOOK_SECONDS + 0.2)  # counted before the read
 
     def test_an_empty_tree_is_never_replaced(self):
         work = self.root / "work" / "empty"
@@ -1027,14 +1035,49 @@ class ResolverRoundEightTests(Fixture):
         run(self.root, "clone", "-q", "--bare", str(work), str(bare))
         run(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
         url = f"file://{bare}"
-        self.assertIsNone(hr.fetch_commit(url, commit))
+        gate, shims = self.root / "gate", self.root / "shims"
+        gate.mkdir()
+        shims.mkdir()
+        tar = shutil.which("tar")
+        (shims / "tar").write_text(  # each fetch extracts, then waits at the gate until the test lets it publish
+            f"#!/bin/sh\n{tar} \"$@\" || exit $?\n"
+            f"if mkdir {gate}/arrived-1 2>/dev/null; then n=1; else mkdir {gate}/arrived-2; n=2; fi\n"
+            f"i=0; while [ ! -e {gate}/go-$n ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done\n")
+        (shims / "tar").chmod(0o755)
         tree = hr.tree_folder(url, commit)
-        first = os.stat(str(tree)).st_ino
-        with mock.patch.object(hr, "prepared", return_value=False):  # a second fetch that checked before the first
-            self.assertIsNone(hr.fetch_commit(url, commit))
+        results = []
+        with mock.patch.dict(os.environ, {"PATH": f"{shims}{os.pathsep}{os.environ['PATH']}"}):
+            fetches = [threading.Thread(target=lambda: results.append(hr.fetch_commit(url, commit))) for _ in range(2)]
+            for fetch in fetches:
+                fetch.start()
+            self.wait_for(lambda: (gate / "arrived-2").is_dir())  # both checked that no tree is there yet
+            (gate / "go-1").touch()
+            self.wait_for(tree.is_dir)
+            first = os.stat(str(tree)).st_ino
+            (gate / "go-2").touch()
+            for fetch in fetches:
+                fetch.join(10)
+        self.assertEqual(results, [None, None])
         self.assertEqual(os.stat(str(tree)).st_ino, first)  # a consumer inside the first tree keeps its folder
         self.assertEqual(list(tree.iterdir()), [])
         self.assertEqual([p for p in hr.source_folder(url).iterdir() if p.name.startswith(".partial-")], [])
+
+    def wait_for(self, condition, seconds=10):
+        ends = time.time() + seconds
+        while not condition():
+            self.assertLess(time.time(), ends, "the fixture's fetches did not reach the gate")
+            time.sleep(0.02)
+
+    def test_personal_git_attributes_never_drop_a_layer_file(self):
+        config, _ = self.tour()
+        attributes = self.root / "attributes"
+        attributes.write_text("ruleset.json export-ignore\n")
+        home = self.root / "gitconfig"
+        home.write_text(f"[core]\n\tattributesFile = {attributes}\n")
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(home)}):
+            record = hr.resolve(self.repository(config))
+        self.assertTrue((Path(record["layers"][1]["tree"]) / hr.RULESET).is_file())
+        self.assertIn("team-rules", {item["layer"].split("/")[0] for item in record["context"]})
 
     def test_text_resolve_prints_warnings_on_standard_error(self):
         config, _ = self.tour()
