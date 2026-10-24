@@ -15,7 +15,7 @@ or later.
   house-rules path [--repo PATH]
   house-rules exec [--repo PATH] [--hook] [--origin index|push] PATH [ARGUMENT]...
   house-rules link CHECKOUT [--url URL] | unlink CHECKOUT|URL
-  house-rules cache list | cache prune [--dry-run]
+  house-rules cache list
   house-rules init [--dry-run] [--profile NAME]...
   house-rules install [--dry-run] | self-update | version
 """
@@ -47,14 +47,11 @@ RULESET = "ruleset.json"  # a rule repository's defaults, at its root
 COMMAND = "scripts/house_rules.py"
 MAX_RECORD_BYTES = 64 * 1024  # the serialized resolution record fits in one environment value (HOUSE_RULES_RESOLVED)
 REUSE_SECONDS = 60          # a branch answer younger than this is reused without asking the remote
-PRUNE_UNUSED_SECONDS = 7 * 86_400   # a tree no branch record names is removed after this long unused
-RECORD_UNUSED_SECONDS = 30 * 86_400  # a branch record unused this long expires; its branch loses offline fallback
-PARTIAL_SECONDS = 86_400             # a temporary fetch folder older than this belongs to no running fetch
 RESOLVED = "HOUSE_RULES_RESOLVED"
 OVERRIDE = "HOUSE_RULES_REVISION"
 LINK = "HOUSE_RULES_LINK"
 DEADLINE = "HOUSE_RULES_DEADLINE"  # set by exec --hook: the hook's deadline, in seconds since 1970-01-01 UTC
-FALLBACK = "HOUSE_RULES_FALLBACK"  # set by exec --hook when resolution failed: the failure line; no record follows
+FALLBACK = "HOUSE_RULES_FALLBACK"  # set to 1 by exec --hook when resolution failed; no record follows
 HOOK_ERROR = "HOUSE RULES HOOK ERROR:"  # the error prefix agent session hooks print, as session_context.py does
 COMMIT = re.compile(r"[0-9a-f]{40}")  # a source layer's commit: sources are SHA-1 repositories for now
 SHA256_COMMIT = re.compile(r"[0-9a-f]{64}")
@@ -230,8 +227,7 @@ def take_lock(descriptor, mode, deadline):
 
 @contextlib.contextmanager
 def source_lock(url, deadline=NO_DEADLINE):
-    """Hold one source's lock: one resolver process at a time asks for a branch, fetches or writes a record, and
-    prune removes the source's records only under it.
+    """Hold one source's lock: one resolver process at a time asks for a branch or tag, fetches or writes a record.
 
     The lock is advisory (flock), so the system releases it when its process ends, however it ends.
     """
@@ -535,8 +531,7 @@ def read_answer(url, kind, name):
 
 
 def write_json(path, value):
-    """Replace `path` with `value` whole; a failed write removes its staging file, and prune removes one an
-    interrupted write left after a day."""
+    """Replace `path` with `value` whole; a failed write removes its staging file."""
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=".partial-write-", dir=str(path.parent))
     try:
@@ -635,28 +630,6 @@ def placed_at(tree):
         return utc(os.stat(str(tree)).st_mtime)
 
 
-def mark_used(tree):
-    """Record a use of a cached tree in revisions/<commit>.used, which prune reads; False when the tree is gone.
-
-    A failure to record the use is an error: an unrecorded use would let prune treat the tree as unused.
-    """
-    if not prepared(tree):
-        return False
-    marker = Path(str(tree) + ".used")
-    try:
-        open(str(marker), "a").close()
-        os.utime(str(marker), None)
-    except OSError as exc:
-        raise Failure(f"house-rules: cannot record the use of {tree} in {marker} ({exc.strerror or exc}); "
-                      "make the cache writable and run again")
-    return True
-
-
-def touch_answer(url, kind, name):
-    with contextlib.suppress(OSError):
-        os.utime(str(answer_path(url, kind, name)), None)
-
-
 def checkout_state(path):
     """The working tree root's commit and whether it has changes, or None when `path` is not a working tree's root."""
     top = git(path, "rev-parse", "--show-toplevel", foreign=True, check=False)
@@ -723,20 +696,13 @@ def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
         commit, source = None, None
     kind = ref_kind(ref)
     try:
-        for _ in range(2):  # a tree pruned between preparation and use is fetched once more
-            if commit is not None and source in ("pinned", "override"):
-                fetch_pinned(entry, commit, deadline)
-            elif kind == "tag":
-                commit, source = resolve_tag(entry, deadline)
-            else:
-                commit, source = resolve_branch(entry, warnings, deadline)
-            tree = tree_folder(url, commit)
-            if mark_used(tree):
-                break
+        if commit is not None and source in ("pinned", "override"):
+            fetch_pinned(entry, commit, deadline)
+        elif kind == "tag":
+            commit, source = resolve_tag(entry, deadline)
         else:
-            raise Failure(f"house-rules: {tree} was removed twice while this run prepared it; run again")
-        if kind != "commit" and source != "override":
-            touch_answer(url, kind, ref)
+            commit, source = resolve_branch(entry, warnings, deadline)
+        tree = tree_folder(url, commit)
         return dict(entry, ref_kind=kind, revision=commit, source=source, fetched=placed_at(tree),
                     tree=str(tree), link=None)
     except OSError as exc:
@@ -796,7 +762,7 @@ def resolve_tag(entry, deadline):
         except DeadlinePassed:
             raise Failure(f"house-rules: the remote did not answer within {HOOK_SECONDS} s and no earlier fetch of "
                           f"{name} {tag} is cached; run again when online")
-    fetch_pinned(entry, record["revision"], deadline)  # a pruned tree is fetched again by its recorded commit
+    fetch_pinned(entry, record["revision"], deadline)  # a tree deleted with the cache is fetched again
     return record["revision"], "pinned"
 
 
@@ -809,7 +775,6 @@ def resolve_branch(entry, warnings, deadline):
             record = read_answer(url, "branch", ref)
             if record and 0 <= time.time() - record["seconds"] < REUSE_SECONDS and \
                     prepared(tree_folder(url, record["revision"])):
-                touch_answer(url, "branch", ref)  # under the lock, so prune sees this use when it checks again
                 return record["revision"], "reused"
             asked = time.time()  # the answer's time is when the remote gave it, not when preparation ended
             commit, error = ask_ref(url, f"refs/heads/{ref}", deadline)
@@ -827,7 +792,7 @@ def resolve_branch(entry, warnings, deadline):
                 if not error:
                     # Published only now that the commit's tree is complete.
                     write_answer(url, "branch", {"url": url, "branch": ref, "revision": commit,
-                                                 "fetched": utc(asked)})  # a new file: its time is this use
+                                                 "fetched": utc(asked)})
                     return commit, "fetched"
     except DeadlinePassed:
         error = f"the remote did not answer within {HOOK_SECONDS} s"
@@ -1330,7 +1295,7 @@ def cmd_exec(args):
         # A failed resolution never stops an agent session: name it, then the global default's rules, labelled.
         repository = None
         tree, record = Path(os.path.realpath(str(cache_root() / "default"))), None
-        environ[FALLBACK] = str(failure)  # the script runs from the global default's tree, without a record
+        environ[FALLBACK] = "1"  # the script runs from the global default's tree, without a record
         known = prepared(tree) and (tree / args.path).is_file()
         print(f"{HOOK_ERROR} {failure}. " + (
             f"The House Rules below are the global default's ({tree}), not this repository's resolved rules, and "
@@ -1409,22 +1374,12 @@ def folder_size(path):
     return total
 
 
-def last_used(tree):
-    try:
-        return os.stat(str(tree) + ".used").st_mtime
-    except OSError:
-        try:
-            return os.stat(str(tree)).st_mtime
-        except OSError:
-            return 0
-
-
 def cache_sources():
-    """The folder of every source the cache has resolved: sources/<source hash>/, which holds its lock."""
+    """The folder of every source the cache has used: sources/<source hash>/."""
     root = cache_root() / "sources"
     if not root.is_dir():
         return []
-    return sorted(path.parent for path in root.glob("*/lock") if path.is_file())
+    return sorted(path for path in root.iterdir() if path.is_dir())
 
 
 def answers(source):
@@ -1446,9 +1401,16 @@ def trees():
 
 
 def cmd_cache_list(args):
+    """Every source by the URL its records hold, with its records and link, then every tree and the total size.
+
+    A source folder holds only hashes, so a source without a record, such as one used only at a pinned commit, is
+    not named; its trees are listed. The cache only grows; delete its folder while nothing runs to clear it.
+    """
     links = read_links()
     for source in cache_sources():
         records = answers(source)
+        if not records:
+            continue
         urls = {url for *_, url in records}
         key = urls.pop() if len(urls) == 1 else f"source {source.name}"  # every record holds its source's URL
         print(key)
@@ -1459,55 +1421,9 @@ def cmd_cache_list(args):
     for key, path in sorted(links.items()):  # a link to a source this machine never fetched
         print(f"{key}\n  linked to {path}")
     for tree in trees():
-        print(f"tree {tree.name} {folder_size(tree) / 1_048_576:.1f} MiB, first fetched {placed_at(tree)}, "
-              f"last used {utc(last_used(tree))}")
+        print(f"tree {tree.name} {folder_size(tree) / 1_048_576:.1f} MiB, first fetched {placed_at(tree)}")
+    print(f"cache {cache_root()} {folder_size(cache_root()) / 1_048_576:.1f} MiB in total")
     return 0
-
-
-def protection(now):
-    """(commits a live branch record names, the `default` target) at this moment."""
-    named = set()
-    for source in cache_sources():
-        for path, _, _, commit, _, _ in answers(source):
-            with contextlib.suppress(OSError):
-                if now - path.stat().st_mtime <= RECORD_UNUSED_SECONDS:
-                    named.add(commit)
-    default = None
-    with contextlib.suppress(OSError):
-        default = os.path.realpath(str(cache_root() / "default"))
-    return named, default
-
-
-def tree_unused(tree, now, named, default):
-    return (tree.name not in named and os.path.realpath(str(tree)) != default
-            and now - last_used(tree) > PRUNE_UNUSED_SECONDS)
-
-
-def prune_plan(now=None):
-    """What `cache prune` removes, as (path, reason, source folder or None), in removal order.
-
-    Per docs/design/218-layered-configuration.md §Cache pruning: abandoned branch and tag records, then unnamed
-    old trees with their .fetched and .used files, then temporary folders older than a day, which no fetch or
-    prune still uses. Environments belong to the checks runner, which records no use of them, so prune leaves them.
-    A tree's eligibility is checked again just before removal, and a record's under its source lock.
-    """
-    now = time.time() if now is None else now
-    root = cache_root()
-    plan = []
-    for source in cache_sources():
-        for path, kind, _, _, _, _ in answers(source):
-            if now - path.stat().st_mtime > RECORD_UNUSED_SECONDS:
-                plan.append((path, f"{kind} record unused since {utc(path.stat().st_mtime)}", source))
-    named, default = protection(now)
-    for tree in trees():
-        if tree_unused(tree, now, named, default):
-            plan.append((tree, f"unused since {utc(last_used(tree))}", None))
-    folders = [folder / sub for folder in cache_sources() for sub in ("", *ANSWER_FOLDERS.values())]
-    for folder in (*folders, root / "revisions", config_home()):
-        for path in sorted(folder.glob(".partial-*")) + sorted(folder.glob(".removing-*")):
-            if now - path.lstat().st_mtime > PARTIAL_SECONDS:
-                plan.append((path, "unfinished fetch or removal", None))
-    return plan
 
 
 def remove_tree(path):
@@ -1518,73 +1434,6 @@ def remove_tree(path):
         with contextlib.suppress(OSError):
             os.chmod(folder, 0o755)
     shutil.rmtree(str(path))
-
-
-def prune_tree(tree, named=None, default=None):
-    """Remove one cached tree unless a run used it since the plan; return what happened.
-
-    No lock: prune goes by last use alone, with the records and `default` read once per pass. The tree is renamed
-    out of revisions/ before anything is deleted, so an interrupted removal never leaves a partial tree at its
-    ready path; its .fetched and .used files go with it.
-    """
-    now = time.time()
-    if named is None:
-        named, default = protection(now)
-    if not tree_unused(tree, now, named, default):
-        return "keep", "used or named again"
-    doomed = tree.parent / f".removing-{tree.name}-{os.getpid()}"
-    os.rename(str(tree), str(doomed))
-    for suffix in (".fetched", ".used"):
-        with contextlib.suppress(FileNotFoundError):
-            Path(str(tree) + suffix).unlink()
-    remove_tree(doomed)
-    return "remove", None
-
-
-def prune_record(path, source):
-    """Remove one expired record unless a resolution used it since the plan, checked under its source's lock."""
-    descriptor = os.open(str(source / "lock"), os.O_RDWR | os.O_CREAT, 0o644)
-    try:
-        fcntl.flock(descriptor, fcntl.LOCK_EX)  # no resolution of this source is running
-        if time.time() - path.stat().st_mtime <= RECORD_UNUSED_SECONDS:
-            return "keep", "used again"
-        path.unlink()
-        return "remove", None
-    finally:
-        os.close(descriptor)
-
-
-def cmd_cache_prune(args):
-    removed = 0
-    named, default = protection(time.time())  # records may expire in this pass; their trees then stay until next
-    for path, reason, source in prune_plan():
-        if args.dry_run:
-            print(f"would remove {path} ({reason})")
-            removed += 1
-            continue
-        try:
-            if path.parent == cache_root() / "revisions" and COMMIT.fullmatch(path.name):
-                action, why = prune_tree(path, named, default)
-                if action == "keep":
-                    print(f"keep {path} ({why})")
-                    continue
-            elif source is not None:
-                action, why = prune_record(path, source)
-                if action == "keep":
-                    print(f"keep {path} ({why})")
-                    continue
-            elif path.is_dir() and not path.is_symlink():
-                remove_tree(path)
-            else:
-                path.unlink()
-        except OSError as exc:
-            raise Failure(f"house-rules: cannot remove {path} ({exc.strerror or exc}); repair access to the cache "
-                          "and run again")
-        print(f"remove {path} ({reason})")
-        removed += 1
-    if not removed:
-        print("house-rules: nothing to prune")
-    return 0
 
 
 def detect_profiles(repository):
@@ -1732,9 +1581,6 @@ def parser():
     p.set_defaults(run=cmd_unlink)
     cache = commands.add_parser("cache").add_subparsers(dest="cache_command", required=True)
     cache.add_parser("list").set_defaults(run=cmd_cache_list)
-    p = cache.add_parser("prune")
-    p.add_argument("--dry-run", action="store_true")
-    p.set_defaults(run=cmd_cache_prune)
     p = commands.add_parser("init")
     p.add_argument("--repo")
     p.add_argument("--dry-run", action="store_true")

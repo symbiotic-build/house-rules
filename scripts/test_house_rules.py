@@ -406,39 +406,6 @@ class CommandTests(Fixture):
                       "and this repository's custom layers are missing.", lines[0])
         self.assertEqual(lines[1], f"rules from {tree}/scripts/show.py")
 
-    def test_cache_prune_removes_only_unused_unheld_and_expired_entries(self):
-        config, _ = self.tour()
-        record = hr.resolve(self.repository(config))
-        named, pinned = Path(record["layers"][1]["tree"]), Path(record["layers"][2]["tree"])
-        old, held, recent = (named.parent / (digit * 40) for digit in "123")
-        team = hr.source_folder(config["sources"][1]["url"])
-        partial = team / ".partial-x"
-        for folder in (old, held, recent, partial):
-            folder.mkdir()
-        for folder in (old, held, recent):
-            Path(str(folder) + ".fetched").write_text(hr.utc() + "\n")  # placed, as a fetch leaves them
-        now = time.time()
-        Path(str(held) + ".used").touch()
-        for path, age in ((old, 8), (held, 8), (Path(str(held) + ".used"), 8), (recent, 0.1), (partial, 2)):
-            os.utime(str(path), (now - age * 86_400,) * 2)
-        os.utime(str(pinned) + ".used", (now - 8 * 86_400,) * 2)
-        os.utime(str(named) + ".used", (now - 8 * 86_400,) * 2)  # only its branch record keeps it
-        house_record = hr.answer_path(config["sources"][0]["url"], "branch", "main")
-        os.utime(str(house_record), (now - 31 * 86_400,) * 2)  # expired: House Rules' tree loses its protection
-        house_tree = Path(record["layers"][0]["tree"])
-        os.utime(str(house_tree) + ".used", (now - 8 * 86_400,) * 2)
-        self.assertEqual({path for path, _, _ in hr.prune_plan(now)},
-                         {house_record, old, held, pinned, house_tree, partial})
-        with contextlib.redirect_stdout(io.StringIO()):
-            hr.main(["cache", "prune", "--dry-run"])
-        self.assertTrue(old.exists() and house_record.exists())
-        with contextlib.redirect_stdout(io.StringIO()):
-            hr.main(["cache", "prune"])
-        self.assertFalse(any(p.exists() for p in (old, held, partial, pinned, house_tree, house_record,
-                                                   Path(str(old) + ".fetched"), Path(str(pinned) + ".used"))))
-        self.assertTrue(recent.exists() and named.exists())
-        self.assertTrue((hr.cache_root() / "revisions").is_dir())
-
     def test_one_run_variables_win_over_links_json(self):
         config, _ = self.tour()
         repo = self.repository(config)
@@ -670,35 +637,6 @@ class RoundOneTests(Fixture):
             hr.resolve(None)
         self.assertIn("is not a symbolic link; move it away", str(caught.exception))
 
-    def test_a_use_that_cannot_be_recorded_fails(self):
-        config, _ = self.tour()
-        repo = self.repository(config)
-        tree = Path(hr.resolve(repo)["layers"][2]["tree"])
-        marker = Path(str(tree) + ".used")
-        marker.unlink()
-        marker.mkdir()  # nothing can open it as the marker file
-        with self.assertRaises(hr.Failure) as caught:
-            hr.resolve(repo)
-        self.assertIn(f"cannot record the use of {tree}", str(caught.exception))
-
-    def test_prune_rechecks_a_tree_used_after_planning_and_never_leaves_half_a_tree(self):
-        config, _ = self.tour()
-        tree = Path(hr.resolve(self.repository(config))["layers"][2]["tree"])
-        old = time.time() - 8 * 86_400
-        os.utime(str(tree) + ".used", (old, old))
-        planned = [path for path, _, _ in hr.prune_plan()]
-        self.assertIn(tree, planned)
-        hr.mark_used(tree)  # another run used it after the plan
-        self.assertEqual(hr.prune_tree(tree), ("keep", "used or named again"))
-        os.utime(str(tree) + ".used", (old, old))
-        with mock.patch.object(hr.shutil, "rmtree", side_effect=OSError("interrupted")):
-            with self.assertRaises(OSError):
-                hr.prune_tree(tree)
-        self.assertFalse(tree.exists())  # renamed away before deletion started
-        self.assertTrue(any(p.name.startswith(".removing-") for p in tree.parent.iterdir()))
-        layer = hr.resolve(self.repository(config))["layers"][2]
-        self.assertTrue((Path(layer["tree"]) / hr.RULESET).is_file())  # fetched again, whole
-
     def test_init_never_overwrites_a_file_created_meanwhile(self):
         path = Path(self.repository()) / hr.CONFIG
         path.write_text("theirs\n")  # another writer created it after init's first check
@@ -810,7 +748,9 @@ class RoundTwoTests(Fixture):
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house, "ref": "gone"}]})
         code, out, _ = self.command("exec", "--hook", "scripts/show.py", stdin=json.dumps({"cwd": repo}).encode())
         self.assertEqual(code, 0)
-        self.assertTrue(out.splitlines()[-1].startswith("house-rules: house-rules: no branch gone at "), out)
+        lines = out.splitlines()
+        self.assertTrue(lines[0].startswith("HOUSE RULES HOOK ERROR: house-rules: house-rules: no branch gone at "), out)
+        self.assertEqual(lines[-1], "1")  # a marker only: the failure line is already printed above
 
     def test_a_hook_passes_its_deadline_to_the_script(self):
         house = self.source("house-rules", {"scripts/show.py": "import os\nprint(os.environ['HOUSE_RULES_DEADLINE'])\n"})
@@ -819,20 +759,6 @@ class RoundTwoTests(Fixture):
         code, out, err = self.command("exec", "--hook", "scripts/show.py", stdin=json.dumps({"cwd": repo}).encode())
         self.assertEqual(code, 0, err)
         self.assertLessEqual(abs(float(out) - (started + hr.HOOK_SECONDS)), 2)
-
-    def test_prune_keeps_a_record_used_after_planning(self):
-        config, _ = self.tour()
-        repo = self.repository(config)
-        hr.resolve(repo)
-        record = hr.answer_path(config["sources"][1]["url"], "branch", "main")
-        old = time.time() - 31 * 86_400
-        os.utime(str(record), (old, old))
-        source = next(source for path, _, source in hr.prune_plan() if path == record)
-        os.utime(str(record), None)  # a resolution used it after the plan
-        self.assertEqual(hr.prune_record(record, source), ("keep", "used again"))
-        self.assertTrue(record.exists())
-        os.utime(str(record), (old, old))
-        self.assertEqual(hr.prune_record(record, source), ("remove", None))
 
     def test_a_cache_that_cannot_be_written_names_the_repair(self):
         config, _ = self.tour()
@@ -848,13 +774,19 @@ class RoundTwoTests(Fixture):
 
     def test_cache_list_names_sources_records_and_links(self):
         config, _ = self.tour()
-        hr.resolve(self.repository(config))
+        record = hr.resolve(self.repository(config))
         checkout = str(self.root / "work" / "team-rules")
         hr.write_links({config["sources"][1]["url"]: checkout})
         code, out, _ = self.command("cache", "list")
         self.assertEqual(code, 0)
         self.assertRegex(out, rf"{re.escape(config['sources'][1]['url'])}\n  branch main -> [0-9a-f]{{40}} \(fetched "
                               rf"[^)]*\)\n  linked to {re.escape(checkout)}\n")  # the link sits under its source
+        self.assertNotIn(config["sources"][2]["url"], out)  # a pin writes no record, so nothing names its source
+        self.assertNotIn("\nsource ", "\n" + out)  # nor is its folder listed by its hash
+        pinned = record["layers"][2]["revision"]
+        self.assertRegex(out, rf"\ntree {pinned} [0-9.]+ MiB, first fetched [0-9TZ:-]+\n")  # its tree is listed
+        self.assertTrue(out.endswith(f"cache {hr.cache_root()} {hr.folder_size(hr.cache_root()) / 1_048_576:.1f} MiB "
+                                     "in total\n"), out)
 
 
 
