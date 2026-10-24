@@ -205,10 +205,10 @@ class ReviewStagingTest(unittest.TestCase):
             real(path, *args, **kwargs)
             raise OSError(66, "Directory not empty")
         err = io.StringIO()
-        with unittest.mock.patch.object(check_review_staging, "check_staged", side_effect=RuntimeError("staging")), \
-                unittest.mock.patch.object(check_review_staging.shutil, "rmtree", stuck), \
-                contextlib.redirect_stderr(err), self.assertRaisesRegex(RuntimeError, "staging"):
-            check_review_staging.check(REPO)  # the staging error still propagates
+        with tempfile.TemporaryDirectory() as missing:  # a root without the folders staging copies
+            with unittest.mock.patch.object(check_review_staging.shutil, "rmtree", stuck), \
+                    contextlib.redirect_stderr(err), self.assertRaises(FileNotFoundError):
+                check_review_staging.check(Path(missing))  # the real staging error still propagates
         self.assertIn("ERROR cleanup: cannot remove the temporary folder", err.getvalue())
 
     def test_missing_matching_checker_fails_documentation_staging(self):
