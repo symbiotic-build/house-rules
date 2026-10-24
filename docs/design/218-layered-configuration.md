@@ -80,13 +80,17 @@ Each technical term below links to its defining Markdown section.
 - [Source layer](218-layered-configuration.md#source-layer) (`layered-configuration.source-layer`) — A source layer is one entry of sources: a Git repository, named by name and url, at one ref.
 - [Version cache](218-layered-configuration.md#version-cache) (`layered-configuration.version-cache`) — The version cache is the per-user folder that holds one read-only file tree per commit, and each source's branch and tag answers.
 - [Version resolution](218-layered-configuration.md#version-resolution) (`layered-configuration.version-resolution`) — Version resolution is the procedure that turns each source layer's ref into one commit and makes that commit's files available in the version cache.
-- [Check configuration](194-repository-checks.md#check-configuration) (`repository-checks.check-configuration`) — A check configuration is the versioned JSON file .agents/checks.json that pins House Rules and declares the repository's checks.
+- [Check configuration](194-repository-checks.md#check-configuration) (`repository-checks.check-configuration`) — A check configuration is the versioned JSON file house-rules.json at the repository root that names the repository's House Rules source layer and declares its checks.
 - [Check definition](194-repository-checks.md#check-definition) (`repository-checks.check-definition`) — A check definition is one command, the stages it runs at, the files it reads and how its result is read.
 - [Check installation](194-repository-checks.md#check-installation) (`repository-checks.check-installation`) — Check installation is the repository-checks procedure that writes a repository's configuration, Git hooks and CI step, and prepares the local cache.
 - [Check run report](194-repository-checks.md#check-run-report) (`repository-checks.check-run-report`) — A check run report is the runner's account of one run and of each check in it.
 - [Check runner](194-repository-checks.md#check-runner) (`repository-checks.check-runner`) — The check runner is skills/repository-checks/scripts/checks.py, one standard-library Python file that reads the configuration, selects checks, runs them and prints the report.
 - [Check stage](194-repository-checks.md#check-stage) (`repository-checks.check-stage`) — A check stage is one point in the change loop where the runner runs checks: pre-commit, pre-push or ci.
+- [Clone settings](194-repository-checks.md#clone-settings) (`repository-checks.clone-setting`) — A clone setting is a per-clone Git setting that the install writes and the hook blocks read.
 - [Hook block](194-repository-checks.md#hook-block) (`repository-checks.hook-block`) — A hook block is the marked shell fragment the install puts into a Git hook file to call the runner.
+- [Run placeholders](194-repository-checks.md#run-placeholders) (`repository-checks.run-placeholder`) — A run placeholder is a name in braces in a check's run that the runner replaces with a value of the run before the command starts.
+- [Runner environment variables](194-repository-checks.md#runner-environment-variables) (`repository-checks.runner-environment-variable`) — A runner environment variable is an environment variable whose name the runner defines.
+- [Runner options](194-repository-checks.md#runner-options) (`repository-checks.runner-option`) — A runner option is one of the double-dash options of the runner's commands, such as --stage and --dry-run.
 <!-- /spec-docs:navigation -->
 
 <a id="evidence"></a>
@@ -103,7 +107,7 @@ This section records how House Rules reaches tools today, which parts this desig
 `FACT` The [repository checks](194-repository-checks.md#repository-checks) runner of the open PRs [#212](https://github.com/symbiotic-build/house-rules/pull/212) and [#213](https://github.com/symbiotic-build/house-rules/pull/213), read at their heads `86b7e9f` and `30c8b99`, already has these parts:
 
 - It reads `.agents/checks.json` from the snapshot being checked and always runs House Rules `main`. It resolves `main` with `git ls-remote` and keeps one read-only tree per commit in a per-user cache.
-- Offline it uses the main last fetched, with a warning. `HOUSE_RULES_REVISION` runs another commit for one deliberate test run, and the report marks it.
+- Offline it uses the main last fetched, with a warning. [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) runs another commit for one deliberate test run, and the report marks it.
 - Each report logs the House Rules revision and the SHA-256 of each check's program and scripts.
 - The issue that asks for custom [source layers](#source-layer) in this runner is [#217](https://github.com/symbiotic-build/house-rules/issues/217); this design includes it.
 
@@ -139,8 +143,8 @@ The team follows `team-rules` at its latest commit and pins `rust-settings` to o
 3. **Resolve and look at the result:** `house-rules resolve`.
    - Prints one line per layer with its URL, ref and the commit it resolved to.
    - Fetches each missing commit into the [version cache](#version-cache).
-4. **Install the repository checks:** `house-rules exec skills/repository-checks/scripts/checks.py install --ci github`, as the [check installation](194-repository-checks.md#check-installation) of the repository checks design describes.
-   - Writes the pre-commit and pre-push [hook blocks](194-repository-checks.md#hook-block) and, because of `--ci github`, the CI workflow, also in a repository without `.github/workflows/`.
+4. **Install the repository checks:** [`house-rules exec skills/repository-checks/scripts/checks.py install --ci github`](194-repository-checks.md#runner-options), as the [check installation](194-repository-checks.md#check-installation) of the repository checks design describes.
+   - Writes the pre-commit and pre-push [hook blocks](194-repository-checks.md#hook-block) and, because of [`--ci github`](194-repository-checks.md#runner-options), the CI workflow, also in a repository without `.github/workflows/`.
    - The hook blocks start the installed command, so no hook names a path inside the cache.
 5. **Stage and commit the adoption:** `git add house-rules.json .github/workflows/repository-checks.yml`, then commit through a reviewed PR.
 6. **Stage and commit a change with trailing whitespace:** `git add src/main.rs`, then `git commit`.
@@ -275,7 +279,7 @@ A ruleset has five fields, each optional except `version`:
 
 `checks` and `budgets` have exactly the shapes of the [repository configuration](#repository-configuration)'s, so one entry moves between a ruleset and a repository's `house-rules.json` unchanged. The one difference: only a ruleset may set `enforced` in a check entry, so only a layer decides whether a check's failure refuses a commit or only warns, as [New built-in checks warn first](194-repository-checks.md#check-definition) describes in the repository checks design.
 
-A check command of a layer can name files of its own layer with the [run placeholder](#run-placeholder-layer) `{layer}`, so a team ships a check script in its rules repository.
+A check command of a layer can name files of its own layer with `{layer}`, the [run placeholder for layers](#run-placeholder-layer), so a team ships a check script in its rules repository.
 
 A missing `ruleset.json` is no error: that source contributes nothing.
 A ruleset that is not valid JSON, has an unknown field or lists `sources` stops resolution with a configuration error naming the file and its layer.
@@ -390,7 +394,7 @@ It runs once per run of any consumer, so every part of one run uses one set of c
 **Procedure: resolve the layers of one run**
 
 1. **Find the configuration** at the consumer's [configuration origin](#configuration-origin), and read its `sources`.
-2. **Apply a one-run override:** when [`HOUSE_RULES_REVISION`](#environment-variables) or [`HOUSE_RULES_LINK`](#environment-variables) is set, it replaces the `house-rules` layer, as [link mode](#link-mode) and the revision override explain.
+2. **Apply a one-run override:** when [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) or [`HOUSE_RULES_LINK`](#environment-variables) is set, it replaces the `house-rules` layer, as [link mode](#link-mode) and the revision override explain.
 3. **Ask for each branch ref:** `git ls-remote <url> refs/heads/<branch>` names its latest commit.
 4. **Ask for each release tag ref:** `git ls-remote <url> refs/tags/<tag> refs/tags/<tag>^{}` names its commit; for an annotated tag the `^{}` line does.
 5. **Take each commit ref as it is.** It needs no network unless its files are missing.
@@ -410,7 +414,7 @@ It runs once per run of any consumer, so every part of one run uses one set of c
 > - In hook mode (`house-rules exec --hook`), the agent product kills the hook after its timeout, 10 s, which would leave no visible line. `exec` owns one deadline for the whole hook, 8 s after the hook starts: `ls-remote`, fetches and the started script all share it. `exec` passes it to the script in [`HOUSE_RULES_DEADLINE`](#environment-variables), so the script knows the time left. At the deadline during resolution, a branch or tag takes the [offline resolution](#offline-use) path with the warning "the remote did not answer within 8 s", and a layer with nothing cached stops with the resolution failure below. A script that reaches the deadline stops its slow work and prints a visible line that names what was cut short. This is the one place House Rules stops on elapsed time, because the host's timeout is not progress-based and a killed hook reports nothing.
 > - Messages show each URL as written, because a source URL never carries credentials. A message that refuses a URL never shows it, because it may hold the credentials it refuses.
 
-`house-rules exec` passes the resolution to the script it starts in [`HOUSE_RULES_RESOLVED`](#environment-variables). The script uses it and resolves nothing again.
+`house-rules exec` passes the resolution to the script it starts in [`HOUSE_RULES_RESOLVED`](194-repository-checks.md#runner-environment-variables). The script uses it and resolves nothing again.
 
 <a id="version-cache"></a>
 ### Version cache
@@ -420,7 +424,7 @@ It makes every resolution after the first local and fast, and it is what an offl
 
 > **Detail — cache layout**
 >
-> - The cache root is [`HOUSE_RULES_CACHE`](#environment-variables), or `$XDG_CACHE_HOME/house-rules`, or `~/.cache/house-rules`.
+> - The cache root is [`HOUSE_RULES_CACHE`](194-repository-checks.md#runner-environment-variables), or `$XDG_CACHE_HOME/house-rules`, or `~/.cache/house-rules`.
 > - `revisions/<commit>/` holds that commit's files, extracted with `git archive`, as in the runner PRs. A commit identifies its content, so a fork and its upstream share the tree of a common commit. Files are read-only; folders stay writable, so the cache can be removed.
 > - `sources/<source hash>/` holds one source's files. The source hash is the lowercase hexadecimal SHA-256 of the source's URL exactly as written, in UTF-8, so every folder name has the same length and none collides with another file. Two spellings of one URL are two sources; an `ssh` login is part of the URL and keeps two accounts apart.
 > - `sources/<source hash>/branches/<branch hash>.json` records the last published answer for one branch. The branch hash is the lowercase hexadecimal SHA-256 of the branch name's UTF-8 bytes, with undecodable bytes kept as they are (Python's `surrogateescape`). The record holds `url` as written, `branch`, `revision` and `fetched`, an ISO 8601 UTC time. A record belongs to the folder that holds it. The checks runner of [#212](https://github.com/symbiotic-build/house-rules/pull/212) writes the same record, so both tools share one answer.
@@ -467,7 +471,7 @@ This refusal keeps a consumer from using layers it could not resolve completely.
 
 **Retained state:** Trees already complete stay in the cache and are used by the next resolution. No branch or tag record is replaced for a layer whose fetch failed. A temporary fetch folder is removed, or, when the process was killed, stays until the cache is cleared. When the cache cannot be written, the cache keeps what it held before.
 
-**Recovery:** The author fixes the configuration through a reviewed PR, runs again when online, corrects the ref, or unlinks a broken link, as the message names. When the cache cannot be written, the message names the cache folder and the system's error; the person running the command frees disk space, makes the folder writable, or sets [`HOUSE_RULES_CACHE`](#environment-variables) to a writable folder, then runs again. Nothing else needs to be repaired, because no partial result is ever used.
+**Recovery:** The author fixes the configuration through a reviewed PR, runs again when online, corrects the ref, or unlinks a broken link, as the message names. When the cache cannot be written, the message names the cache folder and the system's error; the person running the command frees disk space, makes the folder writable, or sets [`HOUSE_RULES_CACHE`](194-repository-checks.md#runner-environment-variables) to a writable folder, then runs again. Nothing else needs to be repaired, because no partial result is ever used.
 
 **Authority:** The person running the command repairs its machine; a configuration change needs the repository's normal review.
 
@@ -479,7 +483,7 @@ This refusal keeps a consumer from using layers it could not resolve completely.
 A run uses something other than the configured version in exactly two ways, both visible in its log: a revision override for a deliberate test, and link mode for developing a layer.
 Neither is stored in any repository, so no commit can make another machine run an unreviewed version.
 
-The revision override is [`HOUSE_RULES_REVISION`](#environment-variables), a full commit identity that replaces the `house-rules` layer's ref for one run.
+The revision override is [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables), a full commit identity that replaces the `house-rules` layer's ref for one run.
 It keeps the meaning it has in the runner PRs: a deliberate test, marked in every log line of the layer with `override` and in a `TEST OVERRIDE` warning.
 
 <a id="link-mode"></a>
@@ -504,7 +508,7 @@ It lets a person who edits House Rules or a team's rules repository try the edit
 
 A link applies to every repository that lists a source with the same URL, on this machine only.
 [`HOUSE_RULES_LINK`](#environment-variables) links the `house-rules` layer to a checkout for one run, without writing `links.json`.
-For the `house-rules` layer, a one-run variable wins over `links.json`: `HOUSE_RULES_LINK` or `HOUSE_RULES_REVISION`, when set, decides the layer, and the run's warning names it. Setting both one-run variables stops resolution with a usage error, because a run can use only one of them.
+For the `house-rules` layer, a one-run variable wins over `links.json`: [`HOUSE_RULES_LINK`](#environment-variables) or [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables), when set, decides the layer, and the run's warning names it. Setting both one-run variables stops resolution with a usage error, because a run can use only one of them.
 A link whose folder is missing or is not a Git checkout stops resolution with an error that names the `unlink` command.
 
 A linked run gives up the equal-result promise between hook and CI, because CI has no link. Every report says so through the warning above, so nobody mistakes a linked result for a configured one.
@@ -525,7 +529,7 @@ Each layer's source is one of these words:
 - `reused`: the branch's or tag's answer was younger than 60 s.
 - `offline`: the remote could not be reached; the last answer was used.
 - `pinned`: the ref is a commit.
-- `override`: [`HOUSE_RULES_REVISION`](#environment-variables) replaced the ref.
+- `override`: [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) replaced the ref.
 - `link`: a link replaced the layer.
 
 Besides layers, each consumer logs what it adds:
@@ -550,7 +554,7 @@ A configuration whose `version` it does not know stops it with an error that nam
 
 `house-rules path` prints only the tree's path on standard output and its resolution lines on standard error, so a script can capture the path and still log the resolution. `house-rules resolve --json` prints only the JSON record on standard output.
 
-`house-rules exec <path> [arguments]` runs a script from the resolved House Rules tree, such as `scripts/session_context.py`, with the resolution in [`HOUSE_RULES_RESOLVED`](#environment-variables).
+`house-rules exec <path> [arguments]` runs a script from the resolved House Rules tree, such as `scripts/session_context.py`, with the resolution in [`HOUSE_RULES_RESOLVED`](194-repository-checks.md#runner-environment-variables).
 With `--hook` it reads an agent hook's JSON input from standard input, takes the repository from its `cwd` field and passes the same input on to the script.
 The script therefore always runs at the repository's resolved House Rules version, and it reads its rule files from its own tree.
 
@@ -590,7 +594,7 @@ Warden is different, because it is the independent review; [Warden](#consumer-wa
 The checks runner resolves the layers of each snapshot through the [House Rules command](#house-rules-command)'s resolver and builds the [effective configuration](#effective-configuration) from them.
 This replaces the runner's own resolution of House Rules `main`; everything else in the repository checks design stays.
 
-- **Hook entry point.** The [hook blocks](194-repository-checks.md#hook-block) start the installed command, named by the clone setting `house-rules.command`: `house-rules exec --origin index skills/repository-checks/scripts/checks.py run --stage pre-commit` and `house-rules exec --rev HEAD skills/repository-checks/scripts/checks.py run --stage pre-push`. The pre-push hook's `exec` passes Git's pre-push lines on standard input through to the runner unchanged; the runner parses them, as the repository checks design describes. No hook names a path inside the cache, so clearing the cache never removes a hook's entry point.
+- **Hook entry point.** The [hook blocks](194-repository-checks.md#hook-block) start the installed command, named by the [clone setting](194-repository-checks.md#clone-settings) `house-rules.command`: [`house-rules exec --origin index skills/repository-checks/scripts/checks.py run --stage pre-commit`](194-repository-checks.md#runner-options) and [`house-rules exec --rev HEAD skills/repository-checks/scripts/checks.py run --stage pre-push`](194-repository-checks.md#runner-options). The pre-push hook's `exec` passes Git's pre-push lines on standard input through to the runner unchanged; the runner parses them, as the repository checks design describes. No hook names a path inside the cache, so clearing the cache never removes a hook's entry point.
 - **Origin before resolution.** `--origin index` makes `exec` read `house-rules.json` from the staged index. `--rev HEAD` makes it read the configuration of the commit `HEAD` names to choose the runner's revision. An invalid working-tree file therefore never stops a commit whose staged file is valid. A snapshot without `house-rules.json` resolves the global default sources, then House Rules `main`, and the runner then finds no checks; that such a snapshot can still fail on an unavailable default is [#230](https://github.com/symbiotic-build/house-rules/issues/230). `exec` reads the staged file by its exact path, `git show :house-rules.json`; nothing staged at or below that path is a missing file, and any other failure, such as a folder of that name or a conflicted entry, stops with Git's error. A commit's file that Git cannot list or read is a failure that names it, never a missing file.
 - **Resolution per snapshot.** Each snapshot is resolved from its own configuration. Within one run, a branch of one source is asked for once, so snapshots that list it use the same commit. Only that choice of commit is shared: each snapshot's [resolution record](#resolution-record), profiles, context and settings come from its own configuration.
 - **One runner.** The runner that `exec` started checks every snapshot itself, each with its own resolution and settings; it never starts a runner of another revision, as the [runner handover decision](#decision-no-runner-handover) records.
@@ -905,7 +909,7 @@ A run that uses a link or an override says so, and no repository file can create
 
 **Actor:** Resolver.
 
-**Condition:** `links.json` names a source, or [`HOUSE_RULES_LINK`](#environment-variables) or [`HOUSE_RULES_REVISION`](#environment-variables) is set.
+**Condition:** `links.json` names a source, or [`HOUSE_RULES_LINK`](#environment-variables) or [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) is set.
 
 **Result:** The layer's source is `link` or `override`, and the run prints the warning that [link mode](#link-mode) shows. Both variables together, and a link to a folder that is not a Git checkout, stop resolution with an error.
 
@@ -986,7 +990,7 @@ The lead's recommendations follow; the operator saw them and approved them with 
 <a id="decision-refs"></a>
 ### Decision: a branch follows its latest commit, a commit is a deliberate pin
 
-**Choice:** A layer's ref is a branch, default `main`, which always resolves to its latest commit, a commit, which is a deliberate pin that is visible and reviewed, or an exact release tag such as `v1.4.0`, which resolves like a branch: every run asks the remote, so a tag moved on the remote is followed. No version ranges. No stale version exists except deliberately. `HOUSE_RULES_REVISION` stays as the one-run test override.
+**Choice:** A layer's ref is a branch, default `main`, which always resolves to its latest commit, a commit, which is a deliberate pin that is visible and reviewed, or an exact release tag such as `v1.4.0`, which resolves like a branch: every run asks the remote, so a tag moved on the remote is followed. No version ranges. No stale version exists except deliberately. [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) stays as the one-run test override.
 
 **Authority:** Operator decision, relayed by the lead on 2026-10-24. The operator wrote: "Everything should definitely log the prompt versions and house rules versions and check versions but I don't see any reason to keep stale version other than deliberate tests". The [simplification pass](#decision-simplification-pass) changed how a release tag resolves: it is asked on every run like a branch.
 
@@ -1340,8 +1344,8 @@ Today's install, `scripts/sync.py --install-hooks`, points every agent home at o
 
 **Procedure: move one machine to the command**
 
-1. **Preview:** `python3 <checkout>/scripts/house_rules.py install --dry-run`. Lists every file it would write, and writes nothing.
-2. **Install:** the same command without `--dry-run`.
+1. **Preview:** `python3 <checkout>/scripts/house_rules.py install` with [`--dry-run`](194-repository-checks.md#runner-options). Lists every file it would write, and writes nothing.
+2. **Install:** the same command without [`--dry-run`](194-repository-checks.md#runner-options).
    - Copies the command to `~/.local/bin/house-rules`.
    - Creates the [global configuration](#global-configuration) with `{"version": 1}` when it is absent.
    - Links `custom/` of the global configuration folder to the checkout's `custom/` when that exists and the link is absent.
@@ -1370,7 +1374,7 @@ Nothing changes in a repository that has not adopted, except that sessions there
 
 The work lands as five PRs and one machine step, in this order. Each PR has the review procedure's budget of three fix rounds, and splits when it needs more.
 
-- **Resolver and command:** `scripts/house_rules.py` with `resolve`, `path`, `exec`, `link`, `unlink`, `cache list`, `init`, `install --dry-run` and `version`, with its tests, and House Rules' own [`ruleset.json`](#ruleset) with the test that keeps it in step with `INDEX.md`. No consumer changes yet. Depends on nothing.
+- **Resolver and command:** `scripts/house_rules.py` with `resolve`, `path`, `exec`, `link`, `unlink`, `cache list`, `init`, `install` with [`--dry-run`](194-repository-checks.md#runner-options) and `version`, with its tests, and House Rules' own [`ruleset.json`](#ruleset) with the test that keeps it in step with `INDEX.md`. No consumer changes yet. Depends on nothing.
 - **Agent sessions:** `scripts/session_context.py` reads the resolution, prints it, prints every layer's ruleset context, House Rules' own included, reads `custom/INDEX.md` from the [global configuration](#global-configuration) folder when that file exists, and from its own checkout otherwise; `install` registers hooks through `house-rules exec --hook`, skill links through `default` and the new managed block. Depends on the resolver.
 - **Checks on layers:** the runner accepts custom layers in `sources`, resolves through the resolver, merges layers with provenance, reads every ruleset, House Rules' included, and applies the global configuration's budgets. The runner PR [#212](https://github.com/symbiotic-build/house-rules/pull/212) already brings `house-rules.json` and the [isolated Git environment](#git-isolation). Depends on the resolver and on the runner PRs [#212](https://github.com/symbiotic-build/house-rules/pull/212) and [#213](https://github.com/symbiotic-build/house-rules/pull/213) being merged. Closes [#217](https://github.com/symbiotic-build/house-rules/issues/217).
 - **Warden:** base-commit resolution, qualification of the chosen House Rules commit before any [ruleset](#ruleset) is read, the allowed-source list, custom layer context and the resolution in debug data, in the Warden repository. Depends on the resolver.
@@ -1410,7 +1414,7 @@ Each kind of file has its own `version`: 2 for the [repository configuration](#r
 <a id="run-placeholder-layer"></a>
 ### Run placeholder for layers
 
-The run placeholder `{layer}` is the absolute path of the tree of the layer whose file defined the check's `run`. It joins the [run placeholders](194-repository-checks.md#configuration-fields) of the repository checks design; `{house_rules}` stays the House Rules layer's tree. A later layer that sets a `run` needs a reason, as the [merge rule](#effective-configuration) requires for every field an earlier step set.
+The [run placeholder](194-repository-checks.md#run-placeholders) `{layer}` is the absolute path of the tree of the layer whose file defined the check's `run`. It joins the [run placeholders](194-repository-checks.md#run-placeholders) of the repository checks design; [`{house_rules}`](194-repository-checks.md#run-placeholders) stays the House Rules layer's tree. A later layer that sets a `run` needs a reason, as the [merge rule](#effective-configuration) requires for every field an earlier step set.
 
 <a id="commands"></a>
 ### Commands
@@ -1427,6 +1431,7 @@ house-rules install [--dry-run]
 house-rules version
 ```
 
+- [`--dry-run`](194-repository-checks.md#runner-options) makes `init` and `install` list what they would write and write nothing, as it does for the runner's `install`.
 - `--repo PATH` names the repository; the default is the Git top level of the current folder. Outside any repository the command uses the global default sources.
 - `--rev COMMIT` reads the [repository configuration](#repository-configuration) from that commit instead of the working tree. Warden and tests use it.
 - `exec --origin index` reads it from the staged index, and `exec --rev COMMIT` from that commit, as [Git hooks and CI](#consumer-checks) describes.
@@ -1442,12 +1447,12 @@ A command environment variable is an environment variable of the [House Rules co
 | Variable | Meaning |
 |---|---|
 | [`HOUSE_RULES_LINK`](#environment-variables) | links the `house-rules` layer to a checkout for one run |
-| `HOUSE_RULES_REVISION` | revision override of the `house-rules` layer for one run |
-| `HOUSE_RULES_CACHE` | cache root |
-| `HOUSE_RULES_RESOLVED` | set by a starting tool: the [resolution record](#resolution-record) in JSON |
+| [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) | revision override of the `house-rules` layer for one run |
+| [`HOUSE_RULES_CACHE`](194-repository-checks.md#runner-environment-variables) | cache root |
+| [`HOUSE_RULES_RESOLVED`](194-repository-checks.md#runner-environment-variables) | set by a starting tool: the [resolution record](#resolution-record) in JSON |
 | `HOUSE_RULES_DEADLINE` | set by `exec --hook`: the hook's deadline, in seconds since 1970-01-01 UTC |
 
-`HOUSE_RULES_REVISION`, `HOUSE_RULES_CACHE` and `HOUSE_RULES_RESOLVED` keep the names and meanings the runner PRs gave them; `HOUSE_RULES_RESOLVED` now holds the whole resolution record. The runner PRs' `HOUSE_RULES_URL` is retired: a fork or a fixture is a `url` in the repository configuration.
+[`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables), [`HOUSE_RULES_CACHE`](194-repository-checks.md#runner-environment-variables) and [`HOUSE_RULES_RESOLVED`](194-repository-checks.md#runner-environment-variables) keep the names and meanings the runner PRs gave them; [`HOUSE_RULES_RESOLVED`](194-repository-checks.md#runner-environment-variables) now holds the whole resolution record. The runner PRs' `HOUSE_RULES_URL` is retired: a fork or a fixture is a `url` in the repository configuration.
 
 <a id="schema-resolution"></a>
 ### Resolution record format
@@ -1497,9 +1502,9 @@ A command environment variable is an environment variable of the [House Rules co
 | missing tag | `house-rules: <layer>: no release tag <tag> at <url>; check the ref in house-rules.json` | 2 |
 | missing commit | `house-rules: <layer>: commit <commit> not found at <url> (<git error>); check the ref` | 2 |
 | offline, no record | `house-rules: cannot reach <url> (<git error>) and no earlier fetch of <layer> <ref> is cached; run again when online` | 2 |
-| both one-run variables | `house-rules: set HOUSE_RULES_LINK or HOUSE_RULES_REVISION, not both` | 1 |
+| both one-run variables | [`house-rules: set HOUSE_RULES_LINK or HOUSE_RULES_REVISION, not both`](194-repository-checks.md#runner-environment-variables) | 1 |
 | broken link | `house-rules: link <key>: <path> is not a Git checkout; run house-rules unlink <path>` | 2 |
-| cache not writable | `house-rules: cannot write the cache <folder> (<system error>); free space, make it writable or set HOUSE_RULES_CACHE` | 2 |
+| cache not writable | [`house-rules: cannot write the cache <folder> (<system error>); free space, make it writable or set HOUSE_RULES_CACHE`](194-repository-checks.md#runner-environment-variables) | 2 |
 | old command | `house-rules: <file> has version <n>; this house-rules command knows version 2; install the newer command: python3 <House Rules checkout>/scripts/house_rules.py install` | 2 |
 | hook deadline | `warning: the remote did not answer within 8 s; using <layer> <ref> as last answered <time>, <commit>` | 0 |
 | source not allowed | `Warden: layer <name> at <url> is not an allowed source; ask the Warden operator to allow it` | review stops |
