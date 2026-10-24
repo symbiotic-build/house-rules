@@ -507,8 +507,8 @@ class SessionContextTests(Fixture):
         self.assertNotIn("HOUSE RULES HOOK ERROR", text)
         self.assertRegex(text, r"house-rules: tree of team-rules: \S+/revisions/[0-9a-f]{40}\n")
         self.assertIn("house-rules: context of team-rules: rules/team.md\n", text)  # inside its layer's tree line
-        self.assertIn("Part 1's resolution governs: read INDEX.md and every context file its resolution lines list, "
-                      "each inside the tree line of its layer, directly.", text)
+        self.assertIn("Part 1's resolution governs: read INDEX.md and every file its lines list, inside its layer's "
+                      "tree.", text)
         first = re.search(r"text ([0-9a-f]{12})", text).group(1)
         self.push("team-rules", {"README.md": "a change outside the context files\n"})
         self.expire_answers()
@@ -547,7 +547,7 @@ class SessionContextTests(Fixture):
             "scripts/house_rules.py": (here / "house_rules.py").read_text()})
         long = "rules/" + "/".join(["n" * 60] * 11) + ".md"  # a 680-character path its banner and label repeat
         import session_context
-        room = session_context.capacity(2)  # a later part's room, which the long section's body alone fits
+        room = session_context.capacity(2, long, "Long")  # a later part's room, which the section's body alone fits
         team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": [*names, "rules/big.md", long]},
                                           "rules/big.md": "# Big\n\n" + "word " * 3000 + "\n",
                                           long: "# Long\n\n" + "w " * ((room - 30) // 2) + "\n",
@@ -586,8 +586,6 @@ class SessionContextTests(Fixture):
         first = Path(hr.layer_tree(record))
         second = self.root / "second"
         shutil.copytree(str(first), str(second))
-        (second / "INDEX.md").chmod(0o644)
-        (second / "INDEX.md").write_text("# Index B\n\n## Always load\n\n- [core rules](rules/core.md)\n")
         link = hr.cache_root() / "default"
         if link.is_symlink():
             link.unlink()

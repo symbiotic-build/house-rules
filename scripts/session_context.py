@@ -197,8 +197,8 @@ def context_files(base, failures):
     if not isinstance(listed, list) or not listed or not all(isinstance(name, str) for name in listed):
         failures.append(RULESET)
         yield RULESET, None, (f"{ERROR} {path} is missing, so this tree's always-load rules are not in this context; "
-                              "a tree from before ruleset.json needs the newer global default: python3 <House Rules "
-                              "checkout>/scripts/house_rules.py install\n" if listed is None
+                              "move the global default's ref or link to a tree with ruleset.json, then run: python3 <House "
+                              "Rules checkout>/scripts/house_rules.py install\n" if listed is None
                               else f"{ERROR} {path} lists no context files.\n")
         return
     for name in listed:
@@ -314,7 +314,7 @@ def pack(read, notice):
 
     def add(name, heading, text):
         """Put a block into the current part, or start the next part when it does not fit."""
-        if packed and units(packed[-1][2] + text) <= capacity(len(packed), notice):
+        if packed and units(packed[-1][2] + text) <= capacity(len(packed), *packed[-1][:2], notice):
             packed[-1] = (*packed[-1][:2], packed[-1][2] + text)
         else:
             packed.append((name, heading, text))
@@ -328,8 +328,10 @@ def pack(read, notice):
         for index, (name, heading, section) in enumerate(sections(name, text)):
             shown = name if len(name) <= 100 else name[:99] + "…"
             banner = f"\n===== House Rules file {shown} =====\n" if index == 0 else ""
-            fits = packed and units(packed[-1][2] + banner + section) <= capacity(len(packed), notice)
-            room = capacity(len(packed), notice) if fits else capacity(len(packed) + 1, notice)  # where it starts
+            joined = capacity(len(packed), *packed[-1][:2], notice) if packed else 0
+            # The room of the part it joins, or of the part it starts.
+            room = joined if packed and units(packed[-1][2] + banner + section) <= joined else \
+                capacity(len(packed) + 1, name, heading, notice)
             if units(banner + section) > room:
                 too_long.append((name, heading))
                 section = (f"{ERROR} the section \"{heading[:100]}\" is {units(section)} characters, more than the "
@@ -357,19 +359,16 @@ def introduction(total, text_id):
     """Part 1's account of how to read the parts."""
     record = resolution()
     linked = record is not None and any(layer["source"] == "link" for layer in record["layers"])
-    governs = ("Part 1's resolution governs: read INDEX.md and every context file its resolution lines list, "
-               "each inside the tree line of its layer, directly. A listed file that cannot be read means the "
-               "files changed: say so and start a new session." if record is not None
-               else f"Read the files from {delivered()} directly.")
+    governs = ("Part 1's resolution governs: read INDEX.md and every file its lines list, inside its layer's "
+               "tree. A listed file that cannot be read means the files changed: say so and start a new session."
+               if record is not None else f"Read the files from {delivered()} directly.")
     if linked:  # a linked layer is a working tree: rereading it after a split can give text part 1 never had
         governs += (" A layer here has source link, so a split cannot be recovered by rereading: say so and start "
                     "a new session.")
-    return (f"House Rules INDEX.md, its always-load rules, the operator-writing skill and this computer's "
-            f"{LOCAL_INDEX}, then any custom layer's context files, follow in full, in {total} parts. "
-            "They apply to every reply in this session. The parts can arrive in any order: read them in "
-            f"part-number order. Each part names the file and heading it starts at. Every part names text "
-            f"{text_id}. A missing part number, or a part with another part count or text, means the parts "
-            f"were cut from different resolutions or the files changed while they were read. {governs}")
+    return (f"House Rules INDEX.md, its always-load rules, the operator-writing skill, this computer's "
+            f"{LOCAL_INDEX} and any custom layer's context files follow in {total} parts, for every reply in this "
+            f"session. Read them in part-number order. Every part names text {text_id}. A missing part, or one "
+            f"with another count or text, was cut from another resolution or from changed files. {governs}")
 
 
 def end_line(number, total):
@@ -377,12 +376,11 @@ def end_line(number, total):
 
 
 @functools.lru_cache(maxsize=None)
-def capacity(number, notice=False):
-    """The characters part `number` holds for its text: the cap minus the most its label, part 1's introduction,
-    the overflow notice when `notice` is set, and its end line can take, with paths and names at their length."""
+def capacity(number, name, heading, notice=False):
+    """The characters part `number` holds for its text when it starts at `name` and `heading`: the cap minus its
+    label, part 1's introduction, the overflow notice when `notice` is set, and its end line."""
     most = 10 ** len(str(SLOTS * 100))  # a part count with more digits than any real one
-    wide = "\U0001F600" * 100  # the longest name or heading a label shows, at two UTF-16 units a character
-    used = units(label(most, most, "0" * 12, "0" * 12, wide, wide)) + units(end_line(most, most)) + 4
+    used = units(label(most, most, "0" * 12, "0" * 12, name, heading)) + units(end_line(most, most)) + 4
     if number == 1:
         used += units(introduction(most, "0" * 12)) + 1
     if notice and number in (1, SLOTS):
@@ -429,10 +427,13 @@ def resolution_lines(record):
 
 
 def overflow(total):
-    where = ("the paths part 1's resolution lines list" if resolution() else f"{delivered()}")
-    return (f"{ERROR} the rules need {total} parts but the hook delivers only {SLOTS}, so parts "
-            f"{SLOTS + 1} to {total} are not in this context. Read those files from {where} directly; "
-            f"raise SLOTS in scripts/session_context.py.")
+    record = resolution()
+    if record is not None and any(layer["source"] == "link" for layer in record["layers"]):
+        repair = "a linked layer cannot be reread: say so and start a new session"  # as the split rule says
+    else:
+        repair = f"read their files from {'part 1' if record is not None else delivered()} directly"
+    return (f"{ERROR} the rules need {total} parts but the hook delivers only {SLOTS}, so parts {SLOTS + 1} to "
+            f"{total} are missing; {repair}; raise SLOTS in scripts/session_context.py.")
 
 
 def one_line(text, limit=300):
