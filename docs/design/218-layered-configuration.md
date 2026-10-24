@@ -684,7 +684,7 @@ A PR therefore cannot change the layers, the House Rules version or the context 
 1. **Take the base commit** the PR names when Warden admits the review: its base branch's commit at that moment.
 2. **Read the configuration at it:** `house-rules.json` at that commit, through the repository host's file contents interface.
 3. **Choose the House Rules commit before reading any layer file.** A `house-rules` layer at `main` of the House Rules URL uses Warden's qualified main. Any other URL, branch or commit is resolved to one commit, and that commit is qualified the same way once: it must hold the prompt collection. A fork at `main` is therefore the fork's qualified commit, never the upstream's. The review stops with a stated reason when qualification fails.
-4. **Check each custom layer's URL** against Warden's operator-configured list of allowed sources. A layer outside the list stops the review with a reason that names it, so a repository's file cannot make the review service fetch arbitrary repositories into its prompts.
+4. **Check each custom layer's URL** against Warden's operator-configured list of allowed sources, which starts with every repository under `github.com/symbiotic-build/`. A layer outside the list stops the review with a reason that names it, so a repository's file cannot make the review service fetch arbitrary repositories into its prompts.
 5. **Build the configuration from those exact commits:** `house-rules resolve` reads layer files only from the chosen trees, and its record names the same commits the review uses.
 6. **Add the custom layers' context** to the review rules after House Rules.
 7. **Log the resolution** in the review's debug data, beside the House Rules revision it already shows.
@@ -985,7 +985,7 @@ A PR cannot change the configuration of its own review.
 <a id="decisions"></a>
 ## Decisions and alternatives
 
-The operator decided the first eight records below on 2026-10-22 and 2026-10-23; the lead relayed them, with the operator's words, on 2026-10-24.
+The operator decided the first eight records below on 2026-10-22 and 2026-10-23, and the next two on 2026-10-24; the lead relayed them, with the operator's words, on 2026-10-24.
 The lead's recommendations follow; the operator saw them and did not contest them, and can still change them when reviewing this design. The design choices made while writing it come last.
 
 <a id="decision-layered-sources"></a>
@@ -1075,6 +1075,28 @@ The lead's recommendations follow; the operator saw them and did not contest the
 **Reason:** Warden is the independent review. With the head's file, a PR could pin House Rules to a commit without a rule it breaks, or drop a team layer, and be reviewed under the weaker rules.
 
 **Rejected alternatives:** Reading the head's file, as CI does: CI shows what a change does, while the review must judge it under the rules already in force.
+
+<a id="decision-session-fallback"></a>
+### Decision: a session with a failed resolution gets the global default's rules, labelled
+
+**Choice:** When resolution fails in a session hook, the hook prints the failure with its repair, then the global default's House Rules files under a line that says they are not this repository's resolved rules and that its custom layers are missing.
+
+**Authority:** Operator decision, 2026-10-24, relayed by the lead: the operator answered "3. 1" to the question "What should a session get when its repository's layers cannot be resolved? 1. The error and repair, then the global default's rules with that label (recommended)." The lead had proposed it on the accepted finding of the same triage that substitute rules need an explicit decision.
+
+**Reason:** A session without any House Rules would follow no rules at all, which is worse than following the default rules while knowing they are not the repository's. The labelled line keeps the difference visible to the agent, and the repair says how to get the right rules.
+
+**Rejected alternatives:** Printing only the failure: the agent would work without any shared rules. Printing the default rules without a label: the agent could not tell they are a substitute.
+
+<a id="decision-warden-sources"></a>
+### Decision: Warden fetches custom layers only from allowed sources
+
+**Choice:** Warden's operator configures the list of source URLs Warden may fetch for custom layers. The list starts with every repository under `github.com/symbiotic-build/`; other repositories are added by name when a team asks. A layer outside it stops the review with a reason that names it.
+
+**Authority:** Operator decision, 2026-10-24, relayed by the lead: the operator answered "4. 1" to the question "Which custom layer sources may Warden fetch? 1. Allow only repositories under github.com/symbiotic-build/, and add others by name when a team asks (recommended)." The lead had proposed the list while mapping Warden's review path for its work package.
+
+**Reason:** Warden reviews many repositories with one service. Without a list, any repository's file could make it fetch arbitrary repositories into its prompts, which the repository's own reviewers may never have seen.
+
+**Rejected alternatives:** Trusting every URL a base branch lists: the base branch is reviewed by that repository, not by Warden's operator.
 
 <a id="decision-implementation"></a>
 ### Decision: implement the design
@@ -1200,17 +1222,6 @@ The lead's recommendations follow; the operator saw them and did not contest the
 
 **Rejected alternatives:** A longer hook timeout: it delays every session start on a stalled network and still ends in a silent kill. Resolving in a separate background step before the session: the hooks are the only code that runs at session start.
 
-<a id="decision-session-fallback"></a>
-### Decision: a session with a failed resolution gets the global default's rules, labelled
-
-**Choice:** When resolution fails in a session hook, the hook prints the failure with its repair, then the global default's House Rules files under a line that says they are not this repository's resolved rules and that its custom layers are missing.
-
-**Authority:** Lead decision, 2026-10-24, on the accepted finding of the same triage that substitute rules need an explicit decision.
-
-**Reason:** A session without any House Rules would follow no rules at all, which is worse than following the default rules while knowing they are not the repository's. The labelled line keeps the difference visible to the agent, and the repair says how to get the right rules.
-
-**Rejected alternatives:** Printing only the failure: the agent would work without any shared rules. Printing the default rules without a label: the agent could not tell they are a substitute.
-
 <a id="decision-prune-locks"></a>
 ### Decision: pruning skips anything a running process holds
 
@@ -1233,22 +1244,18 @@ The lead's recommendations follow; the operator saw them and did not contest the
 
 **Rejected alternatives:** Keeping every record: unbounded growth. A count limit per source: it would expire an actively used branch on a machine that uses many.
 
-<a id="decision-warden-sources"></a>
-### Decision: Warden fetches custom layers only from allowed sources
-
-**Choice:** Warden's operator configures the list of source URLs Warden may fetch for custom layers. A layer outside it stops the review with a reason that names it.
-
-**Authority:** Lead decision, 2026-10-24, made while mapping Warden's review path for its work package.
-
-**Reason:** Warden reviews many repositories with one service. Without a list, any repository's file could make it fetch arbitrary repositories into its prompts, which the repository's own reviewers may never have seen.
-
-**Rejected alternatives:** Trusting every URL a base branch lists: the base branch is reviewed by that repository, not by Warden's operator.
-
 <a id="questions"></a>
 ## Open questions
 
-No mechanism is open. The operator decided the main choices; the four recommendations and the lead decisions above wait for the operator's review of this design, and changing any of them changes names or defaults, not the mechanisms.
-The custom layer `context` field and the House Rules [layer files](#layer-file) live under `checks/`, as the profile recommendation names them. A folder named after its whole content, such as `layer/`, is the alternative the operator can choose at review.
+The operator's review of this design is in progress; the design stays a draft until it ends. On 2026-10-24 the operator raised these points, which the lead is putting to the operator with options. Until they are answered, the mechanisms above stand as written.
+
+- **Language of the command:** whether the installed `house-rules` command stays standard-library Python, as the checks runner is, or moves to another language.
+- **Release versions:** whether refs also accept versioned release tags, pinned exactly, besides branches and commits.
+- **Local sources:** whether a source layer can be a local folder rather than a Git repository, beyond the developer [link mode](#link-mode).
+- **Git isolation:** whether the [isolated Git environment](#git-isolation) is more mechanism than the equal-result promise needs.
+- **Layer file folder:** whether layer files stay under `checks/`, as the profile recommendation names them, or move to a folder named after their whole content, since they also list context files.
+
+The four recommendations and the lead's decisions above also wait for that review; changing them changes names or defaults, not the mechanisms.
 
 <a id="rollout"></a>
 ## Migration
