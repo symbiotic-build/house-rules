@@ -48,8 +48,8 @@ import time
 
 
 CAP = 10_000      # Claude Code's limit for one hook's output, in UTF-16 code units.
-RESERVE = 1_200   # Room in a part for its label, the part 1 introduction, an overflow error and the end line.
 SLOTS = 12        # Claude Code hooks registered; the last one reports text that needs more.
+RESOLUTION_LIMIT = 8_800  # Room in part 1 for the resolution lines, in UTF-16 code units.
 TIMEOUT = 10      # Seconds each product waits for one hook.
 ERROR = "HOUSE RULES HOOK ERROR:"
 RULESET = "ruleset.json"  # House Rules' own defaults; its context lists the files every session receives
@@ -81,6 +81,12 @@ def house_rules():
     return module
 
 
+def exec_fallback():
+    """True when `house-rules exec --hook` started this run after the repository's resolution failed: exec sets the
+    hook deadline for every run, and hands a resolution record to every run except its fallback."""
+    return bool(os.environ.get("HOUSE_RULES_DEADLINE")) and "HOUSE_RULES_RESOLVED" not in os.environ
+
+
 @functools.lru_cache(maxsize=None)
 def handed():
     """The resolution `house-rules exec` handed this run, when it resolved this script's own tree."""
@@ -94,7 +100,7 @@ def handed():
 def too_large(record):
     """The characters a resolution's lines need when they do not fit in part 1, else None."""
     size = units(RESOLUTION_HEAD + "".join(line + "\n" for line in resolution_lines(record)))
-    return size if size > CAP - RESERVE else None
+    return size if size > RESOLUTION_LIMIT else None
 
 
 def oversized():
@@ -116,7 +122,7 @@ def oversized():
     tree = default_tree()
     given = (f"the global default's ({tree})" if tree is not None else
              f"this repository's House Rules layer alone ({root()}), because no global default is cached")
-    return (f"{ERROR} the resolution lines need {size} characters, more than the {CAP - RESERVE} part 1 holds; "
+    return (f"{ERROR} the resolution lines need {size} characters, more than the {RESOLUTION_LIMIT} part 1 holds; "
             f"{most} lists the most context files ({count}). The House Rules below are {given}, not "
             "this repository's resolved rules, and this repository's custom layers are missing.")
 
@@ -144,8 +150,10 @@ def default_link():
     return Path(os.path.realpath(str(link))) if link.is_symlink() else None
 
 
+@functools.lru_cache(maxsize=None)
 def default_tree():
-    """The global default's cached House Rules tree, or None when none is cached."""
+    """The global default's cached House Rules tree, or None when none is cached; decided once per run, so the
+    tree a run names is the tree it delivers."""
     default = default_link()
     return default if default is not None and (default / "INDEX.md").is_file() else None
 
@@ -291,31 +299,40 @@ def parts(base=None, failures=None):
     failures, when given, collects the House Rules files sources() could not supply.
     """
     base = base or delivered()
-    limit = CAP - RESERVE
-    blocks, too_long = [], []
+    packed, too_long = pack(base, failures, notice=False)
+    if len(packed) > SLOTS:  # parts 1 and SLOTS then carry the overflow notice too
+        packed, too_long = pack(base, None, notice=True)
+    return revision(base), packed, too_long
+
+
+def pack(base, failures, notice):
+    """[(file, heading, text)] per part and [(file, heading)] of sections too long for a part."""
+    packed, too_long = [], []
+
+    def add(name, heading, text):
+        """Put a block into the current part, or start the next part when it does not fit."""
+        if packed and units(packed[-1][2] + text) <= capacity(len(packed), notice):
+            packed[-1] = (*packed[-1][:2], packed[-1][2] + text)
+        else:
+            packed.append((name, heading, text))
     # The resolution goes first, whole: oversized() made sure all its lines fit in part 1.
     record, error = resolution(), oversized()
     if record is not None:
-        blocks.append(("resolution", "resolution",
-                       RESOLUTION_HEAD + "".join(line + "\n" for line in resolution_lines(record))))
+        add("resolution", "resolution", RESOLUTION_HEAD + "".join(line + "\n" for line in resolution_lines(record)))
     elif error:
-        blocks.append(("resolution", "resolution", RESOLUTION_HEAD + error + "\n"))
+        add("resolution", "resolution", RESOLUTION_HEAD + error + "\n")
     for name, text, path in sources(base, failures):
         for index, (name, heading, section) in enumerate(sections(name, text)):
             shown = name if len(name) <= 100 else name[:99] + "…"
             banner = f"\n===== House Rules file {shown} =====\n" if index == 0 else ""
-            if units(banner + section) > limit:
+            fits = packed and units(packed[-1][2] + banner + section) <= capacity(len(packed), notice)
+            room = capacity(len(packed), notice) if fits else capacity(len(packed) + 1, notice)  # where it starts
+            if units(banner + section) > room:
                 too_long.append((name, heading))
                 section = (f"{ERROR} the section \"{heading[:100]}\" is {units(section)} characters, more than the "
-                           f"{limit} one part holds, so it is not in this context. Read it from {path}.\n")
-            blocks.append((name, heading, banner + section))
-    packed = []
-    for name, heading, text in blocks:
-        if not packed or units(packed[-1][2] + text) > limit:
-            packed.append((name, heading, text))
-        else:
-            packed[-1] = (*packed[-1][:2], packed[-1][2] + text)
-    return revision(base), packed, too_long
+                           f"{room} one part holds, so it is not in this context. Read it from {path}.\n")
+            add(name, heading, banner + section)
+    return packed, too_long
 
 
 def fingerprint(packed):
@@ -333,6 +350,37 @@ def label(number, total, rev, text_id, name, heading):
             f"starts at {name}, heading \"{heading}\" =====")
 
 
+def introduction(total, text_id):
+    """Part 1's account of how to read the parts."""
+    governs = ("Part 1's resolution governs: read INDEX.md and every context file its resolution lines list, "
+               "each inside the tree line of its layer, directly. A listed file that cannot be read means the "
+               "files changed: say so and start a new session." if resolution()
+               else f"Read the files from {delivered()} directly.")
+    return (f"House Rules INDEX.md, its always-load rules, the operator-writing skill and this computer's "
+            f"{LOCAL_INDEX}, then any custom layer's context files, follow in full, in {total} parts. "
+            "They apply to every reply in this session. The parts can arrive in any order: read them in "
+            f"part-number order. Each part names the file and heading it starts at. Every part names text "
+            f"{text_id}. A missing part number, or a part with another part count or text, means the parts "
+            f"were cut from different resolutions or the files changed while they were read. {governs}")
+
+
+def end_line(number, total):
+    return f"===== End of House Rules part {number} of {total} ====="
+
+
+@functools.lru_cache(maxsize=None)
+def capacity(number, notice=False):
+    """The characters part `number` holds for its text: the cap minus the most its label, part 1's introduction,
+    the overflow notice when `notice` is set, and its end line can take, with paths and names at their length."""
+    most = 10 ** len(str(SLOTS * 100))  # a part count with more digits than any real one
+    used = units(label(most, most, "0" * 12, "0" * 12, "n" * 100, "h" * 100)) + units(end_line(most, most)) + 4
+    if number == 1:
+        used += units(introduction(most, "0" * 12)) + 1
+    if notice and number in (1, SLOTS):
+        used += units(overflow(most)) + 1
+    return CAP - used
+
+
 def render(number, rev, packed):
     """The text of one part, with its label; part 1 also says how to read the parts."""
     total = len(packed)
@@ -342,20 +390,11 @@ def render(number, rev, packed):
     text_id = fingerprint(packed)
     lines = [label(number, total, rev, text_id, name, heading)]
     if number == 1:
-        governs = ("Part 1's resolution governs: read INDEX.md and every context file its resolution lines list, "
-                   "each inside the tree line of its layer, directly." if resolution()
-                   else f"Read the files from {delivered()} directly.")
-        lines.append(f"House Rules INDEX.md, its always-load rules, the operator-writing skill and this computer's "
-                     f"{LOCAL_INDEX}, then any custom layer's context files, follow in full, in {total} parts. "
-                     "They apply to every reply in this session. The parts can arrive in any order: read them in "
-                     f"part-number order. Each part names the file and heading it starts at. Every part names text "
-                     f"{text_id}. A missing part number, or a part with another part count or text, means the parts "
-                     f"were cut from different resolutions or the files changed while they were read. {governs}")
+        lines.append(introduction(total, text_id))
     if total > SLOTS and number in (1, SLOTS):
         lines.append(overflow(total))
     # The body keeps its own trailing newlines, so blank source lines survive the split.
-    output = "\n".join(lines) + "\n" + text + ("" if text.endswith("\n") else "\n") + \
-        f"===== End of House Rules part {number} of {total} ====="
+    output = "\n".join(lines) + "\n" + text + ("" if text.endswith("\n") else "\n") + end_line(number, total)
     if units(output) >= CAP:
         raise ValueError(f"part {number} is {units(output)} characters, over the {CAP}-character cap")
     return output
@@ -466,7 +505,31 @@ def valid_issue(item):
             and isinstance(item.get("body"), str))
 
 
+def default_script():
+    """The global default's own session script when this run gives the default's rules for a resolution too large
+    for part 1. Run as exec's fallback runs it, it reads its own tree's files in whatever format that tree has."""
+    tree = default_tree() if oversized() else None
+    script = tree / "scripts" / "session_context.py" if tree is not None else None
+    return script if script is not None and script.is_file() else None
+
+
+def run_default(script, *argv):
+    """The default script's output for `argv`, started with no resolution record, before the hook's deadline."""
+    environ = {name: value for name, value in os.environ.items() if name != "HOUSE_RULES_RESOLVED"}
+    ends = os.environ.get("HOUSE_RULES_DEADLINE")
+    try:
+        proc = subprocess.run([sys.executable, "-I", str(script), *argv], stdin=subprocess.DEVNULL,
+                              capture_output=True, env=environ,
+                              timeout=max(0.1, float(ends) - time.time()) if ends else None)
+    except subprocess.TimeoutExpired:
+        raise ValueError(f"the global default's {script} did not finish before the hook deadline") from None
+    return proc.stdout.decode("utf-8", "replace").rstrip("\n")
+
+
 def claude(number):
+    script = default_script()
+    if script is not None:
+        return oversized() + "\n" + run_default(script, "claude", str(number))
     rev, packed, _ = parts()
     return render(number, rev, packed)
 
@@ -478,10 +541,18 @@ def every_part(failures=None):
     sections too long for a part, and parts beyond SLOTS.
     """
     failures = [] if failures is None else failures
+    script = default_script()
+    if script is not None:
+        failures.append("the resolution, too large for part 1")
+        try:
+            given = json.loads(run_default(script, "codex"))["hookSpecificOutput"]["additionalContext"]
+        except (KeyError, TypeError) as error:
+            raise ValueError(f"the global default's {script} gave no session context ({error})") from None
+        return oversized() + "\n" + given
     rev, packed, too_long = parts(failures=failures)
     if oversized():
         failures.append("the resolution, too large for part 1")
-    if handed() is None and root().parent.name == "revisions":  # only exec's fallback runs a cached tree bare
+    if exec_fallback():
         failures.append("the repository's resolution, which failed")
     failures.extend(f"{name}, heading \"{heading}\"" for name, heading in too_long)
     if len(packed) > SLOTS:

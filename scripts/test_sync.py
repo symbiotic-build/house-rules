@@ -1334,8 +1334,9 @@ class SessionContextTests(unittest.TestCase):
         path.write_text(text, encoding="utf-8")
 
     def rendered(self):
-        rev, packed, _ = context.parts(self.root)
+        context.capacity.cache_clear()  # a part's room depends on the tree's path, which each test sets
         with mock.patch.object(context, "root", return_value=self.root):
+            rev, packed, _ = context.parts(self.root)
             return [context.render(number, rev, packed) for number in range(1, len(packed) + 1)]
 
     def bodies(self, outputs):
@@ -1398,6 +1399,17 @@ class SessionContextTests(unittest.TestCase):
         self.assertIn(f"HOUSE RULES HOOK ERROR: {self.root / 'rules/writing.md'} is missing.", text)
         self.assertIn("# Operator writing", text)
 
+    def test_a_long_checkout_path_keeps_a_nearly_full_section(self):
+        self.root = self.root.joinpath(*(letter * 100 for letter in "defgh"))  # a 500-character checkout path
+        self.write("INDEX.md", "# Index\n\n## Always load\n\n- [core](rules/core.md)\n")
+        self.write("rules/core.md", "# Core rules\n\n## Big\n\n" + "w " * 4300 + "\n")
+        self.write("ruleset.json", json.dumps({"version": 1, "context": ["rules/core.md"]}))
+        outputs = self.rendered()
+        text = "".join(outputs)
+        self.assertNotIn(context.ERROR + " the section", text)
+        self.assertIn("## Big\n\n" + "w " * 4300 + "\n", text)  # the whole section, in the part it starts
+        self.assertTrue(all(context.units(output) < context.CAP for output in outputs))
+
     def test_section_longer_than_a_part_is_a_visible_error_and_never_split(self):
         self.write("rules/core.md", "# Core rules\n\n## Long section\n\n" + "word " * 3000 + "\n\n## Short\n\nKept.\n")
         _, packed, too_long = context.parts(self.root)
@@ -1414,9 +1426,9 @@ class SessionContextTests(unittest.TestCase):
         slots = len(packed) - 1
         with mock.patch.object(context, "SLOTS", slots), mock.patch.object(context, "root", return_value=self.root):
             first, last = context.claude(1), context.claude(slots)
-        message = f"HOUSE RULES HOOK ERROR: the rules need {len(packed)} parts but the hook delivers only {slots}"
-        self.assertIn(message, first)
-        self.assertIn(message, last)
+        message = rf"HOUSE RULES HOOK ERROR: the rules need (\d+) parts but the hook delivers only {slots}, "
+        self.assertGreater(int(re.search(message, first).group(1)), slots)  # the notice's room can add a part
+        self.assertRegex(last, message)
         for output in (first, last):
             self.assertLess(context.units(output), context.CAP)
 
@@ -1752,6 +1764,15 @@ class ApprovedWorkListingTests(unittest.TestCase):
                 self.HEAD,
                 "- example-org/tool#7 Ship the cache — Owner: lane-3, after the parser PR",
                 "- example-org/tool#9 No owner yet — Owner: no Owner: line"]))
+
+    def test_the_configuration_folder_lists_without_its_machine_index(self):
+        self.configure("base-org\n")
+        config = Path(self.tmp.name) / "config"
+        (config / "house-rules" / "custom").mkdir(parents=True)  # no INDEX.md beside the file
+        (config / "house-rules" / "custom" / "approved-work.conf").write_text("config-org\n")
+        with self.fake_gh("[]"), mock.patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config)}):
+            self.assertEqual(context.approved(self.base), "")
+        self.assertEqual((self.bin / "calls").read_text().split()[2:4], ["--owner", "config-org"])
 
     def test_comments_are_not_scopes(self):
         self.configure("example-org  # approved backlog\n   # indented comment\n")
