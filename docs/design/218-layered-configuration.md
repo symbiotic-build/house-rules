@@ -66,18 +66,17 @@ Each technical term below links to its defining Markdown section.
 
 - [Command environment variables](218-layered-configuration.md#environment-variables) (`layered-configuration.command-environment-variable`) — A command environment variable is an environment variable of the House Rules command: a variable whose name the command defines and reads, or sets for a script it starts.
 - [Configuration origin](218-layered-configuration.md#configuration-origin) (`layered-configuration.configuration-origin`) — A configuration origin is the file or commit from which a consumer reads the repository configuration.
-- [Effective configuration](218-layered-configuration.md#effective-configuration) (`layered-configuration.effective-configuration`) — The effective configuration is the result of applying every layer file, the repository configuration and the machine files in order, with the layer that set each value recorded beside it.
-- [Global configuration](218-layered-configuration.md#global-configuration) (`layered-configuration.global-configuration`) — The global configuration is the per-user JSON file ~/.config/house-rules/house-rules.json that supplies default sources for repositories without a repository configuration, machine budgets and personal checks.
+- [Effective configuration](218-layered-configuration.md#effective-configuration) (`layered-configuration.effective-configuration`) — The effective configuration is the result of applying every ruleset, the repository configuration and the global configuration in order, with the layer that set each value recorded beside it.
+- [Global configuration](218-layered-configuration.md#global-configuration) (`layered-configuration.global-configuration`) — The global configuration is the per-user JSON file ~/.config/house-rules/house-rules.json that supplies default sources for repositories without a repository configuration, machine-only budgets and personal checks.
 - [House Rules command](218-layered-configuration.md#house-rules-command) (`layered-configuration.house-rules-command`) — The House Rules command is scripts/house_rules.py, one standard-library Python file that resolves layers, manages the version cache and links, and starts House Rules scripts at the resolved version.
-- [Isolated Git environment](218-layered-configuration.md#git-isolation) (`layered-configuration.isolated-git-environment`) — An isolated Git environment is the set of environment variables and the temporary Git folder in which the checks runner starts every check, so that no Git setting except the repository configuration's git_settings reaches it.
-- [Layer file](218-layered-configuration.md#layer-file) (`layered-configuration.layer-file`) — A layer file is a JSON file inside a source layer's repository that supplies that layer's settings: checks/base.json, applied always, and checks/profiles/<profile>.json, applied when the repository chose that profile.
+- [Isolated Git environment](218-layered-configuration.md#git-isolation) (`layered-configuration.isolated-git-environment`) — An isolated Git environment is the set of environment variables with which the checks runner starts every check, so that no system or personal Git setting reaches it.
 - [Run placeholder for layers](218-layered-configuration.md#run-placeholder-layer) (`layered-configuration.layer-placeholder`) — The run placeholder {layer} is the absolute path of the tree of the layer whose file defined the check's run.
 - [Link mode](218-layered-configuration.md#link-mode) (`layered-configuration.link-mode`) — Link mode is the developer mode in which a source layer reads the working tree of a local checkout instead of a fetched commit.
-- [Local configuration](218-layered-configuration.md#local-configuration) (`layered-configuration.local-configuration`) — The local configuration is the untracked JSON file house-rules.local.json at a repository's root that holds machine-only budgets for that clone.
 - [Offline resolution](218-layered-configuration.md#offline-use) (`layered-configuration.offline-use`) — Offline resolution is resolution without a network, from what the version cache already holds.
-- [Repository profile](218-layered-configuration.md#profile) (`layered-configuration.profile`) — A repository profile is a named set of layer settings for one kind of repository, such as rust, that a repository selects in profiles and every layer may define in checks/profiles/<profile>.json.
+- [Repository profile](218-layered-configuration.md#profile) (`layered-configuration.profile`) — A repository profile is a named set of layer settings for one kind of repository, such as rust, that a repository selects in profiles and every layer may define in its ruleset's profiles.
 - [Repository configuration](218-layered-configuration.md#repository-configuration) (`layered-configuration.repository-configuration`) — A repository configuration is the versioned JSON file house-rules.json at a repository's root that lists its source layers, its profiles and its own settings.
 - [Resolution record](218-layered-configuration.md#resolution-record) (`layered-configuration.resolution-record`) — A resolution record is the account of one resolution: the repository, the configuration origin, and for each layer its name, URL, ref, commit, source and fetch time.
+- [Ruleset](218-layered-configuration.md#ruleset) (`layered-configuration.ruleset`) — A ruleset is the JSON file ruleset.json at the root of a source layer's repository that holds that layer's defaults: what applies always, and what applies per profile.
 - [Source layer](218-layered-configuration.md#source-layer) (`layered-configuration.source-layer`) — A source layer is one entry of sources: a Git repository, named by name and url, at one ref.
 - [Version cache](218-layered-configuration.md#version-cache) (`layered-configuration.version-cache`) — The version cache is the per-user folder that holds one read-only file tree per commit, and each source's branch answers.
 - [Version resolution](218-layered-configuration.md#version-resolution) (`layered-configuration.version-resolution`) — Version resolution is the procedure that turns each source layer's ref into one commit and makes that commit's files available in the version cache.
@@ -105,7 +104,6 @@ This section records how House Rules reaches tools today, which parts this desig
 
 - It reads `.agents/checks.json` from the snapshot being checked and always runs House Rules `main`. It resolves `main` with `git ls-remote` and keeps one read-only tree per commit in a per-user cache.
 - Offline it uses the main last fetched, with a warning. `HOUSE_RULES_REVISION` runs another commit for one deliberate test run, and the report marks it.
-- A runner at another revision hands the run to the runner at the resolved revision, through the environment variables `HOUSE_RULES_RESOLVED` and `HOUSE_RULES_SNAPSHOT`.
 - Each report logs the House Rules revision and the SHA-256 of each check's program and scripts.
 - The issue that asks for custom [source layers](#source-layer) in this runner is [#217](https://github.com/symbiotic-build/house-rules/issues/217); this design includes it.
 
@@ -130,23 +128,27 @@ Follow one repository from its configuration to a refused commit, a passing CI r
 The repository is a Rust service in a team that keeps shared rules in one repository, `team-rules`, and shared Rust settings in another, `rust-settings`.
 The team follows `team-rules` at its latest commit and pins `rust-settings` to one reviewed commit.
 
-**Procedure: write the configuration, commit, push and start a session**
+**Procedure: write the configuration, install the checks, commit, push and start a session**
 
 1. **Install the command once on the machine:** `python3 <House Rules checkout>/scripts/house_rules.py install`.
-   - Copies the command to `~/.local/bin/house-rules` and registers the agent session hooks.
+   - Copies the command to `~/.local/bin/house-rules`, prepares the global default's House Rules tree and registers the agent session hooks.
    - Writes nothing in any repository.
 2. **Write the [repository configuration](#repository-configuration):** `house-rules init` in the repository.
    - Finds `Cargo.toml` and `docs/ENTITIES.json`, so it writes the profiles `rust` and `specs`.
    - The team then adds its two layers to `sources` by hand.
 3. **Resolve and look at the result:** `house-rules resolve`.
-   - Prints one line per layer with its ref and the commit it resolved to.
+   - Prints one line per layer with its URL, ref and the commit it resolved to.
    - Fetches each missing commit into the [version cache](#version-cache).
-4. **Commit a change with trailing whitespace.**
+4. **Install the repository checks:** `house-rules exec skills/repository-checks/scripts/checks.py install --ci github`, as the [check installation](194-repository-checks.md#check-installation) of the repository checks design describes.
+   - Writes the pre-commit and pre-push [hook blocks](194-repository-checks.md#hook-block) and, because of `--ci github`, the CI workflow, also in a repository without `.github/workflows/`.
+   - The hook blocks start the installed command, so no hook names a path inside the cache.
+5. **Stage and commit the adoption:** `git add house-rules.json .github/workflows/repository-checks.yml`, then commit through a reviewed PR.
+6. **Stage and commit a change with trailing whitespace:** `git add src/main.rs`, then `git commit`.
    - The pre-commit hook resolves the same layers from the staged configuration.
    - The whitespace check fails; Git refuses the commit.
-5. **Fix it and commit again.** Every check passes.
-6. **Push the branch.** CI resolves the same layers from the pushed commit and passes. Its log names the same commits.
-7. **Start an agent session in the repository.**
+7. **Fix it, stage it and commit again.** Every check passes.
+8. **Push the branch.** CI resolves the same layers from the pushed commit and passes. Its log names the same commits.
+9. **Start an agent session in the repository.**
    - The session hook resolves from the repository's working tree.
    - It prints the House Rules rules of the resolved commit, then the rule file that `team-rules` adds.
 
@@ -168,32 +170,35 @@ The team follows `team-rules` at its latest commit and pins `rust-settings` to o
 >
 > `house-rules` needs no `url`, because it is always House Rules. `main` is a branch, so every run uses its latest commit. The 40-digit `ref` is a commit, so `rust-settings` changes only through a reviewed PR that edits this line.
 
-> **Detail — [layer files](#layer-file) the three sources supply**
+> **Detail — the [rulesets](#ruleset) of the three sources**
 >
-> - House Rules `checks/base.json` defines the `whitespace` and `spec-docs` checks. Its `checks/profiles/rust.json` defines no check yet.
-> - `team-rules` `checks/base.json` sets the pre-commit budget to 20 s and adds `rules/team.md` to the session context.
-> - `rust-settings` `checks/profiles/rust.json` adds a check `cargo-deny` that runs in CI only, and moves `spec-docs` to pre-push with a reason.
+> - House Rules `ruleset.json` defines the `whitespace` and `spec-docs` checks and lists its always-load rules in `context`. Its `rust` profile is empty.
+> - `team-rules` [`ruleset.json`](#ruleset) sets the pre-commit budget to 20 s and adds `rules/team.md` to the session context.
+> - `rust-settings` [`ruleset.json`](#ruleset) has only a `rust` profile, which adds a check `cargo-deny` that runs in CI only and moves `spec-docs` to pre-push with a reason.
 
 > **Detail — output of step 3**
 >
 > ```text
 > house-rules: repository /work/service, configuration house-rules.json (working tree)
-> house-rules: layer house-rules   ref main   -> 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e (fetched 2026-10-24T09:00:00Z)
-> house-rules: layer team-rules    ref main   -> 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80 (fetched 2026-10-24T09:00:01Z)
-> house-rules: layer rust-settings ref 3f2a9c0d41b7e65a8c1d2b3f4e5a6b7c8d9e0f1a (pinned)
+> house-rules: layer house-rules   https://github.com/symbiotic-build/house-rules ref main -> 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e (fetched 2026-10-24T09:00:00Z)
+> house-rules: layer team-rules    https://git.example.com/team/team-rules ref main -> 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80 (fetched 2026-10-24T09:00:01Z)
+> house-rules: layer rust-settings https://git.example.com/team/rust-settings ref 3f2a9c0d41b7e65a8c1d2b3f4e5a6b7c8d9e0f1a (pinned, fetched 2026-10-23T16:40:12Z)
 > house-rules: profiles rust, specs
 > ```
 >
-> The commits and times are illustrative. Every layer line names the full commit, so a reader can compare any two logs.
+> The commits and times are illustrative. Every layer line names the URL as written, which never holds credentials, the ref, the full commit and when the cache received it, so a reader can compare any two logs.
 
 > **Detail — check report of step 4**
 >
 > ```text
 > repository checks: pre-commit on the staged index
-> house-rules: layer house-rules   ref main   -> 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e (reused, fetched 2026-10-24T09:00:00Z)
-> house-rules: layer team-rules    ref main   -> 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80 (reused, fetched 2026-10-24T09:00:01Z)
-> house-rules: layer rust-settings ref 3f2a9c0d41b7e65a8c1d2b3f4e5a6b7c8d9e0f1a (pinned)
+> house-rules: repository /work/service, configuration house-rules.json (index)
+> house-rules: layer house-rules   https://github.com/symbiotic-build/house-rules ref main -> 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e (reused, fetched 2026-10-24T09:00:00Z)
+> house-rules: layer team-rules    https://git.example.com/team/team-rules ref main -> 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80 (reused, fetched 2026-10-24T09:00:01Z)
+> house-rules: layer rust-settings https://git.example.com/team/rust-settings ref 3f2a9c0d41b7e65a8c1d2b3f4e5a6b7c8d9e0f1a (pinned, fetched 2026-10-23T16:40:12Z)
+> house-rules: profiles rust, specs
 > FAIL  whitespace   0.1 s
+>       version: /usr/bin/git@9b04e1c7d2aa
 >       src/main.rs:12: trailing whitespace.
 >       fix: remove the trailing whitespace the output names, stage the fix and commit again
 > settings:
@@ -202,15 +207,15 @@ The team follows `team-rules` at its latest commit and pins `rust-settings` to o
 > Commit refused: 1 of 1 checks failed. Fix the findings, stage the fixes and commit again.
 > ```
 >
-> Spec-docs is not listed, because its effective stages no longer include pre-commit; a check not configured for the stage does not appear in the report. `reused` means the run took the commit that another run resolved less than 60 s earlier, as [Version resolution](#version-resolution) explains. The `settings` block lists every effective value that a later layer changed, with the layer that set it.
+> Spec-docs is not listed, because its effective stages no longer include pre-commit; a check not configured for the stage does not appear in the report. The `version:` line is the check's version, the SHA-256 of its program, as the runner PRs log it. `reused` means the run took the commit that another run resolved less than 60 s earlier, as [Version resolution](#version-resolution) explains. The `settings` block lists every effective value that a later layer changed, with the layer that set it.
 
 Each later chapter explains one part of this tour: the files in [Configuration files and layers](#configuration), how a ref becomes a commit in [Resolving a version](#resolving), and how each tool finds its configuration in [Consumers](#consumers).
 
 <a id="configuration"></a>
 ## Configuration files and layers
 
-This chapter defines the four files a configuration can come from and how their entries combine into one [effective configuration](#effective-configuration).
-A repository's choices live in one tracked file; machine-only values live in two untracked files that can only warn.
+This chapter defines the three kinds of file a configuration can come from and how their entries combine into one [effective configuration](#effective-configuration).
+A repository's choices live in one tracked file, each rule repository's defaults in its [ruleset](#ruleset), and machine-only values in one per-user file that can only warn.
 
 <a id="repository-configuration"></a>
 ### Repository configuration
@@ -225,14 +230,13 @@ The file has six top-level fields:
 - `profiles` lists [profile](#profile) names in order. It is optional and defaults to none.
 - `budgets` maps a [check stage](194-repository-checks.md#check-stage) to an entry with `seconds` and `reason`, as the repository checks design defines.
 - `checks` maps a check identity to an entry, with the fields of the [check configuration](194-repository-checks.md#check-configuration).
-- `git_settings` maps a Git configuration key to a string value. They are the only Git settings a check sees, as [Isolated Git environment](#git-isolation) explains.
+- There is no field for Git settings. A file that still has `git_settings` stops with the unknown-field error, as the [no Git settings decision](#decision-no-git-settings) records.
 
 The tour's file lists three sources and two profiles and changes no check. The exact schema is in [the schema reference](#schema-repository).
 
 The runner PR [#212](https://github.com/symbiotic-build/house-rules/pull/212) introduces this file with exactly one source, the `house-rules` layer, and refuses a second source with a configuration error that names [#217](https://github.com/symbiotic-build/house-rules/issues/217). This design adds custom layers, profiles and their merge to that file; it renames nothing.
-A repository that has `.agents/checks.json`, the name of an earlier runner draft, and no `house-rules.json` stops with a configuration error that names the rename.
 
-Only this file lists layers. A [layer file](#layer-file) that lists sources is refused, so no layer can pull further repositories into a run that the repository did not list.
+Only this file lists layers. A [ruleset](#ruleset) that lists sources is refused, so no layer can pull further repositories into a run that the repository did not list.
 
 <a id="source-layer"></a>
 ### Source layer
@@ -243,41 +247,41 @@ Layers let a team share rules and settings in their own repositories, after Hous
 Each layer entry has three fields:
 
 - `name` is the layer's name in logs and reports, in lower kebab case, unique in the list. The first layer is always `house-rules`, and no other layer may use that name.
-- `url` is the repository to fetch. The `house-rules` layer may omit it; its default is `https://github.com/symbiotic-build/house-rules`. Every other layer needs it.
-- `ref` is a branch name or a full commit identity. It is optional and defaults to `main`.
+- `url` is the repository to fetch. The `house-rules` layer may omit it; its default is `https://github.com/symbiotic-build/house-rules`. Every other layer needs it. A URL that carries a password, or any user name over `http` or `https`, stops resolution with a configuration error that says to use a Git credential helper, as the [credentials decision](#decision-no-credentials) records. An `ssh` login without a password is part of the URL. A URL in Git's `<transport>::<address>` form, such as `https::https://host/rules`, stops resolution too, because the address inside escapes that check. The form is detected as Git detects it: the URL starts with `::`, or with a letter or digit, then letters, digits, `+`, `-` or `.`, then `::`. An scp-like address such as `[::1]:rules` is not that form.
+- `ref` is a branch name, a full commit identity or an exact release tag. It is optional and defaults to `main`.
 
-A `ref` of 40 or 64 hexadecimal digits is a commit; any other value is a branch name.
+A `ref` of 40 hexadecimal digits is a commit. A `ref` of 64 hexadecimal digits, a SHA-256 commit, stops resolution with "SHA-256 sources are not supported yet", as the [SHA-1 sources decision](#decision-sha1-sources) records; it is never taken as a branch name. A `ref` of the form `v<major>.<minor>.<patch>`, digits only, such as `v1.4.0`, is a release tag. Any other value is a branch name.
 A branch always resolves to its latest commit, so a layer that follows `main` gets every change at the next run.
 A commit is a deliberate pin: it is visible in the file and changes only through a reviewed PR.
-Tags and other references are not refs; a value such as `v1` is read as the branch `v1`, and a missing branch stops resolution with an error naming it.
+A release tag is a named pin: it resolves to its commit once, and that answer never changes on this machine, as [Version resolution](#version-resolution) explains. House Rules publishes such tags with a changelog entry; [#225](https://github.com/symbiotic-build/house-rules/issues/225) tracks that release step. A version range such as `v1` or `^1.4` is not a release tag; it is read as a branch name, and a missing branch stops resolution with an error naming it. Release tags arrive with the resolver ([#222](https://github.com/symbiotic-build/house-rules/pull/222)); until the checks runner uses it, the runner of [#212](https://github.com/symbiotic-build/house-rules/pull/212) reads `v1.4.0` as a branch name and stops with its missing-branch error.
 
 In the tour, `team-rules` follows `main` and `rust-settings` is pinned to `3f2a9c0…`.
 
 Listing a source trusts its content like a dependency, because a layer's check definitions run its commands.
 A commit pin is how a repository makes that trust reviewed: the pinned content changes only in a PR that changes the pin.
 
-<a id="layer-file"></a>
-### Layer file
+<a id="ruleset"></a>
+### Ruleset
 
-A layer file is a JSON file inside a source layer's repository that supplies that layer's settings: `checks/base.json`, applied always, and `checks/profiles/<profile>.json`, applied when the repository chose that profile.
-Every source, House Rules included, uses the same two paths, so House Rules is one layer among others and a custom repository needs no other format.
+A ruleset is the JSON file `ruleset.json` at the root of a source layer's repository that holds that layer's defaults: what applies always, and what applies per [profile](#profile).
+Every source, House Rules included, has the same one file, so House Rules' defaults are just the first ruleset and a team's rules repository needs no other format.
 
-A layer file has four fields, each optional except `version`:
+A ruleset has five fields, each optional except `version`:
 
 - `version` is 1.
-- `checks` maps a check identity to an entry. An entry for an identity no earlier file defined is a full [check definition](194-repository-checks.md#check-definition); an entry for an existing identity changes it field by field.
+- `context` lists Markdown files of this layer, relative to its repository root, that agent sessions receive, in order.
+- `checks` maps a check identity to an entry. An entry for an identity no earlier step defined is a full [check definition](194-repository-checks.md#check-definition); an entry for an existing identity changes it field by field.
 - `budgets` maps a check stage to an entry with `seconds` and `reason`.
-- `context` lists Markdown files of this layer, relative to its repository root, that agent sessions receive after the House Rules rules.
+- `profiles` maps a profile name to an entry with the same `context`, `checks` and `budgets` fields, applied when the repository selected that profile. A profile entry holds no `profiles` of its own.
 
-A layer file may also set `enforced` in a check entry. The repository configuration and the machine files cannot, so only a layer decides whether a check's failure refuses a commit or only warns, as [New built-in checks warn first](194-repository-checks.md#check-definition) describes in the repository checks design.
+`checks` and `budgets` have exactly the shapes of the [repository configuration](#repository-configuration)'s, so one entry moves between a ruleset and a repository's `house-rules.json` unchanged. The one difference: only a ruleset may set `enforced` in a check entry, so only a layer decides whether a check's failure refuses a commit or only warns, as [New built-in checks warn first](194-repository-checks.md#check-definition) describes in the repository checks design.
 
 A check command of a layer can name files of its own layer with the [run placeholder](#run-placeholder-layer) `{layer}`, so a team ships a check script in its rules repository.
-House Rules' own built-in checks move from the runner's code into House Rules `checks/base.json`.
 
-A missing layer file is no error: a source without `checks/base.json` contributes nothing at that step.
-A layer file that is not valid JSON, has an unknown field or lists `sources` stops resolution with a configuration error naming the file and its layer.
+A missing `ruleset.json` is no error: that source contributes nothing.
+A ruleset that is not valid JSON, has an unknown field or lists `sources` stops resolution with a configuration error naming the file and its layer.
 
-> **Detail — the tour's `team-rules` `checks/base.json`**
+> **Detail — the tour's `team-rules` [`ruleset.json`](#ruleset)**
 >
 > ```json
 > {
@@ -287,15 +291,23 @@ A layer file that is not valid JSON, has an unknown field or lists `sources` sto
 > }
 > ```
 
+House Rules' own [`ruleset.json`](#ruleset) holds its defaults in the same format:
+
+- Its `context` lists the always-load rule files that `INDEX.md` names, in the same order, then the operator-writing skill that every session receives today. Session hooks deliver these files through the same `context` mechanism as a team's files.
+- Its `checks` holds the built-in checks `whitespace` and `spec-docs`, which move into it from the runner's code.
+- Its profiles are empty entries until a language default needs a check or a file.
+
+`INDEX.md` stays the human index. A test in House Rules' CI refuses a change after which `INDEX.md`'s always-load list is not the start of the ruleset's `context`, in the same order.
+
 <a id="profile"></a>
 ### Repository profile
 
-A repository profile is a named set of layer settings for one kind of repository, such as `rust`, that a repository selects in `profiles` and every layer may define in `checks/profiles/<profile>.json`.
+A repository profile is a named set of layer settings for one kind of repository, such as `rust`, that a repository selects in `profiles` and every layer may define in its [ruleset](#ruleset)'s `profiles`.
 Profiles let a layer ship language-specific checks that only repositories of that kind receive.
 
 House Rules defines five profiles: `rust`, `typescript`, `python`, `svelte` and `specs`.
-At the first implementation none of them defines a check; each file has `version` 1 and nothing else. A later House Rules PR adds language checks to them, warning first, as [#218](https://github.com/symbiotic-build/house-rules/issues/218) tracks.
-`spec-docs` stays in `checks/base.json`, because it skips itself in a repository without `docs/DOCUMENTS.json`, and the repository checks design promises that a repository starts checking specifications when it adds one.
+At the first implementation none of them defines a check; each is an empty entry in House Rules' ruleset. A later House Rules PR adds language checks to them, warning first, as [#218](https://github.com/symbiotic-build/house-rules/issues/218) tracks.
+`spec-docs` stays in the ruleset's top-level `checks`, because it skips itself in a repository without `docs/DOCUMENTS.json`, and the repository checks design promises that a repository starts checking specifications when it adds one.
 
 A profile name that no layer defines stops resolution with a configuration error, because it is most likely a spelling mistake.
 
@@ -314,7 +326,7 @@ No tool detects profiles at run time. A repository that adds a language later ed
 <a id="global-configuration"></a>
 ### Global configuration
 
-The global configuration is the per-user JSON file `~/.config/house-rules/house-rules.json` that supplies default sources for repositories without a repository configuration, machine budgets and personal checks.
+The global configuration is the per-user JSON file `~/.config/house-rules/house-rules.json` that supplies default sources for repositories without a repository configuration, machine-only budgets and personal checks.
 It serves one person on one machine and can never change whether a repository's declared checks pass.
 
 The file has four fields:
@@ -330,47 +342,36 @@ The folder also holds `links.json`, written by [link mode](#link-mode), and `cus
 A problem in this file never stops a check run. An invalid file, or a personal check that names a check the repository already has, is ignored with a warning that names it.
 Resolution for a repository without a repository configuration is the one exception: it needs the file's `sources`, so an invalid file stops that resolution with a configuration error.
 
-<a id="local-configuration"></a>
-### Local configuration
-
-The local configuration is the untracked JSON file `house-rules.local.json` at a repository's root that holds machine-only budgets for that clone.
-It lets one machine, such as a slow laptop, raise a budget without a repository change.
-
-It has one field, `budgets`, with the shape the repository configuration uses. Any other field is a configuration error, because a file that seems to change a check but does not would mislead its owner. Neither the field nor that error can make a failing check pass.
-The runner reads it from the working tree, because it is never part of a commit.
-A tracked `house-rules.local.json` is ignored with a warning that says it must stay untracked, so a commit can never carry one machine's values to others.
-
 <a id="effective-configuration"></a>
 ### Effective configuration
 
-The effective configuration is the result of applying every layer file, the repository configuration and the machine files in order, with the layer that set each value recorded beside it.
+The effective configuration is the result of applying every [ruleset](#ruleset), the repository configuration and the global configuration in order, with the layer that set each value recorded beside it.
 It is what the checks runner and the session hooks use, and its provenance lets a report say where each value came from.
 
 The application order is fixed.
 
 **Procedure: build the effective configuration**
 
-1. **Each source layer, in `sources` order:** its `checks/base.json`, then its `checks/profiles/<profile>.json` for each profile in `profiles` order.
+1. **Each source layer, in `sources` order:** its ruleset's top level, then its `profiles.<name>` entry for each profile in the repository's `profiles` order.
 2. **The repository configuration:** its `budgets` and `checks`.
 3. **The global configuration:** its `budgets`, and its personal checks.
-4. **The local configuration:** its `budgets`.
 
-Steps 3 and 4 apply only in Git hooks and in commands run on the machine. CI has neither file, and a value from them only ever warns.
+Step 3 applies only in Git hooks and in commands run on the machine. CI has no global configuration, and a value from it only ever warns.
 
-An entry replaces an earlier entry with the same key field by field:
+One merge rule holds at every step:
 
-- A check entry `checks.<identity>` keeps every field the later entry does not set. A field's value is replaced whole; a list such as `stages` is one value, never merged element by element.
-- A budget entry `budgets.<stage>` works the same way, with its fields `seconds` and `reason`.
-- `context` files accumulate: each layer adds its own files after those of earlier layers.
+- A check entry `checks.<identity>` changes the earlier entry field by field: it keeps every field the later entry does not set. A field's value is replaced whole; a list such as `stages` is one value, never merged element by element. A new identity needs a full definition.
+- A budget entry `budgets.<stage>` replaces the earlier entry for that stage whole.
+- `context` files append: each step adds its files after those of earlier steps.
 
-Every entry that changes a value an earlier step set carries a `reason`, in a layer file as in the repository configuration.
+Every entry that changes a value an earlier step set carries a `reason`, in a ruleset as in the repository configuration; only House Rules' top level sets defaults without one.
 A field whose value equals the earlier value is no change and needs no reason.
 
-The layer label of a value is the source name, followed by `/` and the profile name for a profile file: `house-rules`, `house-rules/rust`, `team-rules`, `rust-settings/rust`. The last three steps are labelled `repository`, `global` and `local`.
+The layer label of a value is the source name, followed by `/` and the profile name for a profile entry: `house-rules`, `house-rules/rust`, `team-rules`, `rust-settings/rust`. The last two steps are labelled `repository` and `global`.
 
 > **Detail — the tour's `spec-docs` entry after each step**
 >
-> - `house-rules` (base): `stages` = `["pre-commit", "ci"]`, `enforced` = `true` and the full definition.
+> - `house-rules` (top level): `stages` = `["pre-commit", "ci"]`, `enforced` = `true` and the full definition.
 > - `rust-settings/rust`: `stages` = `["pre-push", "ci"]`, with the reason "Spec checks run at pre-push in Rust services." Every other field keeps its House Rules value.
 > - `repository`: no entry, so nothing changes.
 >
@@ -391,22 +392,27 @@ It runs once per run of any consumer, so every part of one run uses one set of c
 
 1. **Find the configuration** at the consumer's [configuration origin](#configuration-origin), and read its `sources`.
 2. **Apply a one-run override:** when [`HOUSE_RULES_REVISION`](#environment-variables) or [`HOUSE_RULES_LINK`](#environment-variables) is set, it replaces the `house-rules` layer, as [link mode](#link-mode) and the revision override explain.
-3. **Resolve each branch ref:** `git ls-remote <url> refs/heads/<branch>` names its latest commit. A record of the answer is kept in the cache.
-4. **Take each commit ref as it is.** It needs no network unless its files are missing.
-5. **Fetch each missing commit** into the version cache and extract its files.
-6. **Read the [layer files](#layer-file)** of every layer and build the [effective configuration](#effective-configuration).
-7. **Log the resolution** as the [resolution record](#resolution-record) defines.
+3. **Ask for each branch ref:** `git ls-remote <url> refs/heads/<branch>` names its latest commit.
+4. **Ask for each release tag without a record:** `git ls-remote <url> refs/tags/<tag> refs/tags/<tag>^{}` names its commit; for an annotated tag the `^{}` line does. A tag with a record is not asked again.
+5. **Take each commit ref as it is.** It needs no network unless its files are missing.
+6. **Fetch each missing commit** into the version cache and extract its files.
+7. **Publish each branch or tag answer:** only after its commit's tree is complete, the record in the cache is replaced. An interrupted or failed fetch therefore keeps the previous usable record.
+8. **Read the [rulesets](#ruleset)** of every layer and build the [effective configuration](#effective-configuration).
+9. **Log the resolution** as the [resolution record](#resolution-record) defines.
 
 > **Detail — resolution rules**
 >
-> - One process at a time resolves a branch of one source. It holds an advisory lock on that source's `lock` file in the cache for steps 3 and 5. The system releases the lock when the process ends, however it ends.
-> - A branch answer younger than 60 s is reused without asking the remote again, and the layer's source is `reused`. Twelve session hooks that start together therefore make one remote call and agree on one commit.
-> - Each fetch creates a new temporary bare repository in the cache, fetches the one commit with depth 1, extracts it into a temporary folder, renames that folder into place and deletes the repository, as the runner PRs already do for House Rules.
+> - One process of this command at a time resolves a branch or a new release tag of one source. It holds an advisory lock on that source's `lock` file in the cache for steps 3, 4, 6 and 7. The system releases the lock when the process ends, however it ends.
+> - No correctness depends on that lock. A record is replaced whole, and a tree is published once by a rename, so every reader sees a complete record and a complete tree. The lock only keeps parallel runs of this command from asking the remote and fetching one source at the same time, and it keeps a new tag's record to one answer among them. The checks runner of [#212](https://github.com/symbiotic-build/house-rules/pull/212) writes branch records without it. That is safe: every record it writes is a complete answer the remote gave, and when two writers race, the last one's answer stays until the next run asks again.
+> - A branch answer younger than 60 s is reused without asking the remote again, and the layer's source is `reused`. Twelve session hooks that start together therefore make one remote call. The window saves remote calls; it does not promise that parallel runs agree, because a run that starts just after the window ends asks again. How sessions detect a split is in [Agent sessions](#consumer-sessions).
+> - Each fetch creates a new temporary bare repository inside its source's cache folder, fetches the one commit with depth 1 and extracts it into a temporary folder there. It writes the commit's first-fetch time to `revisions/<commit>.fetched` once, create-only, keeping a file that is already there. Only then does it rename the temporary folder to `revisions/<commit>/` and delete the repository. A tree is ready when its folder exists, and an existing tree is never replaced: a fetch whose rename finds the folder already there removes its own copy and uses the existing tree, as the [tree readiness decision](#decision-tree-ready) records.
+> - A release tag's record is never replaced and never expires: a resolved tag stays pinned to the commit this machine saw first, also when the tag later moves on the remote, so a released version cannot change under a repository. Only [clearing the cache](#cache-clearing) removes that pin. A tag the remote does not have stops resolution with the missing-tag message. A tag with no record while the remote cannot be reached stops with "run again when online"; there is no earlier answer to fall back to.
 > - Fetching a commit by its identity needs a server that allows it. GitHub does. A server that refuses stops resolution with an error that names the commit and the server's answer.
-> - Every `ls-remote` and fetch passes `-c http.lowSpeedLimit=1 -c http.lowSpeedTime=30`, so Git stops a transfer that moves less than 1 byte per second for 30 s. Resolution adds no timer of its own.
-> - Messages show each URL without the user name and password of its authority; Git itself receives the full URL.
+> - Every `ls-remote` and fetch passes `-c http.lowSpeedLimit=1 -c http.lowSpeedTime=30`, so Git stops a transfer that moves less than 1 byte per second for 30 s. Resolution adds no timer of its own, except in hook mode.
+> - In hook mode (`house-rules exec --hook`), the agent product kills the hook after its timeout, 10 s, which would leave no visible line. `exec` owns one deadline for the whole hook, 8 s after the hook starts: lock waits, `ls-remote`, fetches and the started script all share it. `exec` passes it to the script in [`HOUSE_RULES_DEADLINE`](#environment-variables), so the script knows the time left. At the deadline during resolution, a branch takes the [offline resolution](#offline-use) path with the warning "the remote did not answer within 8 s", and a layer with nothing cached stops with the resolution failure below. A script that reaches the deadline stops its slow work and prints a visible line that names what was cut short. This is the one place House Rules stops on elapsed time, because the host's timeout is not progress-based and a killed hook reports nothing.
+> - Messages show each URL as written, because a source URL never carries credentials. A message that refuses a URL never shows it, because it may hold the credentials it refuses.
 
-A consumer that hands its run to a tool at another House Rules revision passes the resolution in [`HOUSE_RULES_RESOLVED`](#environment-variables), as the checks runner already does. The started tool uses it and resolves nothing again.
+`house-rules exec` passes the resolution to the script it starts in [`HOUSE_RULES_RESOLVED`](#environment-variables). The script uses it and resolves nothing again.
 
 <a id="version-cache"></a>
 ### Version cache
@@ -418,24 +424,23 @@ It makes every resolution after the first local and fast, and it is what an offl
 >
 > - The cache root is [`HOUSE_RULES_CACHE`](#environment-variables), or `$XDG_CACHE_HOME/house-rules`, or `~/.cache/house-rules`.
 > - `revisions/<commit>/` holds that commit's files, extracted with `git archive`, as in the runner PRs. A commit identifies its content, so a fork and its upstream share the tree of a common commit. Files are read-only; folders stay writable, so the cache can be removed.
-> - `revisions/<commit>.used` is an empty file whose modification time is the last resolution that used the commit.
-> - `sources/<source key>/` holds one source's branch answers and lock. The source key is the URL's host and path, lower-case host, without user name, password, port 443 or a trailing `.git`: `github.com/symbiotic-build/house-rules`.
-> - `sources/<source key>/branches/<branch>.json` records the last answer for one branch: `url` without user name and password, `branch`, `revision` and `fetched`, an ISO 8601 UTC time. The checks runner of [#212](https://github.com/symbiotic-build/house-rules/pull/212) writes the same record, so both tools share one answer. The source key follows #212's escaping: a character outside `[A-Za-z0-9._-]` is escaped, and a `file:` URL becomes `file/<absolute path>`.
-> - `sources/<source key>/lock` is the empty file whose lock serializes resolution of that source.
+> - `revisions/<commit>.fetched` holds one line, the ISO 8601 UTC time the cache first received the commit's files. It is written once, create-only, before the tree is renamed into place, and never changed.
+> - `sources/<source hash>/` holds one source's files. The source hash is the lowercase hexadecimal SHA-256 of the source's URL exactly as written, in UTF-8, so every folder name has the same length and none collides with another file. Two spellings of one URL are two sources; an `ssh` login is part of the URL and keeps two accounts apart.
+> - `sources/<source hash>/branches/<branch hash>.json` records the last published answer for one branch. The branch hash is the lowercase hexadecimal SHA-256 of the branch name's UTF-8 bytes, with undecodable bytes kept as they are (Python's `surrogateescape`). The record holds `url` as written, `branch`, `revision` and `fetched`, an ISO 8601 UTC time. A record belongs to the folder that holds it. The checks runner of [#212](https://github.com/symbiotic-build/house-rules/pull/212) writes the same record, so both tools share one answer.
+> - `sources/<source hash>/tags/<tag hash>.json` records a release tag's answer: `url`, `tag`, `revision` and `fetched`. The tag hash follows the branch hash's rule. It is written once and never replaced.
+> - `sources/<source hash>/lock` is the empty file whose lock serializes this command's resolutions of that source, as the resolution rules above explain.
 > - `environments/<digest>/` holds the virtual environments of the checks runner, unchanged from the runner PRs.
 > - `default` is a symbolic link to the House Rules tree of the last resolution of the global default sources. Agent-home skill links point through it, as [Agent sessions](#consumer-sessions) explains.
-> - A tree or environment is built in a folder whose name starts with `.partial-` and renamed into place, so two processes that prepare the same commit at once both end with one complete copy.
+> - A tree is built in a folder whose name starts with `.partial-` inside its source's folder and renamed into place, so two processes that prepare the same commit at once both end with one complete copy: the one whose rename comes first. A `.partial-` folder that a killed process left stays until the cache is cleared.
 
-`house-rules cache list` prints each source with its branch records, then each tree with its size and last use.
-`house-rules cache prune` removes what no run needs:
+`house-rules cache list` prints each source that has a branch or tag record, named by the URL its records hold, with those records and its saved link. Then it prints each tree with its size and first fetch, and last the cache's total size. A source folder holds only hashes, so a source used only at a pinned commit has no record and is not named; its trees are still listed.
 
-- A tree that no branch record names and that no run used in the last 7 days.
-- A `.partial-` folder or temporary fetch repository older than 1 day.
-- An environment that no run used in the last 7 days.
-- A branch record or lock that the runner PRs kept outside `sources/`, which this design's records replace.
+<a id="cache-clearing"></a>
+#### Clearing the cache
 
-It never removes the tree that `default` points to or a tree used in the last day, because a running process may still read it.
-`--dry-run` lists what it would remove and removes nothing.
+The cache only grows: every commit that a branch passes through keeps its tree, and every record stays. Nothing removes cache entries automatically, as the [no automatic pruning decision](#decision-no-pruning) records.
+
+To clear the cache, delete its folder while no [House Rules command](#house-rules-command), hook or checks run is active. The next resolution fetches what it needs again. Until each branch is resolved online again, it has no offline fallback. A release tag is asked again too, so it then pins the commit that the remote names for it at that moment.
 
 <a id="offline-use"></a>
 ### Offline resolution
@@ -444,16 +449,33 @@ Offline resolution is resolution without a network, from what the version cache 
 A machine without a network keeps working on the rules it last fetched, and every run that does so says so.
 
 - **A branch ref:** when `ls-remote` fails, resolution uses the branch's last record, and the layer's source is `offline`. The run prints one warning naming the layer, its commit and when it was fetched.
-- **A branch with no record:** resolution stops with a preparation error that names the layer and says to run again when online.
+- **A branch with no record:** resolution stops with the [resolution failure](#failure-resolution) that names the layer and says to run again when online.
 - **A commit ref:** a commit already in the cache needs no network. A missing commit stops resolution with a preparation error that names it.
 - **A link:** a linked layer needs no network.
 
 > **Detail — offline lines**
 >
 > ```text
-> warning: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …); using team-rules main last fetched 2026-10-24T09:00:01Z, 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80
+> warning: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …); using team-rules main as last answered 2026-10-24T09:00:01Z, 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80
 > house-rules: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …) and no earlier fetch of team-rules main is cached; run again when online
 > ```
+
+<a id="failure-resolution"></a>
+#### Failure state: resolution cannot complete
+
+This refusal keeps a consumer from using layers it could not resolve completely.
+
+**Trigger:** The [repository configuration](#repository-configuration) or a [ruleset](#ruleset) is invalid; a branch or commit does not exist at its URL; a remote cannot be reached and the cache holds nothing usable for that layer; a link is broken; the cache cannot be written; or the hook-mode deadline passes with a layer uncached.
+
+**Outcome:** The command exits 2 and prints one line on standard error with the cause and its repair, as [Messages](#messages) lists. A checks run stops as the repository checks design's preparation failure does. A session hook prints the same line as a `HOUSE RULES HOOK ERROR:` line, then follows the [session fallback decision](#decision-session-fallback).
+
+**Retained state:** Trees already complete stay in the cache and are used by the next resolution. No branch record is replaced for a layer whose fetch failed. A temporary fetch folder is removed, or, when the process was killed, stays until the cache is cleared. When the cache cannot be written, the cache keeps what it held before; a tree left without its `.fetched` file is not used.
+
+**Recovery:** The author fixes the configuration through a reviewed PR, runs again when online, corrects the ref, or unlinks a broken link, as the message names. When the cache cannot be written, the message names the cache folder and the system's error; the person running the command frees disk space, makes the folder writable, or sets [`HOUSE_RULES_CACHE`](#environment-variables) to a writable folder, then runs again. Nothing else needs to be repaired, because no partial result is ever used.
+
+**Authority:** The person running the command repairs its machine; a configuration change needs the repository's normal review.
+
+**Verification:** [Offline run](#test-layers-offline), [two custom layers](#test-layers-two-custom). The cache-write case is planned for the resolver's tests: a read-only cache folder must stop with the message below and leave the cache unchanged.
 
 <a id="overrides"></a>
 ### Overrides and link mode
@@ -473,7 +495,7 @@ It lets a person who edits House Rules or a team's rules repository try the edit
 **Procedure: try an edit to a rules repository**
 
 1. **Link the checkout:** `house-rules link ~/src/team-rules`.
-   - Reads the checkout's `remote.origin.url`, prints the source key it links and writes the link to `links.json` in the [global configuration](#global-configuration) folder.
+   - Reads the checkout's `remote.origin.url`, prints the URL it links and writes the link to `links.json` in the [global configuration](#global-configuration) folder.
    - `--url URL` names the source instead.
 2. **Work in any repository that lists that source.** Every run of every consumer uses the checkout's working tree for that layer, uncommitted edits included, and warns.
 3. **Unlink:** `house-rules unlink ~/src/team-rules`. The next run fetches the layer again.
@@ -484,9 +506,9 @@ It lets a person who edits House Rules or a team's rules repository try the edit
 > warning: LINKED team-rules -> /home/dev/src/team-rules at 9f3c2a1b4d5e6f708192a3b4c5d6e7f8091a2b3c with uncommitted changes; this run does not use the fetched source
 > ```
 
-A link applies to every repository that lists a source with the same source key, on this machine only.
+A link applies to every repository that lists a source with the same URL, on this machine only.
 [`HOUSE_RULES_LINK`](#environment-variables) links the `house-rules` layer to a checkout for one run, without writing `links.json`.
-Setting both `HOUSE_RULES_LINK` and `HOUSE_RULES_REVISION` stops resolution with a usage error, because a run can use only one of them.
+For the `house-rules` layer, a one-run variable wins over `links.json`: `HOUSE_RULES_LINK` or `HOUSE_RULES_REVISION`, when set, decides the layer, and the run's warning names it. Setting both one-run variables stops resolution with a usage error, because a run can use only one of them.
 A link whose folder is missing or is not a Git checkout stops resolution with an error that names the `unlink` command.
 
 A linked run gives up the equal-result promise between hook and CI, because CI has no link. Every report says so through the warning above, so nobody mistakes a linked result for a configured one.
@@ -497,15 +519,16 @@ A linked run gives up the equal-result promise between hook and CI, because CI h
 A resolution record is the account of one resolution: the repository, the configuration origin, and for each layer its name, URL, ref, commit, source and fetch time.
 Every consumer logs it, so a reader of any session context, worker log, check report or Warden review can tell which rules produced it.
 
-The text form of a resolution record is the `house-rules:` lines the tour shows: one line for the configuration and one per layer.
+The text form of a resolution record is the `house-rules:` lines the tour shows: one line for the configuration with its origin, one per layer with its URL, ref, commit, source and first-fetch time, and one for the profiles when there are any. Warnings come before them.
 The JSON form is in [the record format reference](#schema-resolution).
+Its serialized JSON is at most 64 KiB, so it always fits in one environment value. A larger record stops resolution with a configuration error that names its size and the layer with the most context files, as the [record size decision](#decision-record-size) records. The number of sources has no limit of its own.
 
 Each layer's source is one of these words:
 
-- `fetched`: the branch was asked for in this resolution.
+- `fetched`: the branch or release tag was asked for in this resolution.
 - `reused`: the branch's answer was younger than 60 s.
 - `offline`: the remote could not be reached; the last answer was used.
-- `pinned`: the ref is a commit.
+- `pinned`: the ref is a commit, or a release tag answered by an earlier resolution.
 - `override`: [`HOUSE_RULES_REVISION`](#environment-variables) replaced the ref.
 - `link`: a link replaced the layer.
 
@@ -527,7 +550,10 @@ The installed copy resolves with its own code. It never hands itself over to ano
 
 The installed command is older than House Rules `main` after any House Rules merge that changes it.
 A configuration whose `version` it does not know stops it with an error that names `house-rules self-update`. That command replaces the installed copy with the file from the global default's House Rules tree.
+When the global default sources pin an older House Rules commit, that file can be just as old; `self-update` then says so. The repair is `python3 <checkout>/scripts/house_rules.py install` from a House Rules checkout that knows the version.
 `house-rules resolve` also warns when the installed copy differs from the file in that tree.
+
+`house-rules path` prints only the tree's path on standard output and its resolution lines on standard error, so a script can capture the path and still log the resolution. `house-rules resolve --json` prints only the JSON record on standard output.
 
 `house-rules exec <path> [arguments]` runs a script from the resolved House Rules tree, such as `scripts/session_context.py`, with the resolution in [`HOUSE_RULES_RESOLVED`](#environment-variables).
 With `--hook` it reads an agent hook's JSON input from standard input, takes the repository from its `cwd` field and passes the same input on to the script.
@@ -569,36 +595,29 @@ Warden is different, because it is the independent review; [Warden](#consumer-wa
 The checks runner resolves the layers of each snapshot through the [House Rules command](#house-rules-command)'s resolver and builds the [effective configuration](#effective-configuration) from them.
 This replaces the runner's own resolution of House Rules `main`; everything else in the repository checks design stays.
 
-- **One resolution per run.** A run resolves once, at its first snapshot that has a repository configuration. Every later snapshot of a push uses the same layers when its configuration lists the same sources. A pushed commit whose `sources` differ resolves its own layers, and the report shows both.
-- **Handover.** A runner at another House Rules revision hands over to the runner of the resolved `house-rules` layer, with the resolution and the snapshot, as it does today.
-- **Report.** The report's run object replaces its `house_rules` object with the [resolution record](#resolution-record)'s `layers`, and adds `settings`, each changed value with its layer and reason.
-- **Personal and local values.** Personal checks of the global configuration run in hooks only, as warnings. Budgets from the global and [local configuration](#local-configuration) only print warnings.
+- **Hook entry point.** The [hook blocks](194-repository-checks.md#hook-block) start the installed command, named by the clone setting `house-rules.command`: `house-rules exec --origin index skills/repository-checks/scripts/checks.py run --stage pre-commit` and `house-rules exec --origin push skills/repository-checks/scripts/checks.py run --stage pre-push`. No hook names a path inside the cache, so clearing the cache never removes a hook's entry point.
+- **Origin before resolution.** `--origin index` makes `exec` read `house-rules.json` from the staged index. `--origin push` makes it read Git's pre-push lines from standard input, take the configuration of the first pushed commit to choose the runner's revision, and pass the same lines on to the runner. An invalid working-tree file therefore never stops a commit whose staged file is valid. A push that only deletes refs has nothing to check: `exec` prints "nothing to check: the push only deletes references" and exits 0 before resolving anything, as the repository checks design's [check run report](194-repository-checks.md#check-run-report) requires. A snapshot without `house-rules.json` has adopted no repository checks either: `exec` prints "nothing to check: the staged index has no house-rules.json", or names the pushed commit, and exits 0 before resolving anything, so no unrelated source can refuse it. A file that Git cannot list or read in the snapshot is a failure that names it, never a missing file. `exec` splits Git's pre-push lines at single spaces, because a ref name holds none, and a line in any other shape is a failure, never a push that only deletes refs.
+- **Resolution per snapshot.** Each snapshot is resolved from its own configuration. Within one run, a branch of one source is asked for once, so snapshots that list it use the same commit. Only that choice of commit is shared: each snapshot's [resolution record](#resolution-record), profiles, context and settings come from its own configuration.
+- **One runner.** The runner that `exec` started checks every snapshot itself, each with its own resolution and settings; it never starts a runner of another revision, as the [runner handover decision](#decision-no-runner-handover) records.
+- **Report.** Each snapshot entry holds its own [resolution record](#resolution-record) as `resolution` and its changed values as `settings`, each with its layer and reason. The run object holds no single House Rules revision.
+- **Personal values.** Personal checks of the global configuration run in hooks only. Their failure, and a start or preparation error of theirs, is always a warning, unlike a layer's check whose start error is an `error`. Budgets from the global configuration only print warnings.
+- **Check versions.** A check whose program file cannot be read for its version is not run; the report lists it as an `error`, so no check runs without a logged version.
 
 <a id="git-isolation"></a>
 #### Isolated Git environment
 
-An isolated Git environment is the set of environment variables and the temporary Git folder in which the checks runner starts every check, so that no Git setting except the repository configuration's `git_settings` reaches it.
-It is what makes a hook give the same result as CI's fresh clone for the same commit and layers.
+An isolated Git environment is the set of environment variables with which the checks runner starts every check, so that no system or personal Git setting reaches it.
+It makes a hook give the same result as CI's fresh clone for the same commit and layers, unless the clone's own `.git/config` or `.git/info/attributes` says otherwise.
 The runner PR [#212](https://github.com/symbiotic-build/house-rules/pull/212) builds it; this design records its contract, because every layer's checks rely on it.
 
-The runner builds it once per snapshot.
+The runner starts each check with:
 
-**Procedure: build the isolated Git environment**
+- `GIT_CONFIG_NOSYSTEM=1` and `GIT_CONFIG_GLOBAL=/dev/null`, so no system or global Git configuration is read.
+- `GIT_ATTR_NOSYSTEM=1`, so no system attribute file is read, and `GIT_NO_REPLACE_OBJECTS=1`, so no replace reference changes what a check reads.
+- `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` holding only `core.attributesFile=/dev/null`. The personal attribute file under `~/.config/git/` is therefore not read either.
 
-1. **Create a temporary Git folder:** `git init --bare --object-format=<the repository's format>` in a temporary folder.
-2. **Point it at the repository's objects:** write the absolute path of the repository's object folder, `git rev-parse --git-common-dir` followed by `/objects`, into its `objects/info/alternates`.
-3. **Write the declared settings:** each `git_settings` entry becomes one line of that folder's `config`, and nothing else does.
-4. **Start each check in it:** with `GIT_DIR` set to that folder, `GIT_CONFIG_NOSYSTEM=1`, `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_ATTR_NOSYSTEM=1`.
-
-The runner also removes every inherited `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, which `git -c` passes to hooks.
-A check therefore reads no system or global Git configuration, no `.git/config` of the clone and no `.git/info/attributes`; its only Git settings are the declared ones. It reads the snapshot's commits through the alternate object folder, and `.gitattributes` from the snapshot as before.
-The runner removes the temporary folder after the snapshot's last check.
-
-A check that reads the working tree runs only in CI, as the repository checks design requires. It runs with the same variables but with the real Git folder, because it needs the checkout; CI's fresh clone has no personal settings.
-
-This replaces the runner PRs' limit that attribute files outside the snapshot can still change the whitespace result. The operator's [isolation decision](#decision-git-isolation) records the change.
-
-A partial clone, which fetches missing objects on demand, can lack objects the alternate folder does not hold. A check that reads such an object fails in the hook, and CI decides; the session status line names partial clones as unsupported for hook checks.
+The runner first removes every inherited `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, which `git -c` passes to hooks.
+A check still reads the clone's `.git/config` and `.git/info/attributes`. They belong to that clone, and a clone owner who changes them accepts that a hook can disagree with CI; CI's fresh clone has neither, so CI decides. The operator's [isolation decision](#decision-git-isolation) records this limit.
 
 <a id="consumer-sessions"></a>
 ### Agent sessions
@@ -606,15 +625,16 @@ A partial clone, which fetches missing objects on demand, can lack objects the a
 Agent session hooks put House Rules rules into an agent's context at session start, resume, clear and compaction. With layers they print the rules of the repository's resolved version.
 
 - **Session context.** Each registered hook runs `house-rules exec --hook scripts/session_context.py <part>`. The script runs from the resolved House Rules tree and prints that tree's rules. The first part starts with the resolution record.
-- **Custom layer context.** After the House Rules parts, the script prints each layer's `context` files in layer order, as further parts with the same part labels.
+- **Context.** The parts hold `INDEX.md`, then every layer's [ruleset](#ruleset) `context` files in layer order, House Rules' always-load rules first, then this computer's `custom/INDEX.md`. House Rules' files and a team's files travel the same way.
+- **One event, one text.** Claude Code starts a session's parts as parallel hooks and passes them no shared event identity, so each part resolves on its own. Two parts can therefore straddle a branch's 60 s window or an edit of `house-rules.json`. Every part names the revision and the text fingerprint it was cut from, as today. The fingerprint covers every layer's commit, not only House Rules', so a change in a team layer also shows. Part 1 holds all of its resolution lines: one tree line per layer, then one line per context file that names the file inside its layer's tree line, such as `house-rules: context of team-rules: rules/team.md`. Part 1's resolution governs: on a split, the agent reads every file that part 1's resolution lines list. A resolution whose lines need more than the 8 800 characters part 1 holds for text is a failed resolution. Part 1 then prints a `HOUSE RULES HOOK ERROR:` line that names the layer with the most context files, and the parts give the global default's rules, as for any [resolution failure](#failure-resolution). Such a limit is reached only with a few hundred context files in one session, as the [split detection decision](#decision-split-detection) records. The trees stay on disk, because nothing removes a tree until the cache is cleared. The design detects a split rather than preventing it, as the [split detection decision](#decision-split-detection) records.
 - **Compaction.** Claude Code and Codex run the same hooks after a compaction, so the re-injected rules come from a new resolution of the same repository.
-- **Approved-work listing.** Its hook runs `house-rules exec --hook scripts/session_context.py approved` in the same way.
-- **Machine index.** The script reads this computer's `custom/INDEX.md` from the global configuration folder. A linked House Rules checkout that holds its own `custom/` folder uses that one.
+- **Approved-work listing.** Its hook runs `house-rules exec --hook scripts/session_context.py approved` in the same way. Its GitHub searches stop at the hook's deadline from `HOUSE_RULES_DEADLINE`, not at a budget of their own; a listing cut short prints the issues found so far and a line that says the search was cut short.
+- **Machine index.** The script reads this computer's `custom/INDEX.md` from the global configuration folder when `house-rules exec` starts it, and from the checkout's own `custom/` when an install from before the command runs it directly.
 - **End-of-turn guard.** A local guard that names a House Rules tool, such as the PR watcher, names it through `house-rules exec`, so the tool's revision matches the repository's.
 
-A failed resolution never stops a session from starting. The hook prints one error line naming the cause, then the rules of the tree that `default` points to, labelled with that tree's revision.
+A failed resolution never stops a session from starting. The hook prints the [resolution failure](#failure-resolution) line with its repair, then the House Rules files of the tree that `default` points to, under a line that says they are the global default's rules, not this repository's, and that the repository's custom layers are missing. The [session fallback decision](#decision-session-fallback) records why. The script it starts gets no resolution record but [`HOUSE_RULES_FALLBACK`](#environment-variables), set to `1`, so it knows that `exec` started it and reads the machine index from the configuration folder, as the [fallback handover decision](#decision-fallback-handover) records.
 
-Agent-home skill links serve every repository at once, so they follow the global default sources. They point through the cache's `default` link, which each resolution of the global default moves to its House Rules tree.
+Agent-home skill links serve every repository at once, so they follow the global default sources. They point through the cache's `default` link, which each resolution of the global default moves to its House Rules tree. `house-rules install` resolves the global default before it registers any link, so the link target exists; when that resolution fails, the install stops with its message and registers nothing.
 In a repository whose House Rules commit differs from the global default's, the first context part names the repository's tree and says to read skill files there.
 
 Instruction files that agent homes load at start, such as a global `CLAUDE.md`, name no checkout path any more. Their managed House Rules block says to follow the rules in the session context and to run `house-rules path` when a file must be opened.
@@ -623,7 +643,7 @@ Instruction files that agent homes load at start, such as a global `CLAUDE.md`, 
 ### Workers and review lanes
 
 Worker and review-lane tooling starts model workers and review panels with House Rules prompts.
-It resolves from the work folder's repository with `house-rules path --repo <work folder>`, which prints the resolved House Rules tree, and builds its prompts from that tree.
+It resolves once per run, with `house-rules resolve --repo <work folder> --json`, and uses that one record for everything: the House Rules tree to build prompts from, and the custom layers' entries of the record's `context` list, which it appends to the prompts after the House Rules rules, in layer order.
 Each run log starts with the resolution record in text form, followed by the prompt files' Git blob identities, which the tooling already writes.
 A run in no repository, such as a scheduled job, uses the global default sources.
 
@@ -635,14 +655,18 @@ A PR therefore cannot change the layers, the House Rules version or the context 
 
 **Procedure: resolve the layers of one review**
 
-1. **Take the base commit** the PR names when Warden admits the review.
-2. **Resolve from it:** `house-rules resolve --repo <Warden's clone> --rev <base commit> --json`, run from Warden's qualified House Rules tree.
-3. **Choose the House Rules tree.** A `house-rules` layer at `main` uses Warden's qualified main. Any other branch or commit is qualified the same way once, and the review stops with a stated reason when it fails.
-4. **Add the custom layers' context** to the review rules after House Rules.
-5. **Log the resolution** in the review's debug data, beside the House Rules revision it already shows.
+1. **Take the base commit** the PR names when Warden admits the review: its base branch's commit at that moment.
+2. **Read the configuration at it:** `house-rules.json` at that commit, through the repository host's file contents interface.
+3. **Choose the House Rules commit before reading any ruleset.** A `house-rules` layer at `main` of the House Rules URL uses Warden's qualified main. Any other URL, branch or commit is resolved to one commit, and that commit is qualified the same way once: it must hold the prompt collection. A fork at `main` is therefore the fork's qualified commit, never the upstream's. The review stops with a stated reason when qualification fails.
+4. **Check each custom layer's URL** against Warden's operator-configured list of allowed sources, which starts with every repository under `github.com/symbiotic-build/`. A layer outside the list stops the review with a reason that names it, so a repository's file cannot make the review service fetch arbitrary repositories into its prompts.
+5. **Build the configuration from those exact commits:** `house-rules resolve` reads rulesets only from the chosen trees, and its record names the same commits the review uses.
+6. **Add the custom layers' context** to the review rules after House Rules.
+7. **Log the resolution** in the review's debug data, beside the House Rules revision it already shows.
 
 A PR that changes `house-rules.json` is reviewed like any change, with the base branch's configuration. Its review states that the change takes effect after merge.
-A base commit without a repository configuration uses Warden's own default: its qualified House Rules main and no custom layers.
+
+When the base configuration itself cannot be used, Warden cannot review any PR to that branch, the repairing PR included: for example, a base whose House Rules pin lacks the prompt collection. Warden never falls back to the PR head's rules for it, because the head would then choose its own review. Each review stops with the reason, which names the base commit and the invalid layer. Recovery is outside Warden: a person who may merge without Warden's approval under the repository's rules merges the repair, and Warden reviews the next PR with the repaired base. Until then the branch has no Warden review, and the stop says so.
+A base commit without a repository configuration uses the global default sources of the machine that runs Warden, as for every consumer, and then House Rules `main` through Warden's qualification.
 Warden's change lives in the Warden repository, as its own work package.
 
 <a id="examples"></a>
@@ -662,15 +686,17 @@ This Python repository has `pyproject.toml` and no specifications. `house-rules 
 >
 > ```text
 > repository checks: pre-commit on the staged index
-> house-rules: layer house-rules   ref main   -> 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e (fetched 2026-10-24T09:00:00Z)
+> house-rules: repository /work/python-tool, configuration house-rules.json (index)
+> house-rules: layer house-rules https://github.com/symbiotic-build/house-rules ref main -> 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e (fetched 2026-10-24T09:00:00Z)
 > house-rules: profiles python
 > PASS  whitespace   0.1 s
+>       version: /usr/bin/git@9b04e1c7d2aa
 > SKIP  spec-docs    requires docs/DOCUMENTS.json
 > All 1 selected check passed; 1 skipped.
 > ```
 
 `house-rules init` always writes the `house-rules` layer at `main`, so the repository follows House Rules `main` on every machine and in CI.
-The `python` profile defines no check yet, so the run uses House Rules `checks/base.json` alone.
+The `python` profile defines no check yet, so the run uses the top level of House Rules' [ruleset](#ruleset) alone.
 
 ### A repository with no configuration
 
@@ -684,7 +710,7 @@ This repository has no `house-rules.json`. An agent session starts in it on a ma
 >
 > ```text
 > house-rules: repository /work/scripts, configuration none (global default sources)
-> house-rules: layer house-rules   ref main   -> 0d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b (fetched 2026-10-24T10:12:30Z)
+> house-rules: layer house-rules https://git.example.com/fork/house-rules ref main -> 0d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b (fetched 2026-10-24T10:12:30Z)
 > ```
 
 The session receives the fork's rules. A commit in this repository runs no checks, because it has not adopted repository checks.
@@ -701,7 +727,7 @@ A maintainer edits a House Rules rule in `~/src/house-rules` and wants a real se
 > **Detail — the first part's resolution lines**
 >
 > ```text
-> house-rules: layer house-rules   link /home/dev/src/house-rules at 5e6f7081a2b3c4d5e6f708192a3b4c5d6e7f8091 with uncommitted changes
+> house-rules: layer house-rules https://github.com/symbiotic-build/house-rules link /home/dev/src/house-rules at 5e6f7081a2b3c4d5e6f708192a3b4c5d6e7f8091 with uncommitted changes
 > warning: LINKED house-rules -> /home/dev/src/house-rules at 5e6f7081a2b3c4d5e6f708192a3b4c5d6e7f8091 with uncommitted changes; this run does not use the fetched source
 > ```
 >
@@ -729,11 +755,11 @@ The tour's developer commits on a train. The cache holds every layer from a fetc
 > **Detail — the pre-commit report's resolution lines**
 >
 > ```text
-> warning: cannot reach https://github.com/symbiotic-build/house-rules (fatal: unable to access …); using house-rules main last fetched 2026-10-24T09:00:00Z, 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e
-> warning: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …); using team-rules main last fetched 2026-10-24T09:00:01Z, 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80
-> house-rules: layer house-rules   ref main   -> 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e (offline, fetched 2026-10-24T09:00:00Z)
-> house-rules: layer team-rules    ref main   -> 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80 (offline, fetched 2026-10-24T09:00:01Z)
-> house-rules: layer rust-settings ref 3f2a9c0d41b7e65a8c1d2b3f4e5a6b7c8d9e0f1a (pinned)
+> warning: cannot reach https://github.com/symbiotic-build/house-rules (fatal: unable to access …); using house-rules main as last answered 2026-10-24T09:00:00Z, 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e
+> warning: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …); using team-rules main as last answered 2026-10-24T09:00:01Z, 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80
+> house-rules: layer house-rules   https://github.com/symbiotic-build/house-rules ref main -> 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e (offline, fetched 2026-10-24T09:00:00Z)
+> house-rules: layer team-rules    https://git.example.com/team/team-rules ref main -> 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80 (offline, fetched 2026-10-24T09:00:01Z)
+> house-rules: layer rust-settings https://git.example.com/team/rust-settings ref 3f2a9c0d41b7e65a8c1d2b3f4e5a6b7c8d9e0f1a (pinned, fetched 2026-10-23T16:40:12Z)
 > ```
 
 The commit is checked with the rules last fetched. When the developer pushes later, CI resolves the latest commits; if House Rules main changed meanwhile, CI's result decides.
@@ -753,9 +779,9 @@ A repository's layers combine predictably, and a reader can tell where each valu
 
 **Condition:** A [repository configuration](#repository-configuration) lists sources and profiles.
 
-**Result:** The [effective configuration](#effective-configuration) applies each layer's base file, then its profile files in `profiles` order, then the repository, global and local files, as [Effective configuration](#effective-configuration) states. A later entry replaces an earlier entry with the same key field by field, and records its layer. A [layer file](#layer-file) that lists sources, a changed value without a reason and an unknown profile are refused with configuration errors.
+**Result:** The [effective configuration](#effective-configuration) applies each layer's [ruleset](#ruleset) top level, then its profile entries in `profiles` order, then the repository and global files, as [Effective configuration](#effective-configuration) states. Checks change field by field, budgets per stage and context appends, and every value records its layer. A [ruleset](#ruleset) that lists sources, a changed value without a reason and an unknown profile are refused with configuration errors.
 
-**Verification:** Fixture sources with base and profile files.
+**Verification:** Fixture sources with rulesets that have top-level and profile entries.
 
 **Tests:** [Two custom layers](#test-layers-two-custom), [default repository](#test-layers-default).
 
@@ -795,7 +821,7 @@ Each consumer uses the layers of the repository it runs in, read at its [configu
 
 **Verification:** One machine with one repository; a repository without configuration.
 
-**Tests:** [Same revision everywhere](#test-layers-same-revision), [no configuration](#test-layers-no-configuration).
+**Tests:** [Same revision everywhere](#test-layers-same-revision), [no configuration](#test-layers-no-configuration), [split session](#test-layers-split-session).
 
 **Status:** specified.
 
@@ -804,15 +830,15 @@ Each consumer uses the layers of the repository it runs in, read at its [configu
 <a id="req-layers-machine-files"></a>
 ### Requirement: machine files only warn
 
-The global and [local configuration](#local-configuration) never change whether a repository's declared checks pass.
+The [global configuration](#global-configuration) never changes whether a repository's declared checks pass.
 
 **Actor:** Checks runner.
 
-**Condition:** A global or local configuration exists, valid or not.
+**Condition:** A global configuration exists, valid or not.
 
-**Result:** Their budgets and personal checks only produce warnings; personal checks never run in CI. An invalid [global configuration](#global-configuration), a personal check that names an existing check and a tracked local configuration are ignored with a warning naming them. A local configuration with a field other than `budgets` is a configuration error, which refuses but never passes a commit.
+**Result:** Its budgets and personal checks only produce warnings; personal checks never run in CI. An invalid global configuration and a personal check that names an existing check are ignored with a warning naming them.
 
-**Verification:** Fixture machine files with each case.
+**Verification:** Fixture global configurations with each case.
 
 **Tests:** [Machine files](#test-layers-machine-files).
 
@@ -829,9 +855,9 @@ A check's result does not depend on the machine's or clone's Git configuration.
 
 **Condition:** Any [check stage](194-repository-checks.md#check-stage), with system, global or clone-local Git settings or attribute files present.
 
-**Result:** Every check starts in the [isolated Git environment](#git-isolation). A setting in the system, global or clone configuration, an attribute in `.git/info/attributes` or a `git -c` value given to the hook does not change any check's result.
+**Result:** Every check starts in the [isolated Git environment](#git-isolation). A setting in the system or global configuration, a personal attribute file or a `git -c` value given to the hook does not change any check's result. A clone's own `.git/config` and `.git/info/attributes` can; CI decides then.
 
-**Verification:** Fixture clone with `core.whitespace`, `* -whitespace` in `.git/info/attributes` and a global `core.attributesFile`.
+**Verification:** Fixture clone with a global `core.whitespace`, a global `core.attributesFile` holding `* -whitespace`, and a `git -c` value.
 
 **Tests:** [Git isolation demonstration](#test-layers-git-isolation).
 
@@ -867,7 +893,7 @@ A machine without a network keeps working from the [version cache](#version-cach
 
 **Condition:** The remote of a layer cannot be reached.
 
-**Result:** A branch uses its last record with a warning that names the layer, commit and fetch time. A branch without a record, and a commit missing from the cache, stop resolution with an error that names the layer and says to run again when online.
+**Result:** A branch uses its last record with a warning that names the layer, commit and fetch time. A branch without a record, and a commit missing from the cache, stop resolution with an error that names the layer and says to run again when online. A session hook prints that error, then follows the [session fallback decision](#decision-session-fallback); every other consumer stops.
 
 **Verification:** Fixture runs with the remote made unreachable.
 
@@ -897,19 +923,19 @@ A run that uses a link or an override says so, and no repository file can create
 **Basis:** [Command decision](#decision-command), [refs decision](#decision-refs).
 
 <a id="req-layers-cache"></a>
-### Requirement: the cache can be listed and pruned safely
+### Requirement: the cache can be listed and cleared
 
-The version cache never grows without bound, and pruning never breaks a running process.
+The version cache shows what it holds and how large it is, and a developer can clear it by deleting its folder.
 
 **Actor:** House Rules command.
 
-**Condition:** `house-rules cache list` or `house-rules cache prune` runs.
+**Condition:** `house-rules cache list` runs, or the cache folder is deleted while no House Rules run is active.
 
-**Result:** `list` prints every source, branch record and tree. `prune` removes only what [Version cache](#version-cache) lists, never the `default` tree or a tree used in the last day, and `--dry-run` removes nothing.
+**Result:** `list` prints every source that has a record, by the URL its records hold, every record, every tree with its size, and the cache's total size. After the folder is deleted, the next resolution fetches what it needs and succeeds online. A Git hook never starts from a path inside the cache.
 
-**Verification:** Fixture cache with old, recent and named trees.
+**Verification:** Fixture cache with branch, tag and pinned sources, listed, then deleted and resolved again.
 
-**Tests:** [Cache prune](#test-layers-cache-prune).
+**Tests:** [Cache list and clearing](#test-layers-cache-list).
 
 **Status:** specified.
 
@@ -924,7 +950,7 @@ A PR cannot change the configuration of its own review.
 
 **Condition:** Warden reviews a PR in a repository, whether or not the PR changes `house-rules.json`.
 
-**Result:** Warden resolves from the PR's base commit, logs the resolution and, for a PR that changes the file, states that the change takes effect after merge.
+**Result:** Warden resolves from the PR's base commit, chooses and qualifies the House Rules commit before reading any ruleset, refuses a custom layer outside its allowed sources, logs the resolution and, for a PR that changes the file, states that the change takes effect after merge.
 
 **Verification:** A review of a fixture PR that changes the file.
 
@@ -937,7 +963,7 @@ A PR cannot change the configuration of its own review.
 <a id="decisions"></a>
 ## Decisions and alternatives
 
-The operator decided the first eight records below on 2026-10-22 and 2026-10-23; the lead relayed them, with the operator's words, on 2026-10-24.
+The operator decided the first eight records below on 2026-10-22 and 2026-10-23, and the next two on 2026-10-24; the lead relayed them, with the operator's words, on 2026-10-24.
 The lead's recommendations follow; the operator saw them and did not contest them, and can still change them when reviewing this design. The design choices made while writing it come last.
 
 <a id="decision-layered-sources"></a>
@@ -954,20 +980,24 @@ The lead's recommendations follow; the operator saw them and did not contest the
 <a id="decision-refs"></a>
 ### Decision: a branch follows its latest commit, a commit is a deliberate pin
 
-**Choice:** A layer's ref is a branch, default `main`, which always resolves to its latest commit, or a commit, which is a deliberate pin that is visible and reviewed. No stale version exists except deliberately. `HOUSE_RULES_REVISION` stays as the one-run test override.
+**Choice:** A layer's ref is a branch, default `main`, which always resolves to its latest commit, a commit, which is a deliberate pin that is visible and reviewed, or an exact release tag such as `v1.4.0`, a named pin resolved once. No version ranges. No stale version exists except deliberately. `HOUSE_RULES_REVISION` stays as the one-run test override.
 
 **Authority:** Operator decision, relayed by the lead on 2026-10-24. The operator wrote: "Everything should definitely log the prompt versions and house rules versions and check versions but I don't see any reason to keep stale version other than deliberate tests".
 
 **Reason:** A branch ref gives every repository the latest rules without bot PRs. A commit ref is the deliberate exception, and because it lives in the repository file, a reviewer sees it.
 
-**Rejected alternatives:** Tags or version ranges: a second way to pin, with no need the commit ref does not meet. A stored per-machine pin: it would let two machines run different versions for the same repository.
+Release tags were added later the same day: the operator answered "2. 1" to the question whether refs also accept versioned release tags, pinned exactly.
+
+**Rejected alternatives:** Version ranges: the version would change without a reviewed edit of the file. A tag that is asked again on every run: a moved tag would change a released version under a repository. A stored per-machine pin: it would let two machines run different versions for the same repository.
 
 <a id="decision-shared-local"></a>
-### Decision: shared settings in the repository, machine values in an untracked file
+### Decision: shared settings in the repository, machine values in the global file
 
-**Choice:** Shared settings live in the repository configuration and apply identically in hook and CI. Machine-only values live in the untracked [local configuration](#local-configuration) and may hold only budgets, which only ever warn.
+**Choice:** Shared settings live in the repository configuration and apply identically in hook and CI. Machine-only values are budgets, which only ever warn, and live in the per-user [global configuration](#global-configuration). There is no per-clone local file.
 
 **Authority:** Operator decision, relayed by the lead on 2026-10-24, from the operator's words quoted in the [layered sources decision](#decision-layered-sources): settings "should be shareable between local and remote (or not coz it's env specific)".
+
+A per-clone `house-rules.local.json` for budgets was dropped by a lead decision on 2026-10-24, from the overcomplication review of [#212](https://github.com/symbiotic-build/house-rules/pull/212): its only content was warning budgets, which the global configuration already holds. It comes back when a local setting that matters appears.
 
 **Reason:** A value that can change a check's result must be the same on every machine, or hook and CI disagree. A budget only prints a warning, so it can differ by machine.
 
@@ -976,13 +1006,13 @@ The lead's recommendations follow; the operator saw them and did not contest the
 <a id="decision-git-isolation"></a>
 ### Decision: checks never read personal Git configuration
 
-**Choice:** Checks use only declared settings. They read no system or global Git configuration, no clone `.git/config` and no `.git/info/attributes`, so a hook gives the same result as CI.
+**Choice:** Checks read no system or global Git configuration and no personal attribute file. Only environment variables do this. A clone's `.git/config` and `.git/info/attributes` still reach checks, and CI's fresh clone decides when they make a hook disagree.
 
-**Authority:** Operator decision, relayed by the lead on 2026-10-24. The lead's relay states the decision; it did not quote the operator's words for it.
+**Authority:** Operator decision, relayed by the lead on 2026-10-24. The lead's relay states the decision; it did not quote the operator's words for it. Narrowed the same day, when the operator answered "3. 1" to the question whether the [isolated Git environment](#git-isolation) is more mechanism than the equal-result promise needs: only the environment variables stay.
 
-**Reason:** In the runner PRs' review, `* -whitespace` in a clone's `.git/info/attributes` turned the whitespace check off, also with the runner's `-c core.whitespace` value. The runner PR [#212](https://github.com/symbiotic-build/house-rules/pull/212) first accepted that as a limit; its next round removes the limit under this decision. The [isolated Git environment](#git-isolation) does it with standard Git variables and an alternate object folder, without copying any object.
+**Reason:** Personal settings are the common way a machine differs from CI, and environment variables exclude them for every Git command a check starts. Excluding the clone's own files as well needed a temporary Git folder with alternates and an index copy per snapshot; the operator judged that more mechanism than the promise needs. A clone's files are its owner's deliberate choice, and CI still checks every commit.
 
-**Rejected alternatives:** Accepting clone-local inputs as the clone owner's choice, as the runner PRs did: it lets a hook pass a commit that CI refuses. Copying the snapshot into a fresh repository for each check: it costs a full copy per commit, where the alternate folder costs one small file.
+**Rejected alternatives:** A temporary Git folder with the repository's objects as alternates, and a copy of the index for working-tree checks: it also excludes the clone's files, at the cost of a folder per snapshot and its cleanup. Copying the snapshot into a fresh repository for each check: a full copy per commit.
 
 <a id="decision-logging"></a>
 ### Decision: every run logs layers, settings and versions
@@ -998,7 +1028,7 @@ The lead's recommendations follow; the operator saw them and did not contest the
 <a id="decision-command"></a>
 ### Decision: one rustup-style command per machine, with no current version
 
-**Choice:** One small `house-rules` command is installed once per machine. It keeps a [version cache](#version-cache), fetches by ref automatically, uses the last fetched version offline with a warning, has cache list and prune commands, and a developer [link mode](#link-mode), `house-rules link <checkout>` or a one-run environment variable, whose use every run logs. It keeps no "current version" state.
+**Choice:** One small `house-rules` command is installed once per machine. It keeps a [version cache](#version-cache), fetches by ref automatically, uses the last fetched version offline with a warning, has a cache list command, and a developer [link mode](#link-mode), `house-rules link <checkout>` or a one-run environment variable, whose use every run logs. It keeps no "current version" state.
 
 **Authority:** Operator decision, relayed by the lead on 2026-10-24. The operator asked "do we need something like nvm in this case?"; the lead answered no, a rustup-style automatic resolution, and the operator accepted it.
 
@@ -1028,6 +1058,28 @@ The lead's recommendations follow; the operator saw them and did not contest the
 
 **Rejected alternatives:** Reading the head's file, as CI does: CI shows what a change does, while the review must judge it under the rules already in force.
 
+<a id="decision-session-fallback"></a>
+### Decision: a session with a failed resolution gets the global default's rules, labelled
+
+**Choice:** When resolution fails in a session hook, the hook prints the failure with its repair, then the global default's House Rules files under a line that says they are not this repository's resolved rules and that its custom layers are missing.
+
+**Authority:** Operator decision, 2026-10-24, relayed by the lead: the operator answered "3. 1" to the question "What should a session get when its repository's layers cannot be resolved? 1. The error and repair, then the global default's rules with that label (recommended)." The lead had proposed it on the accepted finding of the same triage that substitute rules need an explicit decision.
+
+**Reason:** A session without any House Rules would follow no rules at all, which is worse than following the default rules while knowing they are not the repository's. The labelled line keeps the difference visible to the agent, and the repair says how to get the right rules.
+
+**Rejected alternatives:** Printing only the failure: the agent would work without any shared rules. Printing the default rules without a label: the agent could not tell they are a substitute.
+
+<a id="decision-warden-sources"></a>
+### Decision: Warden fetches custom layers only from allowed sources
+
+**Choice:** Warden's operator configures the list of source URLs Warden may fetch for custom layers. The list starts with every repository under `github.com/symbiotic-build/`; other repositories are added by name when a team asks. A layer outside it stops the review with a reason that names it.
+
+**Authority:** Operator decision, 2026-10-24, relayed by the lead: the operator answered "4. 1" to the question "Which custom layer sources may Warden fetch? 1. Allow only repositories under github.com/symbiotic-build/, and add others by name when a team asks (recommended)." The lead had proposed the list while mapping Warden's review path for its work package.
+
+**Reason:** Warden reviews many repositories with one service. Without a list, any repository's file could make it fetch arbitrary repositories into its prompts, which the repository's own reviewers may never have seen.
+
+**Rejected alternatives:** Trusting every URL a base branch lists: the base branch is reviewed by that repository, not by Warden's operator.
+
 <a id="decision-implementation"></a>
 ### Decision: implement the design
 
@@ -1042,7 +1094,7 @@ The lead's recommendations follow; the operator saw them and did not contest the
 <a id="decision-file-names"></a>
 ### Recommendation: `house-rules.json` at the repository root
 
-**Choice:** The repository configuration is `house-rules.json` at the repository root, and the local configuration `house-rules.local.json`, untracked. They replace `.agents/checks.json` and `.agents/checks.local.json` of the runner PRs.
+**Choice:** The repository configuration is `house-rules.json` at the repository root. It replaces `.agents/checks.json` of the runner PRs.
 
 **Authority:** Lead recommendation, 2026-10-23, which the operator saw and did not contest. The operator can change it when reviewing this design.
 
@@ -1062,14 +1114,14 @@ The lead's recommendations follow; the operator saw them and did not contest the
 **Rejected alternatives:** No global file: a fork or a team's rules could not apply to unadopted repositories. A global file that changes repository checks: hook and CI would disagree.
 
 <a id="decision-profiles"></a>
-### Recommendation: a base file and per-language profiles, chosen once at init
+### Recommendation: defaults that always apply and per-language profiles, chosen once at init
 
-**Choice:** House Rules ships `checks/base.json`, always applied, and profiles `rust`, `typescript`, `python`, `svelte` and `specs` in `checks/profiles/`. `house-rules init` detects profiles once from marker files and writes them into the repository file; no tool guesses at run time.
+**Choice:** House Rules ships defaults that always apply, and profiles `rust`, `typescript`, `python`, `svelte` and `specs`, in its [ruleset](#ruleset). `house-rules init` detects profiles once from marker files and writes them into the repository file; no tool guesses at run time.
 
 **Authority:** Lead recommendation, 2026-10-23, which the operator saw and did not contest. This design differs from it in two points, which the lead decided on 2026-10-24 and the operator can change:
 
 - **Naming defaults stay in their one home.** The recommendation had each profile carry the naming defaults merged in [#197](https://github.com/symbiotic-build/house-rules/pull/197). Those defaults are prose in `prompts/skills/naming-defaults.md`, which reviewers and implementers already receive. A copy in the profiles would give them two homes, which the core rules forbid.
-- **No language check ships yet, and spec-docs stays in base.** A language check such as a formatter reads the working tree, so it runs in CI only and needs that language's toolchain in CI. A missing toolchain is a start error, which refuses even a check that only warns. Language checks therefore follow in their own House Rules PR. `spec-docs` stays in base because it skips itself without `docs/DOCUMENTS.json`, and the repository checks design promises that a repository starts checking specifications when it adds one.
+- **No language check ships yet, and spec-docs stays in the top level.** A language check such as a formatter reads the working tree, so it runs in CI only and needs that language's toolchain in CI. A missing toolchain is a start error, which refuses even a check that only warns. Language checks therefore follow in their own House Rules PR. `spec-docs` stays in the top level because it skips itself without `docs/DOCUMENTS.json`, and the repository checks design promises that a repository starts checking specifications when it adds one.
 
 **Reason:** A repository's choice of profiles is recorded once and reviewed, so its checks never change because a file appeared. Profiles give later language checks a place to reach the right repositories, warning first.
 
@@ -1078,13 +1130,13 @@ The lead's recommendations follow; the operator saw them and did not contest the
 <a id="decision-order"></a>
 ### Recommendation: the application order
 
-**Choice:** Apply House Rules base, its chosen profiles in listed order, further sources in order, the repository settings, the global file and the local file, as [Effective configuration](#effective-configuration) lists. Each further source applies its own base and then its profiles.
+**Choice:** Apply House Rules' ruleset top level, its chosen profiles in listed order, further sources in order, the repository settings and the global file, as [Effective configuration](#effective-configuration) lists. Each further source applies its own top level and then its profiles.
 
 **Authority:** Lead recommendation, 2026-10-23, which the operator saw and did not contest.
 
 **Reason:** Each later step is more specific than the one before, so "later wins" puts the most specific choice last. Machine files come after the repository because they only warn.
 
-**Rejected alternatives:** All base files first, then all profiles: a team layer's base could not change a House Rules profile setting, which the tour's `rust-settings` needs to override.
+**Rejected alternatives:** All top levels first, then all profiles: a team layer's top level could not change a House Rules profile setting, which the tour's `rust-settings` needs to override.
 
 <a id="decision-reuse-window"></a>
 ### Decision: reuse a branch answer for 60 s
@@ -1093,7 +1145,7 @@ The lead's recommendations follow; the operator saw them and did not contest the
 
 **Authority:** Lead decision, 2026-10-24, made while writing this design.
 
-**Reason:** Claude Code runs a product's session hooks in parallel: twelve context parts and the approved-work listing start together. Without reuse they would make thirteen remote calls, and a merge during them could give two parts different commits. With the lock and the window they make one call and agree. A change younger than 60 s reaches the next run after the window, which is not a stale version in the operator's sense.
+**Reason:** Claude Code runs a product's session hooks in parallel: twelve context parts and the approved-work listing start together. Without reuse they would make thirteen remote calls on every session start. A change younger than 60 s reaches the next run after the window, which is not a stale version in the operator's sense. The window saves calls only; parts that straddle its end are caught by the [split detection decision](#decision-split-detection).
 
 **Rejected alternatives:** Asking the remote on every resolution, as the runner PRs do for one run: parallel hooks could disagree. A longer window or a configurable one: it would turn the window into a stored version and a second way to choose freshness.
 
@@ -1104,7 +1156,7 @@ The lead's recommendations follow; the operator saw them and did not contest the
 
 **Authority:** Lead decision, 2026-10-24.
 
-**Reason:** A command that starts another revision of itself would need a second handover protocol beside the runner's. Resolution changes rarely; scripts change often, and `exec` already runs them at the resolved revision.
+**Reason:** A command that starts another revision of itself would need a handover protocol of its own. Resolution changes rarely; scripts change often, and `exec` already runs them at the resolved revision.
 
 **Rejected alternatives:** Handing every command to the resolved revision's copy: one more process and protocol on every hook, to gain nothing for resolution.
 
@@ -1130,11 +1182,150 @@ The lead's recommendations follow; the operator saw them and did not contest the
 
 **Rejected alternatives:** Writing skill links into each repository: it would add House Rules files to every repository. Leaving links on one checkout: they would never move with the global default.
 
+<a id="decision-split-detection"></a>
+### Decision: session parts detect a split resolution instead of preventing it
+
+**Choice:** Each session part resolves on its own. The text fingerprint and revision every part already carries detect parts cut from different resolutions; the fingerprint covers every layer's commit. Part 1 holds all of its resolution lines, each context file named inside its layer's tree line. Part 1's resolution governs: on a split, the parts tell the agent to read every file that part 1's resolution lines list. A resolution whose lines do not fit in part 1's 8 800 characters is a failed resolution: part 1 prints an error line that names the layer with the most context files, and the session gets the global default's rules.
+
+**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 1 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which asked how all parts of one session event receive one resolution. Completed by a lead decision, 2026-10-24, on the blocking lead decision of the Warden round 2 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed that the House Rules tree alone holds no team layer's context files. Changed by a lead decision, 2026-10-24, on the blocking lead decision of the Warden round 5 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221). It supersedes the round 4 lead decision that resolution lines start in part 1 and continue in later parts.
+
+**Reason:** Claude Code starts the parts as independent processes and passes them no identity of the event they belong to; a session identity is shared by later compactions too. Any capture keyed on time would be another window with the same edge. Detection already exists, costs nothing in the normal case, and tells the agent exactly what to do in the rare one. Recovery needs part 1's complete list: in the reviewers' split case, a team layer lists 128 context files of 128 characters, part 1 resolves configuration A, and every later part resolves configuration B after an edit, so lines that continued past part 1 would come only from B and A's remaining files could not be found. Holding the whole list in part 1 adds no cache state and fails visibly; the limit is a few hundred context files per session.
+
+**Rejected alternatives:** A per-session capture file reused for a few seconds: the same window problem, plus state to clean up. One hook that prints every part: Claude Code caps one hook's output at 10 000 characters, which is why the parts exist. Telling the agent to run `house-rules resolve` on a split: a third resolution, which may match neither part. Resolution lines that continue into later parts: a split loses the continuation. A file in the cache that holds the complete list, named by its hash: complete without a limit, but a new kind of cache state written by a session hook. Only tree lines in part 1, with the agent rebuilding the list from each tree's [`ruleset.json`](#ruleset): the agent would repeat the merge rule by hand, and an error there is silent.
+
+<a id="decision-hook-deadline"></a>
+### Decision: a hook has one deadline, 2 s before the hook timeout
+
+**Choice:** In hook mode, `exec` owns one deadline, 8 s after the hook starts, which is 2 s before the product's 10 s hook timeout. Lock waits, `ls-remote`, fetches and the started script share it; `exec` passes it to the script in `HOUSE_RULES_DEADLINE`. At the deadline a branch uses its last answer with a warning, a layer with nothing cached is a visible resolution failure, and a script prints what it has with a line that says it was cut short.
+
+**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the same triage, which asked for a timing contract that ends in complete context or a visible failure. Extended by a lead decision, 2026-10-24, on the blocking lead decision of the Warden round 2 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed that a resolution of 7.5 s followed by the approved-work listing's own 7 s budget still runs past the host's timeout.
+
+**Reason:** The product kills a hook at its timeout, and a killed hook shows the agent nothing, which breaks the rule that every failure is visible. The verification rules prefer progress-based limits, but here the host's limit is fixed and elapsed; the deadline only turns a silent kill into a named fallback. Everywhere else resolution keeps Git's progress-based limit.
+
+**Rejected alternatives:** A longer hook timeout: it delays every session start on a stalled network and still ends in a silent kill. Resolving in a separate background step before the session: the hooks are the only code that runs at session start. Fixed shares, such as 3 s for resolution and 5 s for the script: two timers, and a slow fetch would fail even when the script needs no time.
+
+<a id="decision-no-pruning"></a>
+### Decision: the cache only grows; there is no automatic pruning
+
+**Choice:** No [House Rules command](#house-rules-command) removes cache entries. Records never expire, trees stay and no use is recorded. `house-rules cache list` shows the cache's size, and the documented way to clear it is to delete the cache folder while nothing runs. This replaces `cache prune`, the 7-day tree rule, the 30-day record expiry, `revisions/<commit>.used`, and the removal of side files and temporary folders.
+
+**Authority:** Lead decision, 2026-10-24, after the fix rounds of [#221](https://github.com/symbiotic-build/house-rules/pull/221). The lead wrote: "Cut `cache prune`, record expiry, old-folder cleanup and `.used` from the design and from the resolver … The cache only grows." It replaces the lead decisions of the same day that pruning goes by last use, that an unused branch record expires after 30 days, and that pruning removes a tree's side files and keeps source folders.
+
+**Reason:** Four Warden review rounds each found a new race between pruning and the resolutions, fetches and checks-runner writes around it: a tree renamed away just after a resolver chose it, a republished tree's stamp deleted, a suspended fetch's folder removed, an expired tag record letting a moved tag change a pin, and a fresh record deleted after another writer replaced it. No operator requirement asks for automatic pruning. A cache that only grows has none of these races, and clearing it by hand while nothing runs is safe.
+
+**Rejected alternatives:** More locking around pruning: each round's fix added a new edge, and the checks runner would have to take the same locks. Pruning by age alone: it removes trees and pins that a running consumer or a release-tag repository still uses. Automatic pruning stays a separate open question, linked from [Open questions](#questions).
+
+<a id="decision-sha1-sources"></a>
+### Decision: source layers are SHA-1 repositories for now
+
+**Choice:** A `ref` of 64 hexadecimal digits stops resolution with "SHA-256 sources are not supported yet". A source must be a repository in SHA-1 format. A repository in SHA-256 format can still adopt House Rules and run its checks.
+
+**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 2 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which asked how the resolver and the checks runner of [#212](https://github.com/symbiotic-build/house-rules/pull/212) accept the same refs. The lead stated that this concerns the commit hash format, not the ref kinds the operator is reviewing.
+
+**Reason:** The runner's fetch, branch records and handover are built for SHA-1, and both tools must accept the same refs. No source in use is SHA-256. Adding the format later is one change to both tools.
+
+**Rejected alternatives:** SHA-256 in the resolver only: the two tools would disagree about a valid file. SHA-256 in both now: it grows the runner's change for no current user.
+
+<a id="decision-tree-ready"></a>
+### Decision: a tree is ready when its folder exists
+
+**Choice:** A fetch writes `revisions/<commit>.fetched` once, create-only, before it renames its temporary folder to `revisions/<commit>/`. A tree is ready when its folder exists. An existing tree is never replaced; a fetch that loses the rename removes its copy and uses the winner's tree. The checks runner of [#212](https://github.com/symbiotic-build/house-rules/pull/212) follows the same rule.
+
+**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 3 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed that two sources fetching one commit under different source locks could replace a finished tree under a running consumer.
+
+**Reason:** Trees are shared by commit, while locks are per source, so no lock can order two publishers of one commit. With the side file written first and the rename as the only publication step, there is nothing left to repair: a folder at the ready path is always complete, and its first-fetch time always exists.
+
+**Rejected alternatives:** A lock per commit around publication: one more lock kind, in both tools. Replacing a tree without its `.fetched` file: it can replace a finished tree that another publisher just placed.
+
+<a id="decision-record-size"></a>
+### Decision: the resolution record is at most 64 KiB
+
+**Choice:** The serialized resolution record is at most 64 KiB. A larger one stops resolution with a configuration error that names its size and the layer with the most context files. The number of sources has no limit of its own.
+
+**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 3 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed with a probe that two layers listing 2 048 context files make a 198 843-byte record that cannot start a script through one environment value. It replaces the 32-source limit, whose reason that probe disproved.
+
+**Reason:** The record travels in one environment value, and the operating system limits its size, not the number of layers. One byte bound covers every way the record can grow, with a message that names the cause.
+
+**Rejected alternatives:** Keeping the 32-source cap and also capping context files per layer: two limits that still do not bound long URLs. Passing the record through a file or descriptor: a new transport in both tools, with cleanup.
+
+<a id="decision-no-credentials"></a>
+### Decision: source URLs carry no credentials
+
+**Choice:** A source URL that carries a password, or any user name over `http` or `https`, is a configuration error that says to use a Git credential helper. The cache key of a source is the SHA-256 of its URL as written, and messages show the URL as written.
+
+**Authority:** Lead decision, 2026-10-24, from the overcomplication review of [#212](https://github.com/symbiotic-build/house-rules/pull/212).
+
+**Reason:** Redacting credentials from every record, message and Git error was a mechanism with many places to get wrong. Git credential helpers already keep secrets out of URLs. Without credentials, the URL as written is a safe key and a safe display string, and an `ssh` login stays part of it.
+
+A URL in Git's `<transport>::<address>` form is refused as well. Python's URL parser sees an empty address in front of the `::`, so the check never looks at the address inside, and a Warden probe on [#212](https://github.com/symbiotic-build/house-rules/pull/212) printed a token from such a URL in both reports. The lead added this on 2026-10-24, relayed by the owner of [#212](https://github.com/symbiotic-build/house-rules/pull/212); both tools detect the form with Git's own rule.
+
+**Rejected alternatives:** Normalizing URLs into a canonical key: equal spellings would share answers, at the cost of rules for logins, ports and suffixes that two tools must keep identical. Parsing the address inside the transport form: one more URL grammar to keep identical in two tools, for a form no source needs.
+
+<a id="decision-no-git-settings"></a>
+### Decision: a repository declares no Git settings
+
+**Choice:** `house-rules.json` has no `git_settings` field; a file with one stops with the unknown-field error. The checks runner's only `GIT_CONFIG_COUNT` entry is `core.attributesFile=/dev/null`, beside `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_ATTR_NOSYSTEM=1` and `GIT_NO_REPLACE_OBJECTS=1`, and it still removes inherited `GIT_CONFIG_*` variables.
+
+**Authority:** Lead decision, 2026-10-24, after Warden round 4 of [#212](https://github.com/symbiotic-build/house-rules/pull/212), relayed by that PR's owner. It replaces the `git_settings` field of the operator's narrowed isolation decision.
+
+**Reason:** The field existed only to restore settings that the removed temporary Git folder shut out, and that folder is gone. Warden showed that its values leak credentials: an `http.extraHeader` value, or a credential inside a key such as `url."https://user:token@host/".insteadOf`, is printed in the report's overrides. Refusing such settings one by one would be the repeated repair the rules warn against.
+
+**Rejected alternatives:** A list of refused keys and values: it grows with every new way to carry a secret. A repository that needs a Git setting in CI as well can ask for it later as a new feature.
+
+<a id="decision-no-runner-handover"></a>
+### Decision: the checks runner hands no snapshot to another revision
+
+**Choice:** The runner that `exec` started checks every snapshot of a run itself, each with its own resolution and settings. It never starts a runner of another revision.
+
+**Authority:** Lead decision, 2026-10-24, from the overcomplication review of [#212](https://github.com/symbiotic-build/house-rules/pull/212). It replaces the round 1 lead decision that a snapshot with another House Rules commit is checked by that commit's runner.
+
+**Reason:** A handover between runner revisions is a protocol with two sides that must stay compatible across every pair of versions. A pushed commit's rules come from its own resolution; the runner's own code changes rarely.
+
+**Rejected alternatives:** Handing each snapshot to the runner of its resolved revision: one more process per snapshot and a version-to-version protocol.
+
+<a id="decision-layer-command"></a>
+### Decision: a command that names its layer changes with the layer
+
+**Choice:** A `run` that contains `{layer}` counts as changed when a later layer sets it, even with the same text. The later layer needs a reason, and the report lists the change.
+
+**Authority:** Lead decision, 2026-10-24, on a blocking lead decision of the Warden round 2 triage of the resolver PR [#222](https://github.com/symbiotic-build/house-rules/pull/222), whose probe showed a later layer taking over a command without a record.
+
+**Reason:** `{layer}` makes the same text run another tree's script, so equal text is not an equal command. Treating it as a change keeps the merge rule that every change carries a reason.
+
+**Rejected alternatives:** Keeping the earlier owner for equal text: a team could then never point a command at its own script.
+
+<a id="decision-fallback-handover"></a>
+### Decision: a hook fallback says so to its script
+
+**Choice:** When resolution fails in a hook, `exec` runs the script from the `default` tree with `HOUSE_RULES_FALLBACK` set to `1` and passes no resolution record; the failure line is already printed above the script's output. The script treats itself as started by `exec`: it reads the machine index from the configuration folder, and the line `exec` printed says that custom layers are missing.
+
+**Authority:** Lead decision, 2026-10-24, on a blocking lead decision of the Warden round 2 triage of the resolver PR [#222](https://github.com/symbiotic-build/house-rules/pull/222), which showed that a script could not tell a fallback from a direct run.
+
+**Reason:** One variable tells the script what happened without inventing a resolution that failed. The session script needs only to know where the machine index lives.
+
+**Rejected alternatives:** A minimal fallback record with a new source word: every reader of the record would have to learn that word for a case that resolved nothing.
+
+<a id="decision-ruleset"></a>
+### Decision: one ruleset file per rule repository, with one merge rule
+
+**Choice:** A project keeps `house-rules.json` at its root with `sources`, `profiles` and its own `checks` and `budgets`. Each rule repository, House Rules included, has one [`ruleset.json`](#ruleset) at its root, with `context`, `checks`, `budgets` and `profiles.<name>` entries of the same three fields. Every source applies its top level, then its selected profiles in the project's order; the project's own entries come last. Checks change field by field, budgets per stage and context appends. House Rules' ruleset lists its always-load rules in `context`, and a CI test keeps `INDEX.md`'s always-load list in step with it.
+
+**Authority:** The file locations are an operator decision of 2026-10-24, relayed by the lead. The operator wrote: "house-rules.json in target repo is fine ... Then for the repo which holds the rules only that should have some standard simple format easy to understand ... It should map easily into overrides and general house-rules defaults." The format and the merge rule are lead decisions of the same day. They replace `checks/base.json` and `checks/profiles/<profile>.json`, and they answer the open question about the folder of those files.
+
+**Reason:** One file per rule repository is easy to read, and one entry moves between a ruleset and a project file unchanged. House Rules' own rules and a team's rules then reach sessions through one mechanism instead of two lists.
+
+**Rejected alternatives:** A base file and a file per profile in a `checks/` folder: two paths for one repository's defaults, under a folder named after only part of their content. A `.house-rules/` folder in projects: the operator kept `house-rules.json` at the root.
+
 <a id="questions"></a>
 ## Open questions
 
-No mechanism is open. The operator decided the main choices; the four recommendations and five lead decisions above wait for the operator's review of this design, and changing any of them changes names or defaults, not the mechanisms.
-The custom layer `context` field and the House Rules [layer files](#layer-file) live under `checks/`, as the profile recommendation names them. A folder named after its whole content, such as `layer/`, is the alternative the operator can choose at review.
+The operator's review of this design is in progress; the design stays a draft until it ends. On 2026-10-24 the operator raised these points; release tags, Git isolation and the files' folder are answered above, and these remain. Until they are answered, the mechanisms above stand as written.
+
+- **Language of the command:** whether the installed `house-rules` command stays standard-library Python, as the checks runner is, or moves to another language. The operator asked for a measurement first: Rust and JavaScript versions of the spec checker are compared with Python. The command stays Python until that result is in.
+- **Local sources:** whether a [source layer](#source-layer) can be a local folder rather than a Git repository, beyond the developer [link mode](#link-mode).
+- **Automatic pruning:** how to reclaim space from trees no repository uses any more, without breaking a running consumer, a fetch in progress or a release-tag pin, is [#227](https://github.com/symbiotic-build/house-rules/issues/227). The language decision may move the command to Rust; pruning would then be designed fresh in that implementation.
+
+The four recommendations and the lead's decisions above also wait for that review; changing them changes names or defaults, not the mechanisms.
 
 <a id="rollout"></a>
 ## Migration
@@ -1150,15 +1341,24 @@ Today's install, `scripts/sync.py --install-hooks`, points every agent home at o
    - Copies the command to `~/.local/bin/house-rules`.
    - Creates the [global configuration](#global-configuration) with `{"version": 1}` when it is absent.
    - Links `custom/` of the global configuration folder to the checkout's `custom/` when that exists and the link is absent.
-3. **Re-register agent homes:** the install runs the agent-home registration that `sync.py` holds today, with the new hook commands, skill links through `default` and the new managed block. It keeps a backup beside each file it changes, as `sync.py` does.
-4. **Move local tooling:** worker and lane scripts call `house-rules path --repo <work folder>` instead of a checkout path. Scheduled jobs call `house-rules path`.
+   - Resolves the global default sources, so the cache's `default` link exists before anything points through it. When that fails, the install stops here with the resolution message, and the repair is to run it again when online.
+3. **Re-register agent homes:** the install runs `sync.py --install-hooks --command ~/.local/bin/house-rules`, then moves skill links to the `default` link and writes the new managed block. It keeps a backup beside each file it changes, as `sync.py` does, and writes a receipt in `custom/installations/` that lists every file it changed with its backup, the agent homes' hook files included.
+4. **Move local tooling:** worker and lane scripts call `house-rules resolve --repo <work folder> --json` once per run instead of using a checkout path. They take the House Rules tree from its `layers` and append its `context` files in order, as [Workers and review lanes](#consumer-workers) describes. Scheduled jobs call `house-rules resolve --json` the same way.
 5. **Check:** start a session in one repository, start a worker in it and run its checks. All three logs name the same commits.
 
 The old checkout and any per-commit checkouts stay on disk; the install removes nothing.
-Undoing the move is one step: `scripts/sync.py --install-hooks` from a checkout registers that checkout again, from its backups.
+
+**Procedure: undo the move**
+
+1. **Restore every file from the receipt:** for each hook file, skill link and instruction file the receipt lists, put back its backup. The hook files then hold the interpreter-form entries they held before the move. An older `sync.py` does not need to recognize the command form.
+2. **Refresh the checkout's hooks:** `python3 <checkout>/scripts/sync.py --install-hooks`. It finds its own interpreter-form entries and rewrites them in place, so no entry is added twice.
+3. **Restore local tooling:** point worker and lane scripts back at the checkout path they used.
+4. **Verify the undo:** `python3 <checkout>/scripts/sync.py` reports no findings.
+
+The installed command and the cache can stay; nothing starts them any more.
 
 A repository adopts with `house-rules init`, which writes `house-rules.json` with the detected profiles and nothing else.
-No repository has `.agents/checks.json` yet, because the runner PRs have not merged, so the rename needs no compatibility period; a leftover file stops with the error that names the rename.
+No repository has `.agents/checks.json` yet, because the runner PRs have not merged, so the rename needs no compatibility period and no message for the old name.
 Nothing changes in a repository that has not adopted, except that sessions there follow the global default sources.
 
 <a id="work"></a>
@@ -1166,10 +1366,10 @@ Nothing changes in a repository that has not adopted, except that sessions there
 
 The work lands as five PRs and one machine step, in this order. Each PR has the review procedure's budget of three fix rounds, and splits when it needs more.
 
-- **Resolver and command:** `scripts/house_rules.py` with `resolve`, `path`, `exec`, `link`, `unlink`, `links`, `cache list`, `cache prune`, `init`, `install --dry-run`, `self-update` and `version`, with its tests. No consumer changes yet. Depends on nothing.
-- **Agent sessions:** `scripts/session_context.py` reads the resolution, prints it, prints custom layer context, reads `custom/` from the [global configuration](#global-configuration) folder; `install` registers hooks through `house-rules exec --hook`, skill links through `default` and the new managed block. Depends on the resolver.
-- **Checks on layers:** the runner accepts custom layers in `sources`, resolves through the resolver, merges layers with provenance, reads House Rules `checks/base.json` and profiles, and applies the global configuration's budgets and personal checks. The runner PR [#212](https://github.com/symbiotic-build/house-rules/pull/212) already brings `house-rules.json`, the [local configuration](#local-configuration) and the [isolated Git environment](#git-isolation). Depends on the resolver and on the runner PRs [#212](https://github.com/symbiotic-build/house-rules/pull/212) and [#213](https://github.com/symbiotic-build/house-rules/pull/213) being merged. Closes [#217](https://github.com/symbiotic-build/house-rules/issues/217).
-- **Warden:** base-commit resolution, custom layer context and the resolution in debug data, in the Warden repository. Depends on the resolver.
+- **Resolver and command:** `scripts/house_rules.py` with `resolve`, `path`, `exec`, `link`, `unlink`, `cache list`, `init`, `install --dry-run`, `self-update` and `version`, with its tests, and House Rules' own [`ruleset.json`](#ruleset) with the test that keeps it in step with `INDEX.md`. No consumer changes yet. Depends on nothing.
+- **Agent sessions:** `scripts/session_context.py` reads the resolution, prints it, prints every layer's ruleset context, House Rules' own included, reads `custom/` from the [global configuration](#global-configuration) folder; `install` registers hooks through `house-rules exec --hook`, skill links through `default` and the new managed block. Depends on the resolver.
+- **Checks on layers:** the runner accepts custom layers in `sources`, resolves through the resolver, merges layers with provenance, reads every ruleset, House Rules' included, and applies the global configuration's budgets and personal checks. The runner PR [#212](https://github.com/symbiotic-build/house-rules/pull/212) already brings `house-rules.json` and the [isolated Git environment](#git-isolation). Depends on the resolver and on the runner PRs [#212](https://github.com/symbiotic-build/house-rules/pull/212) and [#213](https://github.com/symbiotic-build/house-rules/pull/213) being merged. Closes [#217](https://github.com/symbiotic-build/house-rules/issues/217).
+- **Warden:** base-commit resolution, qualification of the chosen House Rules commit before any [ruleset](#ruleset) is read, the allowed-source list, custom layer context and the resolution in debug data, in the Warden repository. Depends on the resolver.
 - **Rule and documentation text:** `INSTALL-AGENTS.md`, `AGENTS.md` and the README describe the command and the machine index's new folder. Depends on agent sessions.
 - **Machine migration:** the [Migration](#rollout) procedure on the machine that runs the agents, and the demonstration that a session, a worker and a check log the same commits. It changes local tooling only and needs no PR. Depends on the first three PRs.
 
@@ -1188,50 +1388,49 @@ This chapter lists the exact schemas, commands, variables, record formats, messa
 | `profiles` | list of names | no | profiles in order |
 | `budgets` | map of stage to budget entry | no | warning budgets |
 | `checks` | map of identity to check entry | no | check changes and repository checks |
-| `git_settings` | map of Git key to string | no | the only Git settings a check sees |
 
 A layer entry has `name` (required), `url` (required except for `house-rules`) and `ref` (default `main`).
 A budget entry has `seconds`, a positive number, and `reason`. A check entry has the fields of the repository checks design's [configuration fields](194-repository-checks.md#configuration-fields); it cannot set `enforced`.
 An unknown field, a duplicate layer name, a first layer that is not `house-rules`, a later layer named `house-rules`, a name that is not lower kebab case, a branch name Git refuses (`git check-ref-format --branch`) and an unsupported version stop resolution with a configuration error.
 
-### Layer, global and local schemas
+### Ruleset and global schemas
 
 | File | Fields |
 |---|---|
-| [layer file](#layer-file) | `version`, `checks`, `budgets`, `context` |
+| [ruleset](#ruleset) | `version`, `context`, `checks`, `budgets`, `profiles` |
+| ruleset profile entry | `context`, `checks`, `budgets` |
 | [global configuration](#global-configuration) | `version`, `sources`, `budgets`, `checks` |
-| [local configuration](#local-configuration) | `budgets` |
 
-Each kind of file has its own `version`: 2 for the [repository configuration](#repository-configuration), whose version 1 was the runner PRs' earlier draft, and 1 for the others. The local configuration has no `version`, as in the runner PR. A layer file's check entry may set `enforced`. A global configuration check entry needs a new identity, a full definition and a `reason`, and is always a warning. `context` entries are repository-relative paths of Markdown files inside the layer.
+Each kind of file has its own `version`: 2 for the [repository configuration](#repository-configuration), whose version 1 was the runner PRs' earlier draft, and 1 for the others. A ruleset's check entry may set `enforced`. A global configuration check entry needs a new identity, a full definition and a `reason`, and is always a warning. `context` entries are repository-relative paths of Markdown files inside the layer.
 
 <a id="run-placeholder-layer"></a>
 ### Run placeholder for layers
 
-The run placeholder `{layer}` is the absolute path of the tree of the layer whose file defined the check's `run`. It joins the [run placeholders](194-repository-checks.md#configuration-fields) of the repository checks design; `{house_rules}` stays the House Rules layer's tree.
+The run placeholder `{layer}` is the absolute path of the tree of the layer whose file defined the check's `run`. It joins the [run placeholders](194-repository-checks.md#configuration-fields) of the repository checks design; `{house_rules}` stays the House Rules layer's tree. A `run` that names `{layer}` counts as changed when a later layer sets it, even with the same text, because it then runs that layer's files; the later layer needs a reason, as the [layer command decision](#decision-layer-command) records.
 
 <a id="commands"></a>
 ### Commands
 
 ```text
 house-rules resolve [--repo PATH] [--rev COMMIT] [--json]
-house-rules path [--repo PATH] [--layer NAME]
+house-rules path [--repo PATH]
 house-rules exec [--repo PATH] [--hook] PATH [ARGUMENT]...
 house-rules link CHECKOUT [--url URL]
 house-rules unlink CHECKOUT|URL
-house-rules links
 house-rules cache list
-house-rules cache prune [--dry-run]
 house-rules init [--dry-run] [--profile NAME]...
 house-rules install [--dry-run]
-house-rules self-update
+house-rules self-update [--from CHECKOUT]
 house-rules version
 ```
 
 - `--repo PATH` names the repository; the default is the Git top level of the current folder. Outside any repository the command uses the global default sources.
 - `--rev COMMIT` reads the [repository configuration](#repository-configuration) from that commit instead of the working tree. Warden and tests use it.
-- `--layer NAME` prints that layer's tree instead of House Rules'.
+- `exec --origin index|push` reads it from the staged index or from the first commit of a push, as [Git hooks and CI](#consumer-checks) describes.
 - `--profile NAME` replaces the detected profiles.
-- Exit status 0 is success, 1 a usage error and 2 a configuration or resolution failure, matching the checks runner's status 2 for preparation failures.
+- `self-update --from CHECKOUT` copies the command from a House Rules checkout instead of the global default's tree.
+- Output channels: `path` prints only the path on standard output; `resolve --json` prints only the JSON record on standard output; every other line the command itself writes, warnings and errors included, goes to standard error, except `resolve` without `--json`, which prints its text form on standard output. `exec` passes its script's standard output and standard error through unchanged, so a session hook's context still reaches the agent on standard output.
+- Exit status 0 is success, 1 a usage error and 2 a configuration or resolution failure, matching the checks runner's status 2 for preparation failures. `exec` exits with its script's status.
 
 <a id="environment-variables"></a>
 ### Command environment variables
@@ -1244,8 +1443,10 @@ A command environment variable is an environment variable of the [House Rules co
 | `HOUSE_RULES_REVISION` | revision override of the `house-rules` layer for one run |
 | `HOUSE_RULES_CACHE` | cache root |
 | `HOUSE_RULES_RESOLVED` | set by a starting tool: the [resolution record](#resolution-record) in JSON |
+| `HOUSE_RULES_DEADLINE` | set by `exec --hook`: the hook's deadline, in seconds since 1970-01-01 UTC |
+| `HOUSE_RULES_FALLBACK` | set to `1` by `exec --hook` when resolution failed; no record is passed |
 
-The last three keep the names and meanings the runner PRs gave them; `HOUSE_RULES_RESOLVED` now holds the whole resolution record. The runner PRs' `HOUSE_RULES_URL` is retired: a fork or a fixture is a `url` in the repository configuration.
+`HOUSE_RULES_REVISION`, `HOUSE_RULES_CACHE` and `HOUSE_RULES_RESOLVED` keep the names and meanings the runner PRs gave them; `HOUSE_RULES_RESOLVED` now holds the whole resolution record. The runner PRs' `HOUSE_RULES_URL` is retired: a fork or a fixture is a `url` in the repository configuration.
 
 <a id="schema-resolution"></a>
 ### Resolution record format
@@ -1260,50 +1461,68 @@ The last three keep the names and meanings the runner PRs gave them; `HOUSE_RULE
    "ref_kind": "branch", "revision": "4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e", "source": "reused",
    "fetched": "2026-10-24T09:00:00Z", "tree": "/home/dev/.cache/house-rules/revisions/4b1f…",
    "link": null},
+  {"name": "team-rules", "url": "https://git.example.com/team/team-rules", "ref": "main",
+   "ref_kind": "branch", "revision": "7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80", "source": "reused",
+   "fetched": "2026-10-24T09:00:01Z", "tree": "…", "link": null},
   {"name": "rust-settings", "url": "https://git.example.com/team/rust-settings", "ref": "3f2a9c0d41b7e65a8c1d2b3f4e5a6b7c8d9e0f1a",
    "ref_kind": "commit", "revision": "3f2a9c0d41b7e65a8c1d2b3f4e5a6b7c8d9e0f1a", "source": "pinned",
    "fetched": "2026-10-23T16:40:12Z", "tree": "…", "link": null}],
+ "context": [{"layer": "house-rules", "path": "rules/core.md"}, {"layer": "team-rules", "path": "rules/team.md"}],
  "warnings": []}
 ```
 
 - `configuration.origin` is `working tree`, `index`, `commit`, `base`, `global` or `default`. `commit` names the commit for `commit` and `base`, and is `null` otherwise.
-- `ref_kind` is `branch` or `commit`. `source` is one of the words [Resolution record](#resolution-record) lists.
-- `fetched` is when the cache first received the commit's files, or for a branch the time of its record; it is `null` for a link.
+- `ref_kind` is `branch`, `commit` or `tag`. `source` is one of the words [Resolution record](#resolution-record) lists.
+- `fetched` is when the cache first received the commit's files, read from `revisions/<commit>.fetched`; it is `null` for a link.
+- `context` lists every layer's context files in layer order, House Rules' always-load rules first, with the layer label and the path inside that layer's tree. Session hooks and worker tooling deliver exactly these files.
 - `link` is `null`, or an object with `path`, `head` (the checkout's commit) and `dirty` (true when the working tree differs from it).
-- The checks runner's report adds `settings`: a list of objects with `key` (such as `checks.spec-docs.stages`), `value`, `layer`, `replaces` (the earlier layer, or `null` for a new key) and `reason`.
+- The checks runner's report holds one such record per snapshot, as `resolution` in the snapshot entry, beside `settings`: a list of objects with `key` (such as `checks.spec-docs.stages`), `value`, `layer`, `replaces` (the earlier layer, or `null` for a new key) and `reason`.
 
+<a id="messages"></a>
 ### Messages
 
 | Cause | Message | Exit |
 |---|---|---|
 | invalid JSON | `house-rules: <file>: invalid JSON at line <l> column <c>: <error>` | 2 |
+| unreadable snapshot file | `house-rules: cannot read house-rules.json from <commit or the index> in <repository> (<git error>)` | 2 |
+| unreadable pre-push line | `house-rules: cannot read a pre-push line from Git; run the push again` | 2 |
+| URL Python cannot parse | `house-rules: <file>: sources[<i>]: the URL of <layer> is not a URL Git can use; check its host and port` | 2 |
 | first layer | `house-rules: <file>: sources[0] must be house-rules; House Rules is always the first layer` | 2 |
-| layer lists sources | `house-rules: <layer> <file>: only house-rules.json lists sources` | 2 |
+| record too large | `house-rules: the record for this run is <n> bytes, over the 64 KiB limit; <layer> lists the most context files (<count>)` | 2 |
+| credentials in a URL | `house-rules: <file>: sources[<i>]: the URL of <layer> carries credentials; use a Git credential helper` | 2 |
+| credentials in a linked URL | `house-rules: the --url value carries credentials; use a Git credential helper`, or `remote.origin.url of <checkout>` in place of `the --url value` | 1 |
+| transport form | `house-rules: <file>: sources[<i>]: the URL of <layer> uses Git's <transport>:: form, which this command does not accept; use a plain URL and a Git credential helper` | 2 |
+| [ruleset](#ruleset) lists sources | `house-rules: <layer> <file>: only house-rules.json lists sources` | 2 |
 | unknown profile | `house-rules: profile <name> is defined by no layer (<layer names>)` | 2 |
 | missing reason | `house-rules: <layer> <key>: changes <earlier layer>'s value; add a reason` | 2 |
 | missing branch | `house-rules: <layer>: no branch <branch> at <url>; check the ref in house-rules.json` | 2 |
+| SHA-256 source | `house-rules: <layer>: SHA-256 sources are not supported yet` | 2 |
+| missing tag | `house-rules: <layer>: no release tag <tag> at <url>; check the ref in house-rules.json` | 2 |
 | missing commit | `house-rules: <layer>: commit <commit> not found at <url> (<git error>); check the ref` | 2 |
 | offline, no record | `house-rules: cannot reach <url> (<git error>) and no earlier fetch of <layer> <branch> is cached; run again when online` | 2 |
 | both one-run variables | `house-rules: set HOUSE_RULES_LINK or HOUSE_RULES_REVISION, not both` | 1 |
 | broken link | `house-rules: link <key>: <path> is not a Git checkout; run house-rules unlink <path>` | 2 |
+| cache not writable | `house-rules: cannot write the cache <folder> (<system error>); free space, make it writable or set HOUSE_RULES_CACHE` | 2 |
 | old command | `house-rules: <file> has version <n>; this house-rules command knows version 2; run house-rules self-update` | 2 |
-| old checks file | `house-rules: .agents/checks.json is replaced by house-rules.json at the repository root; rename it` | 2 |
+| old default command | `house-rules: the global default's House Rules has the same command; run python3 <checkout>/scripts/house_rules.py install from a newer checkout` | 2 |
+| hook deadline | `warning: the remote did not answer within 8 s; using <layer> <branch> as last answered <time>, <commit>` | 0 |
+| source not allowed | `Warden: layer <name> at <url> is not an allowed source; ask the Warden operator to allow it` | review stops |
 
-Warnings start with `warning:` and never change an exit status: [offline resolution](#offline-use), a link, an override, an invalid global configuration, a personal check that names an existing check, a tracked local configuration and an installed command that differs from the global default's.
+Warnings start with `warning:` and never change an exit status: [offline resolution](#offline-use), the hook deadline, a link, an override, an invalid global configuration, a personal check that names an existing check and an installed command that differs from the global default's.
 
 <a id="naming-conventions"></a>
 ### Naming conventions
 
 Each kind of public name in this design follows one convention:
 
-- Configuration and record fields are lower snake case with modifiers before the head noun: `ref_kind`, `git_settings`. A time is a past participle, `fetched`, as in the runner PRs' report; the House Rules naming defaults' `_at` suffix gives way to that existing field. They have no prefix.
+- Configuration and record fields are lower snake case with modifiers before the head noun: `ref_kind`. A time is a past participle, `fetched`, as in the runner PRs' report; the House Rules naming defaults' `_at` suffix gives way to that existing field. They have no prefix.
 - Layer names, profile names and check identities are lower kebab case, noun first: `team-rules`, `rust-settings`. They have no prefix or suffix.
 - Layer labels are a layer name, optionally followed by `/` and a profile name: `rust-settings/rust`.
-- Commands are lower-case words after `house-rules`, verb first: `resolve`, `cache prune`, `self-update`.
-- Options are lower kebab case after `--`, named for their value's noun: `--repo`, `--layer`.
+- Commands are lower-case words after `house-rules`, verb first: `resolve`, `cache list`, `self-update`.
+- Options are lower kebab case after `--`, named for their value's noun: `--repo`, `--profile`.
 - Environment variables are upper snake case and start with `HOUSE_RULES_`, modifiers before the head noun: [`HOUSE_RULES_LINK`](#environment-variables).
 - [Configuration origins](#configuration-origin) and layer sources are lower-case words separated by a space: `working tree`, `reused`.
-- Files are lower kebab case with their format's suffix: `house-rules.json`, `house-rules.local.json`, `links.json`.
+- Files are lower kebab case with their format's suffix: `house-rules.json`, [`ruleset.json`](#ruleset), `links.json`.
 
 Reviewers check these conventions. The environment variables join the runner environment variables of the repository checks design in the checks-on-layers work package, whose setting naming rule in `docs/ENTITIES.json` then enforces their spelling. The other kinds are ordinary words that the checker would match in prose.
 
@@ -1320,7 +1539,7 @@ Until then each is a planned demonstration; none has been run.
 
 **Requirements:** [Ordered merge](#req-layers-ordered-merge).
 
-**Inputs:** A fixture Python repository without `sources`, a fixture House Rules source with `checks/base.json` and an empty `checks/profiles/python.json`, and no [global configuration](#global-configuration).
+**Inputs:** A fixture Python repository without `sources`, a fixture House Rules source whose [`ruleset.json`](#ruleset) has top-level checks and an empty `python` profile, and no [global configuration](#global-configuration).
 
 **Expected:** `house-rules init` writes the example's file. A commit runs whitespace and skips spec-docs, and the report has the example's lines.
 
@@ -1333,9 +1552,9 @@ Evidence: planned, following [a default single-language repository](#examples).
 
 **Requirements:** [Ordered merge](#req-layers-ordered-merge), [refs](#req-layers-refs), [logging](#req-layers-logging).
 
-**Inputs:** The tour's three fixture sources. Then a new commit on `team-rules` `main` and on `rust-settings` `main`, more than 60 s later. Separately, a `team-rules` [layer file](#layer-file) that lists `sources`, and a `rust-settings` change without a reason.
+**Inputs:** The tour's three fixture sources. Then a new commit on `team-rules` `main` and on `rust-settings` `main`, more than 60 s later. Separately, a `team-rules` [ruleset](#ruleset) that lists `sources`, and a `rust-settings` change without a reason.
 
-**Expected:** The tour's report, with the `settings` block naming `team-rules` and `rust-settings/rust`. After the new commits, `team-rules` resolves to its new commit and `rust-settings` stays at its pin. The layer file with `sources` and the change without a reason stop with their messages.
+**Expected:** The tour's report, with the `settings` block naming `team-rules` and `rust-settings/rust`. After the new commits, `team-rules` resolves to its new commit and `rust-settings` stays at its pin. The ruleset with `sources` and the change without a reason stop with their messages.
 
 Evidence: planned, following the [tour](#tour).
 
@@ -1365,6 +1584,19 @@ Evidence: planned, following [a repository with no configuration](#examples).
 
 Evidence: planned, following [Migration](#rollout).
 
+<a id="test-layers-split-session"></a>
+### Demonstration: split session
+
+**Method:** demonstration.
+
+**Requirements:** [Consumers](#req-layers-consumers).
+
+**Inputs:** A team layer whose ruleset lists 128 context files of 128 characters each, in configuration A. Part 1 resolves A; every later part resolves configuration B, which lists other files. Separately, a team layer with 300 such files.
+
+**Expected:** Part 1 names every one of A's 128 files inside its layer's tree line, and the later parts name another text, so the agent reads all of A's files from part 1 alone. The 300-file layer gets part 1's error line naming that layer and the count, followed by the global default's rules.
+
+Evidence: planned, following [Agent sessions](#consumer-sessions).
+
 <a id="test-layers-machine-files"></a>
 ### Demonstration: machine files
 
@@ -1372,9 +1604,9 @@ Evidence: planned, following [Migration](#rollout).
 
 **Requirements:** [Machine files](#req-layers-machine-files).
 
-**Inputs:** A global configuration with a 1 s pre-commit budget and a failing personal check; a personal check named `whitespace`; an invalid global file; a [local configuration](#local-configuration) with `checks`; a tracked local configuration.
+**Inputs:** A global configuration with a 1 s pre-commit budget and a failing personal check; a personal check named `whitespace`; an invalid global file.
 
-**Expected:** Each run passes when the repository's checks pass. The budget and the failing personal check print warnings; CI runs no personal check. The invalid global file, the personal check named `whitespace` and the tracked local configuration print their warnings. The local configuration with `checks` stops the run with a configuration error.
+**Expected:** Each run passes when the repository's checks pass. The budget and the failing personal check print warnings; CI runs no personal check. The invalid global file and the personal check named `whitespace` print their warnings.
 
 Evidence: planned, following [Effective configuration](#effective-configuration).
 
@@ -1385,7 +1617,7 @@ Evidence: planned, following [Effective configuration](#effective-configuration)
 
 **Requirements:** [Git isolation](#req-layers-git-isolation).
 
-**Inputs:** A staged trailing space in a fixture clone with `core.whitespace=-blank-at-eol` in its `.git/config`, `* -whitespace` in `.git/info/attributes`, a global `core.attributesFile` with the same line, and a commit started with `git -c core.whitespace=-blank-at-eol commit`.
+**Inputs:** A staged trailing space in a fixture clone, with `core.whitespace=-blank-at-eol` in the global configuration, a global `core.attributesFile` holding `* -whitespace`, and a commit started with `git -c core.whitespace=-blank-at-eol commit`.
 
 **Expected:** The whitespace check fails in every case, as it does in a fresh clone.
 
@@ -1417,16 +1649,16 @@ Evidence: planned, following [an offline run](#examples).
 
 Evidence: planned, following the developer link example in [Worked examples](#examples).
 
-<a id="test-layers-cache-prune"></a>
-### Demonstration: cache prune
+<a id="test-layers-cache-list"></a>
+### Demonstration: cache list and clearing
 
 **Method:** demonstration.
 
 **Requirements:** [Cache](#req-layers-cache).
 
-**Inputs:** A fixture cache with a tree named by a branch record, an unnamed tree last used 8 days ago, an unnamed tree used 2 hours ago, the `default` tree, a `.partial-` folder 2 days old, and the runner PRs' `main.json` and `revisions/`.
+**Inputs:** A fixture cache after one resolution of a branch source, a release-tag source and a source pinned at a commit, with a link to the branch source's checkout. Separately, an adopted clone whose cache folder is deleted while nothing runs, then committed in.
 
-**Expected:** `--dry-run` lists the old unnamed tree, the `.partial-` folder and the old layout, and removes nothing. `prune` removes exactly those.
+**Expected:** `cache list` names the branch and tag sources by their URLs with their records, shows the link under the branch source, does not name the pinned source, lists all three trees with their sizes, and ends with the total size. After the deletion, the clone's commit starts its hook through the installed command, resolves every layer online, fetches their trees and runs its checks.
 
 Evidence: planned, following [Version cache](#version-cache).
 
@@ -1437,8 +1669,8 @@ Evidence: planned, following [Version cache](#version-cache).
 
 **Requirements:** [Warden base configuration](#req-layers-warden-base).
 
-**Inputs:** A fixture repository whose base commit lists two layers, and a PR that moves a pin and adds a third layer.
+**Inputs:** A fixture repository whose base commit lists two layers, and a PR that moves a pin and adds a third layer. Separately, a base commit whose `house-rules` layer is a fork at `main`, and one that lists a custom layer outside Warden's allowed sources.
 
-**Expected:** The review's debug data lists the base commit's two layers; the review states that the change takes effect after merge; CI on the PR resolves three layers.
+**Expected:** The review's debug data lists the base commit's two layers; the review states that the change takes effect after merge; CI on the PR resolves three layers. The fork's review uses the fork's qualified commit, not the upstream's. The layer outside the allowed sources stops the review with its message.
 
 Evidence: planned, following [a Warden review of a PR that changes the configuration](#examples).
