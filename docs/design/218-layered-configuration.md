@@ -229,6 +229,7 @@ The file has six top-level fields:
 
 - `version` is 2. Version 1 was the runner PRs' earlier `.agents/checks.json`.
 - `sources` lists the [source layers](#source-layer) in order. It is required, so the file alone decides the layers: a hook and CI resolve the same list, and no per-user file can change it.
+- `sources` holds at most 32 layers. A longer list stops resolution with a configuration error before any fetch. The limit keeps the [resolution record](#resolution-record) small enough for one environment value in [`HOUSE_RULES_RESOLVED`](#environment-variables).
 - `profiles` lists [profile](#profile) names in order. It is optional and defaults to none.
 - `budgets` maps a [check stage](194-repository-checks.md#check-stage) to an entry with `seconds` and `reason`, as the repository checks design defines.
 - `checks` maps a check identity to an entry, with the fields of the [check configuration](194-repository-checks.md#check-configuration).
@@ -1251,9 +1252,9 @@ The operator's review of this design is in progress; the design stays a draft un
 
 - **Language of the command:** whether the installed `house-rules` command stays standard-library Python, as the checks runner is, or moves to another language.
 - **Release versions:** whether refs also accept versioned release tags, pinned exactly, besides branches and commits.
-- **Local sources:** whether a source layer can be a local folder rather than a Git repository, beyond the developer [link mode](#link-mode).
+- **Local sources:** whether a [source layer](#source-layer) can be a local folder rather than a Git repository, beyond the developer [link mode](#link-mode).
 - **Git isolation:** whether the [isolated Git environment](#git-isolation) is more mechanism than the equal-result promise needs.
-- **Layer file folder:** whether layer files stay under `checks/`, as the profile recommendation names them, or move to a folder named after their whole content, since they also list context files.
+- **Folder name:** whether [layer files](#layer-file) stay under `checks/`, as the profile recommendation names them, or move to a folder named after their whole content, since they also list context files.
 
 The four recommendations and the lead's decisions above also wait for that review; changing them changes names or defaults, not the mechanisms.
 
@@ -1413,6 +1414,7 @@ The last three keep the names and meanings the runner PRs gave them; `HOUSE_RULE
 |---|---|---|
 | invalid JSON | `house-rules: <file>: invalid JSON at line <l> column <c>: <error>` | 2 |
 | first layer | `house-rules: <file>: sources[0] must be house-rules; House Rules is always the first layer` | 2 |
+| too many sources | `house-rules: <file>: sources lists <n> layers; at most 32 are supported` | 2 |
 | layer lists sources | `house-rules: <layer> <file>: only house-rules.json lists sources` | 2 |
 | unknown profile | `house-rules: profile <name> is defined by no layer (<layer names>)` | 2 |
 | missing reason | `house-rules: <layer> <key>: changes <earlier layer>'s value; add a reason` | 2 |
