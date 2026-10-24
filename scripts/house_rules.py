@@ -3,8 +3,8 @@
 
 The contract is docs/design/218-layered-configuration.md. A repository's house-rules.json lists ordered source
 layers (House Rules first, then custom rule and setting repositories), each at a branch, which always resolves to
-its latest commit, at a commit, a deliberate pin, or at an exact release tag such as v1.4.0, a named pin resolved
-once. This file resolves them into a per-user version cache, builds
+its latest commit, at a commit, a deliberate pin, or at an exact release tag such as v1.4.0, which resolves like a
+branch. This file resolves them into a per-user version cache, builds
 the effective configuration with the layer of every value, and logs what it resolved. It keeps no "current
 version": the repository's file, else the per-user file's default sources, else House Rules main decides.
 
@@ -54,7 +54,6 @@ DEADLINE = "HOUSE_RULES_DEADLINE"  # set by exec --hook: the hook's deadline, in
 HOOK_ERROR = "HOUSE RULES HOOK ERROR:"  # the error prefix agent session hooks print, as session_context.py does
 COMMIT = re.compile(r"[0-9a-f]{40}")  # a source layer's commit: sources are SHA-1 repositories for now
 SHA256_COMMIT = re.compile(r"[0-9a-f]{64}")
-OBJECT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")  # a commit of a consuming repository, in either format
 TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+")  # an exact release tag; no version ranges
 NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 TRANSPORT = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9+.-]*)?::")  # Git's <transport>::<address>, as Git detects it
@@ -137,7 +136,7 @@ def config_home():
     return Path.home() / ".config" / "house-rules"
 
 
-def credentials(url, what):
+def credentials(url, what, status=2):
     """True when a URL carries a password, or any user name over http or https; an ssh login is part of the URL.
 
     A URL Python cannot parse, such as one with a bad port or IPv6 authority, is a configuration error. Neither
@@ -147,24 +146,33 @@ def credentials(url, what):
         parts = urllib.parse.urlsplit(url)
         parts.port  # parsing the port is where a malformed authority shows
     except ValueError:
-        raise Failure(f"house-rules: {what} is not a URL Git can use; check its host and port")
+        raise Failure(f"house-rules: {what} is not a URL Git can use; check its host and port", status=status)
     if "@" not in parts.netloc:
         return False
     return parts.password is not None or parts.scheme.lower() in ("http", "https")
 
 
+def encodable(text):
+    """True when `text` can become a process argument and a cache key: no lone surrogate, which JSON allows."""
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
+
+
 def check_url(url, what, status=2):
     """Refuse a source URL no tool should fetch or store; `what` names it, because the URL itself may hold secrets."""
-    try:
-        url.encode("utf-8")
-    except UnicodeEncodeError:
+    if not url:
+        raise Failure(f"house-rules: {what} is empty", status=status)
+    if not encodable(url):
         raise Failure(f"house-rules: {what} is not valid text", status=status)
     if "\0" in url:
         raise Failure(f"house-rules: {what} contains a NUL character", status=status)
     if TRANSPORT.match(url):  # the address inside escapes every check, so the form is refused
         raise Failure(f"house-rules: {what} uses Git's <transport>:: form, which this command does not accept; use a "
                       "plain URL and a Git credential helper", status=status)
-    if credentials(url, what):
+    if credentials(url, what, status):
         raise Failure(f"house-rules: {what} carries credentials; use a Git credential helper", status=status)
 
 
@@ -208,9 +216,6 @@ class Deadline:
 
     def left(self):
         return None if self.end is None else max(0.0, self.end - time.monotonic())
-
-    def passed(self):
-        return self.end is not None and time.monotonic() >= self.end
 
 
 HOOK_SECONDS = 8   # the hook timeout, 10 s, minus 2 s to print what happened
@@ -276,7 +281,7 @@ def check_sources(sources, where):
             raise Failure(f"house-rules: {at}: layer {name} needs a url")
         check_url(url, f"{at}: the URL of {name}")
         ref = entry.get("ref", "main")
-        if not isinstance(ref, str) or not ref or "\0" in ref:
+        if not isinstance(ref, str) or not ref or "\0" in ref or not encodable(ref):
             raise Failure(f"house-rules: {at}: ref must be a branch name, a full commit identity or a release tag")
         if SHA256_COMMIT.fullmatch(ref.lower()):
             raise Failure(f"house-rules: {name}: SHA-256 sources are not supported yet")
@@ -591,14 +596,17 @@ def fetch_commit(url, commit, deadline=NO_DEADLINE):
         cause = "the deadline passed"
         raise
     finally:
+        left = []  # every folder is tried, so one that cannot be removed never keeps another
         for folder in (temporary, repository):  # the extraction is already gone when the rename published it
             try:
                 if folder is not None:
                     remove_tree(folder)
             except OSError as exc:
-                earlier = f"; the fetch had failed first: {cause}" if cause else ""
-                raise Failure(f"house-rules: cannot remove the temporary fetch folder {folder} "
-                              f"({exc.strerror or exc}){earlier}; remove it by hand and run again")
+                left.append(f"{folder} ({exc.strerror or exc})")
+        if left:
+            earlier = f"; the fetch had failed first: {cause}" if cause else ""
+            raise Failure(f"house-rules: cannot remove the temporary fetch folder {' and '.join(left)}{earlier}; "
+                          "remove it by hand and run again")
 
 
 def checkout_state(path):
