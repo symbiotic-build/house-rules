@@ -385,6 +385,12 @@ class DefaultsTest(RunnerCase):
                                                  "git_settings has 'whitespace', which is no Git setting name"),
             "a Git setting the runner sets": ({"git_settings": {"core.attributesFile": {"value": "a", "reason": "x"}}},
                                               None, "git_settings.core.attributesFile is set by the runner"),
+            "a Git setting that includes a file": ({"git_settings": {"include.path": {"value": "x", "reason": "x"}}},
+                                                   None, "git_settings.include.path would include another "
+                                                   "configuration file"),
+            "a Git setting that includes a file on a condition": (
+                {"git_settings": {"IncludeIf.gitdir:/srv/.Path": {"value": "x", "reason": "x"}}}, None,
+                "git_settings.IncludeIf.gitdir:/srv/.Path would include another configuration file"),
             "a Git setting without a reason": ({"git_settings": {"core.whitespace": {"value": "-blank-at-eol"}}}, None,
                                                "git_settings.core.whitespace lacks reason"),
             "a Git setting given as plain text": ({"git_settings": {"core.whitespace": "-blank-at-eol"}}, None,
@@ -510,20 +516,17 @@ class DefaultsTest(RunnerCase):
         self.assertEqual(report["checks"][0]["output"],
                          f"{self.repo.root}\npre-commit {report['base']} {report['snapshot']} {report['snapshot']}\n")
 
-    def test_working_tree_check_sees_the_checkout_but_not_the_clones_git_configuration(self):
-        reader = 'git status --porcelain; git config --get user.name; echo "exit $?"'
-        self.repo.configure(dict(NO_SPEC, tree=check(["sh", "-c", reader], ["ci"])))  # no {snapshot}: CI only
+    def test_working_tree_check_sees_the_checkout(self):
+        reader = check(["sh", "-c", "git status --porcelain; echo done"], ["ci"])  # no {snapshot}: CI only
+        self.repo.configure(dict(NO_SPEC, tree=reader))
         self.repo.write("notes.txt", "notes\n")
         self.repo.stage("notes.txt")
         self.repo.commit()
-        self.repo.git("config", "user.name", "Clone User")
-        self.repo.write(".git/info/attributes", "* -text\n")
         proc, entry = self.repo.snapshot("run", "--stage", "ci", "--head", "HEAD", "--only", "tree")
-        tree = entry["checks"][0]
-        self.assertEqual((proc.returncode, tree["status"], tree["output"]), (0, "pass", "exit 1\n"), proc.stderr)
-        self.repo.write("notes.txt", "changed\n")  # the check reads the checkout's files through its work tree
+        self.assertEqual((proc.returncode, entry["checks"][0]["output"]), (0, "done\n"), proc.stderr)
+        self.repo.write("notes.txt", "changed\n")  # the check reads the checkout's files and index
         proc, entry = self.repo.snapshot("run", "--stage", "ci", "--head", "HEAD", "--only", "tree")
-        self.assertEqual((proc.returncode, entry["checks"][0]["output"]), (0, " M notes.txt\nexit 1\n"), proc.stderr)
+        self.assertEqual((proc.returncode, entry["checks"][0]["output"]), (0, " M notes.txt\ndone\n"), proc.stderr)
 
     def test_check_whose_program_is_missing_is_an_error_and_fails_the_run(self):
         self.repo.configure({"lint": check(["no-such-program-for-checks", "{snapshot}"], ["pre-commit"])})
@@ -576,8 +579,9 @@ class DefaultsTest(RunnerCase):
         self.assertIn(b"\n      \xc3\xa9\noverride: ", text.stdout)
 
     def test_checks_run_isolated_from_the_clones_git_configuration(self):
-        """The clone's own Git settings and attribute files change no result; the configuration's git_settings do."""
-        self.repo.write(".gitattributes", "*.txt diff=notes\n")  # a named diff driver the clone could make binary
+        """Personal, system and inherited Git configuration and the personal attributes file change no result; the
+        configuration's git_settings do, and the clone's own .git/config still applies."""
+        self.repo.write(".gitattributes", "*.txt diff=notes\n")  # a named diff driver the caller could make binary
         self.repo.stage(".gitattributes")
         self.repo.configure(NO_SPEC)
         base = self.repo.commit()
@@ -601,23 +605,24 @@ class DefaultsTest(RunnerCase):
             return [statuses(r)["whitespace"] for r in reports], name_output
 
         clean = results(self.repo.env)
-        for setting, value in (("core.whitespace", "-blank-at-eol"), ("diff.renames", "false"),
-                               ("diff.notes.binary", "true"), ("user.name", "Clone User")):
-            self.repo.git("config", setting, value)
-        self.repo.write(".git/info/attributes", "* -whitespace\n")
-        personal = self.repo.path.parent / "xdg"
-        (personal / "git").mkdir(parents=True)
-        (personal / "git/attributes").write_text("* -whitespace\n")  # read by default unless core.attributesFile is set
-        template = self.repo.path.parent / "template"
-        (template / "info").mkdir(parents=True)
-        (template / "info/attributes").write_text("* -whitespace\n")  # a personal template git init would copy
+        outside = self.repo.path.parent / "outside"
+        (outside / "git").mkdir(parents=True)
+        settings = ("[core]\n\twhitespace = -blank-at-eol\n[diff]\n\trenames = false\n"
+                    "[diff \"notes\"]\n\tbinary = true\n[user]\n\tname = Outside User\n")
+        for name in ("global", "system"):
+            (outside / name).write_text(settings)
+        (outside / "git/attributes").write_text("* -whitespace\n")  # read by default unless core.attributesFile is set
+        env = {k: v for k, v in self.repo.env.items() if k != "GIT_CONFIG_NOSYSTEM"}
         # Configuration a caller passes in the environment, as `git -c` and GIT_CONFIG_COUNT do, is dropped too.
-        configured = results(dict(self.repo.env, XDG_CONFIG_HOME=str(personal), GIT_TEMPLATE_DIR=str(template),
+        configured = results(dict(env, GIT_CONFIG_GLOBAL=str(outside / "global"),
+                                  GIT_CONFIG_SYSTEM=str(outside / "system"), XDG_CONFIG_HOME=str(outside),
                                   GIT_CONFIG_COUNT="1",
                                   GIT_CONFIG_KEY_0="core.whitespace", GIT_CONFIG_VALUE_0="-blank-at-eol",
                                   GIT_CONFIG_PARAMETERS="'diff.renames'='false'"))
         self.assertEqual(clean, (["fail", "pass", "pass"], "exit 1\n"))
         self.assertEqual(configured, clean)
+        self.repo.git("config", "user.name", "Clone User")  # the clone's own configuration still applies
+        self.assertEqual(results(self.repo.env)[1], "Clone User\nexit 0\n")
 
 
 class SnapshotTest(RunnerCase):

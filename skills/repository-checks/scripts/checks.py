@@ -48,8 +48,8 @@ DEFAULT_SOURCE = {"name": HOUSE_RULES, "ref": "main"}
 MAX_SOURCES = 32
 # A Git setting name: section.key or section.subsection.key, as git-config defines them.
 GIT_SETTING = re.compile(r"[A-Za-z0-9-]+(?:\.[^\n\0]+)?\.[A-Za-z][A-Za-z0-9-]*")
-# Settings of the isolated Git directory that the runner sets itself; no configuration may change them.
-RUNNER_GIT_SETTINGS = ("core.bare", "core.worktree", "core.repositoryformatversion", "core.attributesfile")
+# A Git setting the runner passes to every check itself; no configuration may change it.
+RUNNER_GIT_SETTINGS = ("core.attributesfile",)
 # A House Rules fetch fails on lack of progress, never on elapsed time: below 1 byte/s for 30 s over HTTP.
 PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
 # The handing runner passes the run's resolved House Rules revision to the runner it starts,
@@ -532,7 +532,8 @@ def check_budgets(budgets, error):
 def check_git_settings(settings):
     """Validate `git_settings`: Git setting names mapped to {"value", "reason"}; return {name: value}.
 
-    No entry may set what the runner sets.
+    No entry may set what the runner sets, or include another configuration file, whose settings would come from
+    outside the configuration.
     """
     if not isinstance(settings, dict):
         raise config_error("git_settings must be an object")
@@ -542,8 +543,11 @@ def check_git_settings(settings):
             raise config_error(f"git_settings has {name!r}, which is no Git setting name (section.key or "
                                "section.subsection.key)")
         section, key = name.split(".", 1)[0].lower(), name.rsplit(".", 1)[1].lower()
-        if section == "extensions" or f"{section}.{key}" in RUNNER_GIT_SETTINGS:
-            raise config_error(f"git_settings.{name} is set by the runner for the isolated Git directory")
+        if f"{section}.{key}" in RUNNER_GIT_SETTINGS:
+            raise config_error(f"git_settings.{name} is set by the runner for every check")
+        if section in ("include", "includeif"):
+            raise config_error(f"git_settings.{name} would include another configuration file; set each setting "
+                               "itself")
         fields(entry, f"git_settings.{name}", ("value", "reason"), ())
         if not isinstance(entry["value"], str) or "\0" in entry["value"]:
             raise config_error(f"git_settings.{name}.value must be text without a NUL character")
@@ -1383,24 +1387,20 @@ def check_snapshot(root, args, target, config, house_rules, pushing):
                           "(--attr-source)", "install a Git that supports it")
 
     started, results = time.monotonic(), []
-    with scratch("the isolated Git directory") as folder:
-        gitdir = isolated_git(root, folder, config["git_settings"])
-        env = check_environment(gitdir, args.stage, base, snapshot)
-        if any(not uses(check, "snapshot") for check in running):
-            working = check_environment(gitdir, args.stage, base, snapshot, root, index_copy(root, folder))
-        for check, reason, inputs in plan:
-            result = {"id": check["id"], "layer": check["layer"], "status": "skipped", "seconds": None,
-                      "command": None, "output": "", "fix": None,
-                      "rerun": runner_command(*rerun, "--only", check["id"]), "skip_reason": reason}
-            if reason is None:
-                command = expand(check["run"], values, inputs)
-                begin = time.monotonic()
-                status, output = start_check(command, root, env if uses(check, "snapshot") else working)
-                # A failing check that House Rules does not enforce yet warns and leaves its snapshot passing.
-                status = status or ("pass" if output[0] == 0 else "fail" if check["enforced"] else "warn")
-                result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
-                              output=output[1], fix=check["fix"] if status != "pass" else None)
-            results.append(result)
+    env = check_environment(args.stage, base, snapshot, config["git_settings"])
+    for check, reason, inputs in plan:
+        result = {"id": check["id"], "layer": check["layer"], "status": "skipped", "seconds": None,
+                  "command": None, "output": "", "fix": None,
+                  "rerun": runner_command(*rerun, "--only", check["id"]), "skip_reason": reason}
+        if reason is None:
+            command = expand(check["run"], values, inputs)
+            begin = time.monotonic()
+            status, output = start_check(command, root, env)
+            # A failing check that House Rules does not enforce yet warns and leaves its snapshot passing.
+            status = status or ("pass" if output[0] == 0 else "fail" if check["enforced"] else "warn")
+            result.update(status=status, seconds=round(time.monotonic() - begin, 3), command=command,
+                          output=output[1], fix=check["fix"] if status != "pass" else None)
+        results.append(result)
     total = time.monotonic() - started
     ran = [r for r in results if r["status"] != "skipped"]
     warnings = []
@@ -1447,61 +1447,26 @@ def select(check, stage, from_index, target, changed):
     return None, inputs
 
 
-def isolated_git(root, folder, settings):
-    """Make the isolated Git directory every check of a snapshot runs with, in `folder`; return its path.
-
-    It is a bare Git directory without references whose objects come from the clone's object folder through
-    objects/info/alternates. Its configuration holds only what Git needs to read those objects, core.bare, an empty
-    core.attributesFile, so that no personal attributes file applies, and the configuration's `git_settings`.
-    """
-    gitdir = folder / "git"
-    object_format = out(root, "rev-parse", "--show-object-format")
-    # An empty template, and no GIT_TEMPLATE_DIR, so no personal template copies attributes or hooks into it.
-    git(folder, "init", "--quiet", "--bare", "--template=", f"--object-format={object_format}", str(gitdir),
-        env=dict(ISOLATED_GIT_ENV), foreign=True, drop=("GIT_TEMPLATE_DIR",))
-    head = commit_id(root, "HEAD")
-    if head:  # detached at the clone's HEAD commit, which a working-tree check's index copy belongs to
-        (gitdir / "HEAD").write_text(head + "\n")
-    (gitdir / "objects" / "info").mkdir(parents=True, exist_ok=True)
-    objects = (root / out(root, "rev-parse", "--git-path", "objects")).resolve()
-    (gitdir / "objects" / "info" / "alternates").write_bytes(os.fsencode(str(objects)) + b"\n")
-    lines = ["[core]", f"\trepositoryformatversion = {0 if object_format == 'sha1' else 1}", "\tbare = true"]
-    lines += [] if object_format == "sha1" else ["[extensions]", f"\tobjectFormat = {object_format}"]
-    (gitdir / "config").write_text("\n".join(lines) + "\n")
-    isolated = dict(ISOLATED_GIT_ENV)
-    for name, value in [("core.attributesFile", os.devnull), *settings.items()]:
-        git(folder, "config", "--file", str(gitdir / "config"), "--", name, value, env=isolated, foreign=True)
-    return gitdir
+# Every check reads Git without personal or system configuration and without the system attributes file.
+CHECK_GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_ATTR_NOSYSTEM": "1", **NO_REPLACE}
 
 
-# Every check reads Git with no personal or system configuration and no system attributes file.
-ISOLATED_GIT_ENV = {"GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_ATTR_NOSYSTEM": "1"}
+def check_environment(stage, base, snapshot, settings):
+    """The environment of a check: the runner's own, without variables that bind Git to another repository or pass
+    it configuration, plus CHECK_GIT_ENV, the CHECK_ values and Git configuration the runner sets itself.
 
-
-def check_environment(gitdir, stage, base, snapshot, work_tree=None, index=None):
-    """The environment of a check: the runner's own, without variables that bind Git to the clone or configure it,
-    plus the isolated Git directory and the CHECK_ values.
-
-    A check that reads the working tree also gets the repository root as its work tree and a copy of the clone's
-    index; a check that reads the snapshot gets no work tree.
+    Git finds the clone's own Git directory from the repository root, the check's working folder. The runner passes
+    core.attributesFile=/dev/null, so Git reads no personal attributes file such as ~/.config/git/attributes, which
+    it reads by default even without a global configuration, followed by the configuration's `git_settings`.
     """
     env = {k: v for k, v in os.environ.items()
            if k not in LOCAL_GIT_ENV and not k.startswith(("GIT_CONFIG_KEY_", "GIT_CONFIG_VALUE_"))}
-    env.update(ISOLATED_GIT_ENV, GIT_DIR=str(gitdir), CHECK_STAGE=stage, CHECK_BASE=base, CHECK_SNAPSHOT=snapshot,
-               **NO_REPLACE)
-    if work_tree is not None:
-        env.update(GIT_WORK_TREE=str(work_tree), GIT_INDEX_FILE=str(index))
+    env.update(CHECK_GIT_ENV, CHECK_STAGE=stage, CHECK_BASE=base, CHECK_SNAPSHOT=snapshot)
+    passed = [("core.attributesFile", os.devnull), *settings.items()]
+    env["GIT_CONFIG_COUNT"] = str(len(passed))
+    for number, (name, value) in enumerate(passed):
+        env[f"GIT_CONFIG_KEY_{number}"], env[f"GIT_CONFIG_VALUE_{number}"] = name, value
     return env
-
-
-def index_copy(root, folder):
-    """Copy the clone's index into `folder` for checks that read the working tree; return the copy's path."""
-    copy = folder / "index"
-    try:
-        shutil.copyfile(str(root / out(root, "rev-parse", "--git-path", "index")), str(copy))
-    except FileNotFoundError:
-        pass  # nothing was ever staged: Git reads the absent copy as an empty index
-    return copy
 
 
 def start_check(command, root, env):
