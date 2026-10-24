@@ -70,15 +70,12 @@ ARCHIVE_ATTRIBUTES = (("core.attributesFile", os.devnull),)
 
 
 def with_settings(environ, settings):
-    """Add Git settings to `environ` through GIT_CONFIG_COUNT, after any a caller already set there."""
-    try:
-        count = int(environ.get("GIT_CONFIG_COUNT") or 0)
-    except ValueError:
-        count = 0  # Git refuses a count it cannot read; ours replaces it
-    for index, (key, value) in enumerate(settings, count):
+    """Give Git exactly `settings` through GIT_CONFIG_COUNT. Only for an environment without the caller's
+    GIT_CONFIG_COUNT and GIT_CONFIG_PARAMETERS (LOCAL_GIT_ENV), so nothing a caller passed can override them."""
+    for index, (key, value) in enumerate(settings):
         environ[f"GIT_CONFIG_KEY_{index}"] = key
         environ[f"GIT_CONFIG_VALUE_{index}"] = value
-    environ["GIT_CONFIG_COUNT"] = str(count + len(settings))
+    environ["GIT_CONFIG_COUNT"] = str(len(settings))
     return environ
 # Variables that bind a Git command to the calling repository; a hook inherits some of them.
 LOCAL_GIT_ENV = ("GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_CONFIG", "GIT_CONFIG_COUNT",
@@ -125,7 +122,8 @@ def git(cwd, *args, foreign=False, check=True, deadline=None, keep=()):
             if name not in keep:
                 environ.pop(name, None)
     environ.update(NO_REPLACE)
-    with_settings(environ, NO_MAINTENANCE)
+    if foreign:  # the cache's own repositories, which a fetch's cleanup removes
+        with_settings(environ, NO_MAINTENANCE)
     left = deadline.left() if deadline is not None else None
     if left is not None and left <= 0:
         raise DeadlinePassed()

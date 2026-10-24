@@ -2,6 +2,8 @@
 """The review-staging check passes on this checkout and fails on a role that includes a file
 the review service does not copy."""
 import ast
+import contextlib
+import io
 import os
 import re
 import shlex
@@ -152,14 +154,15 @@ class ReviewStagingTest(unittest.TestCase):
             repo = Path(folder) / "repo"
             repo.mkdir()
             (repo / "a.txt").write_text("a\n")
-            with unittest.mock.patch.dict(os.environ, {"GIT_TRACE": str(trace)}):
+            inherited = "'maintenance.auto'='true' 'gc.auto'='1'"  # a caller's `git -c`, as a hook would pass it
+            with unittest.mock.patch.dict(os.environ, {"GIT_TRACE": str(trace), "GIT_CONFIG_PARAMETERS": inherited}):
                 for args in (["git", "init", "-q", "-b", "main"], ["git", "add", "a.txt"], ["git", "commit", "-qm", "a"]):
                     self.assertEqual(check_review_staging.run(args, repo).returncode, 0)
             self.assertIn("git commit", trace.read_text())
             self.assertNotIn("maintenance run", trace.read_text())  # Git would start one, detached, after the commit
 
     def test_this_checkout_prepares_every_role_and_lens(self):
-        self.assertEqual(check_review_staging.check(REPO), [])
+        self.assertEqual(check_review_staging.check(REPO), ([], None))
 
     def test_role_including_an_unstaged_file_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -168,8 +171,32 @@ class ReviewStagingTest(unittest.TestCase):
                 shutil.copytree(REPO / folder, root / folder)
             role = root / "prompts/roles/triager.md"
             role.write_text(role.read_text() + "@rule house-rules:skills/operator-writing/SKILL.md\n")
-            failures = check_review_staging.check(root)
+            failures, cleanup = check_review_staging.check(root)
             self.assertTrue(any(f.startswith("role triager:") for f in failures), failures)
+            self.assertIsNone(cleanup)
+
+    def test_a_cleanup_failure_is_reported_apart_from_the_staging_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for folder in ("prompts", "rules", "skills"):
+                shutil.copytree(REPO / folder, root / folder)
+            role = root / "prompts/roles/triager.md"
+            role.write_text(role.read_text() + "@rule house-rules:skills/operator-writing/SKILL.md\n")
+            real = shutil.rmtree
+
+            def stuck(path, *args, **kwargs):
+                if not kwargs.get("ignore_errors") and Path(path).name.startswith("tmp"):
+                    real(path)
+                    raise OSError(66, "Directory not empty")  # removed, but reported as a removal would fail
+                return real(path, *args, **kwargs)
+            out, err = io.StringIO(), io.StringIO()
+            with unittest.mock.patch.object(check_review_staging.shutil, "rmtree", stuck), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                status = check_review_staging.main(["--root", str(root)])
+            self.assertEqual(status, 1)
+            self.assertIn("FAIL role triager:", out.getvalue())  # the staging result survives the cleanup failure
+            self.assertIn("FAILED: roles and lenses prepared", out.getvalue())
+            self.assertIn("ERROR cleanup: cannot remove the temporary folder", err.getvalue())
 
     def test_missing_matching_checker_fails_documentation_staging(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -177,7 +204,7 @@ class ReviewStagingTest(unittest.TestCase):
             for folder in check_review_staging.STAGED:
                 shutil.copytree(REPO / folder, root / folder)
             (root / "skills/spec-writing/scripts/spec_docs.py").unlink()
-            failures = check_review_staging.check(root)
+            failures, _ = check_review_staging.check(root)
             self.assertTrue(any(f.startswith("documentation staging:") for f in failures), failures)
 
 
