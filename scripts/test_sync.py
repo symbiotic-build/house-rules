@@ -14,6 +14,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -1784,11 +1785,21 @@ class ApprovedWorkListingTests(unittest.TestCase):
     def test_no_search_starts_after_the_shared_deadline(self):
         self.configure("example-org\nother-org\n")
         clock = iter([0.0, 1.0, context.GH_TIMEOUT + 1.0])
-        with self.fake_gh("[]"), mock.patch.object(context.time, "monotonic", lambda: next(clock)):
+        issues = [self.issue(7, "Found before the deadline")]
+        with self.fake_gh(json.dumps(issues)), mock.patch.object(context.time, "monotonic", lambda: next(clock)):
             listing = context.approved(self.base)
-        self.assertEqual(listing, f"{context.ERROR} approved-work listing used its {context.GH_TIMEOUT} s "
-                                  "before searching other-org.")
+        self.assertEqual(listing, "\n".join([
+            self.HEAD, self.row(7, "Found before the deadline"),
+            f"{context.ERROR} the approved-work search was cut short at the hook's deadline before searching other-org."]))
         self.assertEqual(len((self.bin / "calls").read_text().splitlines()), 1)
+
+    def test_the_search_stops_at_the_deadline_house_rules_exec_passes(self):
+        self.configure("example-org\n")
+        with self.fake_gh("[]"), mock.patch.dict(os.environ, {"HOUSE_RULES_DEADLINE": str(time.time() - 1)}):
+            listing = context.approved(self.base)
+        self.assertEqual(listing, "\n".join([self.HEAD, f"{context.ERROR} the approved-work search was cut short at "
+                                                          "the hook's deadline before searching example-org."]))
+        self.assertFalse((self.bin / "calls").exists())
 
     NOTICE = ("HOUSE RULES HOOK ERROR: this list may not show every open approved item. Close the issues of "
               "finished approved work, so the label marks only work that still waits.")

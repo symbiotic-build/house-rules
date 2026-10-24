@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -539,6 +540,17 @@ class SessionContextTests(Fixture):
         self.assertIn("# This computer", text)
         self.assertIn("===== House Rules file team-rules rules/team.md =====\n# Team rules", text)
         self.assertNotIn("HOUSE RULES HOOK ERROR", text)
+        team_tree = re.search(r"house-rules: tree of team-rules: (\S+)", text).group(1)
+        self.assertIn(f"house-rules: context of team-rules: {team_tree}/rules/team.md", text)
+        self.assertIn("This part's resolution governs: read INDEX.md, its always-load rules, the operator-writing "
+                      "skill and every context file listed above from the trees this part names, directly.", text)
+        first = re.search(r"text ([0-9a-f]{12})", text).group(1)
+        self.push("team-rules", {"README.md": "a change outside the context files\n"})
+        self.expire_answers()
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
+        again = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertNotEqual(re.search(r"text ([0-9a-f]{12})", again).group(1), first)  # every layer's commit counts
 
 
 class RoundOneTests(Fixture):

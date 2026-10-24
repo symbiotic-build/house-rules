@@ -55,7 +55,7 @@ EXTRA_FILES = ["skills/operator-writing/SKILL.md"]
 LOCAL_INDEX = "custom/INDEX.md"
 APPROVED_CONF = "custom/approved-work.conf"
 APPROVED_CAP = 3_000  # characters the hook prints; issue rows that do not fit give way to one notice
-GH_TIMEOUT = 7        # seconds for all of the listing's GitHub searches, under the hook's TIMEOUT
+GH_TIMEOUT = 7        # seconds for the listing's GitHub searches when no house-rules exec deadline is set
 GH_LIMIT = 100        # issues per search, more than the cap can show; reaching it prints the notice
 KIMI_STATE = "house-rules-sessions"   # Folder in the Kimi home holding one empty file per session id given the rules.
 SESSION_ID = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9_.-]{0,199}")
@@ -88,9 +88,10 @@ def resolution():
 
 
 def local_index(base):
-    """This computer's custom/INDEX.md: the tree's own custom/ when it has one, else the configuration folder's."""
+    """This computer's custom/INDEX.md: the configuration folder's when house-rules exec started this run, else the
+    custom/ folder of the checkout the hook runs from, as an install that predates the command registers it."""
     module = house_rules()
-    if (base / "custom").is_dir() or module is None:
+    if module is None or resolution() is None:
         return base / LOCAL_INDEX
     return module.config_home() / LOCAL_INDEX
 
@@ -231,8 +232,11 @@ def parts(base=None, failures=None):
 
 
 def fingerprint(packed):
-    """Names the exact text all parts were cut from, so parts read at different moments differ visibly."""
-    return hashlib.sha256("".join(text for _, _, text in packed).encode("utf-8")).hexdigest()[:12]
+    """Names the exact text all parts were cut from and every layer's commit, so parts read at different moments,
+    or resolved to different commits of any layer, differ visibly."""
+    record = resolution()
+    commits = "".join(f"{layer['name']} {layer['revision']}\n" for layer in record["layers"]) if record else ""
+    return hashlib.sha256((commits + "".join(text for _, _, text in packed)).encode("utf-8")).hexdigest()[:12]
 
 
 def label(number, total, rev, text_id, name, heading):
@@ -251,12 +255,15 @@ def render(number, rev, packed):
     lines = [label(number, total, rev, text_id, name, heading)]
     if number == 1:
         lines.extend(resolution_lines())
+        governs = ("This part's resolution governs: read INDEX.md, its always-load rules, the operator-writing skill "
+                   "and every context file listed above from the trees this part names, directly."
+                   if resolution() else f"Read the files from {root()} directly.")
         lines.append(f"House Rules INDEX.md, its always-load rules, the operator-writing skill and this computer's "
-                     f"{LOCAL_INDEX}, then any custom layer's context files, follow in full, in {total} parts. They apply to every reply in this session. "
-                     "The parts can arrive in any order: read them in part-number order. Each part names the file "
-                     f"and heading it starts at. Every part names text {text_id}. A missing part number, or a part "
-                     "with another part count or text, means the files changed while the parts were read: read "
-                     f"the files from {root()} directly.")
+                     f"{LOCAL_INDEX}, then any custom layer's context files, follow in full, in {total} parts. "
+                     "They apply to every reply in this session. The parts can arrive in any order: read them in "
+                     f"part-number order. Each part names the file and heading it starts at. Every part names text "
+                     f"{text_id}. A missing part number, or a part with another part count or text, means the parts "
+                     f"were cut from different resolutions or the files changed while they were read. {governs}")
     if total > SLOTS and number in (1, SLOTS):
         lines.append(overflow(total))
     # The body keeps its own trailing newlines, so blank source lines survive the split.
@@ -274,6 +281,10 @@ def resolution_lines():
         return []
     module = house_rules()
     lines = module.describe(record)
+    lines += [f"house-rules: tree of {layer['name']}: {layer['tree']}" for layer in record["layers"]]
+    for item in record.get("context", []):
+        tree = Path(module.layer_tree(record, item["layer"].split("/", 1)[0]))
+        lines.append(f"house-rules: context of {item['layer']}: {tree / item['path']}")
     default = module.cache_root() / "default"
     tree = Path(record["layers"][0]["tree"])
     if default.is_symlink() and Path(os.path.realpath(str(default))) != tree.resolve():
@@ -308,16 +319,21 @@ def approved(base=None):
             return ""
         scopes = [line.split("#", 1)[0].strip() for line in config.splitlines()]
         scopes = [scope for scope in scopes if scope]
-        deadline = time.monotonic() + GH_TIMEOUT
-        rows, incomplete = [], False
+        deadline = search_deadline()
+        rows, incomplete, cut = [], False, None
         for scope in scopes:
             left = deadline - time.monotonic()
             if left <= 0:
-                return f"{ERROR} approved-work listing used its {GH_TIMEOUT} s before searching {scope}."
+                cut = scope
+                break
             flag = "--repo" if "/" in scope else "--owner"
-            out = subprocess.run(["gh", "search", "issues", flag, scope, "--label", "approved", "--state", "open",
-                                  "--limit", str(GH_LIMIT), "--json", "repository,number,title,body"],
-                                 capture_output=True, text=True, timeout=left, stdin=subprocess.DEVNULL)
+            try:
+                out = subprocess.run(["gh", "search", "issues", flag, scope, "--label", "approved", "--state", "open",
+                                      "--limit", str(GH_LIMIT), "--json", "repository,number,title,body"],
+                                     capture_output=True, text=True, timeout=left, stdin=subprocess.DEVNULL)
+            except subprocess.TimeoutExpired:
+                cut = scope
+                break
             items = json.loads(out.stdout) if out.returncode == 0 else None
             if not isinstance(items, list) or not all(valid_issue(item) for item in items):
                 return f"{ERROR} approved-work listing for {scope} failed: {one_line(out.stderr or out.stdout)}"
@@ -326,21 +342,33 @@ def approved(base=None):
                 owner = next((line.split(":", 1)[1].strip() for line in item["body"].splitlines()
                               if line.lower().startswith("owner:")), "no Owner: line")
                 rows.append(f"- {item['repository']['nameWithOwner']}#{item['number']} {item['title']} — Owner: {owner}")
-    except (OSError, ValueError, RecursionError, subprocess.TimeoutExpired) as error:
+    except (OSError, ValueError, RecursionError) as error:
         return f"{ERROR} approved-work listing failed: {one_line(error)}"
-    if not rows:
+    if not rows and cut is None:
         return ""
     kept = ["Open approved work. Continue the items you own; the others belong to the owners named:"]
     rows = sorted(rows)
-    if not incomplete and len("\n".join([*kept, *rows])) <= APPROVED_CAP:
+    if cut is None and not incomplete and len("\n".join([*kept, *rows])) <= APPROVED_CAP:
         return "\n".join([*kept, *rows])
-    notice = (f"{ERROR} this list may not show every open approved item. Close the issues of finished "
-              "approved work, so the label marks only work that still waits.")
+    # The hook's deadline stops the search; what was found so far is printed with a line that says so.
+    notice = (f"{ERROR} the approved-work search was cut short at the hook's deadline before searching {cut}."
+              if cut is not None else f"{ERROR} this list may not show every open approved item. Close the issues "
+              "of finished approved work, so the label marks only work that still waits.")
     for row in rows:
         if len("\n".join([*kept, row, notice])) > APPROVED_CAP:
             break
         kept.append(row)
     return "\n".join([*kept, notice])
+
+
+def search_deadline():
+    """When the GitHub searches stop, on the monotonic clock: the hook's deadline that house-rules exec passes in
+    HOUSE_RULES_DEADLINE, else GH_TIMEOUT from now for a hook that runs this script directly."""
+    try:
+        end = float(os.environ["HOUSE_RULES_DEADLINE"])
+    except (KeyError, ValueError):
+        return time.monotonic() + GH_TIMEOUT
+    return time.monotonic() + end - time.time()
 
 
 def valid_issue(item):
