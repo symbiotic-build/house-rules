@@ -344,12 +344,14 @@ class CommandTests(Fixture):
             with self.assertRaises(hr.Failure) as caught:
                 hr.repository_config(json.dumps({"version": 2, "sources": [source, {"name": "team", "url": url}]}))
             self.assertIn("the URL of team carries credentials; use a Git credential helper", str(caught.exception))
-        for url in ("https::https://user:token@host/rules", "ext::ssh -i key host %S rules"):
+        for url in ("https::https://user:token@host/rules", "ext::ssh -i key host %S rules", "::host/rules",
+                    "git+x.y-z::host/rules"):
             with self.assertRaises(hr.Failure) as caught:  # the address inside is never checked, so the form is refused
                 hr.repository_config(json.dumps({"version": 2, "sources": [source, {"name": "team", "url": url}]}))
-            self.assertIn("the URL of team uses Git's <transport>::<address> form; write the address itself",
-                          str(caught.exception))
-        for url in ("ssh://git@host/rules", "file:///srv/a::b/rules"):  # "::" after the first "/" is a path
+            self.assertIn("the URL of team uses Git's <transport>:: form, which this command does not accept; use a "
+                          "plain URL and a Git credential helper", str(caught.exception))
+        for url in ("ssh://git@host/rules", "file:///srv/a::b/rules", "[::1]:rules", "ssh://[::1]/rules",
+                    "-x::host/rules"):  # Git reads none of these as a helper
             self.assertEqual(hr.repository_config(json.dumps({"version": 2, "sources": [
                 source, {"name": "team", "url": url}]}))["sources"][1]["url"], url)
 
