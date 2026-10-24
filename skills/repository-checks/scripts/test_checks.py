@@ -6,6 +6,7 @@ in its sources, so no case needs a network.
 """
 import ast
 import fcntl
+import hashlib
 import importlib.metadata
 import importlib.util
 import json
@@ -29,7 +30,7 @@ RUNNER = "skills/repository-checks/scripts/checks.py"
 OFFLINE = "file:///nonexistent/house-rules"  # an unreachable source stands for a denied network
 NO_SPEC = {"spec-docs": {"enabled": False, "reason": "No specifications in this fixture."}}
 TIME = r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ"
-FETCHED = r", fetched " + TIME + r"\)"  # the end of a text header after its revision source
+FETCHED = r", cached " + TIME + r"\)"  # the end of a text header after its revision source
 EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 TOUR_FIX = ("apply the remedy for each code in the spec checker's diagnostic table, "
             "run spec_docs.py generate, stage the result")
@@ -163,7 +164,7 @@ class Repo:
         self.url, self.ref = url or self.url, ref or self.ref
         self.write_config(dict(self.config, sources=[{"name": "house-rules", "url": self.url, "ref": self.ref}]))
 
-    def header(self, revision, source="branch main", url=None):
+    def header(self, revision, source="fetched branch main", url=None):
         """The text header's House Rules part after its revision: where the commit came from and the URL."""
         return re.escape(f"House Rules {revision} ({source} of {url or self.url}") + FETCHED
 
@@ -230,19 +231,24 @@ class Repo:
                 self.git("stash", "list"), files)
 
 
-def source_folder(cache, url):
-    """The cache folder of a file:// source: sources/file/<absolute path>, each name escaped as the runner does."""
-    def name(segment):
-        escaped = "".join(c if re.fullmatch(r"[A-Za-z0-9._-]", c) else "".join(f"%{b:02X}" for b in c.encode())
-                          for c in segment)
-        return escaped.replace(".", "%2E") if set(escaped) <= {"."} else escaped
+def sha256_hex(text):
+    return hashlib.sha256(text.encode("utf-8", "surrogateescape")).hexdigest()
+
+
+def source_key(url):
+    """The cache key of a file:// source: file:// and its absolute path, without empty segments."""
     assert url.startswith("file://"), url
-    return Path(cache, "sources", "file", *(name(s) for s in url[len("file://"):].split("/") if s))
+    return "file://" + "".join("/" + s for s in url[len("file://"):].split("/") if s)
+
+
+def source_folder(cache, url):
+    """The cache folder of a file:// source: sources/<SHA-256 of its key>."""
+    return Path(cache, "sources", sha256_hex(source_key(url)))
 
 
 def branch_record(cache, url, ref="main"):
     """The cache's record of the commit last resolved for one source and branch."""
-    return source_folder(cache, url) / "branches" / (ref + ".json")
+    return source_folder(cache, url) / "branches" / (sha256_hex(ref) + ".json")
 
 
 def statuses(report):
@@ -361,16 +367,28 @@ class DefaultsTest(RunnerCase):
                 'sources[0].name must be "house-rules": the first layer is House Rules'),
             "a ref that is no branch name": (
                 {"sources": [{"name": "house-rules", "url": OFFLINE, "ref": "bad..ref"}]}, None,
-                "sources[0].ref must be a branch name or a full commit identity of 40 or 64 hexadecimal digits, "
+                "sources[0].ref must be a branch name or a full commit identity of 40 hexadecimal digits, "
                 "not 'bad..ref'"),
             "a ref that check-ref-format --branch refuses": (
                 {"sources": [{"name": "house-rules", "url": OFFLINE, "ref": "HEAD"}]}, None,
-                "sources[0].ref must be a branch name or a full commit identity of 40 or 64 hexadecimal digits, "
+                "sources[0].ref must be a branch name or a full commit identity of 40 hexadecimal digits, "
                 "not 'HEAD'"),
+            "a 64-digit commit ref, which would need a SHA-256 source": (
+                {"sources": [{"name": "house-rules", "url": OFFLINE, "ref": "3" * 64}]},
+                "use the source's SHA-1 commit or a branch, through a reviewed change",
+                "sources[0].ref names a 64-digit commit; SHA-256 sources are not supported yet"),
+            "more than 32 sources": (
+                {"sources": [{"name": "house-rules", "url": OFFLINE, "ref": "main"}]
+                 + [{"name": f"layer-{n}", "url": OFFLINE, "ref": "main"} for n in range(32)]}, None,
+                "sources lists 33 entries; at most 32 are allowed"),
             "a Git setting name without a key": ({"git_settings": {"whitespace": "x"}}, None,
                                                  "git_settings has 'whitespace', which is no Git setting name"),
-            "a Git setting the runner sets": ({"git_settings": {"core.attributesFile": "a"}}, None,
-                                              "git_settings.core.attributesFile is set by the runner"),
+            "a Git setting the runner sets": ({"git_settings": {"core.attributesFile": {"value": "a", "reason": "x"}}},
+                                              None, "git_settings.core.attributesFile is set by the runner"),
+            "a Git setting without a reason": ({"git_settings": {"core.whitespace": {"value": "-blank-at-eol"}}}, None,
+                                               "git_settings.core.whitespace lacks reason"),
+            "a Git setting given as plain text": ({"git_settings": {"core.whitespace": "-blank-at-eol"}}, None,
+                                                  "git_settings.core.whitespace must be an object"),
             "entry that sets enforced": ({"checks": {"whitespace": {"enforced": False, "reason": "x"}}}, None,
                                          "checks.whitespace.enforced is set by House Rules, not by the "
                                          "configuration; to turn the check off, set enabled: false with a reason"),
@@ -392,10 +410,10 @@ class DefaultsTest(RunnerCase):
                 "checks.lint has scope files but its run has no whole {files} argument"),
             "argument that cannot be passed to a program": (
                 {"checks": {"lint": check(["lint", "\ud800", "{snapshot}"], ["ci"])}}, None,
-                "the file holds text that cannot be printed or passed to a program: \\ud800"),
+                "checks.lint.run[1] holds text that cannot be printed or passed to a program"),
             "reason that cannot be printed": (
                 {"checks": {"whitespace": {"enabled": False, "reason": "off \udbff"}}}, None,
-                "the file holds text that cannot be printed or passed to a program: off \\udbff"),
+                "checks.whitespace.reason holds text that cannot be printed or passed to a program"),
             "NUL character in a check identity": ({"checks": {"li\0nt": check(["lint", "{snapshot}"], ["ci"])}}, None,
                                                   "checks has an identity with a NUL character: li\\x00nt"),
             "repository check without fix": (
@@ -414,6 +432,34 @@ class DefaultsTest(RunnerCase):
                 expected = message if message.startswith("house-rules: ") else (
                     "configuration error in house-rules.json: " + message)
                 self.assertPreparationFailure(proc, expected, repair or "fix the file through a reviewed change")
+
+    def test_git_settings_are_overrides_with_their_reason(self):
+        reason = "Trailing spaces end Markdown line breaks."
+        self.repo.configure(NO_SPEC, git_settings={"core.whitespace": {"value": "-blank-at-eol", "reason": reason}})
+        self.repo.write("notes.txt", "trailing \n")
+        self.repo.stage("notes.txt")
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit")
+        setting = {"id": "git_settings.core.whitespace", "layer": "repository", "change": 'value: "-blank-at-eol"',
+                   "reason": reason}
+        self.assertEqual((proc.returncode, statuses(entry)["whitespace"], entry["overrides"][1:]),
+                         (0, "pass", [setting]), proc.stderr)
+        text = self.repo.run("run", "--stage", "pre-commit").stdout.splitlines()
+        self.assertIn(f'override: git_settings.core.whitespace value: "-blank-at-eol" (repository); reason: {reason}',
+                      text)
+
+    def test_text_that_cannot_be_printed_is_named_by_its_field_and_never_shown(self):
+        self.repo.url = "https://tokenuser:s3cr3tpass\ud800@example.invalid/house-rules"
+        self.repo.configure(NO_SPEC)
+        cause = ("configuration error in house-rules.json: sources[0].url holds text that cannot be printed or passed "
+                 "to a program")
+        text = self.repo.run("run", "--stage", "pre-commit")
+        proc, report = self.repo.report("run", "--stage", "pre-commit")
+        self.assertEqual((text.returncode, text.stderr), (2, f"repository checks: {cause}; fix the file through a "
+                                                             "reviewed change\n"))
+        self.assertEqual((proc.returncode, report["error"]["cause"]), (2, cause))
+        for output in (text.stdout, text.stderr, proc.stdout, proc.stderr):
+            self.assertNotIn("s3cr3tpass", output)
+            self.assertNotIn("tokenuser", output)
 
     def test_git_replacement_objects_do_not_change_the_checked_commit(self):
         self.repo.configure()
@@ -541,7 +587,8 @@ class DefaultsTest(RunnerCase):
         self.repo.git("mv", "notes.txt", "moved.txt")
         renamed = self.repo.commit()  # only a rename: with Git's default rename detection, no line is added
         name = check(["sh", "-c", 'git config --get user.name; echo "exit $?"', "{snapshot}"], ["ci"])
-        self.repo.configure(dict(NO_SPEC, name=name), git_settings={"core.whitespace": "-blank-at-eol"})
+        self.repo.configure(dict(NO_SPEC, name=name), git_settings={
+            "core.whitespace": {"value": "-blank-at-eol", "reason": "Trailing spaces end Markdown line breaks."}})
         self.repo.write("other.txt", "trailing \n")
         self.repo.stage("other.txt")
         relaxed = self.repo.commit()
@@ -1203,7 +1250,7 @@ class SpecDocsTest(RunnerCase):
             self.assertTrue(warning.startswith("budget: pre-commit took "), warning)
         self.assertEqual(report, {"version": 3, "stage": "pre-commit", "result": "fail",
                                   "layers": [{"name": "house-rules", "url": self.repo.url, "ref": "main",
-                                              "revision": self.repo.main, "source": "branch"}], "warnings": [],
+                                              "revision": self.repo.main, "source": "fetched"}], "warnings": [],
                                   "snapshots": [{
             "reference": None, "source": "index", "base": head, "snapshot": snapshot, "result": "fail",
             "checks": [
@@ -1321,13 +1368,13 @@ class RevisionTest(RunnerCase):
         cache = self.fresh_cache("moving-cache")
         self.repo.configure(NO_SPEC)
         proc, _, first = self.repo.checked("run", "--stage", "pre-commit")
-        self.assertEqual((proc.returncode, first["revision"], first["source"]), (0, house_rules.main, "branch"),
+        self.assertEqual((proc.returncode, first["revision"], first["source"]), (0, house_rules.main, "fetched"),
                          proc.stderr)
         (house_rules.path / "MOVED").write_text("main moved\n")
         moved = house_rules.commit("Move main")
         earlier = cache / "revisions" / house_rules.main / RUNNER  # a hook set up while the earlier main was current
         proc, entry, second = self.repo.checked("run", "--stage", "pre-commit", script=earlier)
-        self.assertEqual((proc.returncode, second["revision"], second["source"]), (0, moved, "branch"), proc.stderr)
+        self.assertEqual((proc.returncode, second["revision"], second["source"]), (0, moved, "fetched"), proc.stderr)
         self.assertTrue(entry["checks"][0]["rerun"].startswith(
             shlex.join([sys.executable, str(cache / "revisions" / moved / RUNNER)])), entry["checks"][0])
 
@@ -1335,20 +1382,20 @@ class RevisionTest(RunnerCase):
         self.fresh_cache("cached-main")
         self.repo.configure(NO_SPEC)
         proc, _, online = self.repo.checked("run", "--stage", "pre-commit")
-        self.assertEqual((proc.returncode, online["source"]), (0, "branch"), proc.stderr)
+        self.assertEqual((proc.returncode, online["source"]), (0, "fetched"), proc.stderr)
         error = "fatal: unable to access the House Rules URL: Could not resolve host"
         fail = f"echo {shlex.quote(error)} >&2; exit 128"
         offline = lambda: dict(self.repo.env, PATH=self.racing_git("ls-remote", fail))
         proc, report = self.repo.report("run", "--stage", "pre-commit", env=offline())
         self.assertEqual((proc.returncode, report["result"], report["layers"]),
-                         (0, "pass", [dict(online, source="cached branch")]), proc.stderr)
+                         (0, "pass", [dict(online, source="offline")]), proc.stderr)
         warning = (f"cannot fetch House Rules main from {self.house_rules.url} ({error}); using the main last fetched, "
                    f"{self.repo.main}, fetched {online['fetched']}")
         self.assertEqual(report["warnings"], [warning])
         text = self.repo.run("run", "--stage", "pre-commit", env=offline()).stdout.splitlines()
         self.assertEqual(text[0], "repository checks: pre-commit on the staged index, House Rules "
-                                  f"{self.repo.main} (cached branch main of {self.repo.url}, "
-                                  f"fetched {online['fetched']})")
+                                  f"{self.repo.main} (offline branch main of {self.repo.url}, "
+                                  f"cached {online['fetched']})")
         self.assertEqual(text[-2:], ["warning: " + warning, "All 1 selected check passed; 1 skipped."])
 
     def test_override_runs_that_revision_for_one_run_and_marks_the_report(self):
@@ -1367,9 +1414,9 @@ class RevisionTest(RunnerCase):
         self.assertEqual(hooked.returncode, 0, hooked.stdout)
         self.assertRegex(hooked.stdout, "(?m)^" + re.escape(
             f"repository checks: pre-commit on the staged index, House Rules {revision} (override "
-            f"HOUSE_RULES_REVISION of {self.repo.url}, fetched {house_rules['fetched']})") + "$")
+            f"HOUSE_RULES_REVISION of {self.repo.url}, cached {house_rules['fetched']})") + "$")
         proc, _, later = self.repo.checked("run", "--stage", "ci", "--head", "HEAD")  # nothing kept the override
-        self.assertEqual((proc.returncode, later["revision"], later["source"]), (0, self.repo.main, "branch"),
+        self.assertEqual((proc.returncode, later["revision"], later["source"]), (0, self.repo.main, "fetched"),
                          proc.stderr)
 
     def test_resolved_runner_judges_entries_against_its_own_built_ins(self):
@@ -1453,7 +1500,7 @@ class RevisionTest(RunnerCase):
         self.assertPreparationFailure(interrupted, "cannot fetch House Rules main from",
                                       "fatal: the fetch was interrupted", "run again when online")
         proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit")
-        self.assertEqual((proc.returncode, resolved["revision"], resolved["source"]), (0, self.repo.main, "branch"),
+        self.assertEqual((proc.returncode, resolved["revision"], resolved["source"]), (0, self.repo.main, "fetched"),
                          proc.stderr)
         self.assertTrue((cache / "revisions" / self.repo.main / RUNNER).is_file())
 
@@ -1493,8 +1540,8 @@ class RevisionTest(RunnerCase):
         cache = self.fresh_cache("rollback-cache")
         self.repo.configure(NO_SPEC)
         offline = lambda: dict(self.repo.env, PATH=self.racing_git("ls-remote", "echo 'fatal: offline' >&2; exit 128"))
-        steps = [("fetch A", None, house_rules.main, "branch"),
-                 ("offline after A", offline, house_rules.main, "cached branch")]
+        steps = [("fetch A", None, house_rules.main, "fetched"),
+                 ("offline after A", offline, house_rules.main, "offline")]
         for name, env, revision, source in steps:
             with self.subTest(name):
                 proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit", env=env and env())
@@ -1504,8 +1551,8 @@ class RevisionTest(RunnerCase):
         path.write_text(json.dumps(dict(json.loads(path.read_text()), fetched="2999-01-01T00:00:00Z")))  # clock ahead
         (house_rules.path / "MOVED").write_text("main moved\n")
         moved = house_rules.commit("Move main")
-        for name, env, revision, source in [("fetch B, timed before A", None, moved, "branch"),
-                                            ("offline after B", offline, moved, "cached branch")]:
+        for name, env, revision, source in [("fetch B, timed before A", None, moved, "fetched"),
+                                            ("offline after B", offline, moved, "offline")]:
             with self.subTest(name):
                 proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit", env=env and env())
                 self.assertEqual((proc.returncode, resolved["revision"], resolved["source"]), (0, revision, source),
@@ -1516,14 +1563,16 @@ class RevisionTest(RunnerCase):
         house_rules = self.own_house_rules()
         older = house_rules.commit("A commit with a parent")
         newer = house_rules.commit("Main with history")
-        self.fresh_cache("depth-cache")
+        cache = self.fresh_cache("depth-cache")
         log = self.repo.path.parent / "fetches.log"
+        folders = self.repo.path.parent / "fetch-folders.log"
         wrapper = self.repo.path.parent / "depth-git"
         wrapper.mkdir()
         (wrapper / "git").write_text(
             f"#!/bin/sh\nREAL={shlex.quote(shutil.which('git'))}\n"
             'case " $* " in *" fetch "*) "$REAL" "$@" || exit $?\n'
             f'  {{ "$REAL" rev-parse --is-shallow-repository; "$REAL" rev-list --all --count; }} >> {shlex.quote(str(log))}'
+            f'\n  dirname "$(pwd -P)" >> {shlex.quote(str(folders))}'
             "\n  exit 0;; esac\nexec \"$REAL\" \"$@\"\n")
         (wrapper / "git").chmod(0o755)
         env = dict(self.repo.env, PATH=f"{wrapper}{os.pathsep}{os.environ['PATH']}")
@@ -1532,6 +1581,8 @@ class RevisionTest(RunnerCase):
             proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit", env=dict(env, **extra))
             self.assertEqual((proc.returncode, resolved["revision"]), (0, revision), proc.stderr)
         self.assertEqual(log.read_text().split(), ["true", "1", "true", "1"])
+        # Each fetch's repository is a temporary folder in its source's folder, not in the cache root.
+        self.assertEqual(folders.read_text().splitlines(), [str(source_folder(cache, house_rules.url))] * 2)
 
     def test_failed_removal_of_a_fetch_repository_is_a_preparation_failure(self):
         if os.geteuid() == 0:
@@ -1637,6 +1688,19 @@ class RevisionTest(RunnerCase):
                     self.assertNotIn("tokenuser", output)
                 self.assertIn(start, text.stderr)
 
+    def test_ssh_url_shows_its_login_but_never_its_password(self):
+        url, shown = "ssh://login:s3cr3tpass@127.0.0.1:9/house-rules", "ssh://login@127.0.0.1:9/house-rules"
+        error = f"fatal: cannot reach '{url}': password s3cr3tpass was refused"
+        self.repo.url = url
+        self.repo.configure(NO_SPEC)
+        env = dict(self.repo.env, PATH=self.racing_git("ls-remote", f"echo {shlex.quote(error)} >&2; exit 128"),
+                   HOUSE_RULES_CACHE=str(self.repo.path.parent / "ssh-cache"))
+        proc, report = self.repo.report("run", "--stage", "pre-commit", env=env)
+        self.assertEqual((proc.returncode, report["error"]["cause"]),
+                         (2, f"cannot fetch House Rules main from {shown} (fatal: cannot reach '{shown}': password *** "
+                             "was refused)"), proc.stderr)
+        self.assertNotIn("s3cr3tpass", proc.stdout + proc.stderr)
+
     def test_house_rules_url_that_cannot_be_parsed_is_a_preparation_failure_that_shows_none_of_it(self):
         cases = [("fullwidth solidus", "https://tokenuser:s3cr3tpass@example\uff0finvalid/house-rules"),
                  ("fullwidth colon", "https://tokenuser:s3cr3tpass@example\uff1ainvalid/house-rules"),
@@ -1660,7 +1724,7 @@ class RevisionTest(RunnerCase):
         commit = self.house_rules.variant("A commit that a ref names", {"MARK": "commit ref\n"})
         branch = "variant-" + commit[:12]  # variant() leaves this branch at the commit
         self.repo.configure(NO_SPEC)
-        for name, ref, source in (("branch", branch, "branch"), ("commit", commit, "commit")):
+        for name, ref, source in (("branch", branch, "fetched"), ("commit", commit, "pinned")):
             with self.subTest(name):
                 self.repo.reconfigure(ref=ref)
                 proc, entry, layer = self.repo.checked("run", "--stage", "pre-commit")
@@ -1669,7 +1733,7 @@ class RevisionTest(RunnerCase):
                                  {"name": "house-rules", "url": self.repo.url, "ref": ref, "revision": commit,
                                   "source": source})
                 self.assertRegex(layer["fetched"], r"\A" + TIME + r"\Z")
-                if source == "commit":  # the time the commit was first placed, not its folder's modification time
+                if source == "pinned":  # the time the commit was first placed, not its folder's modification time
                     folder = self.cache / "revisions" / commit
                     self.assertEqual(layer["fetched"] + "\n", Path(str(folder) + ".fetched").read_text())
                     os.utime(str(folder), (0, 0))
@@ -1677,7 +1741,7 @@ class RevisionTest(RunnerCase):
                 self.assertTrue(entry["checks"][0]["rerun"].startswith(
                     shlex.join([sys.executable, str(self.cache / "revisions" / commit / RUNNER)])))
                 text = self.repo.run("run", "--stage", "pre-commit").stdout.splitlines()
-                label = f"branch {branch}" if source == "branch" else "commit ref"
+                label = f"fetched branch {branch}" if source == "fetched" else "pinned commit"
                 self.assertRegex(text[0], r"\Arepository checks: pre-commit on the staged index, "
                                  + self.repo.header(commit, label) + r"\Z")
 
@@ -1706,31 +1770,99 @@ class RevisionTest(RunnerCase):
         moved = house_rules.commit("Move main")
         path = self.racing_git("fetch", "echo 'fatal: the fetch was interrupted' >&2; exit 128")  # ls-remote names B
         proc, _, layer = self.repo.checked("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
-        self.assertEqual((proc.returncode, layer["revision"], layer["source"]), (0, first["revision"], "cached branch"),
+        self.assertEqual((proc.returncode, layer["revision"], layer["source"]), (0, first["revision"], "offline"),
                          proc.stderr)
         self.assertEqual(branch_record(cache, house_rules.url).read_text(), record)
         self.assertFalse((cache / "revisions" / moved).exists())
 
-    def test_cache_paths_name_the_transport_and_escape_other_characters(self):
-        spec = importlib.util.spec_from_file_location("checks_under_test", str(SCRIPT))
-        checks = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(checks)
-        cache = self.repo.path.parent / "path-cache"
-        saved = os.environ.get("HOUSE_RULES_CACHE")
-        os.environ["HOUSE_RULES_CACHE"] = str(cache)
-        self.addCleanup(lambda: os.environ.pop("HOUSE_RULES_CACHE") if saved is None
-                        else os.environ.__setitem__("HOUSE_RULES_CACHE", saved))
-        cases = [
-            ("https://tokenuser:s3cr3t@github.com/symbiotic-build/house-rules", "main",
-             "https/github.com/symbiotic-build/house-rules/branches/main.json"),
-            ("git@github.com:org/rules.git", "feature/a b", "ssh/github.com/org/rules.git/branches/feature/a%20b.json"),
-            ("http://host:8080/team%20rules//x/", "main", "http/host%3A8080/team%2520rules/x/branches/main.json"),
-            ("file:///srv/rules/../shared", "main", "file/srv/rules/%2E%2E/shared/branches/main.json"),
-            ("/srv/plain path", "main", "file/srv/plain%20path/branches/main.json"),
-        ]
-        for url, branch, expected in cases:
-            with self.subTest(url):
-                self.assertEqual(checks.branch_record_path(url, branch), cache.resolve() / "sources" / expected)
+    def test_cache_keeps_each_source_and_branch_apart_under_bounded_names(self):
+        cache = self.fresh_cache("layout-cache")
+        base = Path(tempfile.mkdtemp(dir=str(self.folder)))
+        rules, nested = base / "rules", base / "rules/lock/x"  # the second source's path runs through the first's
+        urls = {rules: "file://" + str(rules), nested: "file://" + str(nested) + "/"}  # a slash the key leaves out
+        branches = ("release", "release.json/topic", "b" * 251)  # a record file name of 256 bytes once
+        for path in (rules, nested):
+            git(base, "clone", "-q", str(self.house_rules.path), str(path))
+            for branch in branches[:2]:
+                git(path, "branch", branch, "main")
+            # A 251-byte name has no room for Git's .lock file as a loose reference, so it is written packed.
+            git(path, "pack-refs", "--all")
+            packed = path / ".git/packed-refs"
+            header, *entries = packed.read_text().rstrip("\n").split("\n")  # a name may hold U+2028
+            entries.append(f"{self.house_rules.main} refs/heads/{branches[2]}")
+            packed.write_text("\n".join([header, *sorted(entries, key=lambda e: e.split(" ", 1)[1])]) + "\n")
+        self.repo.configure(NO_SPEC)
+        layers = {}
+        for path in (rules, nested):
+            for branch in branches:
+                with self.subTest(source=path.name, branch=branch[:20]):
+                    self.repo.reconfigure(url=urls[path], ref=branch)
+                    proc, _, layer = self.repo.checked("run", "--stage", "pre-commit")
+                    self.assertEqual((proc.returncode, layer["revision"], layer["source"]),
+                                     (0, self.house_rules.main, "fetched"), proc.stderr)
+                    layers[path, branch] = layer
+        self.assertEqual(sorted(p.name for p in (cache / "sources").iterdir()),
+                         sorted(sha256_hex(source_key(urls[p])) for p in (rules, nested)))
+        for path in (rules, nested):
+            url = urls[path]
+            folder = source_folder(cache, url)
+            self.assertEqual(json.loads((folder / "source.json").read_text()),
+                             {"url": url, "scheme": "file", "key": source_key(url)})
+            self.assertEqual(sorted(p.name for p in (folder / "branches").iterdir()),
+                             sorted(sha256_hex(b) + ".json" for b in branches))
+            for branch in branches:
+                self.assertEqual(json.loads(branch_record(cache, url, branch).read_text()),
+                                 {"url": url, "branch": branch, "revision": self.house_rules.main,
+                                  "fetched": layers[path, branch]["fetched"]})
+        # A record counts only for its own source and branch: one copied into another place is never used offline.
+        offline = lambda: dict(self.repo.env, PATH=self.racing_git("ls-remote", "echo 'fatal: offline' >&2; exit 128"))
+        copies = [("another source's record", (urls[rules], "release"), (urls[nested], "release")),
+                  ("another branch's record", (urls[rules], "release.json/topic"), (urls[rules], "release"))]
+        for name, (from_url, from_branch), (to_url, to_branch) in copies:
+            with self.subTest(name):
+                shutil.copyfile(str(branch_record(cache, from_url, from_branch)),
+                                str(branch_record(cache, to_url, to_branch)))
+                self.repo.reconfigure(url=to_url, ref=to_branch)
+                self.assertPreparationFailure(self.repo.run("run", "--stage", "pre-commit", env=offline()),
+                                              f"cannot fetch House Rules {to_branch} from {to_url} (fatal: offline)")
+
+    def test_source_key_keeps_an_ssh_login_and_drops_https_authentication(self):
+        cache = self.fresh_cache("login-cache")
+        self.repo.configure(NO_SPEC)
+        urls = ["alice@host.invalid:rules.git", "bob@host.invalid:rules.git", "https://user:tok@host.invalid/x",
+                "https://host.invalid/x"]
+        for url in urls:  # no network: Git is asked for the branch and answers as an unreachable host would
+            self.repo.reconfigure(url=url)
+            path = self.racing_git("ls-remote", "echo 'fatal: offline' >&2; exit 128")
+            self.assertEqual(self.repo.run("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path)).returncode,
+                             2)
+        sources = {json.loads((folder / "source.json").read_text())["key"]: folder.name
+                   for folder in (cache / "sources").iterdir()}
+        self.assertEqual(sources, {key: sha256_hex(key) for key in (
+            "ssh:alice@host.invalid:rules.git", "ssh:bob@host.invalid:rules.git", "https://host.invalid/x")})
+
+    def test_branch_whose_name_holds_a_unicode_line_separator_resolves(self):
+        branch = "release\u2028next"
+        git(self.house_rules.path, "branch", branch, "main")
+        self.fresh_cache("separator-cache")
+        self.repo.ref = branch
+        self.repo.configure(NO_SPEC)
+        proc, _, layer = self.repo.checked("run", "--stage", "pre-commit")
+        self.assertEqual((proc.returncode, layer["ref"], layer["revision"], layer["source"]),
+                         (0, branch, self.house_rules.main, "fetched"), proc.stderr)
+
+    def test_configuration_staged_during_the_handover_stops_prepare(self):
+        self.repo.configure(NO_SPEC)
+        other = self.repo.path.parent / "other-source.json"
+        other.write_text(json.dumps(dict(self.repo.config, sources=[{"name": "house-rules", "url": OFFLINE,
+                                                                      "ref": "main"}])))
+        config = self.repo.path / "house-rules.json"
+        # Another process stages a configuration of another source after prepare read the first one.
+        stager = (f'cp {shlex.quote(str(other))} {shlex.quote(str(config))} && '
+                  f'"$REAL" -C {shlex.quote(str(self.repo.path))} add house-rules.json')
+        proc = self.repo.run("prepare", env=dict(self.repo.env, PATH=self.racing_git("ls-remote", stager)))
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr),
+                         (2, "", "repository checks: the configuration changed during the run; run again\n"))
 
     def test_local_file_may_set_only_budgets(self):
         self.repo.configure({"sleeper": check(["sh", "-c", "sleep 0.3", "{snapshot}"], ["pre-commit"])},
@@ -1749,6 +1881,16 @@ class RevisionTest(RunnerCase):
         self.assertPreparationFailure(refused, "configuration error in house-rules.local.json: checks is not allowed: "
                                       "the local file may set only budgets, because it may not change whether a "
                                       "check passes", "fix or remove house-rules.local.json")
+        self.repo.write("house-rules.local.json", json.dumps(
+            {"budgets": {"pre-commit": {"seconds": 5, "reason": "private-marker \ud800"}}}))
+        cause = ("configuration error in house-rules.local.json: budgets.pre-commit.reason holds text that cannot be "
+                 "printed or passed to a program")
+        text = self.repo.run("run", "--stage", "pre-commit")
+        proc, report = self.repo.report("run", "--stage", "pre-commit")
+        self.assertPreparationFailure(text, cause, "fix or remove house-rules.local.json")
+        self.assertEqual((proc.returncode, report["result"], report["error"]["cause"]), (2, "error", cause))
+        for output in (text.stdout, text.stderr, proc.stdout, proc.stderr):
+            self.assertNotIn("private-marker", output)
 
     def test_failure_cause_and_repair_stay_separate_when_a_path_holds_a_separator(self):
         revision = self.house_rules.variant("Require an interpreter that does not exist", self.IMPOSSIBLE_RUNTIME)
@@ -1793,10 +1935,6 @@ class RevisionTest(RunnerCase):
               "run again when online, or set HOUSE_RULES_REVISION to a commit that exists there"]),
             ("commit ref that the URL lacks", self.house_rules.url, "2" * 40, {"HOUSE_RULES_CACHE": fresh("cache-3")},
              [f"cannot fetch House Rules {'2' * 40} from {self.house_rules.url} (",
-              "run again when online, or set the ref in house-rules.json to a commit that exists there"]),
-            ("64-digit commit ref that the URL lacks", self.house_rules.url, "3" * 64,
-             {"HOUSE_RULES_CACHE": fresh("cache-5")},
-             [f"cannot fetch House Rules {'3' * 64} from {self.house_rules.url} (",
               "run again when online, or set the ref in house-rules.json to a commit that exists there"]),
             ("branch that the URL lacks", self.house_rules.url, "no-such-branch",
              {"HOUSE_RULES_CACHE": fresh("cache-4")},
@@ -1846,8 +1984,8 @@ class StatusTest(RunnerCase):
         fetched = json.loads(branch_record(cache, self.repo.url).read_text())["fetched"]
         after = self.repo.run("status").stdout.splitlines()  # printed by the resolved runner, from its own built-ins
         self.assertEqual(after[:2], [
-            f"repository checks: House Rules {self.repo.main} (cached branch main of {self.repo.url}, "
-            f"fetched {fetched})",
+            f"repository checks: House Rules {self.repo.main} (offline branch main of {self.repo.url}, "
+            f"cached {fetched})",
             f"revision: in the cache at {revision}"])
         self.assertRegex(after[2], r"\Aenvironment: spec checker environment not built at " +
                          re.escape(str(cache / "environments")) + r"/[0-9a-f]{64} \(run: " +
@@ -1867,7 +2005,7 @@ class StatusTest(RunnerCase):
                     "#!/bin/sh\n# house-rules:repository-checks:begin\n# house-rules:repository-checks:end\n")
                 (hooks / name).chmod(mode)
 
-        prepared = re.escape(f"House Rules {main}, cached branch main of {self.repo.url}, fetched ") + TIME
+        prepared = re.escape(f"House Rules {main}, offline branch main of {self.repo.url}, cached ") + TIME
         cases = [
             ("unmanaged repository without configuration", lambda: None, ""),
             ("managed repository without configuration", lambda: self.repo.write(".agents/rules.md", "# Rules\n"),

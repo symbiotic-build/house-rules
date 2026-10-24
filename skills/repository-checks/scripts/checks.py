@@ -34,17 +34,18 @@ SCOPES = ("tree", "files", "diff")
 FIELDS = ("enabled", "run", "stages", "scope", "paths", "requires", "fix", "reason")
 PLACEHOLDERS = ("files", "base", "snapshot", "house_rules", "python")
 PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
-COMMIT = re.compile(r"[0-9a-fA-F]{40}")  # a House Rules revision: a full SHA-1 commit identity
+# A House Rules revision, and a commit ref of a source layer: a full SHA-1 commit identity. Any other ref is a branch
+# name, except 64 hexadecimal digits, a SHA-256 commit identity, which this runner refuses.
+COMMIT = re.compile(r"[0-9a-fA-F]{40}")
+SHA256_COMMIT = re.compile(r"[0-9a-fA-F]{64}")
 # An object identity of the consuming repository: SHA-1 or SHA-256, whichever object format it uses.
 OBJECT = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 DEFAULT_BUDGET = 10
 # The URL of the House Rules layer when its entry names none; the install writes the branch main beside it.
 DEFAULT_URL = "https://github.com/symbiotic-build/house-rules"
 DEFAULT_SOURCE = {"name": HOUSE_RULES, "ref": "main"}
-# A commit ref of a source layer: a full SHA-1 or SHA-256 commit identity. Any other ref is a branch name.
-COMMIT_REF = re.compile(r"[0-9a-fA-F]{40}|[0-9a-fA-F]{64}")
-# A character a cache path keeps as it is; every other character of a URL or branch is written as %XX.
-PATH_CHARACTER = re.compile(r"[A-Za-z0-9._-]")
+# The most entries `sources` may list.
+MAX_SOURCES = 32
 # A Git setting name: section.key or section.subsection.key, as git-config defines them.
 GIT_SETTING = re.compile(r"[A-Za-z0-9-]+(?:\.[^\n\0]+)?\.[A-Za-z][A-Za-z0-9-]*")
 # Settings of the isolated Git directory that the runner sets itself; no configuration may change them.
@@ -55,9 +56,9 @@ PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
 RESOLVED = "HOUSE_RULES_RESOLVED"
 # and the snapshot it built before resolving, so the started runner checks that same snapshot.
 SNAPSHOT = "HOUSE_RULES_SNAPSHOT"
-# Where a layer's commit came from: its branch now, its branch as last resolved (offline), a commit ref, or the
-# HOUSE_RULES_REVISION test override.
-SOURCES = ("branch", "cached branch", "commit", "override")
+# Where a layer's commit came from: its branch fetched now, its branch as last resolved (offline), a commit ref
+# (pinned), or the HOUSE_RULES_REVISION test override.
+SOURCES = ("fetched", "offline", "pinned", "override")
 IDENTITY = {"GIT_AUTHOR_NAME": "repository checks", "GIT_AUTHOR_EMAIL": "checks@localhost",
             "GIT_COMMITTER_NAME": "repository checks", "GIT_COMMITTER_EMAIL": "checks@localhost"}
 # Every Git command of the runner and of its checks reads each commit itself, never a local replacement.
@@ -411,24 +412,34 @@ def check_definition(where, definition):
                            "a hook stage needs a check that reads the snapshot, otherwise list only ci")
 
 
-def unencodable(value):
-    """Yield every string in a parsed JSON value that the file system encoding cannot encode.
+def unencodable(value, where=""):
+    """Yield the field path of every string in a parsed JSON value that the file system encoding cannot encode.
 
     A surrogate escape of a file name byte encodes; an unpaired surrogate from a JSON escape does not, and would
-    crash the text report or process start.
+    crash the text report or process start. A path names fields and list positions, never the rejected text, which
+    can hold a password; a field name that cannot be encoded is named by the object that holds it.
     """
     if isinstance(value, str):
         try:
             os.fsencode(value)
         except UnicodeEncodeError:
-            yield value
+            yield where or "the file"
     elif isinstance(value, dict):
         for key, item in value.items():
-            yield from unencodable(key)
-            yield from unencodable(item)
+            if next(unencodable(key), None) is not None:
+                yield f"a field name in {where or 'the file'}"
+                continue
+            yield from unencodable(item, f"{where}.{key}" if where else key)
     elif isinstance(value, list):
-        for item in value:
-            yield from unencodable(item)
+        for number, item in enumerate(value):
+            yield from unencodable(item, f"{where}[{number}]")
+
+
+def printable(document, error):
+    """Refuse a document that holds text the runner could not print or pass to a program."""
+    where = next(unencodable(document), None)
+    if where is not None:
+        raise error(f"{where} holds text that cannot be printed or passed to a program")
 
 
 def load_document(data):
@@ -454,10 +465,7 @@ def load_document(data):
                       "through a reviewed change")
     if type(version) is not int or version != CONFIG_VERSION:
         raise config_error(f"unsupported version {version!r}; this runner reads version {CONFIG_VERSION}")
-    unprintable = next(unencodable(document), None)
-    if unprintable is not None:
-        raise config_error(f"the file holds text that cannot be printed or passed to a program: "
-                           f"{unprintable.encode('unicode_escape').decode()}")
+    printable(document, config_error)
     if "house_rules" in document:
         raise config_error("remove house_rules: sources names the House Rules source")
     return document, source_layer(document)
@@ -470,6 +478,8 @@ def source_layer(document):
     sources = document["sources"]
     if not isinstance(sources, list) or not sources:
         raise config_error("sources must be a nonempty list")
+    if len(sources) > MAX_SOURCES:
+        raise config_error(f"sources lists {len(sources)} entries; at most {MAX_SOURCES} are allowed")
     entry = sources[0]
     fields(entry, "sources[0]", ("name", "ref"), ("url",))
     if entry["name"] != HOUSE_RULES:
@@ -485,10 +495,13 @@ def source_layer(document):
         raise config_error("sources[0].url must be nonempty text")
     shown_url(url)  # a URL that cannot be parsed stops here, before any message could show it
     ref = entry["ref"]
-    if not text(ref) or not (COMMIT_REF.fullmatch(ref) or branch_name(ref)):
-        raise config_error(f"sources[0].ref must be a branch name or a full commit identity of 40 or 64 "
-                           f"hexadecimal digits, not {ref!r}")
-    return {"name": entry["name"], "url": url, "ref": ref.lower() if COMMIT_REF.fullmatch(ref) else ref}
+    if isinstance(ref, str) and SHA256_COMMIT.fullmatch(ref):
+        raise Failure(f"configuration error in {CONFIG}: sources[0].ref names a 64-digit commit; SHA-256 sources are "
+                      "not supported yet", "use the source's SHA-1 commit or a branch, through a reviewed change")
+    if not text(ref) or not (COMMIT.fullmatch(ref) or branch_name(ref)):
+        raise config_error(f"sources[0].ref must be a branch name or a full commit identity of 40 hexadecimal "
+                           f"digits, not {ref!r}")
+    return {"name": entry["name"], "url": url, "ref": ref.lower() if COMMIT.fullmatch(ref) else ref}
 
 
 def branch_name(ref):
@@ -517,19 +530,27 @@ def check_budgets(budgets, error):
 
 
 def check_git_settings(settings):
-    """Validate `git_settings`: Git setting names mapped to text values, none of them set by the runner."""
+    """Validate `git_settings`: Git setting names mapped to {"value", "reason"}; return {name: value}.
+
+    No entry may set what the runner sets.
+    """
     if not isinstance(settings, dict):
         raise config_error("git_settings must be an object")
-    for name, value in settings.items():
+    values = {}
+    for name, entry in settings.items():
         if not GIT_SETTING.fullmatch(name):
             raise config_error(f"git_settings has {name!r}, which is no Git setting name (section.key or "
                                "section.subsection.key)")
         section, key = name.split(".", 1)[0].lower(), name.rsplit(".", 1)[1].lower()
         if section == "extensions" or f"{section}.{key}" in RUNNER_GIT_SETTINGS:
             raise config_error(f"git_settings.{name} is set by the runner for the isolated Git directory")
-        if not isinstance(value, str) or "\0" in value:
-            raise config_error(f"git_settings.{name} must be text without a NUL character")
-    return settings
+        fields(entry, f"git_settings.{name}", ("value", "reason"), ())
+        if not isinstance(entry["value"], str) or "\0" in entry["value"]:
+            raise config_error(f"git_settings.{name}.value must be text without a NUL character")
+        if not text(entry["reason"]):
+            raise config_error(f"git_settings.{name}.reason must be nonempty text")
+        values[name] = entry["value"]
+    return values
 
 
 def local_error(message):
@@ -545,6 +566,7 @@ def parse_local(data):
         raise local_error(f"not valid JSON ({exc})")
     if not isinstance(document, dict):
         raise local_error("the file must be an object")
+    printable(document, local_error)
     for key in document:
         if key != "budgets":
             raise local_error(f"{key} is not allowed: the local file may set only budgets, because it may not "
@@ -567,6 +589,9 @@ def effective_checks(data, local=None):
     fields(document, "the file", ("version", "sources", "checks"), ("budgets", "git_settings"))
     budgets = dict(check_budgets(document.get("budgets", {}), config_error))
     git_settings = check_git_settings(document.get("git_settings", {}))
+    setting_overrides = [{"id": f"git_settings.{name}", "layer": "repository",
+                          "change": f"value: {json.dumps(value)}", "reason": document["git_settings"][name]["reason"]}
+                         for name, value in git_settings.items()]
     entries = document["checks"]
     if not isinstance(entries, dict):
         raise config_error("checks must be an object")
@@ -598,7 +623,7 @@ def effective_checks(data, local=None):
     layers = {stage: "repository" for stage in budgets}
     for stage, entry in (parse_local(local) if local is not None else {}).items():
         budgets[stage], layers[stage] = entry, "local"
-    overrides += [budget_override(stage, budgets[stage], layers[stage]) for stage in budgets]
+    overrides += [budget_override(stage, budgets[stage], layers[stage]) for stage in budgets] + setting_overrides
     return {"checks": checks, "overrides": overrides, "budgets": budgets, "git_settings": git_settings}
 
 
@@ -678,12 +703,24 @@ def url_parts(url):
         raise Failure(f"the House Rules URL in {CONFIG} cannot be parsed", "correct it") from None
 
 
+def kept_login(parts):
+    """The user name an ssh URL keeps in messages and in its cache key, or None.
+
+    An ssh login can choose the repository, such as through its home folder, so it is part of the source; its
+    password, and the user name and password of any other transport, are not.
+    """
+    if parts.scheme.lower() != "ssh" or "@" not in parts.netloc:
+        return None
+    return parts.netloc.rpartition("@")[0].split(":", 1)[0] or None
+
+
 def shown_url(url):
-    """The URL as messages and reports show it: without the user name and password in its authority."""
+    """The URL as messages and reports show it: without the password, and without the user name except an ssh login."""
     parts = url_parts(url)
     if "@" not in parts.netloc:
         return url
-    return urllib.parse.urlunsplit(parts._replace(netloc=parts.netloc.rpartition("@")[2]))
+    login, host = kept_login(parts), parts.netloc.rpartition("@")[2]
+    return urllib.parse.urlunsplit(parts._replace(netloc=f"{login}@{host}" if login else host))
 
 
 def hidden(text, url):
@@ -691,15 +728,19 @@ def hidden(text, url):
 
     Git itself always receives the full URL; only what the runner prints is changed.
     """
-    netloc = url_parts(url).netloc
-    if "@" not in netloc:
+    parts = url_parts(url)
+    if "@" not in parts.netloc:
         return text
-    userinfo = netloc.rpartition("@")[0]
-    secrets = {userinfo, *userinfo.split(":", 1)}
+    userinfo, login = parts.netloc.rpartition("@")[0], kept_login(parts)
+    if login is None:
+        secrets = {userinfo, *userinfo.split(":", 1)}
+    else:  # an ssh login stays; only its password is hidden
+        secrets = {userinfo.split(":", 1)[1]} if ":" in userinfo else set()
     secrets = {value for secret in secrets for value in (secret, urllib.parse.unquote(secret)) if value}
     text = text.replace(url, "\0")  # Git's error text holds no NUL, so this stands for the URL alone
     for secret in sorted(secrets, key=len, reverse=True):
-        text = text.replace(secret + "@", "").replace(secret, "***")
+        text = text.replace(secret + "@", "") if login is None else text.replace(":" + secret + "@", "@")
+        text = text.replace(secret, "***")
     return text.replace("\0", shown_url(url))
 
 
@@ -733,34 +774,43 @@ def record_fetch_time(tree):
         os.unlink(temporary)
 
 
-def cache_segment(segment):
-    """One folder or file name of a cache path: every character outside [A-Za-z0-9._-] becomes %XX per byte."""
-    escaped = "".join(c if PATH_CHARACTER.fullmatch(c)
-                      else "".join(f"%{b:02X}" for b in c.encode("utf-8", "surrogateescape")) for c in segment)
-    return escaped.replace(".", "%2E") if set(escaped) <= {"."} else escaped  # never "." or ".."
+def source_key(url):
+    """The source's identity in the cache: (scheme, key text), from its URL without passwords.
 
-
-def source_folder(url):
-    """The cache folder of one source, sources/<scheme>/<host>/<path>, from its URL without user name and password.
-
-    The scheme is the transport, such as https, http, ssh or file. An scp-like URL, user@host:path, counts as ssh; a
-    file URL or a plain path is file, with its absolute path and no host.
+    The scheme is the transport, such as https, http, ssh or file. An ssh URL keeps its login and its path exactly as
+    written: ssh://<login>@<host><path>. An scp-like URL, login@host:path, counts as ssh and gives
+    ssh:<login>@<host>:<path>, so a path relative to the login's home folder stays relative. Any other URL gives
+    <scheme>://<host>/<path> without user name and password; a file URL or a plain path is file, with its absolute
+    path and no host. There empty path segments are dropped, so a trailing or doubled slash names the same source.
     """
     parts = url_parts(url)
     scp = not parts.scheme and ":" in url.split("/", 1)[0]
     if scp:
-        host, _, path = url.partition(":")
-        segments = ["ssh", host.rpartition("@")[2], *path.split("/")]
-    elif parts.scheme and parts.scheme != "file":
-        segments = [parts.scheme.lower(), parts.netloc.rpartition("@")[2], *parts.path.split("/")]
+        return "ssh", "ssh:" + url
+    if parts.scheme.lower() == "ssh":
+        login, host = kept_login(parts), parts.netloc.rpartition("@")[2]
+        return "ssh", f"ssh://{login + '@' if login else ''}{host}{parts.path}"
+    if parts.scheme and parts.scheme != "file":
+        scheme, host, path = parts.scheme.lower(), parts.netloc.rpartition("@")[2], parts.path
     else:
-        segments = ["file", *(parts.path if parts.scheme == "file" else url).split("/")]
-    return cache_root() / "sources" / Path(*(cache_segment(s) for s in segments if s))
+        scheme, host, path = "file", "", parts.path if parts.scheme == "file" else url
+    return scheme, f"{scheme}://{host}" + "".join("/" + segment for segment in path.split("/") if segment)
+
+
+def hashed(name):
+    """A cache file or folder name for `name`: its SHA-256, so any length or character makes one bounded name."""
+    return hashlib.sha256(name.encode("utf-8", "surrogateescape")).hexdigest()
+
+
+def source_folder(url):
+    """The cache folder of one source: sources/<SHA-256 of its key>, holding source.json, branches/ and lock."""
+    return cache_root() / "sources" / hashed(source_key(url)[1])
 
 
 @contextlib.contextmanager
-def branch_lock(url):
-    """Hold the source's lock: one process at a time asks for its branches, fetches them and writes their records.
+def source_lock(url):
+    """Hold the source's lock: one process at a time asks for its branches, fetches its commits into temporary
+    repositories in the source's folder and writes its branch records.
 
     The lock is advisory (flock) and the system releases it when its process ends, however it ends.
     """
@@ -769,6 +819,9 @@ def branch_lock(url):
     descriptor = os.open(str(folder / "lock"), os.O_RDWR | os.O_CREAT, 0o644)
     try:
         fcntl.flock(descriptor, fcntl.LOCK_EX)
+        if not (folder / "source.json").is_file():  # names the source for a reader of the cache; no run reads it
+            scheme, key = source_key(url)
+            publish(folder / "source.json", {"url": shown_url(url), "scheme": scheme, "key": key})
         yield
     finally:
         os.close(descriptor)
@@ -777,7 +830,8 @@ def branch_lock(url):
 def fetch_revision(url, revision):
     """Put one House Rules commit into the cache unless it is there; return (Git's error, removal error).
 
-    Both are None after a successful fetch. Each fetch uses its own new bare repository in the cache, fetches the
+    Both are None after a successful fetch. Call it under the source's lock. Each fetch uses its own new bare
+    repository, a .partial-* folder in the source's folder, fetches the
     commit with depth 1, extracts it into a temporary revision folder, renames that folder into place and deletes
     the repository. Nothing Git locks is ever used again, so an interrupted fetch leaves only a temporary folder
     that no run uses. When the fetch failed and removing its repository failed too, the removal error names that
@@ -785,7 +839,7 @@ def fetch_revision(url, revision):
     """
     if prepared(revision):
         return None, None
-    repository = partial(cache_root())
+    repository = partial(source_folder(url))
     failure = error = None
     try:
         error = fetch_into(repository, url, revision)
@@ -836,47 +890,61 @@ def fetch_into(repository, url, revision):
 
 
 def ask_branch(url, branch):
-    """Return (the branch's commit, None), or (None, Git's error)."""
+    """Return (the branch's commit, None), or (None, Git's error).
+
+    Git ends each record with a line feed and puts a tab between the commit and the reference; only those bytes
+    delimit, so a branch name keeps every other character, such as U+2028. Names decode losslessly.
+    """
     name = "refs/heads/" + branch
     proc = git(cache_root(), *PROGRESS, "ls-remote", url, name, foreign=True, check=False)
     if proc.returncode:
         return None, last_line(proc.stderr)
-    heads = [line.split("\t") for line in proc.stdout.decode(errors="replace").splitlines()]
-    revision = next((head[0] for head in heads if head[1:] == [name]), None)
+    heads = [line.split(b"\t", 1) for line in proc.stdout.split(b"\n")]
+    revision = next((head[0].decode("ascii", "replace") for head in heads
+                     if len(head) == 2 and head[1].decode("utf-8", "surrogateescape") == name), None)
     if revision is None or not COMMIT.fullmatch(revision):
         return None, f"the repository has no {branch} branch"
     return revision, None
 
 
 def branch_record_path(url, branch):
-    """Where the cache records the commit last resolved for one source and branch."""
-    segments = [cache_segment(s) for s in branch.split("/")]
-    return source_folder(url).joinpath("branches", *segments[:-1], segments[-1] + ".json")
+    """Where the cache records the commit last resolved for one source and branch: branches/<SHA-256 of branch>.json."""
+    return source_folder(url) / "branches" / (hashed(branch) + ".json")
 
 
 def branch_record(url, branch):
     """The commit last resolved for `branch` of `url`, as {"url", "branch", "revision", "fetched"}, or None.
 
-    The record's URL holds no user name or password.
+    The record's URL holds no user name or password. A record counts only when its URL has this source's key and its
+    branch is `branch`, so a record in the wrong place, such as after a hash collision, is never used.
     """
     try:
         record = json.loads(branch_record_path(url, branch).read_text())
     except (OSError, ValueError):
         return None
-    if not (isinstance(record, dict) and record.get("url") == shown_url(url) and record.get("branch") == branch
+    if not (isinstance(record, dict) and isinstance(record.get("url"), str) and record.get("branch") == branch
             and isinstance(record.get("revision"), str) and COMMIT.fullmatch(record["revision"])
             and isinstance(record.get("fetched"), str)):
         return None
-    return record
+    try:
+        owner = source_key(record["url"])[1]
+    except Failure:
+        return None
+    return record if owner == source_key(url)[1] else None
 
 
 def write_branch_record(url, record):
     """Publish `record` for its source and branch; under the source's lock the latest successful resolution wins."""
     path = branch_record_path(url, record["branch"])
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=".branch-", dir=str(path.parent))
+    publish(path, record)
+
+
+def publish(path, data):
+    """Write `data` as JSON to `path` through a temporary file in its folder, so a reader sees the old or new file."""
+    descriptor, temporary = tempfile.mkstemp(prefix=".partial-", dir=str(path.parent))
     with os.fdopen(descriptor, "w") as handle:
-        json.dump(record, handle)
+        json.dump(data, handle)
     os.replace(temporary, str(path))
 
 
@@ -891,17 +959,23 @@ def override_revision():
     return value.lower()
 
 
-def handed_resolution():
-    """The resolution the handing runner passed to this runner, when it names this runner's own revision."""
+def handed_resolution(source=None):
+    """The resolution the handing runner passed to this runner, when it names this runner's own revision.
+
+    With `source`, the source this runner read from the configuration now, a handed resolution of another source
+    stops the run: the configuration changed between the handing runner's read and this one.
+    """
     try:
         resolution = json.loads(HANDED or "null")
     except ValueError:
         return None
-    if (isinstance(resolution, dict) and resolution.get("revision") == own_revision()
+    if not (isinstance(resolution, dict) and resolution.get("revision") == own_revision()
             and resolution.get("source") in SOURCES and isinstance(resolution.get("fetched"), str)
             and all(isinstance(resolution.get(k), str) for k in ("name", "url", "ref", "tree"))):
-        return resolution
-    return None
+        return None
+    if source is not None and not same_source(resolution, source):
+        raise Failure("the configuration changed during the run", "run again")
+    return resolution
 
 
 def handed_snapshot():
@@ -927,7 +1001,7 @@ def resolve(source, offline_repair=None):
     Returns the layer {"name", "url", "ref", "revision", "source", "fetched"}, its URL without authentication, plus
     "warning" for a cached branch. Called once per run; the revision it returns is prepared in the cache.
     """
-    resolution = handed_resolution()
+    resolution = handed_resolution(source)
     if resolution:
         return resolution
     url, ref = source["url"], source["ref"]
@@ -935,16 +1009,17 @@ def resolve(source, offline_repair=None):
     layer = {"name": source["name"], "url": shown, "ref": ref}
     try:
         override = override_revision()
-        if override or COMMIT_REF.fullmatch(ref):
+        if override or COMMIT.fullmatch(ref):
             revision = override or ref
-            error, removal = fetch_revision(url, revision)
+            with source_lock(url):
+                error, removal = fetch_revision(url, revision)
             if error:
                 repair = ("run again when online, or set HOUSE_RULES_REVISION to a commit that exists there" if override
                           else f"run again when online, or set the ref in {CONFIG} to a commit that exists there")
                 raise fetch_failure(f"cannot fetch House Rules {revision} from {shown} ({hidden(error, url)})",
                                     removal, repair)
-            return dict(layer, revision=revision, source="override" if override else "commit", fetched=None)
-        with branch_lock(url):
+            return dict(layer, revision=revision, source="override" if override else "pinned", fetched=None)
+        with source_lock(url):
             fetched = utc()
             revision, error = ask_branch(url, ref)
             removal = None
@@ -952,13 +1027,13 @@ def resolve(source, offline_repair=None):
                 error, removal = fetch_revision(url, revision)
             if not error:
                 write_branch_record(url, {"url": shown, "branch": ref, "revision": revision, "fetched": fetched})
-                return dict(layer, revision=revision, source="branch", fetched=fetched)
+                return dict(layer, revision=revision, source="fetched", fetched=fetched)
             record = branch_record(url, ref)
         # A failed removal stops the run even when the cache holds an earlier commit, as every cache failure does.
         if removal or record is None or not prepared(record["revision"]):
             raise fetch_failure(f"cannot fetch House Rules {ref} from {shown} ({hidden(error, url)})", removal,
                                 offline_repair or "run again when online")
-        return dict(layer, revision=record["revision"], source="cached branch", fetched=record["fetched"],
+        return dict(layer, revision=record["revision"], source="offline", fetched=record["fetched"],
                     warning=f"cannot fetch House Rules {ref} from {shown} ({hidden(error, url)}); using the {ref} "
                             f"last fetched, {record['revision']}, fetched {record['fetched']}")
     except OSError as exc:
@@ -1058,18 +1133,18 @@ def cached_resolution(source):
     The override when set, else the commit ref, else the commit last resolved for the branch; `status` reports it
     and never fetches.
     """
-    resolution = handed_resolution()
+    resolution = handed_resolution(source)
     if resolution is None:
         layer = {"name": source["name"], "url": shown_url(source["url"]), "ref": source["ref"]}
         override = override_revision()
-        if override or COMMIT_REF.fullmatch(source["ref"]):
-            resolution = dict(layer, revision=override or source["ref"], source="override" if override else "commit",
+        if override or COMMIT.fullmatch(source["ref"]):
+            resolution = dict(layer, revision=override or source["ref"], source="override" if override else "pinned",
                               fetched=None)
         else:
             record = branch_record(source["url"], source["ref"])
             if record is None:
                 return None, None
-            resolution = dict(layer, revision=record["revision"], source="cached branch", fetched=record["fetched"])
+            resolution = dict(layer, revision=record["revision"], source="offline", fetched=record["fetched"])
     revision = resolution["revision"]
     tree = own_tree() if own_revision() == revision else revision_folder(revision)
     if not (tree / RUNNER).is_file():
@@ -1081,10 +1156,10 @@ def cached_resolution(source):
 
 def label(layer):
     """How a report names where a layer's commit came from, its URL and when the cache fetched it."""
-    source = {"branch": f"branch {layer['ref']}", "cached branch": f"cached branch {layer['ref']}",
-              "commit": "commit ref", "override": "override HOUSE_RULES_REVISION"}[layer["source"]]
-    when = f"fetched {layer['fetched']}" if layer["fetched"] else "not fetched yet"
-    return f"{source} of {layer['url']}, {when}"
+    what = {"fetched": f"branch {layer['ref']}", "offline": f"branch {layer['ref']}", "pinned": "commit",
+            "override": "HOUSE_RULES_REVISION"}[layer["source"]]
+    when = f"cached {layer['fetched']}" if layer["fetched"] else "not cached yet"
+    return f"{layer['source']} {what} of {layer['url']}, {when}"
 
 
 def same_source(layer, source):
@@ -1574,8 +1649,6 @@ def command_status(args, argv):
         print(f"{stage}: {', '.join(names) or 'none'}")
     for override in config["overrides"]:
         print(override_line(override))
-    for name, value in config["git_settings"].items():
-        print(f"git setting: {name} = {value}")
     return 0
 
 
