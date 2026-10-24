@@ -415,5 +415,34 @@ class CommandTests(Fixture):
         self.assertFalse(old.exists() or partial.exists() or pinned.exists())
         self.assertTrue(recent.exists() and named.exists())
 
+
+class SessionContextTests(Fixture):
+    def test_session_context_prints_the_resolution_and_custom_layer_context(self):
+        here = Path(__file__).resolve().parent
+        house = self.source("house-rules", {
+            "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n\n## Load when needed\n",
+            "rules/core.md": "# Core rules\n", "skills/operator-writing/SKILL.md": "# Operator writing\n",
+            "scripts/session_context.py": (here / "session_context.py").read_text(),
+            "scripts/house_rules.py": (here / "house_rules.py").read_text()})
+        team = self.source("team-rules", {hr.BASE_FILE: {"version": 1, "context": ["rules/team.md"]},
+                                          "rules/team.md": "# Team rules\n\nReview every migration twice.\n"})
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
+                                                          {"name": "team-rules", "url": team}]})
+        custom = self.root / "config" / "house-rules" / "custom"
+        custom.mkdir(parents=True)
+        (custom / "INDEX.md").write_text("# This computer\n")
+        revision = run(self.root / "work" / "house-rules", "rev-parse", "HEAD")
+        command = [sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py", "codex"]
+        proc = subprocess.run(command, input=json.dumps({"cwd": repo}).encode(), stdin=None, capture_output=True,
+                              env=os.environ)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
+        self.assertIn(f"House Rules part 1 of 1 (revision {revision[:12]},", text)
+        self.assertIn(f"house-rules: repository {repo}, configuration house-rules.json (working tree)", text)
+        self.assertRegex(text, r"house-rules: layer team-rules  ref main   -> [0-9a-f]{40} \(fetched ")
+        self.assertIn("# This computer", text)
+        self.assertIn("===== House Rules file team-rules rules/team.md =====\n# Team rules", text)
+        self.assertNotIn("HOUSE RULES HOOK ERROR", text)
+
 if __name__ == "__main__":
     unittest.main()

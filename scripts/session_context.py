@@ -3,7 +3,11 @@
 
 INSTALL-AGENTS.md §3 registers this script as a session-start hook. It prints INDEX.md, the rule
 files its "Always load" section lists, the operator-writing skill and this computer's
-custom/INDEX.md, read live from the House Rules checkout that holds this script.
+custom/INDEX.md, read live from the House Rules tree that holds this script. Registered through
+`house-rules exec --hook`, it runs from the tree the House Rules command resolved for the session's
+repository; part 1 then starts with that resolution, and each custom source layer's context files follow
+the House Rules files. This computer's custom/ folder is the tree's own when it has one (a checkout),
+and otherwise the one in the House Rules configuration folder (~/.config/house-rules/custom).
 
   session_context.py claude <n>      part <n> for Claude Code; one hook per part
   session_context.py codex           every part, as one Codex additionalContext value
@@ -13,6 +17,9 @@ custom/INDEX.md, read live from the House Rules checkout that holds this script.
   session_context.py hooks <product> [<root>]
                                      the hook entry INSTALL-AGENTS.md §3 registers, running this
                                      interpreter and the script under <root> (default: this checkout)
+  session_context.py hooks <product> --command <house-rules>
+                                     the same entry run through the House Rules command, which
+                                     resolves the repository's House Rules version first
 
 Kimi Code passes no session-start hook output to the model, so for Kimi a UserPromptSubmit
 hook prints the rules once per session id. Kimi 2.2.0 and later keep that output through
@@ -27,6 +34,7 @@ error line in place of the text.
 """
 
 import hashlib
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -59,6 +67,53 @@ def root():
     return Path(__file__).resolve().parents[1]
 
 
+def house_rules():
+    """scripts/house_rules.py beside this script, or None in a tree that predates it."""
+    path = Path(__file__).with_name("house_rules.py")
+    if not path.is_file():
+        return None
+    spec = importlib.util.spec_from_file_location("house_rules", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def resolution():
+    """The resolution `house-rules exec` handed this run, when it resolved this script's own tree."""
+    module = house_rules()
+    record = module.handed() if module else None
+    if record and record["layers"] and Path(record["layers"][0]["tree"]).resolve() == root():
+        return record
+    return None
+
+
+def local_index(base):
+    """This computer's custom/INDEX.md: the tree's own custom/ when it has one, else the configuration folder's."""
+    module = house_rules()
+    if (base / "custom").is_dir() or module is None:
+        return base / LOCAL_INDEX
+    return module.config_home() / LOCAL_INDEX
+
+
+def layer_context(record):
+    """(name, text) of each custom layer's context file, in layer order; a failure becomes an error line."""
+    if record is None:
+        return
+    module = house_rules()
+    try:
+        context = module.effective(record)["context"]
+    except module.Failure as failure:
+        yield "layer context", f"{ERROR} {failure}; the custom layers' context files are not in this context.\n"
+        return
+    for label, path in context:
+        tree = Path(module.layer_tree(record, label.split("/", 1)[0]))
+        name = f"{label} {Path(path).relative_to(tree)}"
+        try:
+            yield name, Path(path).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            yield name, f"{ERROR} cannot read {path}: {error}\n"
+
+
 def units(text):
     """Claude Code measures JavaScript string length: UTF-16 code units."""
     return len(text.encode("utf-16-le")) // 2
@@ -73,6 +128,9 @@ def always_load(index_text):
 
 
 def revision(base):
+    record = resolution()
+    if record:
+        return record["layers"][0]["revision"][:12]
     try:
         return subprocess.run(["git", "--no-optional-locks", "-C", str(base), "rev-parse", "--short=12", "HEAD"],
                               stdin=subprocess.DEVNULL, capture_output=True, text=True, check=True,
@@ -115,7 +173,7 @@ def sources(base, failures=None):
         else:
             failures.append(name)
             yield name, f"{ERROR} {path} is missing.\n"
-    path = base / LOCAL_INDEX
+    path = local_index(base)
     # Only an absent local index is the operator's state; any other read failure (a denied folder, for
     # example) reaches the caller, so a Kimi session is not recorded as having the local policies.
     try:
@@ -124,6 +182,7 @@ def sources(base, failures=None):
         local = (f"{ERROR} this computer's local index {path} is missing, so its local policies are not loaded. "
                  "INSTALL-AGENTS.md §4 creates it.\n")
     yield LOCAL_INDEX, local
+    yield from layer_context(resolution())
 
 
 def sections(name, text):
@@ -196,8 +255,9 @@ def render(number, rev, packed):
     text_id = fingerprint(packed)
     lines = [label(number, total, rev, text_id, name, heading)]
     if number == 1:
+        lines.extend(resolution_lines())
         lines.append(f"House Rules INDEX.md, its always-load rules, the operator-writing skill and this computer's "
-                     f"{LOCAL_INDEX} follow in full, in {total} parts. They apply to every reply in this session. "
+                     f"{LOCAL_INDEX}, then any custom layer's context files, follow in full, in {total} parts. They apply to every reply in this session. "
                      "The parts can arrive in any order: read them in part-number order. Each part names the file "
                      f"and heading it starts at. Every part names text {text_id}. A missing part number, or a part "
                      "with another part count or text, means the files changed while the parts were read: read "
@@ -210,6 +270,22 @@ def render(number, rev, packed):
     if units(output) >= CAP:
         raise ValueError(f"part {number} is {units(output)} characters, over the {CAP}-character cap")
     return output
+
+
+def resolution_lines():
+    """Part 1's account of the resolved layers, and where skills are when they differ from the agent home's."""
+    record = resolution()
+    if record is None:
+        return []
+    module = house_rules()
+    lines = module.describe(record)
+    default = module.cache_root() / "default"
+    tree = Path(record["layers"][0]["tree"])
+    if default.is_symlink() and Path(os.path.realpath(str(default))) != tree.resolve():
+        lines.append(f"This repository uses House Rules {record['layers'][0]['revision']}; the skills this agent "
+                     f"lists come from the global default, {Path(os.path.realpath(str(default))).name}. Read skill "
+                     f"files from {tree}/skills/<name>/SKILL.md.")
+    return lines
 
 
 def overflow(total):
@@ -232,7 +308,7 @@ def approved(base=None):
     The list is a reminder bounded by APPROVED_CAP: when items are left out, one notice inside the cap says so."""
     try:
         try:
-            config = ((base or root()) / APPROVED_CONF).read_text()
+            config = (local_index(base or root()).parent / Path(APPROVED_CONF).name).read_text()
         except FileNotFoundError:
             return ""
         scopes = [line.split("#", 1)[0].strip() for line in config.splitlines()]
@@ -344,12 +420,27 @@ def kimi_prompt(stdin, stdout):
 
 
 def command(python, base, *args):
+    if isinstance(python, HouseRulesCommand):
+        return shlex.join([python.path, "exec", "--hook", "scripts/session_context.py", *args])
     return shlex.join([python, "-I", str(base / "scripts/session_context.py"), *args])
 
 
-def hooks(product, python=None, base=None):
-    """The hooks.SessionStart entry for one product's native hook file, as INSTALL-AGENTS.md §3 registers it."""
+class HouseRulesCommand:
+    """Hooks that run through the House Rules command, which resolves the repository's version first."""
+
+    def __init__(self, path):
+        self.path = str(path)
+
+
+def hooks(product, python=None, base=None, house_rules=None):
+    """The hooks.SessionStart entry for one product's native hook file, as INSTALL-AGENTS.md §3 registers it.
+
+    With house_rules, the path of the installed House Rules command, every handler runs
+    `house-rules exec --hook scripts/session_context.py ...` instead of this interpreter and script.
+    """
     python, base = python or sys.executable, base or root()
+    if house_rules:
+        python = HouseRulesCommand(house_rules)
     if product == "claude":
         handlers = [{"type": "command", "command": command(python, base, "claude", str(number)), "timeout": TIMEOUT}
                     for number in range(1, SLOTS + 1)]
@@ -369,12 +460,12 @@ def hooks(product, python=None, base=None):
     return {"hooks": handlers}
 
 
-def kimi_toml(python=None, base=None):
+def kimi_toml(python=None, base=None, house_rules=None):
     """The [[hooks]] table INSTALL-AGENTS.md §3 appends to Kimi's config.toml."""
     # A JSON string with non-ASCII kept as is is a valid TOML basic string once DEL, which JSON
     # leaves literal and TOML rejects, is escaped too.
     return "\n".join("[[hooks]]\n" + "".join(f"{key} = {toml_string(value)}\n" for key, value in table.items())
-                     for table in hooks("kimi", python, base)["hooks"])
+                     for table in hooks("kimi", python, base, house_rules)["hooks"])
 
 
 def toml_string(value):
@@ -396,13 +487,16 @@ def main(argv):
         elif argv == ["kimi", "prompt"]:
             kimi_prompt(sys.stdin, sys.stdout)
             output = ""
+        elif len(argv) == 4 and argv[0] == "hooks" and argv[2] == "--command":
+            output = (kimi_toml(house_rules=argv[3]).rstrip("\n") if argv[1] == "kimi" else
+                      json.dumps(hooks(argv[1], house_rules=argv[3]), indent=2))
         elif len(argv) in (2, 3) and argv[0] == "hooks" and argv[1] == "kimi":
             output = kimi_toml(base=Path(argv[2]) if len(argv) == 3 else None).rstrip("\n")
         elif len(argv) in (2, 3) and argv[0] == "hooks":
             output = json.dumps(hooks(argv[1], base=Path(argv[2]) if len(argv) == 3 else None), indent=2)
         else:
             sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | approved [codex] | kimi prompt | "
-                     "hooks <claude|codex|kimi> [<root>]")
+                     "hooks <claude|codex|kimi> [<root> | --command <house-rules>]")
     except (OSError, ValueError, UnicodeDecodeError) as error:
         # The hook's output is the only channel the model sees; print the failure there.
         output = f"{ERROR} {error}"

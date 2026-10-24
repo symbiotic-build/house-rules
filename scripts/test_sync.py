@@ -804,6 +804,35 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual(self.backups(self.codex_hooks), [])
         self.assertFalse((self.kimi / "settings.json").exists() or (self.kimi / "hooks.json").exists())
 
+    def test_hooks_through_the_house_rules_command_replace_the_interpreter_form(self):
+        command = self.base / "bin" / "house-rules"
+        self.write(command, "#!/bin/sh\n")
+        command.chmod(0o755)
+        self.write(self.settings, json.dumps({"hooks": {"SessionStart": [
+            {"hooks": [self.unrelated]}, context.hooks("claude", sys.executable, self.root)]}}))
+        code, out, err = self.invoke("--install-hooks", "--command", str(command))
+        self.assertEqual(code, 0, out + err)
+        for path, product in ((self.settings, "claude"), (self.codex_hooks, "codex")):
+            entry = context.hooks(product, house_rules=str(command))
+            self.assertTrue(all(handler["command"].startswith(f"{command} exec --hook scripts/session_context.py ")
+                                for handler in entry["hooks"]))
+            entries = self.read(path)["hooks"]["SessionStart"]
+            self.assertEqual(entries[-1], entry)
+            self.assertFalse([handler for other in entries[:-1] for handler in other["hooks"]
+                              if "session_context.py" in handler["command"]])
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"][0], {"hooks": [self.unrelated]})
+        code, out, err = self.invoke()
+        self.assertEqual(code, 0, out + err)
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["SessionStart"],
+                         [{"hooks": [self.unrelated]}, context.hooks("claude", sys.executable, self.root)])
+        self.invoke("--install-hooks", "--command", str(command))
+        command.unlink()
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: stale session context hook: {self.settings}", out)
+
     def test_replaces_older_versions_and_hooks_a_receipt_lists_as_replaced(self):
         legacy = [{"type": "command", "command": f"{sys.executable} -I {shlex.quote(self.legacy)} session {n}"}
                   for n in (1, 2)]
