@@ -27,6 +27,8 @@ jobs:
         run: .tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/junit_unittest.py --jobs 4 --report .tmp/test-reports/spec-writing.xml discover -s skills/spec-writing/scripts -p 'test_*.py'
       - name: Test cited review integration
         run: .tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/junit_unittest.py --jobs 4 --report .tmp/test-reports/pr-ready.xml discover -s skills/pr-ready/scripts
+      - name: Test repository checks runner
+        run: .tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/junit_unittest.py --jobs 4 --report .tmp/test-reports/repository-checks.xml discover -s skills/repository-checks/scripts
       - name: Check complete candidate documentation corpus
         run: .tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/spec_docs.py check --root .
       - name: Audit every declared executable selector

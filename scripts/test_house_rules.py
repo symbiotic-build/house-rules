@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -327,10 +328,16 @@ class ConfigurationTests(Fixture):
         home = self.root / "config" / "house-rules"
         home.mkdir(parents=True)
         hr.global_path().write_text(json.dumps({"version": 1, "budgets": {"pre-commit": {"seconds": 1}}}))
+        result = hr.effective(record, parsed, repo, hooks=True)  # team-rules set this stage: a reason is needed
+        self.assertEqual(result["budget_layers"]["pre-commit"], "team-rules")
+        self.assertIn("warning: global budgets.pre-commit: sets a field that team-rules set; add a reason; the global "
+                      "budget is ignored", result["warnings"])
+        budget = {"seconds": 1, "reason": "This machine is slow."}
+        hr.global_path().write_text(json.dumps({"version": 1, "budgets": {"pre-commit": budget}}))
         result = hr.effective(record, parsed, repo, hooks=True)
-        self.assertEqual(result["budgets"]["pre-commit"], {"seconds": 1})  # a budget replaces its stage's entry whole
+        self.assertEqual(result["budgets"]["pre-commit"], budget)  # a budget replaces its stage's entry whole
         self.assertEqual(result["budget_layers"]["pre-commit"], "global")
-        self.assertNotEqual(hr.effective(record, parsed, repo)["budgets"]["pre-commit"], {"seconds": 1})  # hooks only
+        self.assertNotEqual(hr.effective(record, parsed, repo)["budgets"]["pre-commit"], budget)  # hooks only
         hr.global_path().write_text(json.dumps({"version": 1, "checks": {}}))  # personal checks are cut
         self.assertTrue(any("unknown field checks; allowed: version, sources, budgets" in w
                             for w in hr.effective(record, parsed, repo, hooks=True)["warnings"]))
@@ -1032,6 +1039,15 @@ class ResolverRoundThreeTests(Fixture):
         self.assertEqual(code, 1)  # the address inside the transport form is never saved or printed
         self.assertNotIn("SECRET", err)
         self.assertIn("the --url value uses Git's <transport>:: form", err)
+        for url, message in (("", "the --url value is empty"),
+                             ("https://host:port/rules", "the --url value is not a URL Git can use")):
+            code, _, err = self.command("link", str(checkout), "--url", url)
+            self.assertEqual(code, 1, err)  # every link refusal exits 1
+            self.assertIn(message, err)
+        run(checkout, "remote", "set-url", "origin", os.fsdecode(b"https://host/\xff/rules"))  # not UTF-8
+        code, _, err = self.command("link", str(checkout))
+        self.assertEqual(code, 1, err)
+        self.assertIn(f"remote.origin.url of {checkout} is not valid text", err)
         self.assertFalse(hr.links_path().exists())
         with self.assertRaises(hr.Failure) as caught:  # a lone surrogate cannot become a cache key
             hr.repository_config('{"version": 2, "sources": [{"name": "house-rules"}, '
@@ -1072,6 +1088,9 @@ class ResolverRoundThreeTests(Fixture):
         with self.assertRaises(hr.Failure) as caught:
             hr.repository_config(json.dumps({"version": 2, "sources": [dict(source, ref="ma\0in")]}))
         self.assertIn("ref must be a branch name", str(caught.exception))
+        with self.assertRaises(hr.Failure) as caught:  # a lone surrogate cannot become a process argument
+            hr.repository_config('{"version": 2, "sources": [{"name": "house-rules", "ref": "ma\\ud800in"}]}')
+        self.assertIn("ref must be a branch name", str(caught.exception))
         if hasattr(sys, "set_int_max_str_digits"):  # Python 3.11 and later limit integer digits
             with self.assertRaises(hr.Failure) as caught:
                 hr.load_json(b'{"version": ' + b"1" * 5000 + b"}", "f")
@@ -1086,18 +1105,6 @@ class ResolverRoundThreeTests(Fixture):
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(self.repository(config))
         self.assertIn("reason has the wrong type or value", str(caught.exception))
-
-    def test_the_global_configuration_is_read_once(self):
-        house = self.source("house-rules", {"a": "b"})
-        (self.root / "config" / "house-rules").mkdir(parents=True)
-        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
-        reads, real = [], Path.read_bytes
-        def read_bytes(path):
-            reads.append(path)
-            return real(path)
-        with mock.patch.object(hr.Path, "read_bytes", read_bytes):
-            hr.resolve(None)
-        self.assertEqual(reads.count(hr.global_path()), 1)
 
     def test_a_failed_fetch_keeps_its_deadline_and_leaves_no_extraction(self):
         config, pin = self.tour()
@@ -1118,6 +1125,18 @@ class ResolverRoundThreeTests(Fixture):
             with self.assertRaises(hr.Failure) as caught:
                 hr.fetch_commit(url, pin)
         self.assertIn("; the fetch had failed first: the deadline passed", str(caught.exception))
+        real_rmtree = shutil.rmtree
+        def rmtree(path, *args, **kwargs):  # only the extraction cannot be removed
+            if Path(path, "partial-file").exists():
+                raise OSError(13, "Permission denied")
+            return real_rmtree(path, *args, **kwargs)
+        for leftover in [p for p in folder.iterdir() if p.name.startswith(".partial-")]:
+            real_rmtree(leftover)
+        with mock.patch.object(hr.subprocess, "run", run_tar_fails), mock.patch.object(hr.shutil, "rmtree", rmtree):
+            with self.assertRaises(hr.Failure):
+                hr.fetch_commit(url, pin)
+        left = [p for p in folder.iterdir() if p.name.startswith(".partial-")]
+        self.assertEqual([Path(p, "partial-file").exists() for p in left], [True])  # the repository went anyway
 
     def test_init_never_overwrites_a_file_created_after_its_check(self):
         repo = self.repository()

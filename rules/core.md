@@ -217,7 +217,12 @@
 - Never use real customer, mailbox, sender, company, attachment, or credential data in tests.
 - Use synthetic test data only.
 - Run fetched code or commands only inside disposable sandboxes.
-- Deny those sandboxes network access, credentials, and write access to the real checkout.
+- Deny those sandboxes credentials and write access to the real checkout.
+- Deny those sandboxes network access, or give them only a filtered route out where the operator approved one.
+- A filtered route passes only through one egress proxy, which allows ports 80 and 443 to public internet addresses.
+- The proxy refuses private, link-local, shared (100.64.0.0/10), loopback and cloud-metadata ranges, the host's own addresses, and the operator's listed servers.
+- The proxy resolves each name itself and checks the resolved address, so a name cannot rebind to a refused address.
+- The proxy logs every destination, with host, port and bytes, in the run's private record.
 - Obtain operator approval for the exact command before running fetched content outside those sandbox restrictions.
 - Acquire dependencies only through the project’s package manager and lockfile.
 - Allow installers and binaries only when pinned by version and checksum.
