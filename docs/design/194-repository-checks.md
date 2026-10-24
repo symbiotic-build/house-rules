@@ -7,7 +7,7 @@ A repository keeps the defaults, changes their settings, turns them off with a r
 The same runner runs in the Git hook and in CI, so both give the same result for the same input.
 Readers need Git hooks, a CI workflow and the [spec checker](../../skills/spec-writing/SKILL.md) at the level of "it checks Markdown and metadata".
 The operator approved this design for implementation on 2026-10-23; the work is tracked in [#194](https://github.com/symbiotic-build/house-rules/issues/194).
-Implementation status: the runner implements its `run`, `prepare` and `status` commands, starts checks through the build queue and records the check versions. `install`, with its hook blocks and CI step, is not implemented yet; it lands in the install work package, and until then `checks.py install` stops with exit status 2. [Rollout and work packages](#rollout) lists it. The tour shows the result once `install` has landed.
+Implementation status: the runner implements its `run`, `install`, `prepare` and `status` commands, starts checks through the build queue and records the check versions. The hook blocks and the CI step that `install` writes call `house-rules exec`, which comes with the [House Rules command](218-layered-configuration.md#house-rules-command) work in [#222](https://github.com/symbiotic-build/house-rules/pull/222). [Rollout and work packages](#rollout) lists the remaining work.
 
 How does one configuration reach the commit hook, the push hook and CI?
 
@@ -22,7 +22,7 @@ flowchart TD
 ```
 
 The [check configuration](#check-configuration) holds the repository's choices and names its House Rules [source layer](218-layered-configuration.md#source-layer): a URL and a branch or a commit.
-The [check runner](#check-runner) runs at the commit that layer resolves to, once per run, as [House Rules revision and offline use](#revision) explains; the default branch is `main`, so a House Rules merge onto `main` reaches a repository that keeps that ref at its next run.
+The [check runner](#check-runner) runs at the commit that layer resolves to, once per run, as [House Rules revision and offline use](#revision) explains; the default branch is `main`, so a House Rules merge onto `main` reaches a repository that keeps that ref at its next run, or within the [60 s reuse window](218-layered-configuration.md#decision-reuse-window) of the last answer.
 It reads the configuration, selects the checks for the current [check stage](#check-stage) and runs each [check definition](#check-definition).
 Its [check run report](#check-run-report) names each layer with its commit and each check's version. It also says which check failed, why, how to fix it and how to rerun it.
 The [hook block](#hook-block) is the few lines of shell that connect a Git hook to the runner.
@@ -58,18 +58,20 @@ Use this map to choose the next explanation to read.
 - [Open questions](194-repository-checks.md#questions) — Confirm that no design choice remains open.
 - [Rollout and work packages](194-repository-checks.md#rollout) — Plan the implementation pull requests and adoption.
 - [Reference](194-repository-checks.md#reference) — Look up configuration fields, built-ins, commands and the report format.
-- [Acceptance](194-repository-checks.md#acceptance) — See the planned demonstrations for each requirement.
+- [Acceptance](194-repository-checks.md#acceptance) — See the tests, demonstrations and analysis for each requirement.
 
 ## Entity index
 
 Each technical term below links to its defining Markdown section.
 
 - [Global configuration](218-layered-configuration.md#global-configuration) (`layered-configuration.global-configuration`) — The global configuration is the per-user JSON file ~/.config/house-rules/house-rules.json that supplies default sources for repositories without a repository configuration and machine-only budgets.
+- [House Rules command](218-layered-configuration.md#house-rules-command) (`layered-configuration.house-rules-command`) — The House Rules command is scripts/house_rules.py, one standard-library Python file that resolves layers, manages the version cache and links, and starts House Rules scripts at the resolved version.
 - [Repository configuration](218-layered-configuration.md#repository-configuration) (`layered-configuration.repository-configuration`) — A repository configuration is the versioned JSON file house-rules.json at a repository's root that lists its source layers, its profiles and its own settings.
+- [Resolution record](218-layered-configuration.md#resolution-record) (`layered-configuration.resolution-record`) — A resolution record is the account of one resolution: the repository, the configuration origin, and for each layer its name, URL, ref, commit, source and fetch time.
 - [Source layer](218-layered-configuration.md#source-layer) (`layered-configuration.source-layer`) — A source layer is one entry of sources: a Git repository, named by name and url, at one ref.
 - [Check configuration](194-repository-checks.md#check-configuration) (`repository-checks.check-configuration`) — A check configuration is the versioned JSON file house-rules.json at the repository root that names the repository's House Rules source layer and declares its checks.
 - [Check definition](194-repository-checks.md#check-definition) (`repository-checks.check-definition`) — A check definition is one command, the stages it runs at, the files it reads and how its result is read.
-- [Check installation](194-repository-checks.md#check-installation) (`repository-checks.check-installation`) — Check installation is the repository-checks procedure that writes a repository's configuration, Git hooks and CI step, and prepares the local cache.
+- [Check installation](194-repository-checks.md#check-installation) (`repository-checks.check-installation`) — Check installation is the repository-checks procedure that writes a clone's Git hooks and clone setting and a repository's CI step; it never writes the configuration.
 - [Check run report](194-repository-checks.md#check-run-report) (`repository-checks.check-run-report`) — A check run report is the runner's account of one run and of each check in it.
 - [Check runner](194-repository-checks.md#check-runner) (`repository-checks.check-runner`) — The check runner is skills/repository-checks/scripts/checks.py, one standard-library Python file that reads the configuration, selects checks, runs them and prints the report.
 - [Check stage](194-repository-checks.md#check-stage) (`repository-checks.check-stage`) — A check stage is one point in the change loop where the runner runs checks: pre-commit, pre-push or ci.
@@ -131,37 +133,45 @@ Everything in this tour uses House Rules defaults.
 
 **Procedure: install, commit, fix and commit again**
 
-1. **Preview the install:** [`python3 <House Rules>/skills/repository-checks/scripts/checks.py install --dry-run`](#runner-options).
-   - Lists the four files it would write and the two per-clone Git settings.
-   - Writes nothing.
-2. **Install:** the same command without [`--dry-run`](#runner-options).
-   - Writes the [check configuration](#check-configuration), the pre-commit and pre-push [hook blocks](#hook-block) and the CI workflow.
-   - Fetches House Rules main and builds the spec checker's environment in the local cache.
-3. **Stage the install and check everything:** `git add` the files the install listed, then [`checks.py run --stage ci --index`](#runner-options).
-   - Runs every CI check that reads the snapshot over the staged snapshot, which already holds the new configuration. Existing failures show before the hook starts refusing commits.
+1. **Set up the command once on the machine:** `python3 <House Rules checkout>/scripts/house_rules.py install`.
+   - Puts the `house-rules` command on `PATH`.
+2. **Write the configuration:** `house-rules init`.
+   - Writes the [check configuration](#check-configuration) shown below.
+   - This repository has `docs/ENTITIES.json`, so `init` lists the profile `specs`. House Rules defines `specs` as empty, so the runner accepts it; until [#217](https://github.com/symbiotic-build/house-rules/issues/217) it refuses a profile that sets checks or settings, and an unknown profile name.
+3. **Review and stage the configuration:** `git add house-rules.json`.
+   - The install writes nothing in this file and does not list it.
+4. **Preview the install:** [`house-rules exec skills/repository-checks/scripts/checks.py install --dry-run`](#runner-options).
+   - Lists the two hook files, the [`house-rules.command`](#clone-settings) setting and the CI workflow it would write.
+   - Writes none of them.
+5. **Install:** the same command without [`--dry-run`](#runner-options).
+   - Writes the pre-commit and pre-push [hook blocks](#hook-block), the [`house-rules.command`](#clone-settings) setting and, because the repository has `.github/workflows/`, the CI workflow.
+   - Prepares the spec checker's environment, because spec-docs is enabled.
+6. **Stage the workflow and check everything:** `git add .github/workflows/repository-checks.yml`, then [`house-rules exec --origin index skills/repository-checks/scripts/checks.py run --stage ci --index`](#runner-options).
+   - Runs every CI check that reads the snapshot over the staged snapshot, which holds the staged configuration. Existing failures show before the hook starts refusing commits.
    - Here both checks pass.
-4. **Commit the install** through a normal PR. A reviewer reads the configuration, which changes no default.
-5. **Edit a chapter and commit:** the change adds "segment id" to `docs/specs/storage/recovery.md`.
+7. **Commit the adoption** through a normal PR. A reviewer reads the configuration, which changes no default.
+8. **Edit a chapter and commit:** the change adds "segment id" to `docs/specs/storage/recovery.md`.
    - The pre-commit hook builds a snapshot commit of the staged index and runs both default checks on it.
    - The spec checker reports one error; Git refuses the commit.
-6. **Fix and rerun one check:** rename to "segment identifier", stage it, then run the `rerun` command the report printed.
+9. **Fix and rerun one check:** rename to "segment identifier", stage it, then run the `rerun` command the report printed.
    - The spec check passes.
-7. **Commit again.** Both checks pass and Git creates the commit.
-8. **Push the branch.** The CI step resolves the configuration's House Rules branch itself, runs the same checks and passes. Its job log names the layer, its commit and each check's version.
+10. **Commit again.** Both checks pass and Git creates the commit.
+11. **Push the branch.** The CI step resolves the configuration's House Rules branch itself, runs the same checks and passes. Its job log names the layer, its commit and each check's version.
 
-> **Detail — configuration written in step 2**
+> **Detail — configuration after step 2**
 >
 > ```json
 > {
 >   "version": 2,
->   "sources": [{"name": "house-rules", "url": "https://github.com/symbiotic-build/house-rules", "ref": "main"}],
+>   "sources": [{"name": "house-rules", "ref": "main"}],
+>   "profiles": ["specs"],
 >   "checks": {}
 > }
 > ```
 >
-> The one `sources` entry is the House Rules layer at its branch `main`. The empty `checks` object means "the House Rules defaults": whitespace and spec-docs at the commit that branch resolves to.
+> The one `sources` entry is the House Rules layer at its branch `main`, at its default URL `https://github.com/symbiotic-build/house-rules`. The empty `checks` object means "the House Rules defaults": whitespace and spec-docs at the commit that branch resolves to.
 
-> **Detail — report printed in step 5**
+> **Detail — report printed in step 8**
 >
 > ```text
 > repository checks: pre-commit on the staged index, House Rules ebb6b3762d90c7f8ed725b5119eb874325aa6c42 (fetched branch main of https://github.com/symbiotic-build/house-rules, cached 2026-10-23T14:05:00Z)
@@ -204,8 +214,9 @@ The runner's `prepare` and `status` commands read the file from the index, as pr
 The file has these top-level fields:
 
 - `version` is 2.
-- `sources` lists the source layers. This version accepts exactly one entry, the House Rules layer: `{"name": "house-rules", "url": "<URL>", "ref": "<branch or commit>"}`. Its `url` may be left out and is then `https://github.com/symbiotic-build/house-rules`; any other entry will need one. A `ref` of 40 hexadecimal digits is a SHA-1 commit. A `ref` of 64 hexadecimal digits stops the run with the configuration error "SHA-256 sources are not supported yet", whose repair is to use the source's SHA-1 commit or a branch. Any other `ref` is a branch name that `git check-ref-format --branch` must accept. The install writes the branch `main`. A consuming repository may still use SHA-256 objects itself, as [House Rules revision and offline use](#revision) describes.
+- `sources` lists the source layers. This version accepts exactly one entry, the House Rules layer: `{"name": "house-rules", "url": "<URL>", "ref": "<branch or commit>"}`. Its `url` may be left out and is then `https://github.com/symbiotic-build/house-rules`; any other entry will need one. A `ref` of 40 hexadecimal digits is a SHA-1 commit. A `ref` of 64 hexadecimal digits stops the run with the configuration error "SHA-256 sources are not supported yet", whose repair is to use the source's SHA-1 commit or a branch. Any other `ref` is a branch name that `git check-ref-format --branch` must accept, with one exception: a run started through `house-rules exec`, as the hooks and CI run, resolves an exact release tag such as `v1.4.0` as that tag, by the [tag rule](218-layered-configuration.md#source-layer) of the [House Rules command](218-layered-configuration.md#house-rules-command), and the report names it `tag v1.4.0`. A run of the runner on its own asks for such a ref as a branch. `house-rules init` writes the branch `main`; the install never writes this file. A consuming repository may still use SHA-256 objects itself, as [House Rules revision and offline use](#revision) describes.
 - A further entry stops the run with the preparation failure "house-rules: house-rules.json: custom source layers are not supported by this runner yet (#217)", whose repair is to remove the extra entry. Custom layers and their cascade follow in [#217](https://github.com/symbiotic-build/house-rules/issues/217).
+- `profiles` optionally lists profile names, as `house-rules init` writes them from the repository's marker files; it defaults to the empty list. A profile is valid when this House Rules revision defines it. This runner accepts a profile that House Rules defines as empty, `{}`, which changes no setting; today every profile is empty. A name that House Rules does not define stops the run with the configuration error "profiles lists '<name>', which this House Rules revision does not define". A profile that sets checks or settings stops it with "profile <name> sets checks or settings, which this runner does not support yet (#217)", whose repair is to remove the name; the runner never ignores a profile. The [profiles decision](#decision-empty-profiles) records why.
 - `budgets` optionally maps a hook [check stage](#check-stage) to an entry with `seconds` and `reason`. A snapshot whose checks take longer than its budget gets a warning. CI has no budget.
 - `checks` maps a check identity to an entry. An entry for a built-in identity changes that built-in; any other identity adds a repository check.
 
@@ -264,7 +275,7 @@ A repository with another naming style therefore changes its `docs/ENTITIES.json
 <a id="warning-first"></a>
 ### New built-in checks warn first
 
-A House Rules change reaches each adopted repository at its next run after the repository's configured ref includes it: at once for a repository that follows a branch the change lands on, and only after a reviewed move of the ref for one pinned to a commit. A new default check would otherwise refuse commits in every such repository at once.
+A House Rules change reaches each adopted repository at its next run after the repository's configured ref includes it, or within the [60 s reuse window](218-layered-configuration.md#decision-reuse-window) of the last answer: at once for a repository that follows a branch the change lands on, and only after a reviewed move of the ref for one pinned to a commit. A new default check would otherwise refuse commits in every such repository at once.
 A built-in definition therefore has the boolean `enforced`, default `true`, which House Rules sets and no configuration can. A built-in definition that omits it is enforced.
 
 A failing check whose definition has `enforced: false` gets the status `warn`.
@@ -456,29 +467,35 @@ This chapter explains what the install writes, why it writes into the existing h
 <a id="check-installation"></a>
 ### Check installation
 
-Check installation is the `repository-checks` procedure that writes a repository's configuration, Git hooks and CI step, and prepares the local cache.
-An agent or a person runs it once per clone.
+Check installation is the `repository-checks` procedure that writes a clone's Git hooks and [clone setting](#clone-settings) and a repository's CI step; it never writes the configuration.
+An agent or a person runs it once per clone, normally as [`house-rules exec skills/repository-checks/scripts/checks.py install --ci github`](#runner-options).
 Running it again repairs missing pieces and keeps every choice the repository made.
+It needs two things first: the repository's configuration, which `house-rules init` writes, and the `house-rules` command on `PATH`, which `python3 <House Rules checkout>/scripts/house_rules.py install` installs.
 
 **Procedure: install repository checks in one clone**
 
-1. **Preview:** [`checks.py install --dry-run`](#runner-options). Lists each file and setting with "create", "update", "unchanged" or "refused", and writes nothing.
-2. **Install:** `checks.py install`. Performs the listed writes.
-3. **Stage the install:** `git add` the configuration and, when written, the CI workflow.
-4. **Check everything:** [`checks.py run --stage ci --index`](#runner-options). Every CI check that reads [`{snapshot}`](#run-placeholders) runs over the staged snapshot, and failures in existing files show before the hooks start refusing commits. A check that reads the working tree is listed as skipped with the reason "reads the working tree; runs in CI on the commit".
+1. **Preview:** [`house-rules exec skills/repository-checks/scripts/checks.py install --dry-run`](#runner-options). Lists each file and setting with "create", "update", "unchanged" or "refused", and writes none of them. `exec` still resolves the House Rules layer first, so it can ask the remote and fill its cache.
+2. **Install:** the same command without [`--dry-run`](#runner-options). Performs the listed writes.
+3. **Stage the install:** `git add` the files its `next: stage the install` line names, and `house-rules.json` when it is new: the install never lists it.
+4. **Check everything:** [`house-rules exec --origin index skills/repository-checks/scripts/checks.py run --stage ci --index`](#runner-options), the install's last `next:` line. Every CI check that reads [`{snapshot}`](#run-placeholders) runs over the staged snapshot, and failures in existing files show before the hooks start refusing commits. A check that reads the working tree is listed as skipped with the reason "reads the working tree; runs in CI on the commit".
 5. **Commit the repository files** through a reviewed PR. CI then runs the same checks on the commit.
 
 > **Detail — what the install writes**
 >
-> - `house-rules.json`: created only when absent, with `version` 2, the House Rules layer at its branch `main` and an empty `checks` object. An existing file is never rewritten.
+> - Nothing in `house-rules.json`. A repository without one, neither in the index nor in the working tree, stops the install with exit status 2 and "no house-rules.json in this repository; run `house-rules init` first".
 > - The `pre-commit` and `pre-push` hook files in the folder `git rev-parse --git-path hooks` prints: the [hook block](#hook-block) is added or refreshed.
-> - Two per-clone Git settings: [`house-rules.checks-runner`](#clone-settings), the runner's absolute path in the cache, and [`house-rules.checks-python`](#clone-settings), an absolute interpreter path.
-> - `.github/workflows/repository-checks.yml`, when the repository has `.github/workflows/` or the caller passes [`--ci github`](#runner-options). A rerun never rewrites an existing workflow file. It reports when the runner step differs from the current template, so a repository's own setup steps stay.
-> - Cache contents: the tree of the commit the House Rules layer resolves to and the spec checker's environment, built from its hash-locked requirements.
+> - One per-clone Git setting, [`house-rules.command`](#clone-settings), and the same setting of this worktree when `extensions.worktreeConfig` gives the worktree its own value, which wins over the clone's in the hooks: the path of the `house-rules` command that the `PATH` lookup selected, made absolute without collapsing `..`, because a `..` after a link steps out of the link's target as the lookup did. With no such command on `PATH` the install stops with exit status 2 and "the house-rules command is not on PATH; run `python3 <House Rules checkout>/scripts/house_rules.py install` first".
+> - `.github/workflows/repository-checks.yml`, when the repository has `.github/workflows/` or the caller passes [`--ci github`](#runner-options). A rerun never rewrites an existing workflow file. It reports when the runner step differs from the current template and prints the template's step, so a repository's own setup steps stay.
+> - The spec checker's environment, when an enabled check needs it, as spec-docs does: a non-preview install prepares it through the same path as [`checks.py prepare`](#runner-commands), so the first hook run needs no network for it. The install first resolves the House Rules layer, and the runner at that revision judges the configuration; a configuration error stops the install.
 
-The installer chooses [`house-rules.checks-python`](#clone-settings) as the newest interpreter on `PATH` that every enabled built-in supports.
-With spec-docs enabled that range is CPython 3.11 to 3.14. On the measured machine it chooses `python3.14`, not `python3` 3.15.0.
-
+Each stop above happens before the install writes anything.
+The install prints one line per item, its action and then the file or setting. A refused item gives its reason and repair on that line or on the lines below it.
+A workflow path that is no regular file, such as a folder or a named pipe, is refused before anything reads it, with the repair to replace or remove it.
+An error while reading a file it plans for, such as an unreadable workflow, stops the install with exit status 2 and "cannot read <file> (<cause>); repair access to it, then run install again". So does a failure of `git config` other than its status for a missing setting.
+The install writes each file completely into a private temporary file beside it first. A new file is then published exclusively, so it never replaces a file that appeared meanwhile and never shows a partial file; a hook file is replaced only while it still holds what the install read.
+The install is the only writer of the hooks folder while it runs: it refuses a hook that changed after it read it, but an edit, permission change or link change made during the install itself is outside its contract, as the [single-writer decision](#decision-install-single-writer) records; nobody edits hooks while installing. A file that appeared or changed in between stops the install with exit status 2, and that file keeps its content. A write that fails, and whose temporary file cannot be removed either, reports both causes.
+The install exits 1 when it refused an item and 0 otherwise; the items it did not refuse are written either way.
+The install writes its items in the order it lists them and prints the list only after the last write. When a write fails, the writes before it remain. After the repair, a rerun lists those items as unchanged and leaves them out of its `next: stage the install` line, so the owner runs `git status` and stages the remaining repository files, such as the workflow or a hook in a tracked folder, by name.
 For another CI system the install writes no file and prints the one command the CI job runs.
 
 <a id="hook-block"></a>
@@ -489,27 +506,39 @@ Markers let a rerun replace exactly its own lines and leave other tools' lines a
 
 ```sh
 # house-rules:repository-checks:begin
-runner=$(git config --get house-rules.checks-runner) || {
-  echo "repository checks are not installed in this clone; run: python3 <House Rules>/skills/repository-checks/scripts/checks.py install" >&2
+cmd=$(git config --get house-rules.command) || cmd=
+if [ ! -f "$cmd" ] || [ ! -x "$cmd" ]; then
+  echo "repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install, then house-rules exec skills/repository-checks/scripts/checks.py install" >&2
   exit 1
-}
-"$(git config --get house-rules.checks-python)" -I "$runner" run --stage pre-commit || exit $?
+fi
+"$cmd" exec --origin index skills/repository-checks/scripts/checks.py run --stage pre-commit || exit $?
 # house-rules:repository-checks:end
 ```
 
 Entities in this example: [clone settings](#clone-settings), [runner options](#runner-options).
 
-The pre-push block runs [`--stage pre-push`](#runner-options) instead, and also handles the pushed references that Git writes once to the hook's standard input:
+The block reads the clone setting [`house-rules.command`](#clone-settings) and starts that command's `exec`, which resolves the repository's House Rules layer and runs the runner from that commit's tree. At pre-commit, `exec --origin index` reads the configuration from the staged index.
+When the setting is missing or does not name an executable file, the block prints one line and exits 1, so Git refuses the commit or push. The line names both repairs in order: the command's install, then this clone's install, which writes the setting:
+
+```text
+repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install, then house-rules exec skills/repository-checks/scripts/checks.py install
+```
+
+`exec` returns the runner's exit status unchanged. Its own failures exit 2 for a preparation failure and 1 for a usage error, each with one line on standard error. The block passes that status to Git, so any nonzero status refuses the commit or push and the lines after the block do not run.
+The block never passes `--hook` to `exec`: that option belongs to agent session hooks.
+
+The pre-push block runs `exec --rev HEAD` with [`--stage pre-push`](#runner-options) instead, and also handles the pushed references that Git writes once to the hook's standard input:
 
 ```sh
 # house-rules:repository-checks:begin
-runner=$(git config --get house-rules.checks-runner) || {
-  echo "repository checks are not installed in this clone; run: python3 <House Rules>/skills/repository-checks/scripts/checks.py install" >&2
+cmd=$(git config --get house-rules.command) || cmd=
+if [ ! -f "$cmd" ] || [ ! -x "$cmd" ]; then
+  echo "repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install, then house-rules exec skills/repository-checks/scripts/checks.py install" >&2
   exit 1
-}
+fi
 refs=$(mktemp) || { echo "repository checks: cannot create a temporary file; push refused" >&2; exit 1; }
 cat > "$refs" || { echo "repository checks: cannot save the pushed references; push refused" >&2; rm -f "$refs"; exit 1; }
-"$(git config --get house-rules.checks-python)" -I "$runner" run --stage pre-push --remote "$1" < "$refs" || { status=$?; rm -f "$refs"; exit $status; }
+"$cmd" exec --rev HEAD skills/repository-checks/scripts/checks.py run --stage pre-push --remote "$1" < "$refs" || { rc=$?; rm -f "$refs"; exit $rc; }
 exec < "$refs" || { echo "repository checks: cannot reopen the pushed references; push refused" >&2; rm -f "$refs"; exit 1; }
 rm -f "$refs"
 # house-rules:repository-checks:end
@@ -517,19 +546,25 @@ rm -f "$refs"
 
 Entities in this example: [clone settings](#clone-settings), [runner options](#runner-options).
 
-The block saves the reference lines to a temporary file and gives them to the runner. When creating or writing that file fails, the block names the failure, removes the file and refuses the push before any check runs, so a partial copy never stands for the whole push. After the runner passes, the block reopens the hook's standard input from that file, so another tool's lines after the block read the same lines; a large-file extension's pre-push hook is one such reader. Removing the file after `exec` is safe, because the open input stays readable until the hook exits.
+The block keeps the runner's status in `rc`, not `status`, because zsh, an accepted hook shell, reserves `status`.
+The block saves the reference lines to a temporary file and feeds the runner from it; `exec` passes its standard input to the runner unchanged. When creating or writing that file fails, the block names the failure, removes the file and refuses the push before any check runs, so a partial copy never stands for the whole push. After the runner passes, the block reopens the hook's standard input from that file, so another tool's lines after the block read the same lines; a large-file extension's pre-push hook is one such reader. Removing the file after `exec` is safe, because the open input stays readable until the hook exits.
 
 When that reopening fails, the push is refused after the checks ran. A plain `/bin/sh` exits at the failed redirection before the block's message and removal run, so the author may see only the shell's own error and a leftover temporary file.
-The block holds no machine paths: both paths come from per-clone Git settings, so the block can also live in a tracked hooks folder.
+The block holds no machine path: the command's path comes from the clone setting, so the block can also live in a tracked hooks folder.
+
+Before it reads anything, the install resolves each hook path through the file system. It refuses a target that is no regular file, such as a folder or a named pipe, naming the target and the repair "replace it with a hook script". It refuses both hooks when pre-commit and pre-push resolve to the same file, because each needs its own block; the repair is to give each hook its own file. A link to no file gets a new file at the link's target.
 
 The install handles each existing hook file one way:
 
 - **No file:** create it with `#!/bin/sh`, the block and mode 0755.
 - **File with the markers:** replace the lines between them.
-- **Shell script without the markers:** insert the block directly after the first line, so it runs before any later `exit` in the file.
+- **Shell script without the markers:** insert the block directly after the first line, so it runs before any later `exit` in the file. The first line may set only the shell options `-a`, `-e`, `-f`, `-u`, `-v` and `-x`, or their `+` forms; any other, such as `-n`, which only reads the script, would leave the block inactive, so such a hook is refused and integrated by hand.
 - **Hook file that is not executable:** refuse, and print the `chmod +x` command. Git ignores such a file, and making it executable would also start the other tool's code.
-- **File written by the pre-commit framework:** refuse, and print the `repo: local` entry that calls the runner from that framework's configuration.
+- **File written by the pre-commit framework:** refuse, and print the `repo: local` entry that calls the runner from that framework's configuration. The framework reads Git's pushed reference lines itself and passes one pushed reference in variables, so the pre-push entry writes the local reference, the pushed commit, the remote reference and the framework's comparison commit back as one reference line. The runner then chooses the push base as for Git's own lines; without a comparison commit, as for a branch the remote has no history for, the remote's default branch is the comparison.
 - **Any other file:** refuse, naming the file and its first line.
+- **An unreadable file:** refuse, naming the cause, with the repair "repair access to it, then run install again".
+
+A hook that stays refused, such as a framework hook or a hook in another language, is integrated by hand: the owner adds the printed entry, or a call of the command the [hook block](#hook-block) runs. A rerun of the install still lists that hook as refused and exits 1; that refusal is expected. The owner verifies each integrated stage on its own. For pre-commit: stage a trailing space and commit; the hook must refuse the commit with the whitespace failure. For pre-push: push a commit to a local bare repository, such as one made with `git init --bare`; the hook must print the `repository checks: pre-push on …` header. The defaults list no pre-push check, so that header is the evidence; a repository that lists a check at pre-push also sees that check run.
 
 The install never sets `core.hooksPath`.
 When the repository already set it, for example to a Husky folder, `git rev-parse --git-path hooks` points there and the block goes into that folder's files.
@@ -550,9 +585,9 @@ It runs [`checks.py status --session`](#runner-options) from the House Rules mai
 - `repository checks: ready (House Rules ebb6b37, offline branch main of https://github.com/symbiotic-build/house-rules, cached 2026-10-23T14:05:00Z, hooks installed)`, or
 - what is missing, with the command that fixes it: no hook block, a hook file that is not executable, "House Rules main not fetched yet" for the configured branch, or the spec checker's environment not built.
 
-In a managed repository, one that has `.agents/rules.md`, without a configuration it prints the install command. Elsewhere it prints nothing.
+In a managed repository, one that has `.agents/rules.md`, with no configuration in the index it prints `repository checks: not installed; run `house-rules init`, review and stage house-rules.json (git add house-rules.json), then run: house-rules exec skills/repository-checks/scripts/checks.py install`. When `house-rules.json` is in the working tree but not staged, as right after `init`, which refuses to run again, the line instead reads `repository checks: not installed; review house-rules.json and stage it (git add house-rules.json), then run: house-rules exec skills/repository-checks/scripts/checks.py install`. [`checks.py prepare`](#runner-commands) gives the same two repairs. Elsewhere it prints nothing.
 It always exits 0. A configuration error becomes its one line, so a broken file never stops a session from starting.
-It reports the commit last resolved for the configured branch and when it was fetched, or the configured commit; it never fetches. With that commit prepared it hands over to its runner, which knows which checks need an environment. Otherwise it reports "House Rules <branch> not fetched yet" with the `prepare` command, and checks the environment only after `prepare`.
+It reports the commit last resolved for the configured branch and when it was fetched, or the configured commit; the runner's `status` never fetches. Started through `house-rules exec`, as other commands are, the wrapper resolves first and can ask the remote and fill its cache. With that commit prepared it hands over to its runner, which knows which checks need an environment. Otherwise it reports "House Rules <branch> not fetched yet" with the `prepare` command, and checks the environment only after `prepare`.
 It runs Git commands only, no checks, and needs no network.
 
 The PR watcher needs no change.
@@ -568,7 +603,7 @@ This chapter explains which House Rules commit a run uses, what the run logs abo
 
 The configuration's House Rules layer names a URL and a ref, as a repository pins its toolchain in a settings file. The ref is a branch or a commit:
 
-- **A branch**, by default `main`, resolves at every run. A House Rules merge onto that branch therefore reaches the repository at its next run, and the run's report names the new commit. A merge onto another branch does not reach it.
+- **A branch**, by default `main`, resolves at every run. A House Rules merge onto that branch therefore reaches the repository at its next run, and the run's report names the new commit. A merge onto another branch does not reach it. Through `house-rules exec`, as the hooks and CI run, a branch answer younger than 60 s is reused without asking the remote, as the [answer reuse decision](218-layered-configuration.md#decision-reuse-window) records; a run within 60 s of the last answer can therefore still use the commit before the merge, with the source `reused`.
 - **A commit** is used as it is, until a reviewed change of the configuration moves it.
 
 A new default check cannot refuse commits everywhere at once, because it warns first, as [New built-in checks warn first](#warning-first) explains.
@@ -588,7 +623,8 @@ Another commit runs for a deliberate one-run test through the [revision override
 > - It asks for a branch with `ls-remote` and then fetches by commit, instead of fetching the branch. It reads Git's output as bytes: a line feed ends each record and a tab separates the commit from the reference, so a branch name keeps every other character, such as U+2028.
 > - Two runs that resolve the same branch at the same time may leave either result in its record; the next run asks again.
 > - Every fetch and `ls-remote` passes `-c http.lowSpeedLimit=1 -c http.lowSpeedTime=30`: Git stops a transfer that moves less than 1 byte per second for 30 s. The runner adds no timer, because the [verification rules](../../rules/delivery.md) (§Verification) fail long-running steps on lack of progress, not on elapsed time. These settings cover HTTP URLs, such as the default; another transport keeps Git's own behaviour.
-> - The handing runner passes the resolved layer in the environment variable [`HOUSE_RULES_RESOLVED`](#runner-environment-variables). The started runner accepts it only when the layer names that runner's own commit, and removes it, so no check inherits it. When the layer's name, URL and ref differ from the source the started runner reads from the configuration, another process changed the configuration in between; the run stops with the preparation failure "the configuration changed during the run; run again". A snapshot's commit is a full object identity of the repository's own object format: 40 hexadecimal digits for SHA-1, 64 for SHA-256. A House Rules revision is always a 40-digit commit.
+> - The handing runner passes the resolved layer in the environment variable [`HOUSE_RULES_RESOLVED`](#runner-environment-variables). The started runner accepts it only when the layer names that runner's own commit, and removes it, so no check inherits it. When the layer's name, URL and ref differ from the source the started runner reads from the configuration, another process changed the configuration in between; the run stops with the preparation failure "the configuration changed during the run; run again". `house-rules exec` instead passes its whole [resolution record](218-layered-configuration.md#resolution-record), a JSON object with `version` 1 and a `layers` list. The runner takes the House Rules layer from `layers[0]` when exec started it from that layer's `tree`, applies the same configuration comparison, and resolves nothing again, so the run checks with exactly the commit exec resolved and logged, also when the branch moved since. The record's `warnings` become that layer's warning. A record that names another tree is ignored, and the runner resolves the layer itself.
+> - At pre-push, exec resolves `HEAD`'s configuration, but the runner checks each pushed commit, so exec's record is a bootstrap record: it may describe another snapshot. When the first pushed snapshot with a configuration names another source, the runner does not call that a configuration change. It keeps exec's explicit selection, a [revision override](#revision-override) or a link of the same URL, which exec removes from the environment before it starts the runner; otherwise it resolves that snapshot's source itself. The install does the same when only the index holds the configuration, because exec then resolved another one. Every later snapshot of the push must name the source the run resolved, and pre-commit, `prepare` and `status`, which read the same snapshot exec read, keep the strict comparison. A snapshot's commit is a full object identity of the repository's own object format: 40 hexadecimal digits for SHA-1, 64 for SHA-256. A House Rules revision is always a 40-digit commit.
 
 A run resolves once, at its first snapshot that has a configuration, before that snapshot's checks. Every later snapshot of the run uses the same commit, so two commits of one push always run at one commit; a later snapshot that declares other `sources` stops the run.
 A run whose snapshots have no configuration checks nothing and resolves nothing, so it needs no network.
@@ -604,15 +640,14 @@ The runner prepares a revision once and reuses it:
 > - `revisions/<commit>/` holds that commit's files, extracted with `git archive`, keyed by the commit alone. The fetch repository is made without a template, and the archive reads no personal or system attributes file, so an outside `export-ignore` cannot leave a file out of the tree. A tree is ready when that folder exists. An existing tree is never replaced: a fetch whose rename fails because the folder exists removes its own temporary folder and uses the existing tree.
 > - `revisions/<commit>.fetched` holds one line, the UTC time of the fetch, such as `2026-10-23T14:05:00Z`. A fetch writes it create-only, keeping an existing file, just before it renames its folder into place. It is the `fetched` time of a commit ref and of the override; a tree without it gives its folder's modification time. Files are read-only; folders stay writable, so the cache can be removed.
 > - The cache keeps no Git repository. Each fetch's temporary repository is deleted when the fetch ends, as the [fetch decision](#decision-fetch-repository) explains. A deletion that fails leaves the `.partial-` folder, which no run uses, as the [fetch removal decision](#decision-fetch-removal) records.
-> - `environments/<digest>/` holds one virtual environment per requirements lock and interpreter version. The digest is SHA-256 over the lock file and `CPython <major>.<minor>`.
+> - `environments/<digest>/` holds one virtual environment per requirements lock and interpreter version. The digest is SHA-256 over the lock file and `CPython <major>.<minor>`. The runner reads the lock once and gives pip a copy of exactly those bytes inside the environment's private temporary folder, so an edit of the lock during the build, as in a linked checkout, cannot put other packages under that digest.
 > - The environment's interpreter is the running one when the spec checker supports it, and otherwise the newest supported `python3.<minor>` on `PATH`.
 > - A revision or environment is built in a temporary folder whose name starts with `.partial-`, and renamed into place. Two hooks that prepare the same revision at once both end with one complete copy.
 > - The cache survives an interrupted process, because nothing uses an entry before its rename and no run reuses anything Git locks. An interrupted fetch leaves only its temporary repository, with any lock file Git left in it. No run ever uses a `.partial-` folder, so any of them may be deleted when no run is active.
-> - The cache is not built to survive a host power loss: an entry can then be incomplete. The repair has two steps: delete the cache folder, then run the install again from a House Rules checkout. The install prepares the cache and points [`house-rules.checks-runner`](#clone-settings) at the runner of the current commit, and the hooks work again after it. `checks.py prepare` alone is not enough when the branch moved since the install, because the hooks still name the earlier commit's runner.
+> - The cache is not built to survive a host power loss: an entry can then be incomplete. The repair is to delete the cache folder. No hook names a path inside the cache, so the next run fetches and builds what it needs again.
 > - Extracting a revision from its commit makes its files the commit's files; the runner trusts a cache entry after that and checks only that its folder exists.
 
-The runner in a hook is the one at the path in [`house-rules.checks-runner`](#clone-settings), at the commit the install prepared.
-After the House Rules branch moves, that runner resolves the new commit, prepares it and hands over. The runner that runs the checks is therefore always at the run's resolved commit.
+A hook starts the runner through the command that [`house-rules.command`](#clone-settings) names. Its `exec` resolves the House Rules layer at each run and starts the runner from that commit's tree. The runner that runs the checks is therefore always at the run's resolved commit.
 
 Offline use works for each layer as follows:
 
@@ -660,9 +695,9 @@ A value that is not a full commit identity, or a commit the House Rules URL does
 
 Each run records what it ran, so a reader of any report or CI log can tell which rules produced a result.
 
-- **Layers.** The run object's `layers` lists each layer the run resolved; this version resolves only the House Rules layer. A layer has six fields. `name` is the layer's name, `house-rules`. `url` is its URL as written. `ref` is the configured branch or commit. `revision` is the full commit it resolved to. `source` says where that commit came from: `fetched`, a branch this run fetched; `offline`, a branch as last resolved, because this run could not fetch it; `pinned`, a commit ref; or `override`, the [revision override](#revision-override). `fetched` is an ISO 8601 UTC time. For source `fetched` it is the time of this run's fetch, and for `offline` the time of the last fetch. For `pinned` and `override` it is the time in `revisions/<commit>.fetched`, written when the fetch that first put the commit's folder into the cache placed it.
+- **Layers.** The run object's `layers` lists each layer the run resolved; this version resolves only the House Rules layer. A layer has six fields. `name` is the layer's name, `house-rules`. `url` is its URL as written. `ref` is the configured branch or commit. `revision` is the full commit it resolved to. `source` says where that commit came from: `fetched`, a branch this run fetched; `offline`, a branch as last resolved, because this run could not fetch it; `pinned`, a commit ref; or `override`, the [revision override](#revision-override). A run that `house-rules exec` started can also report two sources that only exec produces: `reused`, a branch answer exec got from the remote less than 60 s earlier, and `link`, a linked House Rules checkout. `fetched` is an ISO 8601 UTC time, or `null` for `link`. For source `fetched` it is the time of this run's fetch, for `reused` the time of the answer exec reused, and for `offline` the time of the last fetch. For `pinned` and `override` it is the time in `revisions/<commit>.fetched`, written when the fetch that first put the commit's folder into the cache placed it.
 - **Provenance.** Each check result has `layer`: `house-rules` for a built-in, `repository` for a repository check. Each override has `layer` `repository`.
-- **Text header.** The text report's header names each layer as `<source> <what> of <URL>, cached <fetched>`, where `<what>` is `branch <ref>` for `fetched` and `offline`, `commit` for `pinned` and [`HOUSE_RULES_REVISION`](#runner-environment-variables) for `override`.
+- **Text header.** The text report's header names each layer as `<source> <what> of <URL>, cached <fetched>`, where `<what>` is the ref's kind and name for `fetched`, `reused` and `offline`: `tag <ref>` for a release tag that `house-rules exec` resolved, `branch <ref>` otherwise; `commit` for `pinned` and [`HOUSE_RULES_REVISION`](#runner-environment-variables) for `override`. A `link` layer is named `link of <URL>`; the warning that `house-rules exec` prints for a link names the checkout.
 - **Check versions.** Each check result that ran holds `version`, a list of `path` and `sha256` pairs. The first pair is the program, the first argument after placeholder expansion. A program with a slash is taken from the repository root when it names a regular file there. A program without one is the first `PATH` entry that is a folder and holds it as an executable regular file, listed by its full path. Relative `PATH` entries count from the repository root, the check's working folder, and are joined, never normalized, so `link/../bin` resolves through the file system as the start does. One pair follows for every other argument that names an existing regular file, in argument order. The runner looks each argument up with one file-status call. A path that does not exist, is too long for a path or is no regular file names no version file. Any other lookup or read error, such as a folder the runner cannot search, makes that check an `error` that does not run, with the output "version unreadable: <path> (<the system's message>)"; the other checks run. A [`{files}`](#run-placeholders) argument is the check's input, not its version, so its files are left out.
 - **Versions of checks that did not run.** A skipped check has `version` set to `null`. A check whose program the runner cannot find has an empty `version`.
 - **Prompt versions.** No built-in check uses a prompt. A repository check that uses prompts names their versions in its own output, which the report shows unchanged; the runner does not parse it.
@@ -833,7 +868,7 @@ A repository that wants the linter before each commit wraps it to read each file
 ### A repository with no specifications
 
 This small script repository has no `docs/DOCUMENTS.json`.
-Its install writes a configuration that keeps every default check.
+`house-rules init` writes its configuration, which keeps every default check. Its install writes the hook blocks and the [`house-rules.command`](#clone-settings) setting.
 
 > **Detail — report at its first commit**
 >
@@ -964,7 +999,7 @@ A rerun of the install repairs what is missing and changes nothing the repositor
 
 **Verification:** Fixture clones with existing hooks, a non-executable hook, a Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook and an existing configuration.
 
-**Tests:** [Install over existing hooks](#test-checks-install-existing).
+**Tests:** [Install over existing hooks](#test-checks-install-existing), [default install](#test-checks-default-install).
 
 **Status:** specified.
 
@@ -979,7 +1014,7 @@ Every run uses the House Rules layer its configuration names, at the latest comm
 
 **Condition:** The layer's ref is a branch or a commit, a run can reach the layer's URL or cannot, and a [revision override](#revision-override) is set or is not.
 
-**Result:** Without an override, a run resolves the layer once and every snapshot of the run uses it; a pushed commit that names another source stops the run. A branch resolves at every run. When asking for the branch or fetching it fails, the run uses the commit last resolved for that URL and branch and warns with that commit and its fetch time. A cache or preparation failure is no such fetch failure and stops the run even when the cache holds an earlier commit. With no commit ever resolved for the branch, it stops with the [preparation failure](#failure-preparation) and its repair. A commit ref is used as it is. With an override, the run uses that commit for that run only, and the report marks it; no file stores it. The report names each layer's commit, source and fetch time in every case. An interrupted fetch never stops a later run. A configuration that names another source by the time the resolved runner reads it stops the run.
+**Result:** Without an override, a run resolves the layer once and every snapshot of the run uses it; a pushed commit that names another source stops the run. A branch resolves at every run; through `house-rules exec` an answer younger than the [60 s reuse window](218-layered-configuration.md#decision-reuse-window) is reused. When asking for the branch or fetching it fails, the run uses the commit last resolved for that URL and branch and warns with that commit and its fetch time. A cache or preparation failure is no such fetch failure and stops the run even when the cache holds an earlier commit. With no commit ever resolved for the branch, it stops with the [preparation failure](#failure-preparation) and its repair. A commit ref is used as it is. With an override, the run uses that commit for that run only, and the report marks it; no file stores it. The report names each layer's commit, source and fetch time in every case. An interrupted fetch never stops a later run. A configuration that names another source by the time the resolved runner reads it stops the run.
 
 **Verification:** Fixture House Rules reached through a `file://` URL, with main moved between runs, a failing or unreachable URL, and an override.
 
@@ -1238,6 +1273,28 @@ The operator's direction, quoted: "We should provide sane defaults but it should
 
 **Rejected alternatives:** Reading the base configuration, as the rule-changes preparer does, would protect nothing the PR cannot change through the workflow file, and would check a configuration change with the configuration it replaces.
 
+<a id="decision-empty-profiles"></a>
+### Decision: accept profiles that House Rules defines as empty
+
+**Choice:** The runner accepts a `profiles` entry that this House Rules revision defines as `{}`. It refuses an unknown name as a configuration error and a profile with content with the #217 message, and never ignores a profile.
+
+**Authority:** Lead decision, 2026-10-25, on new evidence from the first install review round.
+
+**Reason:** `house-rules init` writes a profile for nearly every repository from its marker files, and House Rules defines all five profiles as empty. A profile that sets nothing changes nothing, so refusing it would refuse the prescribed adoption path. A profile with content needs the cascade of [#217](https://github.com/symbiotic-build/house-rules/issues/217), which this runner lacks.
+
+**Rejected alternatives:** Refusing every non-empty list, which the first review round shipped, refused `init`'s output. Ignoring profiles would let a later profile's settings go unapplied without a word.
+
+<a id="decision-install-single-writer"></a>
+### Decision: the install is the only writer of the hooks folder
+
+**Choice:** While the install runs, it is the only writer of the hooks folder. It creates new files exclusively and refuses a hook whose content changed between its read and its final check. An edit, permission change or link change made during the install itself is outside its contract, and the install takes no lock.
+
+**Authority:** Lead decision, 2026-10-25, on the publication-ownership question of the second install review round.
+
+**Reason:** The window between the read and the final check includes resolution and validation, which can take a while, so that check catches the edits that are likely. The remaining window, between the final check and the rename, is short, and closing it would need a lock that every other hook tool would also have to honour.
+
+**Rejected alternatives:** A lock file in the hooks folder protects only against writers that know it.
+
 <a id="questions"></a>
 ## Open questions
 
@@ -1277,6 +1334,7 @@ Top-level fields of `house-rules.json`:
 |---|---|---|
 | `version` | 2 | the file's shape |
 | `sources` | list of one source | the House Rules layer |
+| `profiles` | list of names | profiles House Rules defines as empty; default empty |
 | `budgets` | object | warning budgets per hook stage |
 | `checks` | object | check identity to entry |
 
@@ -1328,7 +1386,7 @@ The runner reads those whose names start with `HOUSE_RULES_` and sets those whos
 | [`HOUSE_RULES_REVISION`](#runner-environment-variables) | revision override for one run |
 | [`HOUSE_RULES_CACHE`](#runner-environment-variables) | cache root |
 | [`HOUSE_RULES_CHECK_QUEUE`](#runner-environment-variables) | build-queue command |
-| [`HOUSE_RULES_RESOLVED`](#runner-environment-variables) | set only by a handing runner |
+| [`HOUSE_RULES_RESOLVED`](#runner-environment-variables) | set only by `house-rules exec` or a handing runner |
 | [`CHECK_STAGE`](#runner-environment-variables) | set for each check: the stage |
 | [`CHECK_BASE`](#runner-environment-variables) | set for each check: the value of [`{base}`](#run-placeholders) |
 | [`CHECK_SNAPSHOT`](#runner-environment-variables) | set for each check: the value of [`{snapshot}`](#run-placeholders) |
@@ -1337,13 +1395,11 @@ The runner reads those whose names start with `HOUSE_RULES_` and sets those whos
 ### Clone settings
 
 A clone setting is a per-clone Git setting that the install writes and the hook blocks read.
-Clone settings keep machine paths out of the hook blocks, so a block can also live in a tracked hooks folder.
+The clone setting keeps machine paths out of the hook blocks, so a block can also live in a tracked hooks folder.
 
 | Setting | Value |
 |---|---|
-| [`house-rules.checks-runner`](#clone-settings) | the runner's absolute path in the cache |
-| [`house-rules.checks-python`](#clone-settings) | an absolute interpreter path |
-| [`house-rules.command`](#clone-settings) | the absolute path of the installed `house-rules` command: one executable, no arguments |
+| [`house-rules.command`](#clone-settings) | the absolute path of the installed `house-rules` command, as `PATH` found it at install: one executable, no arguments |
 
 <a id="naming-conventions"></a>
 ### Naming conventions
@@ -1351,7 +1407,7 @@ Clone settings keep machine paths out of the hook blocks, so a block can also li
 Each kind of public name in this design follows one convention:
 
 - Configuration fields, built-in definition fields and report fields are lower snake case: `skip_reason`, `requires`, `enforced`. A compound name puts its modifiers before the head noun, as in `skip_reason`, and a true-or-false field is one adjective or participle, as in `enabled` and `enforced`. They have no prefix or suffix.
-- Git settings sit in the `house-rules` section, and the key after it is lower kebab case, subject first: [`house-rules.checks-runner`](#clone-settings). The section is the only prefix; the key has no suffix.
+- Git settings sit in the `house-rules` section, and the key after it is lower kebab case, subject first: [`house-rules.command`](#clone-settings). The section is the only prefix; the key has no suffix.
 - Check identities are lower kebab case, noun first: `spec-docs`. They have no prefix or suffix.
 - Layer names are lower kebab case, noun first: `house-rules` for the House Rules layer, and `repository` for the configuration's own layer. They have no prefix or suffix.
 - Configuration files are named `house-rules` followed by their extension: `house-rules.json`. No other affix applies.
@@ -1361,7 +1417,7 @@ Each kind of public name in this design follows one convention:
 - Placeholders are a lower snake-case noun in braces: [`{snapshot}`](#run-placeholders), [`{house_rules}`](#run-placeholders). The braces are the only affix; for word order, no further restriction applies.
 - Environment variables are upper snake case. Those the runner reads start with `HOUSE_RULES_`, such as [`HOUSE_RULES_REVISION`](#runner-environment-variables) and [`HOUSE_RULES_CACHE`](#runner-environment-variables). Those it sets for checks start with `CHECK_`. After the prefix, modifiers come before the head noun, as in [`HOUSE_RULES_CHECK_QUEUE`](#runner-environment-variables); there is no suffix.
 - Statuses, results and scopes are one lower-case word: `pass`, `warn`, `error`, `files`. One word has no word order, and they have no prefix or suffix.
-- Layer sources, which say where a layer's commit came from, are one lower-case word without a prefix or suffix: `fetched`, `offline`, `pinned`, `override`.
+- Layer sources, which say where a layer's commit came from, are one lower-case word without a prefix or suffix: `fetched`, `reused`, `offline`, `pinned`, `override`, `link`.
 
 A new name follows the convention of its kind. Repositories that adopt the checks name their own repository checks; they follow these conventions only for the fields and options the runner defines.
 
@@ -1414,18 +1470,59 @@ Entities in this example: [runner options](#runner-options).
 The runner reads the [runner environment variables](#runner-environment-variables) whose names start with `HOUSE_RULES_`.
 
 A pre-push rerun line also names the snapshot and its base, [`--head <commit> --base <base>`](#runner-options). With [`--head`](#runner-options) the runner checks that one commit and reads no standard input.
-A CI rerun line holds the CI machine's paths, such as `.tmp/house-rules`. To rerun it locally, the reader replaces them with the local runner.
+A CI rerun line holds the CI machine's paths, such as the runner's path in its House Rules cache. To rerun it locally from the checked commit's own configuration, the reader passes the same runner arguments, with `--head <commit>`, to [`house-rules exec --rev <commit> skills/repository-checks/scripts/checks.py`](#runner-options).
 
-The workflow the install writes for GitHub Actions has four steps. It checks out the repository with full history and sets up Python 3.13. It checks out nothing of House Rules; it clones House Rules main and runs that runner, which then resolves the configuration's layer:
+The workflow the install writes for GitHub Actions has four steps. It checks out the repository with its full history, so that the [`--base`](#runner-options) commit is in the clone, and sets up Python 3.13. It clones House Rules main into `.tmp/house-rules`. From the repository root it runs that clone's `house-rules exec`, which resolves the configuration's House Rules layer and runs the runner from that commit's tree:
+
+```yaml
+name: Repository checks
+
+on: [push, pull_request]
+
+permissions:
+  contents: read
+
+jobs:
+  repository-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Clone House Rules
+        run: git clone --depth 1 https://github.com/symbiotic-build/house-rules .tmp/house-rules
+      - name: Run repository checks
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          TOKEN: ${{ github.token }}
+        run: |
+          set --
+          case "$BASE" in ""|0000000000000000000000000000000000000000) ;; *) set -- --base "$BASE" ;; esac
+          if [ $# -gt 0 ] && ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+            auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')
+            GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \
+              git fetch --quiet --no-tags origin "$BASE" ||
+              { echo "repository checks: cannot fetch the base commit $BASE from origin" >&2; exit 1; }
+          fi
+          unset TOKEN auth
+          python .tmp/house-rules/scripts/house_rules.py exec --rev "$GITHUB_SHA" skills/repository-checks/scripts/checks.py run --stage ci "$@" --head "$GITHUB_SHA"
+```
+
+The run step passes the PR's base commit, or for a push the commit before it, as `--base`. When GitHub names none, such as for a new branch, it leaves `--base` out and the runner compares the commit with its first parent.
+A base the checkout lacks, such as the tip a force push replaced, is fetched from `origin` by its commit, with the job's read-only token in the environment of that one fetch. The step unsets the token before it starts the runner, so no check inherits it. When that fetch fails, the step prints "repository checks: cannot fetch the base commit <commit> from origin" and fails before any check runs.
+The job log holds the text report with each layer and each check's version.
+
+For another CI system the install prints the one command the job runs after it clones House Rules into `.tmp/house-rules`:
 
 ```text
-git clone --depth 1 https://github.com/symbiotic-build/house-rules .tmp/house-rules
-python .tmp/house-rules/skills/repository-checks/scripts/checks.py run --stage ci --base <PR base or previous commit> --head <commit>
+python .tmp/house-rules/scripts/house_rules.py exec --rev <commit> skills/repository-checks/scripts/checks.py run --stage ci --base <PR base or previous commit> --head <commit>
 ```
 
 Entities in this example: [runner options](#runner-options).
-
-The runner then resolves the configuration's House Rules layer itself. For the default branch `main` it normally equals the clone's commit; after a House Rules merge between the two steps, or for another ref, the cloned runner hands over to the resolved one. The job log holds the text report with each layer and each check's version.
 
 <a id="runner-options"></a>
 #### Runner options
@@ -1433,6 +1530,7 @@ The runner then resolves the configuration's House Rules layer itself. For the d
 A runner option is one of the double-dash options of the runner's commands, such as `--stage` and `--dry-run`.
 
 [`--remote NAME`](#runner-options) names the pushed remote at pre-push; the runner then reads the pushed reference lines from standard input. [`--index`](#runner-options) builds the snapshot from the staged index, as pre-commit does, for the install's preflight; [`--head`](#runner-options) names a commit instead. `--only` limits the run to named checks and is what the report's rerun line uses. `--base` accepts a commit or the empty tree's identity, so a rerun line can repeat any base the runner chose.
+[`--dry-run`](#runner-options) makes `install` list each item and write nothing. [`--ci github`](#runner-options) makes `install` write the GitHub Actions workflow also in a repository without `.github/workflows/`.
 
 <a id="report-format"></a>
 ### Report format
@@ -1480,20 +1578,20 @@ A snapshot without a configuration has `base` set to `null`, no checks, result `
 ## Acceptance
 
 The runner's cases are unit tests in `skills/repository-checks/scripts/test_checks.py`; CI runs them before it audits their selectors.
-Cases that need the install, its hook blocks, the measured machine's build queue or a private corpus are demonstrations or an analysis. Each names the work package or record that delivers its evidence.
+Cases that need the measured machine's build queue or a private corpus are demonstrations or an analysis. Each names the work package or record that delivers its evidence.
 
 <a id="test-checks-default-install"></a>
-### Demonstration: default install
+### Default install
 
-**Method:** demonstration.
+**Method:** test.
 
-**Requirements:** [One configuration](#req-checks-one-configuration), [same runner](#req-checks-same-runner).
+**Requirements:** [One configuration](#req-checks-one-configuration), [same runner](#req-checks-same-runner), [install](#req-checks-install).
 
-**Inputs:** A fixture clone with a registered specification, no hooks and no configuration; the tour's install and commits. After the install, the fixture adds one CI-only repository check that reads the working tree (a stub command without [`{snapshot}`](#run-placeholders)) to the configuration and stages it.
+**Inputs:** The real `house-rules` command on `PATH`, with the fixture's `file://` House Rules clone as every source and a test cache. A fixture clone with a registered specification, another workflow and no hooks, following the [tour](#tour): `house-rules init`, its configuration staged, the install through `exec` and its commits. After the install, the fixture adds one CI-only repository check that reads the working tree (a stub command without [`{snapshot}`](#run-placeholders)) to the configuration and stages it. Separately: `init` in a clone without profile markers and in one with `docs/ENTITIES.json`; a clone without a configuration, then with one only in the working tree and only in the index; a `PATH` without `house-rules`; a `PATH` that names the command's folder relative to the repository root, and one that names it through a link followed by `..`; a [`--dry-run`](#runner-options); a configuration with spec-docs enabled; [`--ci github`](#runner-options), a rerun, and an existing workflow with its own runner step; the workflow's run step in a checkout that lacks the event's base, with a base the remote has, one it lacks and none; a clone without `.github/workflows/`; a configuration in the working tree that is not staged; a staged configuration naming another ref with no working-tree copy; a lock that changes between its read and pip's start; a check in CI that prints the token's variable.
 
-**Expected:** The install writes the tour's configuration and both hook blocks. After the stub is added and staged, [`run --stage ci --index`](#runner-options) runs both default checks and lists the stub check as skipped with the reason "reads the working tree; runs in CI on the commit"; [`run --stage ci`](#runner-options) on the commit runs the stub. The hook and [`run --stage ci`](#runner-options) give the same result for the same commit.
+**Expected:** `init` writes `profiles`. The empty list and `specs`, which House Rules defines as empty, pass; an unknown profile is a configuration error; a profile that sets checks stops the run with "profile specs sets checks or settings, which this runner does not support yet (#217)". The install writes both hook blocks, the [clone setting](#clone-settings) and the workflow, prepares the spec checker's environment, and leaves the configuration unchanged. After the stub is added and staged, the install's preflight runs both default checks and lists the stub check as skipped with the reason "reads the working tree; runs in CI on the commit"; [`run --stage ci`](#runner-options) on the commit runs the stub. The hook and [`run --stage ci`](#runner-options) give the same result for the same commit. The clone without a configuration and the `PATH` without `house-rules` exit 2 with their lines from [Check installation](#check-installation) and write nothing; a configuration in the working tree or the index alone is enough. The setting holds the path the `PATH` lookup selected, absolute and with any `..` kept, and names an executable file. The dry run lists each item, writes nothing and prepares no environment. The workflow has the four steps in [Runner commands](#runner-commands); a rerun leaves it unchanged, and reports a changed runner step with the template's step. The run step fetches a base the checkout lacks and checks the commit, fails with "cannot fetch the base commit" for a base the remote lacks, and compares with the first parent without a base. The clone without workflows gets the other-CI command and no workflow file. The unstaged configuration makes `prepare` and the session line say to review and stage it, not to run `init`. The staged-only configuration installs. pip installs the lock bytes the environment's name digests. The check in CI does not see the token.
 
-Evidence: planned for the install work package, following the [tour](#tour). The runner's part, with a hand-written configuration and hook, is `test_default_install_preflight_and_hook_match_ci`.
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::InstallTest::test_default_install_follows_the_tour](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_runner_accepts_the_configuration_init_writes_and_refuses_profiles](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_resolves_a_staged_configuration_that_exec_did_not_read](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_environment_is_built_from_the_lock_bytes_its_name_digests](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_without_a_configuration_is_refused_and_writes_nothing](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_without_house_rules_on_path_is_refused_and_writes_nothing](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_writes_both_hook_blocks_and_the_command_setting](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_command_setting_keeps_the_path_that_path_lookup_selected](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_dry_run_lists_each_item_and_writes_nothing](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_prepares_the_spec_checker_environment](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_ci_workflow_is_written_once_and_a_changed_runner_step_is_reported](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_ci_workflow_fetches_a_missing_base_before_checking](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_other_ci_system_gets_the_one_command_and_no_workflow](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::StatusTest::test_unstaged_configuration_is_reviewed_and_staged_not_initialized_again](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-refused-commit"></a>
 ### Refused commit
@@ -1561,17 +1659,17 @@ Evidence: the [measurement after #198](#evidence), about 1.2 s.
 **Implementation:** [skills/repository-checks/scripts/test_checks.py::DefaultsTest::test_no_specifications_runs_whitespace_and_skips_spec_docs](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::SelectionTest::test_required_file_is_not_satisfied_by_a_submodule](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-install-existing"></a>
-### Demonstration: install over existing hooks
+### Install over existing hooks
 
-**Method:** demonstration.
+**Method:** test.
 
 **Requirements:** [Install](#req-checks-install).
 
-**Inputs:** Clones with a tool-written `post-commit` and `pre-commit`, a non-executable `pre-commit`, a `core.hooksPath` Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook, a binary hook and an existing configuration; each installed twice. A pre-push hook file with another tool's line after the block that reads standard input. A pre-push whose temporary copy of the references fails to write.
+**Inputs:** The real `house-rules` command, as in [Default install](#test-checks-default-install). Clones with a tool-written `post-commit` and `pre-commit`, a `pre-push` with an earlier block between other lines, a non-executable `pre-commit`, a `core.hooksPath` Husky folder, a relative hooks folder with a linked worktree, a pre-commit framework hook, a binary hook, a hook in another language, a hook with only a begin marker, an unreadable hook, a named pipe and a folder at the hook path, both hooks linked to one script, and an existing configuration; each installed twice. A first commit before any `HEAD`, and a push of a new branch after the remote's default branch is known. A pushed branch whose configuration names another House Rules ref than `HEAD`'s. Hook files started directly with a clean, a failing and a broken input at each stage. A setting that is missing, names a missing file, names a file that is not executable, and names a folder. A pre-push hook file with another tool's line after the block that reads standard input. A pre-push whose temporary copy of the references cannot be created, and one whose copy cannot be written. A hook edited, and a workflow created, after the install read them. A folder where the workflow belongs, and a `git config` read that fails. A publish whose replacement fails and whose temporary file cannot be removed, injected into the install. A process killed while it writes a new hook. A hook whose first line is `#!/bin/sh -n`. A named pipe and a folder at the workflow path. A worktree whose own [`house-rules.command`](#clone-settings) is stale. A pushed branch of another ref with a revision override, and with a link. A looping hooks folder under Python 3.9. The printed framework pre-push entry, run with the framework's variables for an update and for a new branch without a comparison commit.
 
-**Expected:** Other tools' lines still run; the line after the pre-push block reads the same reference lines as the runner. The Husky folder receives the blocks; the non-executable, framework and binary hooks are refused with their stated output; the status line reports the linked worktree without its block; the configuration is unchanged; the second install reports every item unchanged. The failed temporary copy makes the [hook block](#hook-block) print its own line and refuse the push with status 1 before the runner starts.
+**Expected:** The pre-commit hook checks the staged index, also before the first commit; the pre-push hook checks each pushed commit against the remote's default branch for a new branch. A pushed branch with another House Rules ref is resolved from its own configuration and passes. Each block exits with the status 0, 1 or 2 that `exec` returns, and the lines after it run only at status 0. Each unusable setting makes either block print the one line of [Hook block](#hook-block) and exit 1 without starting the command. Other tools' lines still run; the runner and the line after the pre-push block read the same reference lines. The earlier block is replaced and the lines around it stay. The Husky folder receives the blocks and `core.hooksPath` stays; the non-executable, framework, binary, other-language, incomplete-marker and unreadable hooks are refused with their stated output and repair and stay unchanged; the named pipe and the folder are refused, without being read, in a preview too; both linked hooks are refused and the script stays unchanged; the status line reports the linked worktree without its block until its own install; the configuration is unchanged; the second install reports every item unchanged. The failed temporary copy makes the [hook block](#hook-block) print its own line and refuse the push with status 1 before the command starts, and leaves no temporary file. The edited hook and the created workflow stop the install with exit 2 and keep their content. The workflow folder and the failed read stop it with exit 2, naming the item, the cause and the repair. The failed publish exits 2 with both causes and leaves the hook unchanged. The killed process leaves no file at the hook's path, and the next install creates it whole. The `-n` hook is refused. The workflow pipe and folder are refused without being read, in a preview too. The worktree's own setting is updated, and the hook then runs. The pushed branch runs with the override or the link. The looping folder is a preparation failure with the repair. The framework entry compares an update with the remote's earlier commit, and a new branch with the remote's default branch.
 
-Evidence: planned for the install work package, following [Check installation](#check-installation).
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::InstallTest::test_hooks_check_the_staged_index_and_each_pushed_commit_through_exec](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_pre_push_resolves_a_pushed_branch_whose_source_differs_from_head](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_hook_block_passes_the_exec_status_through](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_hook_block_without_a_usable_command_setting_names_the_command_install](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_pre_push_references_reach_house_rules_and_a_later_reader](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_failed_copy_of_the_pushed_references_refuses_before_house_rules_starts](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_keeps_other_tools_hooks_and_a_second_install_changes_nothing](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_refuses_hook_files_it_cannot_edit](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_refuses_shared_and_special_hook_targets_before_reading](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_never_overwrites_a_file_that_changed_after_it_was_read](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_reports_files_it_cannot_read_with_their_repair](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_refuses_a_workflow_path_that_is_no_regular_file](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_interrupted_creation_leaves_no_partial_hook](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_updates_a_worktree_setting_that_wins_over_the_clone_setting](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_pre_push_keeps_an_override_or_link_for_a_pushed_branch_of_another_source](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_looping_hooks_folder_is_a_preparation_failure_on_python_3_9](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_stops_when_git_cannot_read_the_setting](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_failed_publish_reports_both_causes_through_the_install](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_install_writes_into_the_husky_hooks_folder](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_linked_worktree_with_a_relative_hooks_folder_needs_its_own_install](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::InstallTest::test_framework_pre_push_entry_compares_with_the_remote_commit](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-main-moves"></a>
 ### House Rules main moves
@@ -1580,11 +1678,11 @@ Evidence: planned for the install work package, following [Check installation](#
 
 **Requirements:** [Same runner](#req-checks-same-runner), [latest House Rules and offline](#req-checks-offline).
 
-**Inputs:** A fixture House Rules reached through a `file://` URL. One run at main A; then main moves to B, and the next run starts from the runner of revision A, as a hook installed earlier does. Separately, a fetch that stops as an interrupted one does, leaving its lock file in its repository and exiting nonzero, followed by a normal run. A Git that reports each fetch's history right after it, for main and for an override of a commit with a parent. A fetch that fails after `ls-remote` named a moved main, with a record of the earlier main. Two sources, a clone at `…/rules` and one at `…/rules/lock/x`, each with the branches `release`, `release.json/topic` and a packed branch of 251 bytes, resolved into one cache. A branch whose name holds U+2028. A prepared commit ref whose `revisions/<commit>.fetched` was removed, with a Git whose fetch fails. A first fetch under a personal attributes file and a Git template that both mark the spec checker `export-ignore`.
+**Inputs:** A fixture House Rules reached through a `file://` URL. One run at main A; then main moves to B, and the next run starts from the runner of revision A, as a hook installed earlier does. Separately, a fetch that stops as an interrupted one does, leaving its lock file in its repository and exiting nonzero, followed by a normal run. A Git that reports each fetch's history right after it, for main and for an override of a commit with a parent. A fetch that fails after `ls-remote` named a moved main, with a record of the earlier main. Two sources, a clone at `…/rules` and one at `…/rules/lock/x`, each with the branches `release`, `release.json/topic` and a packed branch of 251 bytes, resolved into one cache. A branch whose name holds U+2028. A prepared commit ref whose `revisions/<commit>.fetched` was removed, with a Git whose fetch fails. A first fetch under a personal attributes file and a Git template that both mark the spec checker `export-ignore`. A run that `house-rules exec` started from the tree of commit A, with its [resolution record](218-layered-configuration.md#resolution-record) naming A, after main moved to B; and the same record naming another tree.
 
-**Expected:** The first run reports A with source `fetched`; the second reports B, and its rerun line starts the runner of B. The interrupted fetch stops its run with a preparation failure, and the next run passes at main. Each fetch holds one commit in a shallow repository. The failed fetch leaves the earlier record unchanged, the run uses that commit with source `offline`, and the moved commit gets no folder. The branches `release`, `release.json/topic` and the 251-byte branch of each of the two sources resolve, and each has its record under its source's and branch's hash. Each fetch's temporary repository is in its source's folder. The branch with U+2028 resolves to its commit. The tree without its fetch time is ready, needs no fetch, and reports its folder's modification time. The fetch under outside attributes caches both the runner and the spec checker.
+**Expected:** The first run reports A with source `fetched`; the second reports B, and its rerun line starts the runner of B. The interrupted fetch stops its run with a preparation failure, and the next run passes at main. Each fetch holds one commit in a shallow repository. The failed fetch leaves the earlier record unchanged, the run uses that commit with source `offline`, and the moved commit gets no folder. The branches `release`, `release.json/topic` and the 251-byte branch of each of the two sources resolve, and each has its record under its source's and branch's hash. Each fetch's temporary repository is in its source's folder. The branch with U+2028 resolves to its commit. The tree without its fetch time is ready, needs no fetch, and reports its folder's modification time. The fetch under outside attributes caches both the runner and the spec checker. The run started by exec checks at A, reports A with exec's source and the record's warnings, and asks the remote nothing; with the record naming another tree, the runner resolves B itself.
 
-**Implementation:** [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_main_moved_since_the_last_run_is_used](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_interrupted_fetch_does_not_block_the_next_run](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_main_and_override_are_fetched_with_depth_1](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_failed_fetch_keeps_the_previous_branch_record_and_its_commit](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_cache_keeps_each_source_and_branch_apart_under_bounded_names](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_branch_whose_name_holds_a_unicode_line_separator_resolves](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_tree_without_its_fetch_time_is_ready](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_outside_attributes_never_drop_files_from_the_cached_revision](../../skills/repository-checks/scripts/test_checks.py)
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_main_moved_since_the_last_run_is_used](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_interrupted_fetch_does_not_block_the_next_run](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_main_and_override_are_fetched_with_depth_1](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_failed_fetch_keeps_the_previous_branch_record_and_its_commit](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_cache_keeps_each_source_and_branch_apart_under_bounded_names](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_branch_whose_name_holds_a_unicode_line_separator_resolves](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_tree_without_its_fetch_time_is_ready](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_outside_attributes_never_drop_files_from_the_cached_revision](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_exec_record_is_used_even_after_main_moved](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-offline-main"></a>
 ### Offline with a branch resolved before
@@ -1606,11 +1704,11 @@ Evidence: planned for the install work package, following [Check installation](#
 
 **Requirements:** [Latest House Rules and offline](#req-checks-offline).
 
-**Inputs:** [`HOUSE_RULES_REVISION`](#runner-environment-variables) set to a fixture commit off main, for a direct run and for a `git commit` through a pre-commit hook; then a run without it. Separately, an override whose runner adds a built-in and lists whitespace at pre-push, with a configuration that fits only that runner. A configuration whose ref is a fixture branch, and one whose ref is that branch's commit. A House Rules source without `url`, with a Git that answers `ls-remote` as an unreachable host does.
+**Inputs:** [`HOUSE_RULES_REVISION`](#runner-environment-variables) set to a fixture commit off main, for a direct run and for a `git commit` through a pre-commit hook; then a run without it. Separately, an override whose runner adds a built-in and lists whitespace at pre-push, with a configuration that fits only that runner. A configuration whose ref is a fixture branch, and one whose ref is that branch's commit. A House Rules source without `url`, with a Git that answers `ls-remote` as an unreachable host does. A configuration whose ref is a release tag, run through `house-rules exec`.
 
-**Expected:** The direct run reports that commit with source `override`, and its rerun line starts that commit's runner. The hook's text header ends with "(override HOUSE_RULES_REVISION of <URL>, cached <time>)", with the time the JSON report holds. The branch ref reports source `fetched` and the commit ref source `pinned`, each with the layer's name, URL, ref, commit and fetch time, and each runs that commit's runner. The commit ref's fetch time is the one in `revisions/<commit>.fetched`, also after the folder's modification time changes. The source without `url` asks Git for `https://github.com/symbiotic-build/house-rules`. The run without the variable reports main again. The override's runner judges the configuration with its own built-ins, and `status` prints its effective set. Invalid overrides are in [Preparation failure](#test-checks-preparation-failure).
+**Expected:** The direct run reports that commit with source `override`, and its rerun line starts that commit's runner. The hook's text header ends with "(override HOUSE_RULES_REVISION of <URL>, cached <time>)", with the time the JSON report holds. The branch ref reports source `fetched` and the commit ref source `pinned`, each with the layer's name, URL, ref, commit and fetch time, and each runs that commit's runner. The commit ref's fetch time is the one in `revisions/<commit>.fetched`, also after the folder's modification time changes. The source without `url` asks Git for `https://github.com/symbiotic-build/house-rules`. The run without the variable reports main again. The override's runner judges the configuration with its own built-ins, and `status` prints its effective set. Invalid overrides are in [Preparation failure](#test-checks-preparation-failure). The release tag's header names it as a tag, "fetched tag <tag>" or "reused tag <tag>", never as a branch.
 
-**Implementation:** [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_override_runs_that_revision_for_one_run_and_marks_the_report](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_resolved_runner_judges_entries_against_its_own_built_ins](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_ref_names_a_branch_or_a_commit_and_the_report_logs_the_layer](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_house_rules_entry_without_url_uses_the_house_rules_url](../../skills/repository-checks/scripts/test_checks.py)
+**Implementation:** [skills/repository-checks/scripts/test_checks.py::InstallTest::test_report_names_a_release_tag_ref_as_a_tag](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_override_runs_that_revision_for_one_run_and_marks_the_report](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_resolved_runner_judges_entries_against_its_own_built_ins](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_ref_names_a_branch_or_a_commit_and_the_report_logs_the_layer](../../skills/repository-checks/scripts/test_checks.py), [skills/repository-checks/scripts/test_checks.py::RevisionTest::test_house_rules_entry_without_url_uses_the_house_rules_url](../../skills/repository-checks/scripts/test_checks.py)
 
 <a id="test-checks-warning-first"></a>
 ### Warning first

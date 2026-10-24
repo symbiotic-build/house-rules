@@ -603,7 +603,8 @@
         "anchor": "resolution-record"
       },
       "scope": [
-        "layered-configuration"
+        "layered-configuration",
+        "repository-checks"
       ],
       "forms": [
         "resolution record",
@@ -619,7 +620,8 @@
         "anchor": "house-rules-command"
       },
       "scope": [
-        "layered-configuration"
+        "layered-configuration",
+        "repository-checks"
       ],
       "forms": [
         "House Rules command"
@@ -782,8 +784,6 @@
         "clone settings"
       ],
       "symbols": [
-        "house-rules.checks-runner",
-        "house-rules.checks-python",
         "house-rules.command"
       ],
       "rejected_forms": []
