@@ -961,7 +961,7 @@
           "roles": [
             "mechanism"
           ],
-          "summary": "Declare checks in one file and write a check to the command contract.",
+          "summary": "Name the House Rules layer and declare checks in one file, and write a check to the command contract.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -990,13 +990,13 @@
           "explanatory_dependencies": []
         },
         {
-          "id": "pinning",
+          "id": "revision",
           "path": "docs/design/194-repository-checks.md",
-          "anchor": "pinning",
+          "anchor": "revision",
           "roles": [
             "mechanism"
           ],
-          "summary": "Control the House Rules revision and work without a network.",
+          "summary": "Know which House Rules commit a run resolves its layer to, what it logs and what works without a network.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },

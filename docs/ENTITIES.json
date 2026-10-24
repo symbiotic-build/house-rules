@@ -431,7 +431,111 @@
       ],
       "symbols": [],
       "rejected_forms": []
+    },
+    "repository-checks.run-placeholder": {
+      "kind": "interface",
+      "home": {
+        "section": "repository-checks#reference",
+        "anchor": "run-placeholders"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "run placeholder",
+        "run placeholders"
+      ],
+      "symbols": [
+        "{files}",
+        "{base}",
+        "{snapshot}",
+        "{house_rules}",
+        "{python}"
+      ],
+      "rejected_forms": []
+    },
+    "repository-checks.runner-option": {
+      "kind": "interface",
+      "home": {
+        "section": "repository-checks#reference",
+        "anchor": "runner-options"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "runner option",
+        "runner options"
+      ],
+      "symbols": [
+        "--stage",
+        "--head",
+        "--index",
+        "--remote",
+        "--dry-run",
+        "--ci",
+        "--session"
+      ],
+      "rejected_forms": []
+    },
+    "repository-checks.runner-environment-variable": {
+      "kind": "setting",
+      "home": {
+        "section": "repository-checks#reference",
+        "anchor": "runner-environment-variables"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "runner environment variable",
+        "runner environment variables"
+      ],
+      "symbols": [
+        "HOUSE_RULES_REVISION",
+        "HOUSE_RULES_CACHE",
+        "HOUSE_RULES_CHECK_QUEUE",
+        "HOUSE_RULES_RESOLVED",
+        "CHECK_STAGE",
+        "CHECK_BASE",
+        "CHECK_SNAPSHOT"
+      ],
+      "rejected_forms": []
+    },
+    "repository-checks.clone-setting": {
+      "kind": "setting",
+      "home": {
+        "section": "repository-checks#reference",
+        "anchor": "clone-settings"
+      },
+      "scope": [
+        "repository-checks"
+      ],
+      "forms": [
+        "clone setting",
+        "clone settings"
+      ],
+      "symbols": [
+        "house-rules.checks-runner",
+        "house-rules.checks-python"
+      ],
+      "rejected_forms": []
     }
   },
-  "naming_rules": []
+  "naming_rules": [
+    {
+      "id": "repository-checks-setting-symbol",
+      "kind": "setting",
+      "field": "symbols",
+      "pattern": "(?:HOUSE_RULES|CHECK)(?:_[A-Z]+)+|house-rules\\.[a-z]+(?:-[a-z]+)*",
+      "message": "Repository-checks environment variables are upper snake case and start with HOUSE_RULES_ (read by the runner) or CHECK_ (set for a check); clone settings are house-rules.<lower kebab case>."
+    },
+    {
+      "id": "repository-checks-interface-symbol",
+      "kind": "interface",
+      "field": "symbols",
+      "pattern": "\\{[a-z]+(?:_[a-z]+)*\\}|--[a-z]+(?:-[a-z]+)*",
+      "message": "Repository-checks run placeholders are a lower snake-case noun in braces; runner options are lower kebab case after two hyphens."
+    }
+  ]
 }
