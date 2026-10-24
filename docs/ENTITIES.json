@@ -671,7 +671,10 @@
         "command environment variable",
         "command environment variables"
       ],
-      "symbols": [],
+      "symbols": [
+        "HOUSE_RULES_LINK",
+        "HOUSE_RULES_DEADLINE"
+      ],
       "rejected_forms": []
     },
     "layered-configuration.layer-placeholder": {
@@ -686,7 +689,9 @@
       "forms": [
         "run placeholder for layers"
       ],
-      "symbols": [],
+      "symbols": [
+        "{layer}"
+      ],
       "rejected_forms": []
     },
     "repository-checks.run-placeholder": {
@@ -778,7 +783,8 @@
       ],
       "symbols": [
         "house-rules.checks-runner",
-        "house-rules.checks-python"
+        "house-rules.checks-python",
+        "house-rules.command"
       ],
       "rejected_forms": []
     }
