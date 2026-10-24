@@ -1105,10 +1105,14 @@
     {
       "id": "layered-configuration",
       "title": "Layered House Rules configuration",
-      "status": "draft",
+      "status": "approved",
+      "approval": {
+        "authority": "operator",
+        "decision": "layered-configuration#decision-approval"
+      },
       "purpose": "Layered House Rules configuration lets every repository say which House Rules version and which further rule and setting repositories it uses, and makes every tool resolve them from the repository it runs in.",
       "audience": "House Rules maintainers, repository owners and teams adopting House Rules, familiar with Git branches and commits, JSON and the repository checks design.",
-      "scope": "The repository, layer, global and local configuration files, version resolution and its cache, the house-rules command, link mode, Git isolation for checks, and how every consumer resolves.",
+      "scope": "The repository, layer and global configuration files, version resolution and its cache, the house-rules command, link mode, Git isolation for checks, and how every consumer resolves.",
       "non_goals": "New language checks, a runner other than House Rules', a package registry, and implementation in this change.",
       "navigation": {
         "path": "docs/design/218-layered-configuration.md",
@@ -1223,7 +1227,7 @@
           "roles": [
             "questions"
           ],
-          "summary": "See which choices wait for the operator's review.",
+          "summary": "See which questions stay open after the approval.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
