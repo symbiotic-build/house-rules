@@ -20,21 +20,45 @@ A rerun repairs missing pieces and keeps every choice the repository made.
 **Procedure: install repository checks**
 
 1. **Write the configuration:** `house-rules init`, unless the repository has `house-rules.json`.
-2. **Install:** `house-rules exec skills/repository-checks/scripts/checks.py install --ci github`.
-   - Writes the hook blocks, the `house-rules.command` setting and the GitHub Actions workflow.
-   - Add `--dry-run` first to list each item as `create`, `update`, `unchanged` or `refused` and write nothing.
+   - Until [#217](https://github.com/symbiotic-build/house-rules/issues/217) the runner refuses a
+     non-empty `profiles` list; empty the list `init` wrote.
+2. **Review and stage the configuration:** `git add house-rules.json`. The install never lists it.
+3. **Install:** `house-rules exec skills/repository-checks/scripts/checks.py install --ci github`.
+   - Writes the hook blocks, the `house-rules.command` setting and the GitHub Actions workflow, and
+     prepares the spec checker's environment when spec-docs is enabled.
+   - Add `--dry-run` first to list each item as `create`, `update`, `unchanged` or `refused`. It writes
+     none of them, but `exec` still resolves House Rules and can fill its cache.
    - Resolve each refused hook file with the step its line prints, then install again.
-3. **Stage the install:** `git add` the files its `next: stage the install` line names, and `house-rules.json` when it is new.
-4. **Check everything:** `house-rules exec --origin index skills/repository-checks/scripts/checks.py run --stage ci --index`.
+4. **Stage the install:** `git add` the files its `next: stage the install` line names.
+5. **Check everything:** `house-rules exec --origin index skills/repository-checks/scripts/checks.py run --stage ci --index`.
    - Fix failures in existing files before the hooks start refusing commits.
-5. **Commit through a PR.** CI runs the same checks on the commit.
+6. **Commit through a PR.** CI runs the same checks on the commit.
 
 Leave out `--ci github` in a repository that uses another CI system; the install then prints the one
 command its job runs. [Check installation](../../docs/design/194-repository-checks.md#check-installation)
 and [Hook block](../../docs/design/194-repository-checks.md#hook-block) give the details.
 
+When `prepare` or the session line says `house-rules.json` is not staged, review and stage it; do not
+run `init` again, which refuses an existing file.
+
 To check a clone, run `house-rules exec skills/repository-checks/scripts/checks.py status`.
-It prints the resolved House Rules revision and the effective checks for each stage.
+It prints the resolved House Rules revision and the effective checks for each stage. The runner's
+`status` never fetches; `exec` around it resolves first and can.
+
+## Integrate a refused hook by hand
+
+A pre-commit framework hook or a hook in another language stays refused: the install never edits it.
+
+1. **Add the call:** for the framework, add the `repo: local` entry the refusal prints to
+   `.pre-commit-config.yaml`. In another hook, call `"$(git config --get house-rules.command)"` with the
+   arguments the [hook block](../../docs/design/194-repository-checks.md#hook-block) passes, and exit with
+   its status.
+2. **Install again:** the rest of the install completes. That hook stays listed as `refused`, and the
+   install exits 1; that refusal is expected.
+3. **Verify the hook:** stage a file with a trailing space and commit. The hook must refuse the commit
+   with a `FAIL  whitespace` line. Unstage the file afterwards.
+
+The session line keeps reporting "no hook block" for that hook, because it looks for the block.
 
 ## Act on a refused commit or push
 

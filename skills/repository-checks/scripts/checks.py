@@ -516,7 +516,13 @@ def effective_checks(data):
     built-ins set for the same check.
     """
     document, _ = load_document(data)
-    fields(document, "the file", ("version", "sources", "checks"), ("budgets",))
+    fields(document, "the file", ("version", "sources", "checks"), ("budgets", "profiles"))
+    profiles = document.get("profiles", [])
+    if not isinstance(profiles, list):
+        raise config_error("profiles must be a list")
+    if profiles:  # `house-rules init` writes the list; this runner applies no profile yet, so it never ignores one
+        raise Failure(f"{HOUSE_RULES}: {CONFIG}: profiles are not supported by this runner yet (#217)",
+                      f"remove the entries from profiles in {CONFIG}")
     budgets = check_budgets(document.get("budgets", {}))
     entries = document["checks"]
     if not isinstance(entries, dict):
@@ -737,7 +743,7 @@ def override_revision():
     return value.lower()
 
 
-def handed_resolution(source=None):
+def handed_resolution(source=None, other_snapshot=False):
     """The House Rules layer this runner was started with, or None.
 
     `house-rules exec` passes its whole resolution record, and its first layer counts when exec started this runner
@@ -745,13 +751,17 @@ def handed_resolution(source=None):
     nothing again. A handing runner passes one layer that names this runner's own revision.
 
     With `source`, the source this runner read from the configuration now, a handed layer of another source stops
-    the run: the configuration changed between the handing read and this one.
+    the run: the configuration changed between the handing read and this one. With `other_snapshot`, exec's record
+    may describe another snapshot, as at pre-push, where exec resolves HEAD and the runner checks each pushed commit:
+    a record of another source is then ignored, and the runner resolves that snapshot itself.
     """
     try:
         resolution = json.loads(HANDED or "null")
     except ValueError:
         return None
-    if isinstance(resolution, dict) and resolution.get("version") == 1 and isinstance(resolution.get("layers"), list):
+    from_exec = isinstance(resolution, dict) and resolution.get("version") == 1 and isinstance(
+        resolution.get("layers"), list)
+    if from_exec:
         resolution = exec_layer(resolution)
     elif not (isinstance(resolution, dict) and resolution.get("revision") == own_revision()
               and resolution.get("source") in SOURCES and isinstance(resolution.get("fetched"), str)
@@ -760,17 +770,19 @@ def handed_resolution(source=None):
     if resolution is None:
         return None
     if source is not None and not same_source(resolution, source):
+        if from_exec and other_snapshot:
+            return None
         raise Failure("the configuration changed during the run", "run again")
     return resolution
 
 
-def resolve(source, offline_repair=None):
+def resolve(source, offline_repair=None, other_snapshot=False):
     """Resolve the House Rules layer `source` for this run: the override, else its commit ref, else its branch
     fetched now, else the commit last resolved for that branch.
 
     Returns the layer {"name", "url", "ref", "revision", "source", "fetched"}, plus "warning" for a cached branch. Called once per run; the revision it returns is prepared in the cache.
     """
-    resolution = handed_resolution(source)
+    resolution = handed_resolution(source, other_snapshot)
     if resolution:
         return resolution
     url, ref = source["url"], source["ref"]
@@ -845,6 +857,8 @@ def exec_layer(record):
             and Path(layer["tree"]).resolve() == own_tree()):
         return None
     resolved = {k: layer[k] for k in ("name", "url", "ref", "revision", "source", "fetched", "tree")}
+    if layer.get("ref_kind") in ("branch", "tag", "commit"):
+        resolved["ref_kind"] = layer["ref_kind"]
     # exec's warnings start with "warning: ", which the report adds itself.
     warnings = [w[len("warning: "):] if w.startswith("warning: ") else w
                 for w in record.get("warnings") or () if isinstance(w, str)]
@@ -877,7 +891,7 @@ def dispatch(tree, argv, resolution, stdin=None):
         raise Failure(f"cannot start the resolved runner {runner} ({exc})", f"run `{runner_command('prepare')}` again")
 
 
-def resolve_layers(data, offline_repair=None):
+def resolve_layers(data, offline_repair=None, other_snapshot=False):
     """Resolve the source layers that `data`, the bytes of a configuration, names, for this run.
 
     Returns the layers in order, House Rules first, each {"name", "url", "ref", "revision", "source", "fetched",
@@ -885,7 +899,7 @@ def resolve_layers(data, offline_repair=None):
     This runner resolves only the House Rules layer.
     """
     _, source = load_document(data)
-    layer = resolve(source, offline_repair)
+    layer = resolve(source, offline_repair, other_snapshot)
     tree = Path(layer["tree"]) if layer.get("tree") else layer_tree(layer["revision"])
     if layer["fetched"] is None and layer["source"] != "link":
         layer["fetched"] = prepared_at(tree)  # a commit ref or an override: when the cache fetched that commit
@@ -896,12 +910,12 @@ def layer_tree(revision):
     return own_tree() if own_revision() == revision else revision_folder(revision)
 
 
-def resolved_tree(argv, data, stdin=None, offline_repair=None):
+def resolved_tree(argv, data, stdin=None, offline_repair=None, other_snapshot=False):
     """Resolve the layers `data` names; return (the House Rules tree, the layers), or start the runner there.
 
     The started runner replaces this process and receives the same House Rules layer.
     """
-    layers = resolve_layers(data, offline_repair)
+    layers = resolve_layers(data, offline_repair, other_snapshot)
     tree = Path(layers[0]["tree"])
     dispatch(tree, argv, layers[0], stdin)
     return tree, layers
@@ -937,8 +951,10 @@ def label(layer):
     """How a report names where a layer's commit came from, its URL and when the cache fetched it."""
     if layer["source"] == "link":
         return f"link of {layer['url']}"  # exec's warning names the checkout
-    what = {"fetched": f"branch {layer['ref']}", "reused": f"branch {layer['ref']}",
-            "offline": f"branch {layer['ref']}", "pinned": "commit", "override": "HOUSE_RULES_REVISION"}[layer["source"]]
+    # exec names the ref's kind, a branch or a release tag; this runner's own resolver follows branches only.
+    named = f"{layer.get('ref_kind', 'branch')} {layer['ref']}"
+    what = {"fetched": named, "reused": named, "offline": named, "pinned": "commit",
+            "override": "HOUSE_RULES_REVISION"}[layer["source"]]
     when = f"cached {layer['fetched']}" if layer["fetched"] else "not cached yet"
     return f"{layer['source']} {what} of {layer['url']}, {when}"
 
@@ -1026,7 +1042,7 @@ def uses(check, name):
 # Commands ----------------------------------------------------------------------------------
 
 def command_run(args, argv):
-    run = {"layers": [], "warnings": [], "snapshots": []}
+    run = {"layers": [], "kinds": [], "warnings": [], "snapshots": []}
     error, nothing = None, None
     try:
         nothing = check_stage(args, argv, run)
@@ -1043,7 +1059,7 @@ def command_run(args, argv):
     elif nothing:
         print(f"nothing to check: {nothing}")
     elif snapshots:
-        print(render(report))
+        print(render(report, run["kinds"]))
     if error:
         sys.stdout.flush()
         print(f"repository checks: {error}", file=sys.stderr)
@@ -1089,9 +1105,10 @@ def check_stage(args, argv, run):
                 # Read only the version and sources before handing over: the resolved runner judges the rest.
                 _, source = load_document(target["data"])
                 if house_rules is None:
-                    house_rules, layers = resolved_tree(argv, target["data"], stdin, offline)
+                    house_rules, layers = resolved_tree(argv, target["data"], stdin, offline, other_snapshot=pushing)
                     layer = layers[0]
                     run["layers"] = [{k: layer[k] for k in ("name", "url", "ref", "revision", "source", "fetched")}]
+                    run["kinds"] = [layer.get("ref_kind")]  # for the text header only; the report keeps six fields
                     run["warnings"] += [layer["warning"]] if layer.get("warning") else []
                 if not same_source(layer, source):
                     # The shared resolver of #217 replaces this with a handover per snapshot.
@@ -1354,7 +1371,11 @@ def indented(output):
     return ["      " + line for line in lines]
 
 
-def render(report):
+def render(report, kinds=()):
+    """The text report; `kinds` names each layer's ref kind where exec gave one, for its header."""
+    kinds = list(kinds) + [None] * len(report["layers"])
+    named = "".join(f", House Rules {layer['revision']} ({label(dict(layer, ref_kind=kind) if kind else layer)})"
+                    for layer, kind in zip(report["layers"], kinds))
     lines, checks = [], []
     for entry in report["snapshots"]:
         where = ("the staged index" if entry["source"] == "index" else f"commit {entry['snapshot'][:7]}")
@@ -1366,7 +1387,7 @@ def render(report):
             continue
         lines.append(f"repository checks: {report['stage']} on {where}"
                      + (f", base {entry['base'][:7]}" if report["stage"] == "pre-push" else "")
-                     + "".join(f", House Rules {layer['revision']} ({label(layer)})" for layer in report["layers"]))
+                     + named)
         lines += check_lines(entry["checks"])
         lines += [override_line(o) for o in entry["overrides"]]
         lines += ["warning: " + w for w in entry["warnings"]]
@@ -1400,7 +1421,7 @@ def command_prepare(args, argv):
     root = find_root()
     data = staged_data(root)
     if data is None:
-        raise Failure(f"no {CONFIG} in the index", f"run `house-rules init` first, then `{CHECKS_INSTALL}`")
+        raise Failure(f"no {CONFIG} in the index", unstaged_repair(root, f"run `{CHECKS_INSTALL}`"))
     tree, (resolution,) = resolved_tree(argv, data)
     config = effective_checks(data)
     print(f"repository checks: House Rules {resolution['revision']} ({label(resolution)}) ready at {tree}")
@@ -1460,7 +1481,7 @@ def session_line(argv):
     data = staged_data(root)
     if data is None:
         if (root / ".agents" / "rules.md").is_file():
-            return f"repository checks: not installed; run: house-rules init, then {CHECKS_INSTALL}"
+            return f"repository checks: not installed; {unstaged_repair(root, f'run: {CHECKS_INSTALL}')}"
         return None
     _, source = load_document(data)
     resolution, tree = cached_resolution(source)
@@ -1488,6 +1509,13 @@ def session_line(argv):
     return f"repository checks: ready ({where}, hooks installed)"
 
 
+def unstaged_repair(root, then):
+    """What to do when the index holds no configuration: stage the file that is there, or write one first."""
+    if (root / CONFIG).is_file():
+        return f"review {CONFIG} and stage it (git add {CONFIG}), then {then}"
+    return f"run `house-rules init`, review and stage {CONFIG} (git add {CONFIG}), then {then}"
+
+
 def has_block(path):
     try:
         return HOOK_MARKER in path.read_text(errors="replace").splitlines()
@@ -1508,12 +1536,22 @@ SHELL_LINE = re.compile(r"#!\s*(?:/usr/bin/env\s+)?(?:\S*/)?(?:sh|bash|dash|ksh|
 CI_COMMAND = (f"python .tmp/house-rules/scripts/house_rules.py exec --rev <commit> {RUNNER} run --stage ci "
               "--base <PR base or previous commit> --head <commit>")
 PREFLIGHT = ["house-rules", "exec", "--origin", "index", RUNNER, "run", "--stage", "ci", "--index"]
+INSPECT_REPAIR = "repair access to it, then run install again"
+# The run step fetches a base that the checkout lacks, such as the tip a force push replaced, with the job's
+# read-only token in the environment rather than on a command line.
 RUNNER_STEP = f"""      - name: Run repository checks
         env:
           BASE: ${{{{ github.event.pull_request.base.sha || github.event.before }}}}
+          TOKEN: ${{{{ github.token }}}}
         run: |
           set --
           case "$BASE" in ""|0000000000000000000000000000000000000000) ;; *) set -- --base "$BASE" ;; esac
+          if [ $# -gt 0 ] && ! git cat-file -e "$BASE^{{commit}}" 2>/dev/null; then
+            auth=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\\n')
+            GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=http.extraheader GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth" \\
+              git fetch --quiet --no-tags origin "$BASE" ||
+              {{ echo "repository checks: cannot fetch the base commit $BASE from origin" >&2; exit 1; }}
+          fi
           python .tmp/house-rules/scripts/house_rules.py exec --rev "$GITHUB_SHA" {RUNNER} run --stage ci "$@" --head "$GITHUB_SHA"
 """
 WORKFLOW_TEMPLATE = f"""name: Repository checks
@@ -1558,11 +1596,12 @@ def hook_block(stage):
     if stage == "pre-commit":
         lines.append(f'"$cmd" {exec_command(stage)} || exit $?')
     else:
+        # `rc`, not `status`: zsh reserves `status`, and the installer accepts zsh hooks.
         lines += [
             'refs=$(mktemp) || { echo "repository checks: cannot create a temporary file; push refused" >&2; exit 1; }',
             'cat > "$refs" || { echo "repository checks: cannot save the pushed references; push refused" >&2; '
             'rm -f "$refs"; exit 1; }',
-            f'"$cmd" {exec_command(stage)} < "$refs" || {{ status=$?; rm -f "$refs"; exit $status; }}',
+            f'"$cmd" {exec_command(stage)} < "$refs" || {{ rc=$?; rm -f "$refs"; exit $rc; }}',
             'exec < "$refs" || { echo "repository checks: cannot reopen the pushed references; push refused" >&2; '
             'rm -f "$refs"; exit 1; }',
             'rm -f "$refs"']
@@ -1570,35 +1609,89 @@ def hook_block(stage):
 
 
 def framework_entry(stage):
-    """The pre-commit framework's `repo: local` entry that calls the runner at `stage`."""
-    run = (f"exec --origin index {RUNNER} run --stage pre-commit" if stage == "pre-commit" else
-           f'exec --rev HEAD {RUNNER} run --stage pre-push --remote "$PRE_COMMIT_REMOTE_NAME" '
-           '--head "$PRE_COMMIT_TO_REF"')
+    """The pre-commit framework's `repo: local` entry that calls the runner at `stage`.
+
+    At pre-push the framework reads Git's reference lines itself and passes one pushed reference in variables: the
+    local and remote names, the pushed commit and the comparison commit. The entry writes them back as one reference
+    line, so the runner chooses the push base as it does for Git's own lines. Without a comparison commit, as for a
+    branch with no earlier history on the remote, the remote commit is zeros of the commit's length.
+    """
+    command = f'"$(git config --get {COMMAND_SETTING})"'
+    if stage == "pre-commit":
+        script = f"{command} exec --origin index {RUNNER} run --stage pre-commit"
+    else:
+        script = ('zero=$(printf %s "$PRE_COMMIT_TO_REF" | tr 0-9a-f 0); printf "%s %s %s %s\\n" '
+                  '"${PRE_COMMIT_LOCAL_BRANCH:-HEAD}" "$PRE_COMMIT_TO_REF" "$PRE_COMMIT_REMOTE_BRANCH" '
+                  f'"${{PRE_COMMIT_FROM_REF:-$zero}}" | {command} exec --rev HEAD {RUNNER} run --stage pre-push '
+                  '--remote "$PRE_COMMIT_REMOTE_NAME"')
     return ["- repo: local",
             "  hooks:",
             f"    - id: repository-checks-{stage}",
             "      name: repository checks",
-            f"      entry: sh -c '\"$(git config --get {COMMAND_SETTING})\" {run}'",
+            f"      entry: sh -c '{script}'",
             "      language: system",
             "      pass_filenames: false",
             "      always_run: true",
             f"      stages: [{stage}]"]
 
 
-def write_file(path, data, mode):
-    """Replace a file's content atomically; a symbolic link keeps pointing at its target, which gets the content."""
-    target = path.resolve() if path.is_symlink() else path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    handle, temporary = tempfile.mkstemp(prefix=".house-rules-", dir=str(target.parent))
+@contextlib.contextmanager
+def inspecting(what):
+    """One boundary for the install's file system reads: an error names `what`, its cause and the repair."""
     try:
-        with os.fdopen(handle, "wb") as stream:
+        yield
+    except OSError as exc:
+        raise Failure(f"cannot read {what} ({exc.strerror or exc})", INSPECT_REPAIR) from None
+
+
+def publish(path, data, mode, label, expected=None):
+    """Write `data` to `path` with `mode`.
+
+    With `expected` None the file must be absent: it is created exclusively, so a file another writer created after
+    the plan read the folder is never overwritten. Otherwise the file must still hold `expected`, the bytes the plan
+    read; it is then replaced whole through a temporary file beside it.
+    """
+    repair = "repair access to it, then run install again"
+    if expected is None:
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            descriptor = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
+        except FileExistsError:
+            raise Failure(f"{label} appeared after the install read its folder", "review it, then run install again")
+        except OSError as exc:
+            raise Failure(f"cannot create {label} ({exc.strerror or exc})", repair) from None
+        written = path
+    else:
+        try:
+            current = path.read_bytes()
+        except OSError as exc:
+            raise Failure(f"cannot read {label} again ({exc.strerror or exc})", repair) from None
+        if current != expected:
+            raise Failure(f"{label} changed after the install read it", "review the change, then run install again")
+        try:
+            descriptor, temporary = tempfile.mkstemp(prefix=".house-rules-", dir=str(path.parent))
+        except OSError as exc:
+            raise Failure(f"cannot write {label} ({exc.strerror or exc})", repair) from None
+        written = Path(temporary)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
             stream.write(data)
-        os.chmod(temporary, mode)
-        os.replace(temporary, str(target))
-    except BaseException:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
-        raise
+            os.fchmod(stream.fileno(), mode)
+        if written != path:
+            os.replace(str(written), str(path))
+    except BaseException as exc:
+        cause = f"cannot write {label} ({exc.strerror or exc})" if isinstance(exc, OSError) else None
+        try:
+            os.unlink(str(written))
+        except FileNotFoundError:
+            pass
+        except OSError as removal:
+            if cause is None:
+                raise
+            raise Failure(f"{cause}; removing {written} failed too ({removal.strerror or removal})", repair) from None
+        if cause is None:
+            raise
+        raise Failure(cause, repair) from None
 
 
 class Installation:
@@ -1614,9 +1707,9 @@ class Installation:
     def add(self, action, label, path=None, write=None, detail=()):
         self.items.append((action, label, list(detail)))
         if write and action in ("create", "update"):
-            self.writes.append((label, write))
+            self.writes.append(write)
             if path is not None and self.in_repository(path):
-                self.repository_files.append(self.show(path))
+                self.repository_files.append(self.show(path.resolve()))  # a link's target is the file to stage
 
     def in_repository(self, path):
         path = path.resolve()
@@ -1624,7 +1717,8 @@ class Installation:
         return inside(self.root.resolve()) and not any(inside(folder) for folder in self.git_dirs)
 
     def show(self, path):
-        path, root = path.resolve(), self.root.resolve()
+        """The path relative to the repository root when it is inside it; a link keeps its own name."""
+        path, root = path.parent.resolve() / path.name, self.root.resolve()
         return path.relative_to(root).as_posix() if root in path.parents else str(path)
 
     def lines(self):
@@ -1634,21 +1728,39 @@ class Installation:
                 yield " " * (self.WIDTH + 1) + line
 
 
-def install_hook(plan, folder, stage):
-    """Add the hook block to one hook file, or refuse a file the install cannot edit safely."""
-    path = folder / stage
-    label = plan.show(path)
+FILE_KINDS = ((stat.S_ISDIR, "a folder"), (stat.S_ISFIFO, "a named pipe"), (stat.S_ISCHR, "a device"),
+              (stat.S_ISBLK, "a device"), (stat.S_ISSOCK, "a socket"))
+
+
+def install_hook(plan, path, target, shared):
+    """Add the hook block to one hook file, or refuse a file the install cannot edit safely.
+
+    `target` is the file `path` resolves to through the file system, and `shared` whether the other hook file
+    resolves to it too. Both are judged before anything is read, so a named pipe or a device is never opened.
+    """
+    stage, label = path.name, plan.show(path)
+    if shared:
+        plan.add("refused", f"{label}: pre-commit and pre-push are the same file, {target}",
+                 detail=["give each hook its own file, then run install again"])
+        return
     block = hook_block(stage)
-    if not path.exists():
+    try:
+        mode = os.stat(str(target)).st_mode
+    except FileNotFoundError:  # no file, or a link to none: the block goes into a new file at the link's target
         data = ("#!/bin/sh\n" + "".join(block)).encode()
-        plan.add("create", label, path, lambda: write_file(path, data, 0o755))
+        plan.add("create", label, path, lambda: publish(target, data, 0o755, label))
+        return
+    if not stat.S_ISREG(mode):
+        kind = next((name for test, name in FILE_KINDS if test(mode)), "not a regular file")
+        plan.add("refused", f"{label}: {target} is {kind}, not a hook script",
+                 detail=[f"replace {shlex.quote(str(target))} with a hook script, then run install again"])
         return
     try:
-        data = path.read_bytes()
+        data = target.read_bytes()
     except OSError as exc:
-        plan.add("refused", f"{label}: cannot read it ({exc.strerror or exc})")
+        plan.add("refused", f"{label}: cannot read it ({exc.strerror or exc})", detail=[INSPECT_REPAIR])
         return
-    if not os.access(str(path), os.X_OK):
+    if not os.access(str(target), os.X_OK):
         plan.add("refused", f"{label}: not executable, so Git ignores it; making it executable also starts its own code",
                  detail=[f"to run it and add the block: chmod +x {shlex.quote(str(path))}, then run install again"])
         return
@@ -1664,14 +1776,15 @@ def install_hook(plan, folder, stage):
     lines = text.splitlines(keepends=True)
     begins = [i for i, line in enumerate(lines) if line.rstrip("\r\n") == HOOK_MARKER]
     ends = [i for i, line in enumerate(lines) if line.rstrip("\r\n") == HOOK_END]
-    mode = path.stat().st_mode & 0o7777
+    mode &= 0o7777
     if begins or ends:
         if len(begins) != 1 or len(ends) != 1 or ends[0] < begins[0]:
             plan.add("refused", f"{label}: its repository-checks markers are incomplete or repeated; "
                                 "remove the block by hand, then run install again")
             return
         new = "".join(lines[:begins[0]] + block + lines[ends[0] + 1:]).encode()
-        plan.add("unchanged" if new == data else "update", label, path, lambda: write_file(path, new, mode))
+        plan.add("unchanged" if new == data else "update", label, path,
+                 lambda: publish(target, new, mode, label, expected=data))
         return
     if any(sign in text for sign in FRAMEWORK_SIGNS):
         plan.add("refused", f"{label}: written by the pre-commit framework; add this entry to its configuration "
@@ -1680,14 +1793,18 @@ def install_hook(plan, folder, stage):
     if lines and SHELL_LINE.fullmatch(lines[0].rstrip("\r\n")):
         head = lines[0] if lines[0].endswith("\n") else lines[0] + "\n"
         new = "".join([head] + block + lines[1:]).encode()
-        plan.add("update", label, path, lambda: write_file(path, new, mode))
+        plan.add("update", label, path, lambda: publish(target, new, mode, label, expected=data))
         return
     first = lines[0].rstrip("\r\n") if lines else ""
     plan.add("refused", f"{label}: not a shell script (first line: {first!r}); call the runner from it by hand")
 
 
 def install_setting(plan, root, name, value):
+    """List the clone setting; only Git's status for a missing key, 1, means it is not set yet."""
     proc = git(root, "config", "--local", "--get", name, check=False)
+    if proc.returncode not in (0, 1):
+        raise Failure(f"cannot read the setting {name} ({last_line(proc.stderr)})",
+                      "repair the clone's Git configuration, then run install again")
     current = output_text(proc.stdout) if proc.returncode == 0 else None
     action = "create" if current is None else "unchanged" if current == value else "update"
     plan.add(action, f"setting {name} {value}", write=lambda: git(root, "config", "--local", name, value))
@@ -1698,9 +1815,9 @@ def install_workflow(plan, root, ci):
     path = root / WORKFLOW
     if not (ci == "github" or (root / ".github/workflows").is_dir()):
         return False
-    if not path.exists():
+    if not os.path.lexists(str(path)):
         data = WORKFLOW_TEMPLATE.encode()
-        plan.add("create", WORKFLOW, path, lambda: write_file(path, data, 0o644))
+        plan.add("create", WORKFLOW, path, lambda: publish(path, data, 0o644, WORKFLOW))
     elif RUNNER_STEP in path.read_text(errors="replace"):
         plan.add("unchanged", WORKFLOW)
     else:
@@ -1710,35 +1827,58 @@ def install_workflow(plan, root, ci):
     return True
 
 
-def has_configuration(root):
-    """Whether the repository has a configuration: a file at exactly its path in the index or the working tree."""
-    staged = file_paths(git(root, "ls-files", "--stage", "-z", "--", CONFIG).stdout)
-    return CONFIG in staged or (root / CONFIG).is_file()
+def configuration_data(root):
+    """The configuration the install works with: the working tree's file, as `house-rules exec` reads it, else the
+    staged one, else None."""
+    with inspecting(CONFIG):
+        path = root / CONFIG
+        if path.is_file():
+            return path.read_bytes()
+    return staged_data(root)
+
+
+def selected_command(found):
+    """The command PATH selected, made absolute without collapsing `..`: a `..` after a link steps out of the
+    link's target, as the lookup did, so collapsing it could name another file."""
+    return found if os.path.isabs(found) else os.path.join(os.getcwd(), found)
 
 
 def command_install(args, argv):
     root = find_root()
-    if not has_configuration(root):
+    data = configuration_data(root)
+    if data is None:
         raise Failure(f"no {CONFIG} in this repository", "run `house-rules init` first")
     found = shutil.which("house-rules")
     if found is None:
         raise Failure("the house-rules command is not on PATH", f"run `{COMMAND_INSTALL}` first")
-    plan = Installation(root)
-    hooks = root / out(root, "rev-parse", "--git-path", "hooks")
-    for stage in HOOK_STAGES:
-        install_hook(plan, hooks, stage)
-    install_setting(plan, root, COMMAND_SETTING, os.path.abspath(found))
-    has_workflow = install_workflow(plan, root, args.ci)
+    tree = config = None
     if not args.dry_run:
-        for label, write in plan.writes:
-            try:
-                write()
-            except OSError as exc:
-                raise Failure(f"cannot write {label} ({exc.strerror or exc})",
-                              "repair access to it and run install again")
+        # The install prepares what the hooks' first run needs; the runner at the resolved revision judges the file.
+        tree, _ = resolved_tree(argv, data)
+        config = effective_checks(data)
+    plan = Installation(root)
+    with inspecting("the hooks folder"):
+        hooks = root / out(root, "rev-parse", "--git-path", "hooks")
+        paths = {stage: hooks / stage for stage in HOOK_STAGES}
+        targets = {stage: Path(os.path.realpath(str(path))) for stage, path in paths.items()}
+    shared = targets["pre-commit"] == targets["pre-push"]
+    for stage in HOOK_STAGES:
+        with inspecting(plan.show(paths[stage])):
+            install_hook(plan, paths[stage], targets[stage], shared)
+    install_setting(plan, root, COMMAND_SETTING, selected_command(found))
+    with inspecting(WORKFLOW):
+        has_workflow = install_workflow(plan, root, args.ci)
+    environment_line = None
+    if config is not None and any(c["enabled"] and uses(c, "python") for c in config["checks"]):
+        environment_line = f"environment: spec checker environment ready at {prepare_environment(tree).parent.parent}"
+    if not args.dry_run:
+        for write in plan.writes:
+            write()
     print("repository checks: install preview; nothing is written" if args.dry_run else "repository checks: install")
     for line in plan.lines():
         print(line)
+    if environment_line:
+        print(environment_line)
     if not has_workflow:
         print("ci: no .github/workflows/ here; for another CI system the job clones House Rules into "
               f".tmp/house-rules and runs: {CI_COMMAND}")
