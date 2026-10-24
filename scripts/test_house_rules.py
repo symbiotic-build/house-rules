@@ -800,11 +800,11 @@ class RoundTwoTests(Fixture):
         lines = f"refs/heads/main {pushed} refs/heads/main {'0' * 40}\n"
         code, out, err = self.command("exec", "--origin", "push", "scripts/show.py", cwd=repo, stdin=lines.encode())
         self.assertEqual((code, out), (0, f"commit 3\n{lines}"), err)
-        (self.root / "config" / "house-rules").mkdir(parents=True)
-        hr.global_path().write_text(json.dumps({"version": 1, "sources": [config["sources"][0]]}))
+        os.rename(str(self.root / "remotes"), str(self.root / "remotes-away"))  # nothing may need the network
+        subprocess.run(["rm", "-rf", str(self.root / "cache")], check=True, stdin=subprocess.DEVNULL)
         code, out, err = self.command("exec", "--origin", "push", "scripts/show.py", cwd=repo,
                                       stdin=f"(delete) {'0' * 40} refs/heads/old {pushed}\n".encode())
-        self.assertEqual((code, out.splitlines()[:1]), (0, ["global 1"]), err)  # a deletion has no configuration
+        self.assertEqual((code, out), (0, "nothing to check: the push only deletes references\n"), err)
 
     def test_a_hook_passes_its_deadline_to_the_script(self):
         house = self.source("house-rules", {"scripts/show.py": "import os\nprint(os.environ['HOUSE_RULES_DEADLINE'])\n"})

@@ -496,20 +496,29 @@ def read_configuration(repository, rev=None):
     return (None if shown.returncode else shown.stdout), {"origin": "commit", "commit": commit}
 
 
+NOTHING_TO_PUSH = "nothing to check: the push only deletes references"
+
+
+def pushed_commits(stdin):
+    """The local commits of Git's pre-push lines; a line that deletes a ref names no commit."""
+    commits = []
+    for line in stdin.decode(errors="replace").splitlines():
+        fields = line.split()
+        if len(fields) == 4 and OBJECT.fullmatch(fields[1]) and set(fields[1]) != {"0"}:
+            commits.append(fields[1])
+    return commits
+
+
 def hook_configuration(repository, origin, stdin):
     """(configuration bytes or None, origin) for a Git hook: the staged index, or the first commit of a push.
 
     The pre-commit hook keeps Git's GIT_INDEX_FILE, so a partial commit reads the index it commits. The pre-push
-    hook reads Git's lines from standard input; a push that only deletes refs has no commit and no configuration.
+    hook reads Git's lines from standard input; the caller handles a push that only deletes refs first.
     """
     if origin == "index":
         shown = git(repository, "show", f":{CONFIG}", check=False, foreign=True, keep=("GIT_INDEX_FILE",))
         return (None if shown.returncode else shown.stdout), {"origin": "index", "commit": None}
-    for line in stdin.decode(errors="replace").splitlines():
-        fields = line.split()
-        if len(fields) == 4 and OBJECT.fullmatch(fields[1]) and set(fields[1]) != {"0"}:
-            return read_configuration(repository, fields[1])
-    return None, {"origin": "commit", "commit": None}
+    return read_configuration(repository, pushed_commits(stdin)[0])
 
 
 # Resolving one layer
@@ -554,8 +563,8 @@ def answer_path(url, kind, name):
 def read_answer(url, kind, name):
     """The recorded answer for one branch or tag, as {"url", kind, "revision", "fetched", "seconds"}, or None.
 
-    The checks runner writes the same branch records, so both share one answer. `url` is stored without
-    credentials. A record belongs to the source whose key names its folder, so its url must give that key.
+    The checks runner writes the same branch records, so both share one answer. A record belongs to the source
+    whose key hash names its folder; its url, stored as messages show it, is for display only.
     """
     try:
         record = json.loads(answer_path(url, kind, name).read_text())
@@ -564,12 +573,6 @@ def read_answer(url, kind, name):
         return None
     if not (isinstance(record, dict) and isinstance(record.get("url"), str) and record.get(kind) == name
             and isinstance(record.get("revision"), str) and COMMIT.fullmatch(record["revision"])):
-        return None
-    try:
-        same = source_key(record["url"]) == source_key(url)  # equal spellings of one source share the answer
-    except Failure:
-        same = False
-    if not same:
         return None
     return dict(record, seconds=seconds)
 
@@ -1286,6 +1289,9 @@ def cmd_exec(args):
     folder = args.repo
     if args.hook or args.origin == "push":
         stdin = sys.stdin.buffer.read()
+    if args.origin == "push" and not pushed_commits(stdin):
+        print(NOTHING_TO_PUSH)  # nothing to check, so nothing to resolve: no dependency can refuse such a push
+        return 0
     if args.hook:
         try:
             folder = folder or json.loads(stdin or b"{}").get("cwd")
