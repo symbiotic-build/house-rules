@@ -541,8 +541,11 @@ def config_data(root, rev, blobs):
 
 
 def staged_data(root):
-    proc = git(root, "cat-file", "blob", ":" + CONFIG, check=False)
-    return proc.stdout if proc.returncode == 0 else None
+    """The staged configuration, or None when the index does not list it. A listed file that cannot be read is a
+    preparation failure with Git's message, never taken for an absent one."""
+    if not git(root, "ls-files", "--cached", "-z", "--", CONFIG).stdout:
+        return None
+    return git(root, "cat-file", "blob", ":" + CONFIG).stdout
 
 
 # Pinning and cache -----------------------------------------------------------------------
@@ -640,7 +643,7 @@ def fetch_revision(url, revision):
 
 def fetch_into(repository, url, revision):
     """Fetch `revision` into the empty bare `repository` and put its files into the cache; return None or Git's error."""
-    git(repository, "init", "--quiet", "--bare", ".", foreign=True)
+    git(repository, "init", "--quiet", "--bare", "--template=", ".", foreign=True)  # no template attributes
     proc = git(repository, *PROGRESS, "fetch", "--quiet", "--depth=1", "--no-tags", url,
                f"{revision}:refs/pins/{revision}", foreign=True, check=False)
     if proc.returncode:
@@ -780,8 +783,10 @@ def resolve(source, offline_repair=None):
 
 
 def extract(source, revision, folder):
-    environ = dict({k: v for k, v in os.environ.items() if k not in LOCAL_GIT_ENV}, **NO_REPLACE)
-    archive = subprocess.Popen(["git", "archive", "--format=tar", revision], cwd=str(source), stdout=subprocess.PIPE,
+    # No personal or system attributes file decides what the archive leaves out, such as with export-ignore.
+    environ = dict({k: v for k, v in os.environ.items() if k not in LOCAL_GIT_ENV}, GIT_ATTR_NOSYSTEM="1",
+                   **NO_REPLACE)
+    archive = subprocess.Popen(["git", "-c", "core.attributesFile=/dev/null", "archive", "--format=tar", revision], cwd=str(source), stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, env=environ)
     try:
         tar = subprocess.run(["tar", "-xf", "-", "-C", str(folder)], stdin=archive.stdout, capture_output=True)
