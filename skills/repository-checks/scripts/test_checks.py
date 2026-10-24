@@ -16,6 +16,7 @@ import re
 import shlex
 import shutil
 import signal
+import stat
 import subprocess
 import sys
 import sysconfig
@@ -2119,14 +2120,6 @@ def headers(output):
     return [line for line in output.splitlines() if line.startswith("repository checks: ") and " on " in line]
 
 
-def runner_module():
-    """The runner under test, imported, for the cases that need a fault no process boundary can inject."""
-    spec = importlib.util.spec_from_file_location("checks_under_test", str(SCRIPT))
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
 class InstallCase(RunnerCase):
     """Installs into fixture clones that have a configuration, through the real house-rules command on PATH.
 
@@ -2252,9 +2245,16 @@ class InstallCase(RunnerCase):
                 f"spec = importlib.util.spec_from_file_location('checks', {str(script)!r})\n"
                 "checks = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(checks)\n"
                 f"{faults}\nsys.exit(checks.main({list(args)!r}))\n")
-        return subprocess.run([sys.executable, "-I", "-c", code], cwd=str(self.repo.path), capture_output=True,
-                              text=True, stdin=subprocess.DEVNULL,
-                              env=dict(env or self.repo.env, HOUSE_RULES_RESOLVED=json.dumps(record)))
+        proc = subprocess.Popen([sys.executable, "-I", "-c", code], cwd=str(self.repo.path), stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, start_new_session=True,
+                                env=dict(env or self.repo.env, HOUSE_RULES_RESOLVED=json.dumps(record)))
+        try:
+            stdout, stderr = proc.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            self.fail(f"the runner with {args} blocked")
+        return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
 
     def assertBlockFile(self, path, after=""):
         """The hook file holds `#!/bin/sh`, then exactly one marked block, then `after`, and is executable."""
@@ -2433,6 +2433,31 @@ class InstallTest(InstallCase):
                                                env=env)
                 self.assertEqual(status, 0, output)
                 self.assertIn(label, headers(output)[0])
+
+    def test_pre_push_keeps_a_one_run_link_when_the_pushed_source_url_differs(self):
+        """HOUSE_RULES_LINK decides the House Rules layer for the run, whatever its URL; a link that
+        `house-rules link` stored applies to its URL only, so the other URL's snapshot resolves its own source."""
+        other = self.house_rules.url + "/"  # another spelling is another source
+        self.repo.configure(PUSHED_TOO)
+        self.repo.commit("main names the House Rules URL")
+        self.assertEqual(self.install().returncode, 0)
+        self.remote()
+        self.repo.git("checkout", "-q", "-b", "topic")
+        self.repo.reconfigure(url=other)
+        self.repo.commit("topic names another URL")
+        self.repo.git("checkout", "-q", "main")
+        with self.subTest("a one-run link"):
+            status, output = self.git_hook(self.repo, "push", "-q", "origin", "topic:refs/heads/topic-one-run",
+                                           env={"HOUSE_RULES_LINK": str(self.house_rules.path)})
+            self.assertEqual(status, 0, output)
+            self.assertIn(f"(link of {other})", headers(output)[0])
+        with self.subTest("a stored link"):
+            linked = self.house_rules_command("link", str(self.house_rules.path), "--url", self.house_rules.url)
+            self.assertEqual(linked.returncode, 0, linked.stderr)
+            self.addCleanup(self.house_rules_command, "unlink", self.house_rules.url)
+            status, output = self.git_hook(self.repo, "push", "-q", "origin", "topic:refs/heads/topic-stored")
+            self.assertEqual(status, 0, output)
+            self.assertIn(f"(fetched branch main of {other}, cached ", headers(output)[0])
 
     def test_install_updates_a_worktree_setting_that_wins_over_the_clone_setting(self):
         self.repo.git("config", "extensions.worktreeConfig", "true")
@@ -2664,14 +2689,16 @@ class InstallTest(InstallCase):
              ".git/hooks/pre-commit: written by the pre-commit framework; add this entry to its configuration "
              "(.pre-commit-config.yaml) under repos:", entry),
             ("binary", b"\x7fELF\x02\x01\x01\x00" + bytes(24), 0o755,
-             ".git/hooks/pre-commit: not a shell script (first line: '\\x7fELF\\x02\\x01\\x01\\x00"
-             + "\\x00" * 24 + "'); call the runner from it by hand", []),
+             ".git/hooks/pre-commit: its first line is '\\x7fELF\\x02\\x01\\x01\\x00"
+             + "\\x00" * 24 + "', not a plain shell line", ["call your existing hook from a plain shell hook"]),
             ("another language", "#!/usr/bin/env python3\nprint('tool')\n", 0o755,
-             ".git/hooks/pre-commit: not a shell script (first line: '#!/usr/bin/env python3'); "
-             "call the runner from it by hand", []),
+             ".git/hooks/pre-commit: its first line is '#!/usr/bin/env python3', not a plain shell line", ["call your existing hook from a plain shell hook"]),
             ("a shell that only reads the script", "#!/bin/sh -n\necho tool\n", 0o755,
-             ".git/hooks/pre-commit: its first line '#!/bin/sh -n' starts the shell with options the install does not "
-             "support; call the runner from it by hand", []),
+             ".git/hooks/pre-commit: its first line is '#!/bin/sh -n', not a plain shell line", ["call your existing hook from a plain shell hook"]),
+            ("env with a shell option, which env takes as one name", "#!/usr/bin/env sh -e\necho tool\n", 0o755,
+             ".git/hooks/pre-commit: its first line is '#!/usr/bin/env sh -e', not a plain shell line", ["call your existing hook from a plain shell hook"]),
+            ("another shell", "#!/bin/zsh\necho tool\n", 0o755,
+             ".git/hooks/pre-commit: its first line is '#!/bin/zsh', not a plain shell line", ["call your existing hook from a plain shell hook"]),
             ("an incomplete block", "#!/bin/sh\n" + BEGIN + "echo tool\n", 0o755,
              ".git/hooks/pre-commit: its repository-checks markers are incomplete or repeated; "
              "remove the block by hand, then run install again", []),
@@ -2717,8 +2744,8 @@ class InstallTest(InstallCase):
                     status, stdout, stderr = self.install_bounded(*args)
                     self.assertEqual(status, 1, stdout + stderr)
                     self.assertEqual(items(stdout)[0], (
-                        "refused", f".git/hooks/pre-commit: {path} is {kind}, not a hook script",
-                        [f"replace {path} with a hook script, then run install again"]))
+                        "refused", f".git/hooks/pre-commit: {path} is not a regular file",
+                        ["replace it with a hook script, then run install again"]))
                 if path.is_dir():
                     path.rmdir()
                 else:
@@ -2734,10 +2761,35 @@ class InstallTest(InstallCase):
                     status, stdout, stderr = self.install_bounded(*args)
                     self.assertEqual(status, 1, stdout + stderr)
                     (item,) = [i for i in items(stdout) if i[1].startswith(WORKFLOW)]
-                    self.assertEqual(item, ("refused", f"{WORKFLOW}: it is {kind}, not a workflow file",
-                                            [f"replace {path} with a workflow file, or remove it, then run install "
-                                             "again"]))
+                    self.assertEqual(item, ("refused", f"{WORKFLOW}: not a regular file",
+                                            ["replace it with a workflow file, or remove it, then run install again"]))
                 path.rmdir() if path.is_dir() else path.unlink()
+
+    def test_workflow_is_read_from_the_file_whose_type_was_checked(self):
+        """Right after the workflow's open file passes the type check, a named pipe replaces it at its path: the
+        install reads the file it checked, so it never opens the pipe and never blocks."""
+        workflow = self.repo.path / WORKFLOW
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text("name: Own\n")
+        faults = (
+            "real_open, real_fstat, opened = os.open, os.fstat, {}\n"
+            "def tracked_open(path, *args, **kwargs):\n"
+            "    descriptor = real_open(path, *args, **kwargs)\n"
+            "    opened[descriptor] = os.fspath(path)\n"
+            "    return descriptor\n"
+            "def swapping_fstat(descriptor):\n"
+            "    result = real_fstat(descriptor)\n"
+            "    path = opened.get(descriptor, '')\n"
+            "    if path.endswith('repository-checks.yml') and not os.path.exists(path + '.moved'):\n"
+            "        os.rename(path, path + '.moved')\n"
+            "        os.mkfifo(path)\n"
+            "    return result\n"
+            "unittest.mock.patch('os.open', side_effect=tracked_open).start()\n"
+            "unittest.mock.patch('os.fstat', side_effect=swapping_fstat).start()")
+        proc = self.run_with_faults(faults, "install", "--dry-run")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn(("unchanged", WORKFLOW), [i[:2] for i in items(proc.stdout)])
+        self.assertTrue(stat.S_ISFIFO(os.lstat(str(workflow)).st_mode))
 
     def test_install_never_overwrites_a_file_that_changed_after_it_was_read(self):
         workflow = self.repo.path / WORKFLOW

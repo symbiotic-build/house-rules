@@ -47,26 +47,30 @@ To check a clone, run `house-rules exec --origin index skills/repository-checks/
 It prints the resolved House Rules revision and the effective checks for each stage. The runner's
 `status` never fetches; `exec` around it resolves first and can.
 
-## Integrate a refused hook by hand
+## Integrate a refused hook
 
-A pre-commit framework hook, a hook in another language, or a shell hook whose first line sets an option such
-as `-n` stays refused: the install never edits it.
+The install edits a hook only when its first line is exactly `#!/bin/sh`, `#!/bin/bash`,
+`#!/usr/bin/env sh` or `#!/usr/bin/env bash`. Any other first line, such as another shell, a shell option
+or another language, is refused with "call your existing hook from a plain shell hook":
 
-1. **Add the call:** for the framework, add the `repo: local` entry the refusal prints to
-   `.pre-commit-config.yaml`. In another hook, call `"$(git config --get house-rules.command)"` with the
-   arguments the [hook block](../../docs/design/194-repository-checks.md#hook-block) passes, and exit with
-   its status.
-2. **Install again:** the rest of the install completes. That hook stays listed as `refused`, and the
-   install exits 1; that refusal is expected.
-3. **Verify each integrated stage on its own:**
-   - pre-commit: stage a file with a trailing space and commit. The hook must refuse the commit with a
-     `FAIL  whitespace` line. Unstage the file afterwards.
-   - pre-push: push a commit to a local bare repository (`git init --bare /tmp/verify.git`, then
-     `git push /tmp/verify.git HEAD:refs/heads/verify`). The hook must print a
-     `repository checks: pre-push on …` header; the defaults list no pre-push check, so the header is the
-     evidence, and a check the configuration lists at pre-push must run too.
+1. **Rename the hook:** for example `.git/hooks/pre-commit` to `.git/hooks/pre-commit.local`.
+2. **Write a plain shell hook in its place:** `#!/bin/sh`, then
+   `exec "$(dirname -- "$0")/pre-commit.local" "$@"`, and make it executable.
+3. **Install again:** the install adds its block before that line, and your hook still runs after the
+   checks pass.
 
-The session line keeps reporting "no hook block" for that hook, because it looks for the block.
+A pre-commit framework hook stays refused: add the `repo: local` entry the refusal prints to
+`.pre-commit-config.yaml`. Each rerun of the install lists that hook as `refused` and exits 1, and the
+session line reports "no hook block" for it; both are expected.
+
+Verify each stage you changed on its own:
+
+- pre-commit: stage a file with a trailing space and commit. The hook must refuse the commit with a
+  `FAIL  whitespace` line. Unstage the file afterwards.
+- pre-push: push a commit to a local bare repository (`git init --bare /tmp/verify.git`, then
+  `git push /tmp/verify.git HEAD:refs/heads/verify`). The hook must print a
+  `repository checks: pre-push on …` header; the defaults list no pre-push check, so the header is the
+  evidence, and a check the configuration lists at pre-push must run too.
 
 ## Act on a refused commit or push
 
