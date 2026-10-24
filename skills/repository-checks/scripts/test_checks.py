@@ -1421,8 +1421,17 @@ class RevisionTest(RunnerCase):
                 self.assertEqual(marker.exists(), asked)
                 if not asked:
                     self.assertEqual(used["fetched"], first["fetched"])
-                    self.assertIn("warning: an exec warning", self.repo.report(
+                    self.assertIn("an exec warning", self.repo.report(
                         "run", "--stage", "pre-commit", script=runner, env=env)[1]["warnings"])
+        # A linked checkout: exec's record names the tree the runner runs from, with no fetch time.
+        layer = dict({k: first[k] for k in fields}, source="link", fetched=None, tree=str(runner.parents[3]),
+                     ref_kind="branch", link={"path": str(runner.parents[3]), "head": first["revision"], "dirty": False})
+        record = {"version": 1, "repository": str(self.repo.path), "profiles": [], "context": [], "warnings": [],
+                  "configuration": {"origin": "index", "commit": None}, "layers": [layer]}
+        proc = self.repo.run("run", "--stage", "pre-commit", script=runner,
+                             env=dict(self.repo.env, HOUSE_RULES_RESOLVED=json.dumps(record)))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(f"House Rules {first['revision']} (link of {first['url']})", proc.stdout.splitlines()[0])
 
     def test_offline_run_uses_the_cached_main_with_a_warning(self):
         self.fresh_cache("cached-main")

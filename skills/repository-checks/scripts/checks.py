@@ -845,7 +845,9 @@ def exec_layer(record):
             and Path(layer["tree"]).resolve() == own_tree()):
         return None
     resolved = {k: layer[k] for k in ("name", "url", "ref", "revision", "source", "fetched", "tree")}
-    warnings = [w for w in record.get("warnings") or () if isinstance(w, str)]
+    # exec's warnings start with "warning: ", which the report adds itself.
+    warnings = [w[len("warning: "):] if w.startswith("warning: ") else w
+                for w in record.get("warnings") or () if isinstance(w, str)]
     return dict(resolved, warning="; ".join(warnings)) if warnings else resolved
 
 
@@ -934,7 +936,7 @@ def cached_resolution(source):
 def label(layer):
     """How a report names where a layer's commit came from, its URL and when the cache fetched it."""
     if layer["source"] == "link":
-        return f"link of {layer['url']}, the checkout at {layer['tree']}"
+        return f"link of {layer['url']}"  # exec's warning names the checkout
     what = {"fetched": f"branch {layer['ref']}", "reused": f"branch {layer['ref']}",
             "offline": f"branch {layer['ref']}", "pinned": "commit", "override": "HOUSE_RULES_REVISION"}[layer["source"]]
     when = f"cached {layer['fetched']}" if layer["fetched"] else "not cached yet"
