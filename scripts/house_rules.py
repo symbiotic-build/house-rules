@@ -25,6 +25,7 @@ import contextlib
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -50,6 +51,7 @@ RESOLVED = "HOUSE_RULES_RESOLVED"
 OVERRIDE = "HOUSE_RULES_REVISION"
 LINK = "HOUSE_RULES_LINK"
 DEADLINE = "HOUSE_RULES_DEADLINE"  # set by exec --hook: the hook's deadline, in seconds since 1970-01-01 UTC
+FALLBACK = "HOUSE_RULES_FALLBACK"  # set by exec --hook when resolution failed: the failure line; no record follows
 HOOK_ERROR = "HOUSE RULES HOOK ERROR:"  # the error prefix agent session hooks print, as session_context.py does
 COMMIT = re.compile(r"[0-9a-f]{40}")  # a source layer's commit: sources are SHA-1 repositories for now
 SHA256_COMMIT = re.compile(r"[0-9a-f]{64}")
@@ -141,8 +143,15 @@ def config_home():
 
 
 def credentials(url):
-    """True when a URL carries a password, or any user name over http or https; an ssh login is part of the URL."""
-    parts = urllib.parse.urlsplit(url)
+    """True when a URL carries a password, or any user name over http or https; an ssh login is part of the URL.
+
+    A URL Python cannot parse, such as one with a bad port or IPv6 authority, is a configuration error.
+    """
+    try:
+        parts = urllib.parse.urlsplit(url)
+        parts.port  # parsing the port is where a malformed authority shows
+    except ValueError as exc:
+        raise Failure(f"house-rules: {url} is not a URL Git can use ({exc})")
     if "@" not in parts.netloc:
         return False
     return parts.password is not None or parts.scheme.lower() in ("http", "https")
@@ -305,12 +314,18 @@ def check_map(value, field, where):
 
 
 def check_budgets(budgets, where):
+    """A budget entry replaces its stage's entry whole, so every entry is complete: a stage, positive seconds."""
     check_map(budgets, "budgets", where)
     for stage, entry in budgets.items():
+        if stage not in STAGES:
+            raise Failure(f"house-rules: {where}: budgets.{stage}: the stages are {', '.join(STAGES)}")
         known_fields(entry, BUDGET_FIELDS, f"{where}: budgets.{stage}")
         seconds = entry.get("seconds")
-        if "seconds" in entry and (isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds <= 0):
+        if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or not math.isfinite(seconds) \
+                or seconds <= 0:
             raise Failure(f"house-rules: {where}: budgets.{stage}.seconds must be a positive number")
+        if "reason" in entry and not (isinstance(entry["reason"], str) and entry["reason"].strip()):
+            raise Failure(f"house-rules: {where}: budgets.{stage}.reason must be text")
     return budgets
 
 
@@ -421,9 +436,12 @@ def read_configuration(repository, rev=None):
     """Return (configuration bytes or None, origin) from the working tree, or from commit `rev`."""
     if rev is None:
         path = Path(repository) / CONFIG
-        if path.is_file():
+        try:
             return path.read_bytes(), {"origin": "working tree", "commit": None}
-        return None, {"origin": "working tree", "commit": None}
+        except FileNotFoundError:
+            return None, {"origin": "working tree", "commit": None}
+        except OSError as exc:
+            raise Failure(f"house-rules: cannot read {path} ({exc.strerror or exc}); repair access and run again")
     commit = git(repository, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}", check=False, foreign=True)
     if commit.returncode:
         raise Failure(f"house-rules: {rev} is no commit in {repository}")
@@ -514,23 +532,35 @@ def read_answer(url, kind, name):
 
 
 def write_json(path, value):
+    """Replace `path` with `value` whole; a failed write removes its staging file, and prune removes one an
+    interrupted write left after a day."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    descriptor, temporary = tempfile.mkstemp(prefix=".write-", dir=str(path.parent))
-    with os.fdopen(descriptor, "w") as handle:
-        json.dump(value, handle)
-    os.replace(temporary, str(path))
+    descriptor, temporary = tempfile.mkstemp(prefix=".partial-write-", dir=str(path.parent))
+    try:
+        with os.fdopen(descriptor, "w") as handle:
+            json.dump(value, handle)
+        os.replace(temporary, str(path))
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(temporary)
+        raise
 
 
 def write_answer(url, kind, record):
     write_json(answer_path(url, kind, record[kind]), record)  # the record's url never holds credentials
 
 
-def extract(repository, commit, folder):
+def extract(repository, commit, folder, deadline=NO_DEADLINE):
     environ = dict({k: v for k, v in os.environ.items() if k not in LOCAL_GIT_ENV}, **NO_REPLACE)
     archive = subprocess.Popen(["git", "archive", "--format=tar", commit], cwd=str(repository),
                                stdout=subprocess.PIPE, stderr=subprocess.PIPE, stdin=subprocess.DEVNULL, env=environ)
     try:
-        tar = subprocess.run(["tar", "-xf", "-", "-C", str(folder)], stdin=archive.stdout, capture_output=True)
+        tar = subprocess.run(["tar", "-xf", "-", "-C", str(folder)], stdin=archive.stdout, capture_output=True,
+                             timeout=deadline.left())
+    except subprocess.TimeoutExpired:
+        archive.kill()
+        archive.communicate()
+        raise DeadlinePassed()
     except OSError as exc:
         archive.kill()
         archive.communicate()
@@ -554,21 +584,23 @@ def fetch_commit(url, commit, deadline=NO_DEADLINE):
     if prepared(final):
         return None
     repository = partial(source_folder(url))
+    cause = None  # the fetch's own failure, kept when cleaning up fails as well
     try:
         git(repository, "init", "--quiet", "--bare", "--template=", "--object-format=sha1", ".", foreign=True)
         proc = git(repository, *PROGRESS, "fetch", "--quiet", "--depth=1", "--no-tags", url,
                    f"{commit}:refs/pins/{commit}", foreign=True, check=False, deadline=deadline)
         if proc.returncode:
-            return last_line(proc.stderr)
+            cause = last_line(proc.stderr)
+            return cause
         temporary = partial(source_folder(url))
-        extract(repository, commit, temporary)
+        extract(repository, commit, temporary, deadline)
         for folder, _, names in os.walk(str(temporary)):
             for name in names:
                 path = os.path.join(folder, name)
                 if not os.path.islink(path):
                     os.chmod(path, os.stat(path).st_mode & ~0o222)
         final.parent.mkdir(parents=True, exist_ok=True)
-        with contextlib.suppress(FileExistsError):
+        with contextlib.suppress(Failure):  # it exists: an earlier fetch wrote the first time, which stays
             create_once(Path(str(final) + ".fetched"), utc() + "\n")
         try:
             os.rename(str(temporary), str(final))
@@ -577,20 +609,26 @@ def fetch_commit(url, commit, deadline=NO_DEADLINE):
                 raise
             remove_tree(temporary)  # another process placed the same commit first
         return None
+    except (Failure, OSError) as exc:
+        cause = str(exc)
+        raise
     finally:
         try:
             remove_tree(repository)
         except OSError as exc:
+            earlier = f"; the fetch had failed first: {cause}" if cause else ""
             raise Failure(f"house-rules: cannot remove the temporary fetch repository {repository} "
-                          f"({exc.strerror or exc}); remove it by hand and run again")
+                          f"({exc.strerror or exc}){earlier}; remove it by hand and run again")
 
 
 def placed_at(tree):
     """When the cache first received a commit's files: revisions/<commit>.fetched, else the folder's time for a tree
-    another tool placed."""
+    another tool placed or a stamp that does not hold a time."""
     try:
-        return Path(str(tree) + ".fetched").read_text().strip()
-    except OSError:
+        stamp = Path(str(tree) + ".fetched").read_text().strip()
+        time.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ")
+        return stamp
+    except (OSError, ValueError):
         return utc(os.stat(str(tree)).st_mtime)
 
 
@@ -666,9 +704,8 @@ def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
         layer, warning = linked_layer(entry, os.path.abspath(os.path.expanduser(os.environ[LINK])), LINK)
         warnings.append(warning)
         return layer
-    link = links.get(url) if override is None else None
-    if link:
-        layer, warning = linked_layer(entry, link, "links.json")
+    if override is None and url in links:
+        layer, warning = linked_layer(entry, links[url], "links.json")
         warnings.append(warning)
         return layer
     if override is not None:
@@ -707,13 +744,19 @@ def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
 def fetch_pinned(entry, commit, deadline):
     """Make a pinned commit's files available; a commit that cannot be fetched is a failure naming why."""
     url, name = entry["url"], entry["name"]
+    if prepared(tree_folder(url, commit)):  # a cached pin waits for no lock
+        return
     try:
         with source_lock(url, deadline):
             error = fetch_commit(url, commit, deadline)
     except DeadlinePassed:
         error = f"the remote did not answer within {HOOK_SECONDS} s"
     if error:
-        if error.startswith("the remote did not answer") or reachable(url, deadline):
+        try:
+            offline = error.startswith("the remote did not answer") or reachable(url, deadline)
+        except DeadlinePassed:
+            offline = True
+        if offline:
             raise Failure(f"house-rules: {offline_text(error, url)} and {name} {commit} is not cached; "
                           "run again when online")
         raise Failure(f"house-rules: {name}: commit {commit} not found at {url} ({error}); "
@@ -763,6 +806,7 @@ def resolve_branch(entry, warnings, deadline):
             record = read_answer(url, "branch", ref)
             if record and 0 <= time.time() - record["seconds"] < REUSE_SECONDS and \
                     prepared(tree_folder(url, record["revision"])):
+                touch_answer(url, "branch", ref)  # under the lock, so prune sees this use when it checks again
                 return record["revision"], "reused"
             asked = time.time()  # the answer's time is when the remote gave it, not when preparation ended
             commit, error = ask_ref(url, f"refs/heads/{ref}", deadline)
@@ -780,7 +824,7 @@ def resolve_branch(entry, warnings, deadline):
                 if not error:
                     # Published only now that the commit's tree is complete.
                     write_answer(url, "branch", {"url": url, "branch": ref, "revision": commit,
-                                                 "fetched": utc(asked)})
+                                                 "fetched": utc(asked)})  # a new file: its time is this use
                     return commit, "fetched"
     except DeadlinePassed:
         error = f"the remote did not answer within {HOOK_SECONDS} s"
@@ -788,8 +832,8 @@ def resolve_branch(entry, warnings, deadline):
         raise Failure(f"house-rules: {offline_text(error, url)} and no earlier fetch of {name} {ref} is cached; "
                       "run again when online")
     commit = record["revision"]
-    warnings.append(f"warning: {offline_text(error, url)}; using {name} {ref} last fetched "
-                    f"{placed_at(tree_folder(url, commit))}, {commit}")
+    warnings.append(f"warning: {offline_text(error, url)}; using {name} {ref} as last answered "
+                    f"{record['fetched']}, {commit}")
     return commit, "offline"
 
 
@@ -810,8 +854,8 @@ def read_links():
         raise Failure(f"house-rules: cannot read {path} ({exc}); repair or delete it")
     entries = value.get("links") if isinstance(value, dict) and value.get("version") == 1 else None
     if not isinstance(entries, list) or not all(
-            isinstance(e, dict) and set(e) == {"key", "path"} and isinstance(e["key"], str)
-            and isinstance(e["path"], str) for e in entries):
+            isinstance(e, dict) and set(e) == {"key", "path"} and isinstance(e["key"], str) and e["key"]
+            and isinstance(e["path"], str) and e["path"] for e in entries):
         raise Failure(f"house-rules: {path} is not a links file (version 1, a list of key and path); "
                       "repair or delete it")
     return {link["key"]: link["path"] for link in entries}
@@ -832,12 +876,7 @@ def links_lock():
 def write_links(links):
     path = links_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    data = {"version": 1, "links": [{"key": key, "path": links[key]} for key in sorted(links)]}
-    descriptor, temporary = tempfile.mkstemp(prefix=".links-", dir=str(path.parent))
-    with os.fdopen(descriptor, "w") as handle:
-        json.dump(data, handle, indent=2)
-        handle.write("\n")
-    os.replace(temporary, str(path))
+    write_json(path, {"version": 1, "links": [{"key": key, "path": links[key]} for key in sorted(links)]})
 
 
 # Resolution
@@ -849,13 +888,14 @@ def default_sources(warnings):
     return [{"name": "house-rules", "url": DEFAULT_URL, "ref": "main"}], "default"
 
 
-def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADLINE):
+def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADLINE, machine=True):
     """Resolve the layers for `repository` (or for no repository) and return the resolution record.
 
     The configuration is `data` when the caller read it (the checks runner reads it from its snapshot, with its
     own `origin`; an origin without data means that snapshot has none), else the file at commit `rev`, else the
     working tree's file. The record's `context` lists every layer's context files in layer order, House Rules'
     always-load rules first. Its serialized JSON is at most MAX_RECORD_BYTES, so it fits in one environment value.
+    `machine` reads this machine's global configuration and keeps its warnings; CI passes False.
     """
     if os.environ.get(LINK) and os.environ.get(OVERRIDE):
         raise Failure(f"house-rules: set {LINK} or {OVERRIDE}, not both", status=1)
@@ -875,8 +915,10 @@ def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADL
               "profiles": config["profiles"] if config else [], "layers": layers, "context": [],
               "warnings": warnings}
     # Every resolution builds the effective configuration, so a broken ruleset or unknown profile fails here.
+    built = effective(record, config, repository, hooks=machine)
     record["context"] = [{"layer": label, "path": str(Path(path).relative_to(layer_tree(record, label.split("/")[0])))}
-                         for label, path in effective(record, config, repository)["context"]]
+                         for label, path in built["context"]]
+    warnings.extend(built["warnings"])
     size = len(json.dumps(record).encode())
     if size > MAX_RECORD_BYTES:
         counts = {}
@@ -905,6 +947,7 @@ def point_default(layer):
                       "published there, and run again")
     temporary = cache_root() / f".default-{os.getpid()}"
     try:
+        cache_root().mkdir(parents=True, exist_ok=True)
         with contextlib.suppress(FileNotFoundError):
             temporary.unlink()
         os.symlink(layer["tree"], str(temporary))
@@ -978,6 +1021,9 @@ SCOPES = ("tree", "files", "diff")
 CHECK_FIELDS = {"enabled": bool, "run": "strings", "stages": "stages", "scope": "scope", "paths": "strings",
                 "requires": "strings", "fix": str, "reason": str, "enforced": bool}
 COMPLETE_FIELDS = ("run", "stages", "paths", "fix")
+PLACEHOLDERS = ("files", "base", "snapshot", "house_rules", "python", "layer")  # the runner's, and {layer}
+PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
+HOOK_STAGES = ("pre-commit", "pre-push")
 
 
 def check_entry(entry, where, enforced_allowed):
@@ -1001,24 +1047,55 @@ def check_entry(entry, where, enforced_allowed):
             raise Failure(f"house-rules: {where}: {field} has the wrong type or value")
 
 
+def check_identity(identity, where):
+    if not NAME.fullmatch(identity):
+        raise Failure(f"house-rules: {where}: check identity {identity} must be lower kebab case, such as cargo-deny")
+
+
 def check_complete(identity, fields, where):
-    missing = [field for field in COMPLETE_FIELDS if field not in fields]
+    """A complete definition, as the checks runner requires it: every needed field, known placeholders, {files}
+    only as a whole argument of a files-scope check, and {snapshot} in every check that lists a hook stage."""
+    values = {field: value[0] if isinstance(value, tuple) else value for field, value in fields.items()}
+    missing = [field for field in COMPLETE_FIELDS if field not in values]
     if missing:
         raise Failure(f"house-rules: {where}: check {identity} has no {missing[0]}; a check needs run, stages, paths "
                       "and fix")
+    run, scope = values["run"], values.get("scope", "tree")
+    names = [name for arg in run for name in PLACEHOLDER.findall(arg)]
+    unknown = [name for name in names if name not in PLACEHOLDERS]
+    if unknown:
+        raise Failure(f"house-rules: {where}: check {identity} uses unknown placeholder {{{unknown[0]}}}")
+    if "files" in names and (scope != "files" or any("{files}" in arg and arg != "{files}" for arg in run)):
+        raise Failure(f"house-rules: {where}: check {identity} may use {{files}} only as a whole argument of a "
+                      "files-scope check")
+    if scope == "files" and "{files}" not in run:
+        raise Failure(f"house-rules: {where}: check {identity} has scope files but its run has no {{files}} argument")
+    hooks = [stage for stage in values["stages"] if stage in HOOK_STAGES]
+    if hooks and "snapshot" not in names:
+        raise Failure(f"house-rules: {where}: check {identity} lists {hooks[0]} but its run has no {{snapshot}}; a "
+                      "hook stage needs a check that reads the snapshot, otherwise list only ci")
+
+
+def rebinds(field, value, current, label):
+    """True when a run that names {layer} is set by another layer: the same text then runs another layer's files."""
+    return (field == "run" and any("{layer}" in arg for arg in value)
+            and current[field][1].split("/", 1)[0] != label.split("/", 1)[0])
 
 
 def merge_entry(state, settings, section, key, entry, label, need_reason, earlier_defined):
     """Apply one entry field by field; record each changed value with its layer, and require a reason for it."""
     current = state[section].get(key)
     if current is None:
+        check_complete(key, entry, label)  # an identity is introduced whole; a later file only changes it
+        if label == "repository" and not isinstance(entry.get("reason"), str):
+            raise Failure(f"house-rules: {CONFIG} checks.{key}: a repository check needs a reason")
         state[section][key] = {field: (value, label) for field, value in entry.items()}
         if earlier_defined:
             settings.append({"key": f"{section}.{key}", "value": entry, "layer": label, "replaces": None,
                              "reason": entry.get("reason")})
         return
     changed = [field for field, value in entry.items() if field != "reason"
-               and (field not in current or current[field][0] != value)]
+               and (field not in current or current[field][0] != value or rebinds(field, value, current, label))]
     if changed and need_reason and not isinstance(entry.get("reason"), str):
         earlier = current[changed[0]][1] if changed[0] in current else current[next(iter(current))][1]
         raise Failure(f"house-rules: {label} {section}.{key}.{changed[0]}: changes {earlier}'s value; add a reason")
@@ -1048,6 +1125,9 @@ def merge_budget(state, settings, stage, entry, label, need_reason):
 def read_ruleset(layer):
     """A layer's ruleset.json, parsed, or None when the layer has none."""
     path = Path(layer["tree"]) / RULESET
+    root = os.path.realpath(layer["tree"])
+    if os.path.lexists(str(path)) and not os.path.realpath(str(path)).startswith(root + os.sep):
+        raise Failure(f"house-rules: {layer['name']} {RULESET} leaves the layer's tree; it must be a file inside it")
     try:
         data = path.read_bytes()
     except FileNotFoundError:
@@ -1062,7 +1142,8 @@ def effective(record, config=None, repository=None, hooks=False):
     repository's settings, and in hooks the global configuration. Every value keeps the label of the step that set
     it. Checks merge field by field, budgets replace per stage and context appends.
 
-    Returns {"checks": {id: {field: value}}, "budgets": {...}, "context": [(label, path)], "layers_of": {...},
+    Returns {"checks": {id: {field: value}}, "budgets": {...}, "budget_layers": {stage: label},
+    "context": [(label, path)], "layers_of": {...},
     "settings": [...], "personal": [ids], "warnings": [...]}.
     """
     state = {"checks": {}, "budgets": {}}
@@ -1083,6 +1164,7 @@ def effective(record, config=None, repository=None, hooks=False):
         for label, content in steps:
             if content is not None:
                 for key, entry in content["checks"].items():
+                    check_identity(key, f"{label} checks")
                     check_entry(entry, f"{label} checks.{key}", True)
                     merge_entry(state, settings, "checks", key, entry, label, not first, not first)
                 for stage, entry in content["budgets"].items():
@@ -1100,6 +1182,7 @@ def effective(record, config=None, repository=None, hooks=False):
                       f"({', '.join(layer['name'] for layer in record['layers'])})")
     if config is not None:
         for key, entry in config["checks"].items():
+            check_identity(key, f"{CONFIG} checks")
             check_entry(entry, f"{CONFIG} checks.{key}", False)
         for key, entry in config["checks"].items():
             merge_entry(state, settings, "checks", key, entry, "repository", True, True)
@@ -1132,7 +1215,9 @@ def effective(record, config=None, repository=None, hooks=False):
     flat = {section: {key: {field: value for field, (value, _) in entry.items()} for key, entry in state[section].items()}
             for section in state}
     layers_of = {key: {field: label for field, (_, label) in entry.items()} for key, entry in state["checks"].items()}
-    return {"checks": flat["checks"], "budgets": flat["budgets"], "context": context, "layers_of": layers_of,
+    budget_layers = {stage: entry["seconds"][1] for stage, entry in state["budgets"].items()}
+    return {"checks": flat["checks"], "budgets": flat["budgets"], "budget_layers": budget_layers,
+            "context": context, "layers_of": layers_of,
             "settings": settings, "personal": personal, "warnings": warnings}
 
 
@@ -1150,13 +1235,13 @@ def describe_settings(settings):
 
 def cmd_resolve(args):
     record = resolve(args.repository, args.rev)
+    stale = installed_differs(record)
+    if stale:
+        record["warnings"].append(stale)
     if args.json:
         print(json.dumps(record, indent=2))
     else:
         print("\n".join(describe(record)))
-        stale = installed_differs(record)
-        if stale:
-            print(stale)
     return 0
 
 
@@ -1167,7 +1252,8 @@ def installed_differs(record):
     if "revisions" in own.parts or not default.is_file():
         return None
     try:
-        if own.read_bytes()[own.read_bytes().index(b"\n"):] != default.read_bytes()[default.read_bytes().index(b"\n"):]:
+        mine, theirs = own.read_bytes(), default.read_bytes()
+        if mine[mine.index(b"\n"):] != theirs[theirs.index(b"\n"):]:  # the interpreter line differs by machine
             return "warning: this house-rules command differs from the one in House Rules main; run house-rules self-update"
     except (OSError, ValueError):
         return None
@@ -1213,11 +1299,13 @@ def cmd_exec(args):
         return 0
     if args.hook:
         try:
-            folder = folder or json.loads(stdin or b"{}").get("cwd")
+            hook_cwd = json.loads(stdin or b"{}").get("cwd")
         except (ValueError, AttributeError):
-            folder = folder or None
+            hook_cwd = None
+        folder = folder or (hook_cwd if isinstance(hook_cwd, str) and hook_cwd else None)
     environ = dict(os.environ)
     environ.pop(RESOLVED, None)  # a resolution inherited from an outer run never describes this one
+    environ.pop(FALLBACK, None)
     deadline = NO_DEADLINE
     if args.hook:
         # One deadline for the whole hook, resolution and script together, before the agent product's timeout
@@ -1239,6 +1327,7 @@ def cmd_exec(args):
         # A failed resolution never stops an agent session: name it, then the global default's rules, labelled.
         repository = None
         tree, record = Path(os.path.realpath(str(cache_root() / "default"))), None
+        environ[FALLBACK] = str(failure)  # the script runs from the global default's tree, without a record
         known = prepared(tree) and (tree / args.path).is_file()
         print(f"{HOOK_ERROR} {failure}. " + (
             f"The House Rules below are the global default's ({tree}), not this repository's resolved rules, and "
@@ -1295,8 +1384,8 @@ def cmd_unlink(args):
     with links_lock():
         links = read_links()
         keys = [key for key, path in links.items() if path == target]
-        if not keys:
-            keys = [key for key in links if key == args.target]
+        if not keys and args.target in links:
+            keys = [args.target]
         if not keys:
             raise Failure(f"house-rules: no link names {args.target}; house-rules cache list shows the links",
                           status=1)
@@ -1410,7 +1499,8 @@ def prune_plan(now=None):
     for tree in trees():
         if tree_unused(tree, now, named, default):
             plan.append((tree, f"unused since {utc(last_used(tree))}", None))
-    for folder in (*cache_sources(), root / "revisions"):
+    folders = [folder / sub for folder in cache_sources() for sub in ("", *ANSWER_FOLDERS.values())]
+    for folder in (*folders, root / "revisions", config_home()):
         for path in sorted(folder.glob(".partial-*")) + sorted(folder.glob(".removing-*")):
             if now - path.lstat().st_mtime > PARTIAL_SECONDS:
                 plan.append((path, "unfinished fetch or removal", None))
@@ -1427,14 +1517,16 @@ def remove_tree(path):
     shutil.rmtree(str(path))
 
 
-def prune_tree(tree):
-    """Remove one cached tree unless a run used or named it since the plan; return what happened.
+def prune_tree(tree, named=None, default=None):
+    """Remove one cached tree unless a run used it since the plan; return what happened.
 
-    No lock: prune goes by last use alone. The tree is renamed out of revisions/ before anything is deleted, so an
-    interrupted removal never leaves a partial tree at its ready path; its .fetched and .used files go with it.
+    No lock: prune goes by last use alone, with the records and `default` read once per pass. The tree is renamed
+    out of revisions/ before anything is deleted, so an interrupted removal never leaves a partial tree at its
+    ready path; its .fetched and .used files go with it.
     """
     now = time.time()
-    named, default = protection(now)
+    if named is None:
+        named, default = protection(now)
     if not tree_unused(tree, now, named, default):
         return "keep", "used or named again"
     doomed = tree.parent / f".removing-{tree.name}-{os.getpid()}"
@@ -1446,8 +1538,22 @@ def prune_tree(tree):
     return "remove", None
 
 
+def prune_record(path, source):
+    """Remove one expired record unless a resolution used it since the plan, checked under its source's lock."""
+    descriptor = os.open(str(source / "lock"), os.O_RDWR | os.O_CREAT, 0o644)
+    try:
+        fcntl.flock(descriptor, fcntl.LOCK_EX)  # no resolution of this source is running
+        if time.time() - path.stat().st_mtime <= RECORD_UNUSED_SECONDS:
+            return "keep", "used again"
+        path.unlink()
+        return "remove", None
+    finally:
+        os.close(descriptor)
+
+
 def cmd_cache_prune(args):
     removed = 0
+    named, default = protection(time.time())  # records may expire in this pass; their trees then stay until next
     for path, reason, source in prune_plan():
         if args.dry_run:
             print(f"would remove {path} ({reason})")
@@ -1455,20 +1561,15 @@ def cmd_cache_prune(args):
             continue
         try:
             if path.parent == cache_root() / "revisions" and COMMIT.fullmatch(path.name):
-                action, why = prune_tree(path)
+                action, why = prune_tree(path, named, default)
                 if action == "keep":
                     print(f"keep {path} ({why})")
                     continue
-            elif source is not None:  # a record, checked again under its source's lock
-                descriptor = os.open(str(source / "lock"), os.O_RDWR | os.O_CREAT, 0o644)
-                try:
-                    fcntl.flock(descriptor, fcntl.LOCK_EX)  # no resolution of this source is running
-                    if time.time() - path.stat().st_mtime <= RECORD_UNUSED_SECONDS:
-                        print(f"keep {path} (used again)")  # a resolution used it after the plan
-                        continue
-                    path.unlink()
-                finally:
-                    os.close(descriptor)
+            elif source is not None:
+                action, why = prune_record(path, source)
+                if action == "keep":
+                    print(f"keep {path} ({why})")
+                    continue
             elif path.is_dir() and not path.is_symlink():
                 remove_tree(path)
             else:
@@ -1535,9 +1636,14 @@ def write_command(source, dry_run):
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     temporary = target.with_name(f".house-rules-{os.getpid()}")
-    temporary.write_text(installed_text(source))
-    temporary.chmod(0o755)
-    os.replace(str(temporary), str(target))
+    try:
+        temporary.write_text(installed_text(source))
+        temporary.chmod(0o755)
+        os.replace(str(temporary), str(target))
+    except BaseException:
+        with contextlib.suppress(OSError):
+            temporary.unlink()
+        raise
 
 
 def cmd_install(args):
