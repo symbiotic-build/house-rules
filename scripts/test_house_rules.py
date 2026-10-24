@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -852,8 +853,8 @@ class RoundTwoTests(Fixture):
         hr.write_links({config["sources"][1]["url"]: checkout})
         code, out, _ = self.command("cache", "list")
         self.assertEqual(code, 0)
-        self.assertIn(config["sources"][1]["url"] + "\n  branch main -> ", out)
-        self.assertIn(f"  linked to {checkout}", out)
+        self.assertRegex(out, rf"{re.escape(config['sources'][1]['url'])}\n  branch main -> [0-9a-f]{{40}} \(fetched "
+                              rf"[^)]*\)\n  linked to {re.escape(checkout)}\n")  # the link sits under its source
 
 
 
