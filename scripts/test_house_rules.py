@@ -37,7 +37,6 @@ class Fixture(unittest.TestCase):
             os.environ.pop(name, None)
 
     def cleanup(self):
-        subprocess.run(["chmod", "-R", "u+w", str(self.root)], check=False, stdin=subprocess.DEVNULL)  # read-only trees
         subprocess.run(["rm", "-rf", str(self.root)], check=False, stdin=subprocess.DEVNULL)
 
     def source(self, name, files):
@@ -730,19 +729,12 @@ class RoundOneTests(Fixture):
             hr.resolve(None)
         self.assertIn("is not a symbolic link; move it away", str(caught.exception))
 
-    def test_init_never_overwrites_a_file_created_meanwhile(self):
-        path = Path(self.repository()) / hr.CONFIG
-        path.write_text("theirs\n")  # another writer created it after init's first check
-        with self.assertRaises(hr.Failure):
-            hr.create_once(path, "ours\n")
-        self.assertEqual(path.read_text(), "theirs\n")
-
     def test_a_failed_cleanup_of_a_fetch_repository_is_reported(self):
         config, pin = self.tour()
         with mock.patch.object(hr.shutil, "rmtree", side_effect=OSError(13, "Permission denied")):
             with self.assertRaises(hr.Failure) as caught:
                 hr.resolve(self.repository(config))
-        self.assertIn("cannot remove the temporary fetch repository", str(caught.exception))
+        self.assertIn("cannot remove the temporary fetch folder", str(caught.exception))
         subprocess.run(["rm", "-rf", str(self.root / "cache")], check=True, stdin=subprocess.DEVNULL)
         shim = self.root / "bin"
         shim.mkdir()
@@ -878,8 +870,28 @@ class RoundTwoTests(Fixture):
         self.assertNotIn("\nsource ", "\n" + out)  # nor is its folder listed by its hash
         pinned = record["layers"][2]["revision"]
         self.assertRegex(out, rf"\ntree {pinned} [0-9.]+ MiB, first fetched [0-9TZ:-]+\n")  # its tree is listed
-        self.assertTrue(out.endswith(f"cache {hr.cache_root()} {hr.folder_size(hr.cache_root()) / 1_048_576:.1f} MiB "
-                                     "in total\n"), out)
+
+    def test_cache_list_sizes_come_from_every_file_once(self):
+        tree = hr.cache_root() / "revisions" / ("a" * 40)
+        tree.mkdir(parents=True)
+        (tree / "big").write_bytes(b"x" * 2 * 1_048_576)
+        other = hr.cache_root() / "sources" / ("b" * 64) / ".partial-x"
+        other.mkdir(parents=True)
+        (other / "big").write_bytes(b"x" * 1_048_576)
+        code, out, err = self.command("cache", "list")
+        self.assertEqual(code, 0, err)
+        self.assertIn(f"tree {'a' * 40} 2.0 MiB, first fetched ", out)
+        self.assertTrue(out.endswith(f"cache {hr.cache_root()} 3.0 MiB in total\n"), out)  # the tree is counted once
+        records = hr.cache_root() / "sources" / ("b" * 64) / "branches"
+        records.mkdir()
+        (records / "x.json").write_text(json.dumps({"url": ["u"], "branch": "main", "revision": "c" * 40,
+                                                    "fetched": "2026-10-24T00:00:00Z"}))
+        self.assertEqual(self.command("cache", "list")[0], 0)  # a record with a field of the wrong type is skipped
+        other.chmod(0)
+        self.addCleanup(other.chmod, 0o700)
+        code, out, err = self.command("cache", "list")
+        self.assertEqual(code, 2)  # an unreadable folder is an error, never a smaller total
+        self.assertIn("Permission denied", err)
 
 
 
@@ -946,6 +958,134 @@ class RoundThreeTests(Fixture):
             hr.resolve(self.repository(config))
         self.assertRegex(str(caught.exception), r"^house-rules: the record for this run is \d+ bytes, over the 64 KiB "
                                                 r"limit; team-rules lists the most context files \(1200\)$")
+
+
+
+class ResolverRoundThreeTests(Fixture):
+    """The resolver PR's Warden round 3, one test each."""
+
+    def test_refused_urls_are_not_printed(self):
+        source = {"name": "house-rules"}
+        for url in ("https://user:SECRET@host:port/rules", "https://user:SECRET@host/rules"):
+            with self.assertRaises(hr.Failure) as caught:
+                hr.repository_config(json.dumps({"version": 2, "sources": [source, {"name": "team", "url": url}]}))
+            self.assertNotIn("SECRET", str(caught.exception))
+            self.assertIn("sources[1]: the URL of team ", str(caught.exception))
+        checkout = self.root / "work" / "team-rules"
+        self.source("team-rules", {"a": "b"})
+        code, _, err = self.command("link", str(checkout), "--url", "https://user:SECRET@host/rules")
+        self.assertEqual(code, 1)
+        self.assertNotIn("SECRET", err)
+        self.assertIn("the --url value carries credentials", err)
+
+    def test_push_lines_split_only_at_spaces_and_bad_lines_fail(self):
+        commit = "1" * 40
+        line = f"refs/heads/a\u00a0b {commit} refs/heads/a\u2028b {'0' * 40}\n".encode()
+        self.assertEqual(hr.pushed_commits(line), [commit])  # Unicode spaces are part of a ref name
+        self.assertEqual(hr.pushed_commits(f"(delete) {'0' * 40} refs/heads/x {commit}\n".encode()), [])
+        with self.assertRaises(hr.Failure):
+            hr.pushed_commits(b"not a pre-push line\n")
+        code, out, _ = self.command("exec", "--origin", "push", "scripts/x.py", stdin=b"garbage\n",
+                                    cwd=self.repository())
+        self.assertEqual(code, 2)
+        self.assertNotIn("nothing to check", out)
+
+    def test_a_snapshot_without_configuration_resolves_nothing(self):
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": "file:///nowhere"}]})
+        run(repo, "add", hr.CONFIG)
+        run(repo, "commit", "-q", "-m", "adopt")
+        run(repo, "rm", "-q", "--cached", hr.CONFIG)
+        code, out, err = self.command("exec", "--origin", "index", "scripts/x.py", cwd=repo)
+        self.assertEqual((code, out), (0, "nothing to check: the staged index has no house-rules.json\n"), err)
+        self.assertFalse(hr.cache_root().exists())  # nothing was resolved, so no unrelated source could refuse
+
+    def test_a_configuration_git_cannot_read_is_a_failure(self):
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules"}]})
+        run(repo, "add", hr.CONFIG)
+        run(repo, "commit", "-q", "-m", "adopt")
+        blob = run(repo, "rev-parse", f"HEAD:{hr.CONFIG}")
+        Path(repo, ".git", "objects", blob[:2], blob[2:]).unlink()
+        with self.assertRaises(hr.Failure) as caught:
+            hr.read_configuration(repo, "HEAD")
+        self.assertIn(f"cannot read {hr.CONFIG} from commit ", str(caught.exception))
+        Path(repo, ".git", "index").write_bytes(b"not an index")
+        with self.assertRaises(hr.Failure) as caught:
+            hr.hook_configuration(repo, "index", b"")
+        self.assertIn(f"cannot read {hr.CONFIG} from the index", str(caught.exception))
+
+    def test_malformed_values_are_configuration_errors(self):
+        source = {"name": "house-rules"}
+        with self.assertRaises(hr.Failure) as caught:
+            hr.repository_config(json.dumps({"version": 2, "sources": [dict(source, ref="ma\0in")]}))
+        self.assertIn("ref must be a branch name", str(caught.exception))
+        if hasattr(sys, "set_int_max_str_digits"):  # Python 3.11 and later limit integer digits
+            with self.assertRaises(hr.Failure) as caught:
+                hr.load_json(b'{"version": ' + b"1" * 5000 + b"}", "f")
+            self.assertIn("f: invalid JSON: ", str(caught.exception))
+        self.assertEqual(hr.check_budgets({"ci": {"seconds": 10 ** 400}}, "f")["ci"]["seconds"], 10 ** 400)
+        with self.assertRaises(hr.Failure):
+            hr.check_budgets({"ci": {"seconds": float("inf")}}, "f")
+
+    def test_reasons_are_text_and_personal_checks_are_named(self):
+        config, _ = self.tour()
+        config["checks"] = {"whitespace": {"enabled": False, "reason": "  "}}
+        with self.assertRaises(hr.Failure) as caught:
+            hr.resolve(self.repository(config))
+        self.assertIn("reason has the wrong type or value", str(caught.exception))
+        del config["checks"]
+        (self.root / "config" / "house-rules").mkdir(parents=True)
+        hr.global_path().write_text(json.dumps({"version": 1, "checks": {"Lint": {
+            "run": ["true", "{snapshot}"], "stages": ["pre-commit"], "scope": "tree", "paths": ["**"],
+            "requires": [], "fix": "f", "enabled": True, "reason": "mine"}}}))
+        record = hr.resolve(self.repository(config))
+        self.assertTrue(any("global configuration check Lint is not usable" in w for w in record["warnings"]),
+                        record["warnings"])
+
+    def test_the_global_configuration_is_read_once(self):
+        house = self.source("house-rules", {"a": "b"})
+        (self.root / "config" / "house-rules").mkdir(parents=True)
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        reads, real = [], Path.read_bytes
+        def read_bytes(path):
+            reads.append(path)
+            return real(path)
+        with mock.patch.object(hr.Path, "read_bytes", read_bytes):
+            hr.resolve(None)
+        self.assertEqual(reads.count(hr.global_path()), 1)
+
+    def test_a_failed_fetch_keeps_its_deadline_and_leaves_no_extraction(self):
+        config, pin = self.tour()
+        url = config["sources"][2]["url"]
+        real_run = subprocess.run
+        def run_tar_fails(*args, **kwargs):
+            if args[0][0] == "tar":
+                Path(args[0][4], "partial-file").write_text("x")  # extraction wrote part of the tree
+                raise subprocess.TimeoutExpired("tar", 1)
+            return real_run(*args, **kwargs)
+        with mock.patch.object(hr.subprocess, "run", run_tar_fails):
+            with self.assertRaises(hr.DeadlinePassed):
+                hr.fetch_commit(url, pin)
+        folder = hr.source_folder(url)
+        self.assertEqual([p.name for p in folder.iterdir() if p.name.startswith(".partial-")], [])
+        with mock.patch.object(hr.subprocess, "run", run_tar_fails), \
+                mock.patch.object(hr.shutil, "rmtree", side_effect=OSError(13, "Permission denied")):
+            with self.assertRaises(hr.Failure) as caught:
+                hr.fetch_commit(url, pin)
+        self.assertIn("; the fetch had failed first: the deadline passed", str(caught.exception))
+
+    def test_init_never_overwrites_a_file_created_after_its_check(self):
+        repo = self.repository()
+        path = Path(repo) / hr.CONFIG
+        real = Path.exists
+        def exists(self_path, *args, **kwargs):
+            if self_path == path:
+                path.write_text("theirs\n")  # another writer creates it right after init looked
+                return False
+            return real(self_path, *args, **kwargs)
+        with mock.patch.object(hr.Path, "exists", exists), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(hr.main(["init", "--repo", repo]), 1)
+        self.assertEqual(path.read_text(), "theirs\n")
+        self.assertIn("exists; edit it instead", err.getvalue())
 
 
 if __name__ == "__main__":
