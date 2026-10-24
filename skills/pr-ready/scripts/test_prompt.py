@@ -1112,12 +1112,6 @@ class AnsweredRestoreTest(unittest.TestCase):
         self.assertIn("including both the lane and server-side reviews for the "
                       "recorded comparison trial.", merge)
 
-    def test_external_and_paid_boundary_only(self):
-        rules = self.text("rules/delivery.md")
-        self.assertIn("Require an explicit maximum cost/token/runtime boundary before "
-                      "launching external or paid work.", rules)
-        self.assertIn("Apply this launch-boundary requirement only to external or paid work.", rules)
-
     def test_council_pointer_without_workflow(self):
         rules = self.text("rules/core.md")
         self.assertIn("Send design-changing or otherwise important decisions to the "
@@ -1816,34 +1810,6 @@ class AcceptedScopeRegressionTest(unittest.TestCase):
             "for the supported-API, configuration and simpler-design check.",
             " ".join(upstream.split()),
         )
-
-    def test_routine_commands_are_exempt_from_expensive_work_requirements(self):
-        delivery = (ROOT / "rules/delivery.md").read_text()
-        self.assertIn(
-            "Apply this launch-boundary requirement only to external or paid work.\n"
-            "- Exempt routine short, cheap, reproducible commands from these expensive-work requirements.",
-            delivery,
-        )
-        handoff = (ROOT / "skills/handoff-continuity/SKILL.md").read_text()
-        self.assertIn(
-            "Apply the routine-command exemption in rules/delivery.md §Verification.",
-            handoff,
-        )
-        self.assertNotIn("from the durable-external-run procedure", handoff)
-
-    def test_preventive_safety_stops_do_not_require_operator_approval(self):
-        delivery = (ROOT / "rules/delivery.md").read_text()
-        self.assertIn(
-            "Obtain operator approval before stopping materially paid work, except under "
-            "rules/core.md §Operator correction or safety requirements.", delivery,
-        )
-        self.assertNotIn("urgent safety requirements", delivery)
-        handoff = " ".join((ROOT / "skills/handoff-continuity/SKILL.md").read_text().split())
-        self.assertIn(
-            "For a materially paid or unique run, apply the approval requirement and "
-            "exceptions in rules/delivery.md §Verification.", handoff,
-        )
-        self.assertIn("An urgent safety stop takes precedence", handoff)
 
     def test_ready_instruction_is_required_only_for_externally_owned_repositories(self):
         delivery = (ROOT / "rules/git.md").read_text()

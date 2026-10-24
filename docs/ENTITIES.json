@@ -492,7 +492,6 @@
         "runner environment variables"
       ],
       "symbols": [
-        "HOUSE_RULES_URL",
         "HOUSE_RULES_REVISION",
         "HOUSE_RULES_CACHE",
         "HOUSE_RULES_CHECK_QUEUE",

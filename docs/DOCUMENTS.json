@@ -961,7 +961,7 @@
           "roles": [
             "mechanism"
           ],
-          "summary": "Declare checks in one file and write a check to the command contract.",
+          "summary": "Name the House Rules layer and declare checks in one file, and write a check to the command contract.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
@@ -996,7 +996,7 @@
           "roles": [
             "mechanism"
           ],
-          "summary": "Know which House Rules revision a run uses, what it logs and what works without a network.",
+          "summary": "Know which House Rules commit a run resolves its layer to, what it logs and what works without a network.",
           "prerequisites": [],
           "explanatory_dependencies": []
         },
