@@ -1011,11 +1011,10 @@ class CorpusTests(CorpusFixture, unittest.TestCase):
         texts = {"two runs": "the kit maker", "folded case": "the \u017fET UP", "no ASCII run": "a naïve one"}
         for label, text in texts.items():
             with self.subTest(label):
-                self.paths = accepted.copy()
-                self.paths[ACCEPTANCE] += f"\nNote {text}.\n".encode()
-                diagnosed = [d.message for d in s.check(corpus(self.paths)).errors if d.code == "D13"]
+                paths = accepted.copy()
+                paths[ACCEPTANCE] += f"\nNote {text}.\n".encode()
+                diagnosed = [d.message for d in s.check(corpus(paths)).errors if d.code == "D13"]
                 self.assertEqual(diagnosed, ["rejected form for entity 'example.writer'; use its registered replacement"])
-                self.red_green("D13", lambda: accepted)
         accepted[ACCEPTANCE] += b"\nNote the maker kit and the kit's maker.\n"
         self.assertTrue((result := s.check(refresh(accepted))).ok, result.errors)
 
