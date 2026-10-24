@@ -43,7 +43,7 @@
 - Include the run's identifier, its target and its spend so far in each report.
 - Report retries and test runs the same way; no failed or new paid run goes unreported.
 - Inspect process state before stopping runs because of silence or wrapper timeouts.
-- Never stop a paid run that is progressing at a reasonable pace.
+- Do not stop a paid run on your own while it progresses at a reasonable pace.
 - Investigate a paid run that stops progressing, stop it early when it has stalled, and report the stop at once.
 - Obtain operator approval before stopping progressing, materially paid work, except under rules/core.md §Operator correction or safety requirements.
 - Follow `handoff-continuity` §Authorized, bounded, and durable external runs for procedure.

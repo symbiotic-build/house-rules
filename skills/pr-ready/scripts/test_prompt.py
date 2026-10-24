@@ -1125,7 +1125,7 @@ class AnsweredRestoreTest(unittest.TestCase):
         self.assertIn("Report each paid run's start, failure and finish to the operator at once.", delivery)
         self.assertIn("Report retries and test runs the same way; no failed or new paid run goes "
                       "unreported.", delivery)
-        self.assertIn("Never stop a paid run that is progressing at a reasonable pace.", delivery)
+        self.assertIn("Do not stop a paid run on your own while it progresses at a reasonable pace.", delivery)
         outcome = self.text("rules/outcome.md")
         self.assertIn("Treat retries and test runs inside an approved task's scope as part of that task.",
                       outcome)
