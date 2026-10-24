@@ -2477,16 +2477,16 @@ class InstallTest(InstallCase):
         folder = cache / "environments" / hashlib.sha256(original + b"\0" + version).hexdigest()
         self.assertIn(f"spec checker environment ready at {folder}\n", proc.stdout)
 
-    def test_looping_hooks_folder_is_a_preparation_failure_on_python_3_9(self):
-        """Python before 3.13 raises RuntimeError while resolving a looping link; the install reports it."""
-        python = python39()
-        if python is None:
-            self.skipTest("no Python 3.9 interpreter is installed")
+    def test_looping_hooks_folder_is_a_preparation_failure(self):
+        """A looping hooks folder is a preparation failure, also on Python 3.9, whose Path.resolve raises RuntimeError
+        on a loop: the item label resolves nothing, and reading the hook raises OSError inside the boundary."""
         os.symlink("loop", str(self.repo.path / "loop"))
         self.repo.git("config", "core.hooksPath", "loop")
-        proc = self.repo.run("install", "--dry-run", python=python)
-        self.assertPreparationFailure(proc, "repository checks: cannot read loop/pre-commit (",
-                                      "repair access to it, then run install again")
+        for python in [sys.executable] + ([python39()] if python39() else []):
+            with self.subTest(python=python):
+                proc = self.repo.run("install", "--dry-run", python=python)
+                self.assertPreparationFailure(proc, "repository checks: cannot read loop/pre-commit (",
+                                              "repair access to it, then run install again")
 
     def test_hook_block_passes_the_exec_status_through(self):
         log = self.repo.path.parent / "tool.log"

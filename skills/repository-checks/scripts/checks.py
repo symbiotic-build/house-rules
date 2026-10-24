@@ -1684,8 +1684,6 @@ def inspecting(what):
         yield
     except OSError as exc:
         raise Failure(f"cannot read {what} ({exc.strerror or exc})", INSPECT_REPAIR) from None
-    except RuntimeError as exc:  # a looping link, as Python before 3.13 reports it while resolving a path
-        raise Failure(f"cannot read {what} ({exc})", INSPECT_REPAIR) from None
 
 
 def publish(path, data, mode, label, expected=None):
