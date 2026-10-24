@@ -32,6 +32,7 @@ import math
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -152,10 +153,13 @@ def credentials(url, what, status=2):
     return parts.password is not None or parts.scheme.lower() in ("http", "https")
 
 
-def encodable(text):
-    """True when `text` can become a process argument and a cache key: no lone surrogate, which JSON allows."""
+def encodable(text, errors="strict"):
+    """True when `text` can become a process argument and a cache key: no lone surrogate, which JSON allows.
+
+    With `errors="surrogateescape"`, the lone surrogates that stand for undecodable bytes pass, as a branch name may
+    hold them (the branch hash keeps them, see `digest`)."""
     try:
-        text.encode("utf-8")
+        text.encode("utf-8", errors)
     except UnicodeEncodeError:
         return False
     return True
@@ -281,7 +285,7 @@ def check_sources(sources, where):
             raise Failure(f"house-rules: {at}: layer {name} needs a url")
         check_url(url, f"{at}: the URL of {name}")
         ref = entry.get("ref", "main")
-        if not isinstance(ref, str) or not ref or "\0" in ref or not encodable(ref):
+        if not isinstance(ref, str) or not ref or "\0" in ref or not encodable(ref, "surrogateescape"):
             raise Failure(f"house-rules: {at}: ref must be a branch name, a full commit identity or a release tag")
         if SHA256_COMMIT.fullmatch(ref.lower()):
             raise Failure(f"house-rules: {name}: SHA-256 sources are not supported yet")
@@ -582,8 +586,14 @@ def fetch_commit(url, commit, deadline=NO_DEADLINE):
                 if not os.path.islink(path):
                     os.chmod(path, os.stat(path).st_mode & ~0o222)
         final.parent.mkdir(parents=True, exist_ok=True)
+        with os.scandir(str(temporary)) as entries:
+            filled = any(entries)
         try:
-            os.rename(str(temporary), str(final))
+            if filled:
+                os.rename(str(temporary), str(final))  # refused when `final` holds the same files already
+            else:  # rename would replace an empty `final`; mkdir publishes the empty tree and never replaces
+                os.mkdir(str(final), stat.S_IMODE(os.stat(str(temporary)).st_mode))
+                remove_tree(temporary)
         except OSError:
             if not final.is_dir():
                 raise
@@ -899,6 +909,13 @@ def describe_configuration(record):
     return f"house-rules: {where}configuration {CONFIG} ({at})"
 
 
+def print_record(record):
+    """The text form as a command prints it: warnings on standard error, the result on standard output."""
+    for warning in record["warnings"]:
+        print(warning, file=sys.stderr)
+    print("\n".join(describe(record, warnings=False)))
+
+
 def describe_layer(layer, width):
     """One layer's line: name, URL, ref, commit, source and, for a branch or tag, when the remote answered."""
     name, url = layer["name"].ljust(width), layer["url"]
@@ -914,10 +931,10 @@ def describe_layer(layer, width):
     return f"house-rules: layer {name} {url} ref {layer['ref']} -> {layer['revision']} ({detail})"
 
 
-def describe(record):
+def describe(record, warnings=True):
     """The resolution record's text form: warnings, the configuration line, one line per layer, the profiles."""
     width = max(len(layer["name"]) for layer in record["layers"])
-    lines = list(record["warnings"]) + [describe_configuration(record)]
+    lines = (list(record["warnings"]) if warnings else []) + [describe_configuration(record)]
     lines += [describe_layer(layer, width) for layer in record["layers"]]
     if record["profiles"]:
         lines.append(f"house-rules: profiles {', '.join(record['profiles'])}")
@@ -1137,7 +1154,7 @@ def cmd_resolve(args):
     if args.json:
         print(json.dumps(record, indent=2))
     else:
-        print("\n".join(describe(record)))
+        print_record(record)
     return 0
 
 
@@ -1189,9 +1206,12 @@ def script_in(tree, relative):
 def cmd_exec(args):
     stdin = None
     folder = args.repo
+    deadline = NO_DEADLINE
     if args.hook:
+        # One deadline for the whole hook from its start, resolution and script together, before the agent
+        # product's timeout kills it without a trace; the script reads it from HOUSE_RULES_DEADLINE.
+        deadline, ends = Deadline(HOOK_SECONDS), time.time() + HOOK_SECONDS
         stdin = sys.stdin.buffer.read()
-    if args.hook:
         try:
             hook_cwd = json.loads(stdin or b"{}").get("cwd")
         except (ValueError, AttributeError):
@@ -1199,12 +1219,8 @@ def cmd_exec(args):
         folder = folder or (hook_cwd if isinstance(hook_cwd, str) and hook_cwd else None)
     environ = dict(os.environ)
     environ.pop(RESOLVED, None)  # a resolution inherited from an outer run never describes this one
-    deadline = NO_DEADLINE
     if args.hook:
-        # One deadline for the whole hook, resolution and script together, before the agent product's timeout
-        # kills it without a trace; the script reads it from HOUSE_RULES_DEADLINE.
-        deadline = Deadline(HOOK_SECONDS)
-        environ[DEADLINE] = f"{time.time() + HOOK_SECONDS:.3f}"
+        environ[DEADLINE] = f"{ends:.3f}"
     try:
         repository = find_repository(folder) if folder else find_repository()
         if (args.repo or args.origin or args.rev) and repository is None:
@@ -1450,7 +1466,7 @@ def cmd_install(args):
     print(f"{'would resolve' if args.dry_run else 'resolve'} the global default sources")
     if not args.dry_run:
         record = resolve(None)
-        print("\n".join(describe(record)))  # warnings included: a linked or offline default says so
+        print_record(record)  # a linked or offline default says so on standard error
     return 0
 
 

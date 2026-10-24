@@ -1181,5 +1181,61 @@ class ResolverRoundThreeTests(Fixture):
         self.assertIn("exists; edit it instead", err.getvalue())
 
 
+
+class ResolverRoundEightTests(Fixture):
+    """The resolver PR's Warden round 8, one test each."""
+
+    def test_a_branch_with_an_undecodable_byte_resolves(self):
+        config, _ = self.tour()
+        branch = os.fsdecode(b"team-\xff")  # JSON holds the byte as the escape "\udcff"
+        work = self.root / "work" / "team-rules"
+        with open(str(self.root / "remotes" / "team-rules.git" / "packed-refs"), "ab") as refs:
+            refs.write(run(work, "rev-parse", "HEAD").encode() + b" refs/heads/team-\xff\n")  # macOS refuses the name as a file
+        config["sources"][1]["ref"] = branch
+        record = hr.resolve(self.repository(config))
+        self.assertEqual(record["layers"][1]["revision"], run(work, "rev-parse", "HEAD"))
+        self.assertTrue(hr.answer_path(config["sources"][1]["url"], "branch", branch).is_file())
+
+    def test_a_hook_deadline_starts_before_its_input(self):
+        house = self.source("house-rules", {"scripts/show.py": "import os\nprint(os.environ['HOUSE_RULES_DEADLINE'])\n"})
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house}]})
+        started = time.time()
+        proc = subprocess.Popen([sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/show.py"],
+                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        time.sleep(1.5)  # the agent product writes the hook's input late
+        out, err = proc.communicate(json.dumps({"cwd": repo}).encode())
+        self.assertEqual(proc.returncode, 0, err)
+        self.assertLess(float(out) - started, hr.HOOK_SECONDS + 1)  # counted from the start, not from the input
+
+    def test_an_empty_tree_is_never_replaced(self):
+        work = self.root / "work" / "empty"
+        work.mkdir(parents=True)
+        run(work, "init", "-q", "-b", "main")
+        run(work, "commit", "-q", "--allow-empty", "-m", "empty")
+        commit = run(work, "rev-parse", "HEAD")
+        bare = self.root / "remotes" / "empty.git"
+        run(self.root, "clone", "-q", "--bare", str(work), str(bare))
+        run(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
+        url = f"file://{bare}"
+        self.assertIsNone(hr.fetch_commit(url, commit))
+        tree = hr.tree_folder(url, commit)
+        first = os.stat(str(tree)).st_ino
+        with mock.patch.object(hr, "prepared", return_value=False):  # a second fetch that checked before the first
+            self.assertIsNone(hr.fetch_commit(url, commit))
+        self.assertEqual(os.stat(str(tree)).st_ino, first)  # a consumer inside the first tree keeps its folder
+        self.assertEqual(list(tree.iterdir()), [])
+        self.assertEqual([p for p in hr.source_folder(url).iterdir() if p.name.startswith(".partial-")], [])
+
+    def test_text_resolve_prints_warnings_on_standard_error(self):
+        config, _ = self.tour()
+        repo = self.repository(config)
+        checkout = self.root / "work" / "team-rules"
+        self.assertEqual(hr.main(["link", str(checkout), "--url", config["sources"][1]["url"]]), 0)
+        code, out, err = self.command("resolve", cwd=repo)
+        self.assertEqual(code, 0, err)
+        self.assertIn("warning: LINKED team-rules", err)
+        self.assertNotIn("warning:", out)
+        self.assertTrue(out.startswith(f"house-rules: repository {repo}, configuration house-rules.json"), out)
+
 if __name__ == "__main__":
     unittest.main()
