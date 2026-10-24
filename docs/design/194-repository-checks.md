@@ -7,7 +7,7 @@ A repository keeps the defaults, changes their settings, turns them off with a r
 The same runner runs in the Git hook and in CI, so both give the same result for the same input.
 Readers need Git hooks, a CI workflow and the [spec checker](../../skills/spec-writing/SKILL.md) at the level of "it checks Markdown and metadata".
 The operator approved this design for implementation on 2026-10-23; the work is tracked in [#194](https://github.com/symbiotic-build/house-rules/issues/194).
-Implementation status: the runner implements its `run`, `prepare` and `status` commands, starts checks through the build queue and records the check versions. `install`, with its hook blocks and CI step, is not implemented yet; it lands in the install work package, and until then `checks.py install` stops with exit status 2. [Rollout and work packages](#rollout) lists it. The tour shows the result once `install` has landed.
+Implementation status: the runner implements its `run`, `install`, `prepare` and `status` commands, starts checks through the build queue and records the check versions. The hook blocks and the CI step that `install` writes call `house-rules exec`, which comes with the House Rules command work in [#222](https://github.com/symbiotic-build/house-rules/pull/222). [Rollout and work packages](#rollout) lists the remaining work.
 
 How does one configuration reach the commit hook, the push hook and CI?
 
@@ -58,7 +58,7 @@ Use this map to choose the next explanation to read.
 - [Open questions](194-repository-checks.md#questions) — Confirm that no design choice remains open.
 - [Rollout and work packages](194-repository-checks.md#rollout) — Plan the implementation pull requests and adoption.
 - [Reference](194-repository-checks.md#reference) — Look up configuration fields, built-ins, commands and the report format.
-- [Acceptance](194-repository-checks.md#acceptance) — See the planned demonstrations for each requirement.
+- [Acceptance](194-repository-checks.md#acceptance) — See the tests, demonstrations and analysis for each requirement.
 
 ## Entity index
 
@@ -129,11 +129,10 @@ Everything in this tour uses House Rules defaults.
 **Procedure: install, commit, fix and commit again**
 
 1. **Preview the install:** [`python3 <House Rules>/skills/repository-checks/scripts/checks.py install --dry-run`](#runner-options).
-   - Lists the four files it would write and the two per-clone Git settings.
+   - Lists the two hook files, the [`house-rules.command`](#clone-settings) setting and the CI workflow it would write. `house-rules init` wrote the [check configuration](#check-configuration) before.
    - Writes nothing.
 2. **Install:** the same command without [`--dry-run`](#runner-options).
-   - Writes the [check configuration](#check-configuration), the pre-commit and pre-push [hook blocks](#hook-block) and the CI workflow.
-   - Fetches House Rules main and builds the spec checker's environment in the local cache.
+   - Writes the pre-commit and pre-push [hook blocks](#hook-block), the [`house-rules.command`](#clone-settings) setting and, because the repository has `.github/workflows/`, the CI workflow.
 3. **Stage the install and check everything:** `git add` the files the install listed, then [`checks.py run --stage ci --index`](#runner-options).
    - Runs every CI check that reads the snapshot over the staged snapshot, which already holds the new configuration. Existing failures show before the hook starts refusing commits.
    - Here both checks pass.
@@ -489,7 +488,7 @@ Markers let a rerun replace exactly its own lines and leave other tools' lines a
 # house-rules:repository-checks:begin
 cmd=$(git config --get house-rules.command) || cmd=
 if [ ! -f "$cmd" ] || [ ! -x "$cmd" ]; then
-  echo "repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install" >&2
+  echo "repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install, then house-rules exec skills/repository-checks/scripts/checks.py install" >&2
   exit 1
 fi
 "$cmd" exec --origin index skills/repository-checks/scripts/checks.py run --stage pre-commit || exit $?
@@ -499,10 +498,10 @@ fi
 Entities in this example: [clone settings](#clone-settings), [runner options](#runner-options).
 
 The block reads the clone setting [`house-rules.command`](#clone-settings) and starts that command's `exec`, which resolves the repository's House Rules layer and runs the runner from that commit's tree. At pre-commit, `exec --origin index` reads the configuration from the staged index.
-When the setting is missing or does not name an executable file, the block prints one line, which names the command's install, and exits 1, so Git refuses the commit or push:
+When the setting is missing or does not name an executable file, the block prints one line and exits 1, so Git refuses the commit or push. The line names both repairs in order: the command's install, then this clone's install, which writes the setting:
 
 ```text
-repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install
+repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install, then house-rules exec skills/repository-checks/scripts/checks.py install
 ```
 
 `exec` returns the runner's exit status unchanged. Its own failures exit 2 for a preparation failure and 1 for a usage error, each with one line on standard error. The block passes that status to Git, so any nonzero status refuses the commit or push and the lines after the block do not run.
@@ -514,7 +513,7 @@ The pre-push block runs `exec --rev HEAD` with [`--stage pre-push`](#runner-opti
 # house-rules:repository-checks:begin
 cmd=$(git config --get house-rules.command) || cmd=
 if [ ! -f "$cmd" ] || [ ! -x "$cmd" ]; then
-  echo "repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install" >&2
+  echo "repository checks: house-rules.command names no executable file; run: python3 <House Rules checkout>/scripts/house_rules.py install, then house-rules exec skills/repository-checks/scripts/checks.py install" >&2
   exit 1
 fi
 refs=$(mktemp) || { echo "repository checks: cannot create a temporary file; push refused" >&2; exit 1; }
@@ -560,7 +559,7 @@ It runs [`checks.py status --session`](#runner-options) from the House Rules mai
 - `repository checks: ready (House Rules ebb6b37, offline branch main of https://github.com/symbiotic-build/house-rules, cached 2026-10-23T14:05:00Z, hooks installed)`, or
 - what is missing, with the command that fixes it: no hook block, a hook file that is not executable, "House Rules main not fetched yet" for the configured branch, or the spec checker's environment not built.
 
-In a managed repository, one that has `.agents/rules.md`, without a configuration it prints the install command. Elsewhere it prints nothing.
+In a managed repository, one that has `.agents/rules.md`, without a configuration it prints `repository checks: not installed; run: house-rules init, then house-rules exec skills/repository-checks/scripts/checks.py install`. Elsewhere it prints nothing.
 It always exits 0. A configuration error becomes its one line, so a broken file never stops a session from starting.
 It reports the commit last resolved for the configured branch and when it was fetched, or the configured commit; it never fetches. With that commit prepared it hands over to its runner, which knows which checks need an environment. Otherwise it reports "House Rules <branch> not fetched yet" with the `prepare` command, and checks the environment only after `prepare`.
 It runs Git commands only, no checks, and needs no network.
@@ -842,7 +841,7 @@ A repository that wants the linter before each commit wraps it to read each file
 ### A repository with no specifications
 
 This small script repository has no `docs/DOCUMENTS.json`.
-Its install writes a configuration that keeps every default check.
+`house-rules init` writes its configuration, which keeps every default check. Its install writes the hook blocks and the [`house-rules.command`](#clone-settings) setting.
 
 > **Detail — report at its first commit**
 >

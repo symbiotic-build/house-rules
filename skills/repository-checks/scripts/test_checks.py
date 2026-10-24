@@ -1963,7 +1963,8 @@ class StatusTest(RunnerCase):
         cases = [
             ("unmanaged repository without configuration", lambda: None, ""),
             ("managed repository without configuration", lambda: self.repo.write(".agents/rules.md", "# Rules\n"),
-             re.escape(f"repository checks: not installed; run: {install}\n")),
+             re.escape(f"repository checks: not installed; run: house-rules init, then house-rules exec {RUNNER} "
+                       "install\n")),
             ("no hooks and main not fetched yet", lambda: self.repo.configure(NO_SPEC),
              re.escape(f"repository checks: not ready: no hook block in pre-commit, pre-push (run: {install}); "
                        f"House Rules main not fetched yet (run: {prepare})\n")),
@@ -2009,7 +2010,8 @@ class StatusTest(RunnerCase):
                 "repository checks: no house-rules.json in the index; this repository has not adopted repository "
                 "checks\n"), ""))
             self.assertEqual(repo.run("status", "--session").stdout, "")
-            self.assertPreparationFailure(repo.run("prepare"), "no house-rules.json in the index")
+            self.assertPreparationFailure(repo.run("prepare"), "no house-rules.json in the index; run `house-rules init` "
+                                          f"first, then `house-rules exec {RUNNER} install`")
 
 
 ACTIONS = ("create", "update", "unchanged", "refused")
@@ -2017,7 +2019,9 @@ DESIGN = ROOT / "docs/design/194-repository-checks.md"
 WORKFLOW = ".github/workflows/repository-checks.yml"
 ZERO = "0" * 40
 COMMAND_INSTALL = "python3 <House Rules checkout>/scripts/house_rules.py install"
-NOT_INSTALLED = ("repository checks: house-rules.command names no executable file; run: " + COMMAND_INSTALL + "\n")
+CHECKS_INSTALL = f"house-rules exec {RUNNER} install"
+NOT_INSTALLED = ("repository checks: house-rules.command names no executable file; run: " + COMMAND_INSTALL
+                 + ", then " + CHECKS_INSTALL + "\n")
 PRE_COMMIT_CALL = ["exec", "--origin", "index", RUNNER, "run", "--stage", "pre-commit"]
 PRE_PUSH_CALL = ["exec", "--rev", "HEAD", RUNNER, "run", "--stage", "pre-push", "--remote", "origin"]
 # A stand-in for the house-rules command. It records its arguments, one per line, and its standard input in
