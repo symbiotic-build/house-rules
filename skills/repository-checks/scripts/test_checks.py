@@ -1994,6 +1994,23 @@ class StatusTest(RunnerCase):
         self.assertIn("git cat-file blob failed", session.stdout)
 
 
+    def test_directory_or_submodule_named_like_the_configuration_is_no_configuration(self):
+        """Only a file at exactly house-rules.json is the configuration, as for `run`: a folder of that name or a
+        submodule there leaves the repository unadopted for status, the session line and prepare."""
+        self.repo.write("house-rules.json/child.txt", "not the configuration\n")
+        self.repo.stage("house-rules.json/child.txt")
+        submodule = self.repo.commit()  # any commit identity serves as the submodule's commit
+        other = Repo(Path(tempfile.mkdtemp(dir=str(self.folder))), self.house_rules, self.cache)
+        other.git("update-index", "--add", "--cacheinfo", f"160000,{submodule},house-rules.json")
+        for repo in (self.repo, other):
+            status = repo.run("status")
+            self.assertEqual((status.returncode, status.stdout, status.stderr), (0, (
+                "repository checks: no house-rules.json in the index; this repository has not adopted repository "
+                "checks\n"), ""))
+            self.assertEqual(repo.run("status", "--session").stdout, "")
+            self.assertPreparationFailure(repo.run("prepare"), "no house-rules.json in the index")
+
+
 class PortabilityTest(unittest.TestCase):
     def test_runner_imports_only_the_standard_library(self):
         tree = ast.parse(SCRIPT.read_text(), feature_version=(3, 9))

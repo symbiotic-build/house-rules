@@ -196,7 +196,7 @@ The runner reads this file from the run's snapshot: the staged index at pre-comm
 An unstaged edit to it therefore has no effect on the commit being checked.
 
 A snapshot without the file has not adopted repository checks. `run` then checks nothing, prints one line saying so and exits 0.
-The runner's `prepare` and `status` commands read the file from the index, as pre-commit does. A file the index lists but Git cannot read is a [preparation failure](#failure-preparation) with Git's message, never taken for an absent file; [`status --session`](#runner-options) prints that failure and still exits 0.
+The runner's `prepare` and `status` commands read the file from the index, as pre-commit does, and count it as present by the rule `run` uses: a regular file or a symbolic link at exactly `house-rules.json`, never a folder of that name or a submodule. A file the index lists but Git cannot read is a [preparation failure](#failure-preparation) with Git's message, never taken for an absent file; [`status --session`](#runner-options) prints that failure and still exits 0.
 
 The file has these top-level fields:
 

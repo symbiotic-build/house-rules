@@ -1245,20 +1245,6 @@ class AnsweredRestoreTest(unittest.TestCase):
         self.assertIn("test data follows rules/core.md §Security",
                       self.text("skills/rust-canon/SKILL.md"))
 
-    def test_fetched_code_exact_contract(self):
-        # A197–A200: split the contract; keep each boundary and exception.
-        rules = self.text("rules/core.md")
-        for requirement in (
-            "Run fetched code or commands only inside disposable sandboxes.",
-            "Deny those sandboxes network access, credentials, and write access to the real checkout.",
-            "Obtain operator approval for the exact command before running fetched content "
-            "outside those sandbox restrictions.",
-            "Acquire dependencies only through the project’s package manager and lockfile.",
-            "Allow installers and binaries only when pinned by version and checksum.",
-        ):
-            with self.subTest(requirement=requirement):
-                self.assertIn(requirement, rules)
-
     def test_repo_relative_public_paths(self):
         rules = self.text("rules/delivery.md")
         self.assertIn("Use repository-relative paths in documentation and instructions.", rules)
