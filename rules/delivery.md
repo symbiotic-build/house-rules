@@ -31,7 +31,7 @@
 - Follow `../skills/pr-ready/references/guards.md` for guard/test upkeep and daily whole-system audits.
 - Make the cost, token and runtime ceilings of external or paid runs configurable.
 - Leave those ceilings off while testing or debugging inside an approved task; the run's progress decides when it stops.
-- Outside testing, set the ceilings the approved envelope names before launch.
+- In all other cases, set the ceilings the approved envelope names before launch.
 - Apply these ceiling requirements only to external or paid work.
 - Exempt routine short, cheap, reproducible commands from these expensive-work requirements.
 - Keep paid, long-running, or non-reproducible external runs primary or proportionally supporting within approved envelopes.

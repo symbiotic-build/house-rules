@@ -47,7 +47,7 @@
 - Orchestrate, parallelize, retry, and reassign resources inside an operator-approved envelope without per-call approval.
 - Keep retries of the same failed operation inside the envelope.
 - Treat retries and test runs inside an approved task's scope as part of that task.
-- Do not ask the operator before such a retry or test run; finish the work.
+- Do not ask the operator before such a retry or test run while it stays inside the approved envelope; finish the work.
 - Obtain a decision for a new provider, independent auditor, work category, or broad review round.
 - Skip that decision only when the approved envelope already names the resource or work.
 - Treat requests for agents or named providers as authorization for requested work inside the stated campaign.
