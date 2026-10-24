@@ -70,6 +70,11 @@ class Fixture(unittest.TestCase):
         run(work, "push", "-q", "origin", "main")
         return commit
 
+    def command(self, *args, stdin=b"", cwd=None, env=None):
+        proc = subprocess.run([sys.executable, "-I", str(SCRIPT), *args], input=stdin, stdin=None, capture_output=True,
+                              cwd=str(cwd or self.root), env=dict(os.environ, **(env or {})))
+        return proc.returncode, proc.stdout.decode(), proc.stderr.decode()
+
     def expire_answers(self):
         """Age every published branch answer past the reuse window, as time passing would."""
         for path in Path(hr.cache_root(), "sources").glob("**/branches/*.json"):
@@ -220,13 +225,6 @@ class ResolutionTests(Fixture):
         self.assertEqual(hr.default_sources([]), ([{"name": "house-rules", "url": hr.DEFAULT_URL, "ref": "main"}],
                                                   "default"))
 
-    def test_old_checks_file_names_the_rename(self):
-        repo = self.repository(files={hr.OLD_CONFIG: "{}"})
-        with self.assertRaises(hr.Failure) as caught:
-            hr.resolve(repo)
-        self.assertEqual(str(caught.exception), "house-rules: .agents/checks.json is replaced by house-rules.json at "
-                                                "the repository root; rename it")
-
     def test_configuration_from_a_commit(self):
         config, _ = self.tour()
         repo = self.repository(config)
@@ -260,14 +258,19 @@ class ConfigurationTests(Fixture):
         self.refused({"version": 3}, "has version 3; this house-rules command knows version 2; run house-rules self-update")
         self.refused({"version": 2, "pin": "x"}, "unknown field pin")
         self.refused({"version": 2}, "sources is required")
-        self.refused({"version": 2, "sources": [source], "git_settings": {"core.autocrlf": False}},
-                     "git_settings must map Git setting names")
-        for key in ("core.attributesFile", "core.bare", "extensions.objectFormat"):
-            self.refused({"version": 2, "sources": [source], "git_settings": {key: "x"}},
-                         f"git_settings.{key}: the isolated Git environment sets this itself")
+        for value in (False, "input", {"value": "input"}, {"value": "input", "reason": " "}):
+            self.refused({"version": 2, "sources": [source], "git_settings": {"core.autocrlf": value}},
+                         "git_settings must map Git setting names")
+        setting = {"value": "x", "reason": "r"}
+        for key in ("core.attributesFile", "core.bare", "extensions.objectFormat", "include.path", "includeIf.x.path"):
+            self.refused({"version": 2, "sources": [source], "git_settings": {key: setting}},
+                         f"git_settings.{key}: a repository cannot set this Git setting")
+        self.refused({"version": 2, "sources": [dict(source, ref="a" * 64)]},
+                     "house-rules: house-rules: SHA-256 sources are not supported yet")
+        whitespace = {"value": "blank-at-eol", "reason": "Trailing spaces fail everywhere."}
         self.assertEqual(hr.repository_config(json.dumps({"version": 2, "sources": [source], "git_settings": {
-            "core.whitespace": "blank-at-eol", "diff.my driver.command": "x"}}))["git_settings"]["core.whitespace"],
-                         "blank-at-eol")
+            "core.whitespace": whitespace, "diff.my driver.command": setting}}))["git_settings"]["core.whitespace"],
+                         whitespace)
         self.assertEqual(hr.repository_config(json.dumps({"version": 2, "sources": [source]}))["sources"],
                          [{"name": "house-rules", "url": hr.DEFAULT_URL, "ref": "main"}])
 
@@ -357,13 +360,19 @@ class CommandTests(Fixture):
         self.assertEqual(hr.source_key("https://user:secret@GitHub.com/symbiotic-build/house-rules.git/"),
                          "https/github.com/symbiotic-build/house-rules")
         self.assertEqual(hr.source_key("git@github.com:symbiotic-build/house-rules.git"),
-                         "ssh/github.com/symbiotic-build/house-rules")
+                         "ssh/git@github.com/symbiotic-build/house-rules")
+        self.assertEqual(hr.source_key("ssh://git@GitHub.com:22/symbiotic-build/house-rules"),
+                         "ssh/git@github.com/symbiotic-build/house-rules")
+        self.assertNotEqual(hr.source_key("alice@host:rules.git"), hr.source_key("bob@host:rules.git"))
         self.assertEqual(hr.source_key("http://github.com/symbiotic-build/house-rules"),
                          "http/github.com/symbiotic-build/house-rules")
-        self.assertEqual(hr.source_key("https://git.example.com:8443/team/rules"),
-                         "https/git.example.com%3A8443/team/rules")
-        self.assertEqual(hr.source_key("file:///tmp/a b/x.git"), "file/tmp/a%20b/x")
-        self.assertEqual(hr.source_key("https://example.com/team/../rules//x"), "https/example.com/team/%2E%2E/rules/x")
+        self.assertEqual(hr.source_key("https://git.example.com:8443/team/rules"), "https/git.example.com:8443/team/rules")
+        self.assertEqual(hr.source_key("file:///tmp/a b/x.git"), "file/tmp/a b/x")
+        self.assertEqual(hr.source_key("https://example.com/team/../rules//x"), "https/example.com/team/../rules//x")
+        key = "https/github.com/symbiotic-build/house-rules"
+        self.assertEqual(hr.source_folder("https://github.com/symbiotic-build/house-rules").name,
+                         __import__("hashlib").sha256(key.encode()).hexdigest())
+        self.assertEqual(hr.shown_url("ssh://git:pw@host/rules"), "ssh://git@host/rules")
 
     def test_text_form_of_the_tour(self):
         config, pin = self.tour()
@@ -431,13 +440,12 @@ class CommandTests(Fixture):
             os.utime(str(path), (now - age * 86_400,) * 2)
         os.utime(str(pinned) + ".used", (now - 8 * 86_400,) * 2)
         os.utime(str(named) + ".used", (now - 8 * 86_400,) * 2)  # only its branch record keeps it
-        house_record = hr.branch_record_path(config["sources"][0]["url"], "main")
+        house_record = hr.answer_path(config["sources"][0]["url"], "branch", "main")
         os.utime(str(house_record), (now - 31 * 86_400,) * 2)  # expired: House Rules' tree loses its protection
         house_tree = Path(record["layers"][0]["tree"])
         os.utime(str(house_tree) + ".used", (now - 8 * 86_400,) * 2)
-        (hr.cache_root() / "main.json").write_text("{}")
         self.assertEqual({path for path, _, _ in hr.prune_plan(now)},
-                         {house_record, old, held, pinned, house_tree, partial, hr.cache_root() / "main.json"})
+                         {house_record, old, held, pinned, house_tree, partial})
         with contextlib.redirect_stdout(io.StringIO()):
             hr.main(["cache", "prune", "--dry-run"])
         self.assertTrue(old.exists() and house_record.exists())
@@ -448,7 +456,7 @@ class CommandTests(Fixture):
         os.close(lock)
         self.assertIn(f"keep {held} (in use)", output.getvalue())
         self.assertFalse(any(p.exists() for p in (old, partial, pinned, house_tree, house_record,
-                                                   hr.cache_root() / "main.json")))
+                                                   Path(str(old) + ".fetched"), Path(str(pinned) + ".used"))))
         self.assertTrue(held.exists() and recent.exists() and named.exists())
         self.assertTrue((hr.cache_root() / "revisions").is_dir())
 
@@ -492,7 +500,7 @@ class CommandTests(Fixture):
                 hr.resolve(repo)
         self.assertIn(f"team-rules: {config['sources'][1]['url']} names {newer} for main but cannot send it "
                       "(fatal: refused)", str(caught.exception))
-        self.assertEqual(hr.branch_record(config["sources"][1]["url"], "main")["revision"], first)
+        self.assertEqual(hr.read_answer(config["sources"][1]["url"], "branch", "main")["revision"], first)
 
     def test_the_record_lists_custom_context_and_first_fetch_times(self):
         config, _ = self.tour()
@@ -505,11 +513,6 @@ class CommandTests(Fixture):
 
 class RoundOneTests(Fixture):
     """Defects Warden's round 1 on the resolver found, one test each."""
-
-    def command(self, *args, stdin=b"", cwd=None, env=None):
-        proc = subprocess.run([sys.executable, "-I", str(SCRIPT), *args], input=stdin, stdin=None, capture_output=True,
-                              cwd=str(cwd or self.root), env=dict(os.environ, **(env or {})))
-        return proc.returncode, proc.stdout.decode(), proc.stderr.decode()
 
     def test_records_never_show_url_credentials(self):
         config, _ = self.tour()
@@ -546,19 +549,13 @@ class RoundOneTests(Fixture):
         self.assertNotIn("mine", result["checks"])
         self.assertTrue(any("global configuration check mine is not usable" in w for w in result["warnings"]))
 
-    def test_a_sha256_source_is_fetched_in_its_own_object_format(self):
-        work = self.root / "work" / "sha256"
-        work.mkdir(parents=True)
-        run(work, "init", "-q", "-b", "main", "--object-format=sha256")
-        commit = self.commit(work, {"INDEX.md": "rules\n"})
-        bare = self.root / "remotes" / "sha256.git"
-        run(self.root, "clone", "-q", "--bare", str(work), str(bare))
-        run(bare, "config", "uploadpack.allowAnySHA1InWant", "true")
-        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": f"file://{bare}",
-                                                           "ref": commit}]})
-        layer = hr.resolve(repo)["layers"][0]
-        self.assertEqual((len(commit), layer["revision"]), (64, commit))
-        self.assertTrue((Path(layer["tree"]) / "INDEX.md").is_file())
+    def test_a_sha1_source_is_fetched_whatever_the_personal_default_format(self):
+        config, pin = self.tour()
+        home = self.root / "home-config"
+        home.write_text("[init]\n\tdefaultObjectFormat = sha256\n")
+        with mock.patch.dict(os.environ, {"GIT_CONFIG_GLOBAL": str(home)}):
+            layer = hr.resolve(self.repository(config))["layers"][2]
+        self.assertEqual(layer["revision"], pin)
 
     def test_a_branch_name_with_a_unicode_line_separator_resolves(self):
         config, _ = self.tour()
@@ -578,8 +575,8 @@ class RoundOneTests(Fixture):
             hr.resolve(self.repository(config))
         folder = hr.source_folder(config["sources"][1]["url"]) / "branches"
         self.assertEqual(sorted(p.name for p in folder.iterdir() if not p.name.startswith(".")),
-                         ["a.json", "a.json%2Fb.json", "feature%2Fx.json"])
-        self.assertEqual(len(hr.branch_records(folder.parent)), 3)
+                         sorted(f"{hr.digest(b)}.json" for b in ("a", "a.json/b", "feature/x")))
+        self.assertEqual(sorted(name for _, _, name, _, _ in hr.answers(folder.parent)), ["a", "a.json/b", "feature/x"])
 
     def test_equal_spellings_of_one_source_share_its_answer(self):
         config, _ = self.tour()
@@ -615,7 +612,7 @@ class RoundOneTests(Fixture):
         self.assertEqual((code, "Traceback" in err), (1, False))
         (self.root / "config" / "house-rules").mkdir(parents=True)
         hr.links_path().write_text('{"version": 1, "links": [{"key": 1}]}')
-        code, _, err = self.command("links")
+        code, _, err = self.command("cache", "list")
         self.assertEqual((code, "Traceback" in err), (2, False))
         self.assertIn("is not a links file", err)
         code, _, err = self.command("exec", "--hook", "scripts/x.py", stdin=json.dumps({"cwd": "/no/such"}).encode())
@@ -744,6 +741,118 @@ class RoundOneTests(Fixture):
             with self.assertRaises(hr.Failure) as caught:
                 hr.resolve(self.repository(config))
         self.assertIn("cannot remove the temporary fetch repository", str(caught.exception))
+
+
+class RoundTwoTests(Fixture):
+    """The design's round 2, the lead's decisions on it and the operator's answers, one test each."""
+
+    def tag(self, name, ref, annotated=True):
+        work = self.root / "work" / name
+        run(work, *(["tag", "-a", "-m", ref, ref] if annotated else ["tag", ref]))
+        run(work, "push", "-q", "origin", f"refs/tags/{ref}")
+
+    def test_a_release_tag_resolves_once_and_never_moves(self):
+        config, _ = self.tour()
+        work = self.root / "work" / "team-rules"
+        released = run(work, "rev-parse", "HEAD")
+        self.tag("team-rules", "v1.4.0")
+        config["sources"][1]["ref"] = "v1.4.0"
+        repo = self.repository(config)
+        first = hr.resolve(repo)["layers"][1]
+        self.assertEqual((first["ref_kind"], first["source"], first["revision"]), ("tag", "fetched", released))
+        self.push("team-rules", {"rules/team.md": "# Team v2\n"})
+        run(work, "tag", "-f", "-a", "-m", "moved", "v1.4.0")
+        run(work, "push", "-q", "-f", "origin", "refs/tags/v1.4.0")
+        again = hr.resolve(repo)["layers"][1]
+        self.assertEqual((again["source"], again["revision"]), ("pinned", released))  # never asked again
+        self.assertRegex(hr.describe_layer(again, 10), rf"ref v1.4.0 -> {released} \(pinned, fetched ")
+        config["sources"][1]["ref"] = "v9.9.9"
+        with self.assertRaises(hr.Failure) as caught:
+            hr.resolve(self.repository(config))
+        self.assertIn("team-rules: no release tag v9.9.9 at file://", str(caught.exception))
+        self.assertEqual(hr.ref_kind("v1"), "branch")  # a range is not a release tag
+
+    def test_a_lightweight_tag_and_an_offline_tag_without_a_record(self):
+        config, _ = self.tour()
+        self.tag("team-rules", "v2.0.0", annotated=False)
+        config["sources"][1]["ref"] = "v2.0.0"
+        layer = hr.resolve(self.repository(config))["layers"][1]
+        self.assertEqual(layer["revision"], run(self.root / "work" / "team-rules", "rev-parse", "HEAD"))
+        os.rename(str(self.root / "remotes"), str(self.root / "remotes-away"))
+        self.assertEqual(hr.resolve(self.repository(config))["layers"][1]["source"], "pinned")
+        config["sources"][1]["ref"] = "v2.0.1"
+        with self.assertRaises(hr.Failure) as caught:
+            hr.resolve(self.repository(config))
+        self.assertIn("no earlier fetch of team-rules v2.0.1 is cached; run again when online", str(caught.exception))
+
+    def test_hooks_read_the_staged_and_the_pushed_configuration(self):
+        script = "import json, os, sys\nr = json.loads(os.environ['HOUSE_RULES_RESOLVED'])\n" \
+                 "print(r['configuration']['origin'], len(r['layers']))\nprint(sys.stdin.read(), end='')\n"
+        config, _ = self.tour()
+        self.push("house-rules", {"scripts/show.py": script})
+        repo = self.repository(config)
+        run(repo, "add", hr.CONFIG)
+        run(repo, "commit", "-q", "-m", "adopt")
+        pushed = run(repo, "rev-parse", "HEAD")
+        (Path(repo) / hr.CONFIG).write_text("{not json")  # an unstaged edit never decides a hook
+        code, out, err = self.command("exec", "--origin", "index", "scripts/show.py", cwd=repo)
+        self.assertEqual((code, out), (0, "index 3\n"), err)
+        lines = f"refs/heads/main {pushed} refs/heads/main {'0' * 40}\n"
+        code, out, err = self.command("exec", "--origin", "push", "scripts/show.py", cwd=repo, stdin=lines.encode())
+        self.assertEqual((code, out), (0, f"commit 3\n{lines}"), err)
+        (self.root / "config" / "house-rules").mkdir(parents=True)
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [config["sources"][0]]}))
+        code, out, err = self.command("exec", "--origin", "push", "scripts/show.py", cwd=repo,
+                                      stdin=f"(delete) {'0' * 40} refs/heads/old {pushed}\n".encode())
+        self.assertEqual((code, out.splitlines()[:1]), (0, ["global 1"]), err)  # a deletion has no configuration
+
+    def test_a_hook_passes_its_deadline_to_the_script(self):
+        house = self.source("house-rules", {"scripts/show.py": "import os\nprint(os.environ['HOUSE_RULES_DEADLINE'])\n"})
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house}]})
+        started = time.time()
+        code, out, err = self.command("exec", "--hook", "scripts/show.py", stdin=json.dumps({"cwd": repo}).encode())
+        self.assertEqual(code, 0, err)
+        self.assertLessEqual(abs(float(out) - (started + hr.HOOK_SECONDS)), 2)
+
+    def test_prune_keeps_a_record_used_after_planning(self):
+        config, _ = self.tour()
+        repo = self.repository(config)
+        hr.resolve(repo)
+        record = hr.answer_path(config["sources"][1]["url"], "branch", "main")
+        old = time.time() - 31 * 86_400
+        os.utime(str(record), (old, old))
+        plan = hr.prune_plan()
+        self.assertIn(record, [path for path, _, _ in plan])
+        os.utime(str(record), None)  # a resolution used it after the plan
+        with mock.patch.object(hr, "prune_plan", return_value=plan):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                hr.main(["cache", "prune"])
+        self.assertIn(f"keep {record} (used again)", output.getvalue())
+        self.assertTrue(record.exists())
+
+    def test_a_cache_that_cannot_be_written_names_the_repair(self):
+        config, _ = self.tour()
+        cache = hr.cache_root()
+        cache.mkdir(parents=True)
+        cache.chmod(0o500)
+        self.addCleanup(cache.chmod, 0o700)
+        with self.assertRaises(hr.Failure) as caught:
+            hr.resolve(self.repository(config))
+        self.assertIn(f"house-rules: cannot write the cache {cache} (", str(caught.exception))
+        self.assertIn("; free space, make it writable or set HOUSE_RULES_CACHE", str(caught.exception))
+        self.assertEqual(list(cache.iterdir()), [])
+
+    def test_cache_list_names_sources_records_and_links(self):
+        config, _ = self.tour()
+        hr.resolve(self.repository(config))
+        checkout = str(self.root / "work" / "team-rules")
+        hr.write_links({hr.source_key(config["sources"][1]["url"]): checkout})
+        code, out, _ = self.command("cache", "list")
+        self.assertEqual(code, 0)
+        self.assertIn(hr.source_key(config["sources"][1]["url"]) + "\n  branch main -> ", out)
+        self.assertIn(f"  linked to {checkout}", out)
+
 
 if __name__ == "__main__":
     unittest.main()
