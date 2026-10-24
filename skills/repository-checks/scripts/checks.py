@@ -47,11 +47,13 @@ DEFAULT_URL = "https://github.com/symbiotic-build/house-rules"
 REMOTE_HELPER = re.compile(r"(?:[A-Za-z0-9][A-Za-z0-9+.-]*)?::")
 # A House Rules fetch fails on lack of progress, never on elapsed time: below 1 byte/s for 30 s over HTTP.
 PROGRESS = ("-c", "http.lowSpeedLimit=1", "-c", "http.lowSpeedTime=30")
-# The handing runner passes the run's resolved House Rules revision to the runner it starts.
+# `house-rules exec`, or a handing runner, passes the run's resolved House Rules layer to the runner it starts.
 RESOLVED = "HOUSE_RULES_RESOLVED"
 # Where a layer's commit came from: its branch fetched now, its branch as last resolved (offline), a commit ref
 # (pinned), or the HOUSE_RULES_REVISION test override.
 SOURCES = ("fetched", "offline", "pinned", "override")
+# The record `house-rules exec` passes may also name an answer younger than its reuse window, or a linked checkout.
+EXEC_SOURCES = SOURCES + ("reused", "link")
 IDENTITY = {"GIT_AUTHOR_NAME": "repository checks", "GIT_AUTHOR_EMAIL": "checks@localhost",
             "GIT_COMMITTER_NAME": "repository checks", "GIT_COMMITTER_EMAIL": "checks@localhost"}
 # Every Git command of the runner and of its checks reads each commit itself, never a local replacement.
@@ -736,18 +738,26 @@ def override_revision():
 
 
 def handed_resolution(source=None):
-    """The resolution the handing runner passed to this runner, when it names this runner's own revision.
+    """The House Rules layer this runner was started with, or None.
 
-    With `source`, the source this runner read from the configuration now, a handed resolution of another source
-    stops the run: the configuration changed between the handing runner's read and this one.
+    `house-rules exec` passes its whole resolution record, and its first layer counts when exec started this runner
+    from that layer's tree: the run then checks with exactly the commit exec resolved and logged, and resolves
+    nothing again. A handing runner passes one layer that names this runner's own revision.
+
+    With `source`, the source this runner read from the configuration now, a handed layer of another source stops
+    the run: the configuration changed between the handing read and this one.
     """
     try:
         resolution = json.loads(HANDED or "null")
     except ValueError:
         return None
-    if not (isinstance(resolution, dict) and resolution.get("revision") == own_revision()
-            and resolution.get("source") in SOURCES and isinstance(resolution.get("fetched"), str)
-            and all(isinstance(resolution.get(k), str) for k in ("name", "url", "ref", "tree"))):
+    if isinstance(resolution, dict) and resolution.get("version") == 1 and isinstance(resolution.get("layers"), list):
+        resolution = exec_layer(resolution)
+    elif not (isinstance(resolution, dict) and resolution.get("revision") == own_revision()
+              and resolution.get("source") in SOURCES and isinstance(resolution.get("fetched"), str)
+              and all(isinstance(resolution.get(k), str) for k in ("name", "url", "ref", "tree"))):
+        return None
+    if resolution is None:
         return None
     if source is not None and not same_source(resolution, source):
         raise Failure("the configuration changed during the run", "run again")
@@ -825,6 +835,20 @@ def prepared_at(tree):
     return recorded if re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", recorded) else utc(os.stat(str(tree)).st_mtime)
 
 
+def exec_layer(record):
+    """The House Rules layer of the record `house-rules exec` passed, or None unless exec started this runner from
+    that layer's tree. The record's warnings become the layer's warning, so the report shows them."""
+    layer = record["layers"][0] if record["layers"] else None
+    if not (isinstance(layer, dict) and layer.get("source") in EXEC_SOURCES
+            and all(isinstance(layer.get(k), str) for k in ("name", "url", "ref", "revision", "tree"))
+            and (layer.get("fetched") is None or isinstance(layer.get("fetched"), str))
+            and Path(layer["tree"]).resolve() == own_tree()):
+        return None
+    resolved = {k: layer[k] for k in ("name", "url", "ref", "revision", "source", "fetched", "tree")}
+    warnings = [w for w in record.get("warnings") or () if isinstance(w, str)]
+    return dict(resolved, warning="; ".join(warnings)) if warnings else resolved
+
+
 def dispatch(tree, argv, resolution, stdin=None):
     """Replace this process by the runner in `tree`, unless this file is that runner.
 
@@ -860,11 +884,14 @@ def resolve_layers(data, offline_repair=None):
     """
     _, source = load_document(data)
     layer = resolve(source, offline_repair)
-    revision = layer["revision"]
-    tree = own_tree() if own_revision() == revision else revision_folder(revision)
-    if layer["fetched"] is None:
+    tree = Path(layer["tree"]) if layer.get("tree") else layer_tree(layer["revision"])
+    if layer["fetched"] is None and layer["source"] != "link":
         layer["fetched"] = prepared_at(tree)  # a commit ref or an override: when the cache fetched that commit
     return [dict(layer, tree=str(tree))]
+
+
+def layer_tree(revision):
+    return own_tree() if own_revision() == revision else revision_folder(revision)
 
 
 def resolved_tree(argv, data, stdin=None, offline_repair=None):
@@ -896,19 +923,20 @@ def cached_resolution(source):
             if record is None:
                 return None, None
             resolution = dict(layer, revision=record["revision"], source="offline", fetched=record["fetched"])
-    revision = resolution["revision"]
-    tree = own_tree() if own_revision() == revision else revision_folder(revision)
+    tree = Path(resolution["tree"]) if resolution.get("tree") else layer_tree(resolution["revision"])
     if not (tree / RUNNER).is_file():
         return resolution, None
-    if resolution["fetched"] is None:
+    if resolution["fetched"] is None and resolution["source"] != "link":
         resolution["fetched"] = prepared_at(tree)
     return resolution, tree
 
 
 def label(layer):
     """How a report names where a layer's commit came from, its URL and when the cache fetched it."""
-    what = {"fetched": f"branch {layer['ref']}", "offline": f"branch {layer['ref']}", "pinned": "commit",
-            "override": "HOUSE_RULES_REVISION"}[layer["source"]]
+    if layer["source"] == "link":
+        return f"link of {layer['url']}, the checkout at {layer['tree']}"
+    what = {"fetched": f"branch {layer['ref']}", "reused": f"branch {layer['ref']}",
+            "offline": f"branch {layer['ref']}", "pinned": "commit", "override": "HOUSE_RULES_REVISION"}[layer["source"]]
     when = f"cached {layer['fetched']}" if layer["fetched"] else "not cached yet"
     return f"{layer['source']} {what} of {layer['url']}, {when}"
 

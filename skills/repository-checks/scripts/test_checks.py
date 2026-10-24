@@ -1390,6 +1390,40 @@ class RevisionTest(RunnerCase):
         self.assertTrue(entry["checks"][0]["rerun"].startswith(
             shlex.join([sys.executable, str(cache / "revisions" / moved / RUNNER)])), entry["checks"][0])
 
+    def test_exec_record_is_used_even_after_main_moved(self):
+        """A runner that `house-rules exec` started from the tree of the record's first layer checks with exactly that
+        commit and its warnings, and asks the remote nothing, although main moved since exec resolved; a record
+        naming another tree is ignored, and the runner resolves itself."""
+        house_rules = self.own_house_rules()
+        cache = self.fresh_cache("exec-cache")
+        self.repo.configure(NO_SPEC)
+        proc, _, first = self.repo.checked("run", "--stage", "pre-commit")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        (house_rules.path / "MOVED").write_text("main moved\n")
+        moved = house_rules.commit("Move main")
+        runner = cache / "revisions" / house_rules.main / RUNNER
+        fields = ("name", "url", "ref", "revision", "source", "fetched")
+        for tree, expected, asked in ((runner.parents[3], dict(first, source="reused"), False),
+                                      (self.repo.path, dict(first, revision=moved), True)):
+            with self.subTest(tree=str(tree)):
+                layer = dict({k: first[k] for k in fields}, source="reused", tree=str(tree), ref_kind="branch",
+                             link=None)
+                record = {"version": 1, "repository": str(self.repo.path), "profiles": [], "context": [],
+                          "configuration": {"origin": "index", "commit": None}, "layers": [layer],
+                          "warnings": ["warning: an exec warning"]}
+                marker = self.repo.path.parent / f"asked-{asked}"
+                env = dict(self.repo.env, HOUSE_RULES_RESOLVED=json.dumps(record),
+                           PATH=self.racing_git("ls-remote", f": > {shlex.quote(str(marker))}"))
+                proc, entry, used = self.repo.checked("run", "--stage", "pre-commit", script=runner, env=env)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual({k: used[k] for k in fields if k != "fetched"},
+                                 {k: expected[k] for k in fields if k != "fetched"})
+                self.assertEqual(marker.exists(), asked)
+                if not asked:
+                    self.assertEqual(used["fetched"], first["fetched"])
+                    self.assertIn("warning: an exec warning", self.repo.report(
+                        "run", "--stage", "pre-commit", script=runner, env=env)[1]["warnings"])
+
     def test_offline_run_uses_the_cached_main_with_a_warning(self):
         self.fresh_cache("cached-main")
         self.repo.configure(NO_SPEC)
