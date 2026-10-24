@@ -626,7 +626,7 @@ Agent session hooks put House Rules rules into an agent's context at session sta
 
 - **Session context.** Each registered hook runs `house-rules exec --hook scripts/session_context.py <part>`. The script runs from the resolved House Rules tree and prints that tree's rules. The first part starts with the resolution record.
 - **Context.** The parts hold `INDEX.md`, then every layer's [ruleset](#ruleset) `context` files in layer order, House Rules' always-load rules first, then this computer's `custom/INDEX.md`. House Rules' files and a team's files travel the same way.
-- **One event, one text.** Claude Code starts a session's parts as parallel hooks and passes them no shared event identity, so each part resolves on its own. Two parts can therefore straddle a branch's 60 s window or an edit of `house-rules.json`. Every part names the revision and the text fingerprint it was cut from, as today. The fingerprint covers every layer's commit, not only House Rules', so a change in a team layer also shows. The resolution lines, which name every layer's tree path and its context files, start in part 1 and continue in later parts when they do not fit in it. Part 1's resolution governs: on a split, the agent reads every file that the resolution lines of the parts naming part 1's text list, at the paths they name. The trees stay on disk, because nothing removes a tree until the cache is cleared. The design detects a split rather than preventing it, as the [split detection decision](#decision-split-detection) records.
+- **One event, one text.** Claude Code starts a session's parts as parallel hooks and passes them no shared event identity, so each part resolves on its own. Two parts can therefore straddle a branch's 60 s window or an edit of `house-rules.json`. Every part names the revision and the text fingerprint it was cut from, as today. The fingerprint covers every layer's commit, not only House Rules', so a change in a team layer also shows. Part 1 holds all of its resolution lines: one tree line per layer, then one line per context file that names the file inside its layer's tree line, such as `house-rules: context of team-rules: rules/team.md`. Part 1's resolution governs: on a split, the agent reads every file that part 1's resolution lines list. A resolution whose lines need more than the 8 800 characters part 1 holds for text is a failed resolution. Part 1 then prints a `HOUSE RULES HOOK ERROR:` line that names the layer with the most context files, and the parts give the global default's rules, as for any [resolution failure](#failure-resolution). Such a limit is reached only with a few hundred context files in one session, as the [split detection decision](#decision-split-detection) records. The trees stay on disk, because nothing removes a tree until the cache is cleared. The design detects a split rather than preventing it, as the [split detection decision](#decision-split-detection) records.
 - **Compaction.** Claude Code and Codex run the same hooks after a compaction, so the re-injected rules come from a new resolution of the same repository.
 - **Approved-work listing.** Its hook runs `house-rules exec --hook scripts/session_context.py approved` in the same way. Its GitHub searches stop at the hook's deadline from `HOUSE_RULES_DEADLINE`, not at a budget of their own; a listing cut short prints the issues found so far and a line that says the search was cut short.
 - **Machine index.** The script reads this computer's `custom/INDEX.md` from the global configuration folder when `house-rules exec` starts it, and from the checkout's own `custom/` when an install from before the command runs it directly.
@@ -821,7 +821,7 @@ Each consumer uses the layers of the repository it runs in, read at its [configu
 
 **Verification:** One machine with one repository; a repository without configuration.
 
-**Tests:** [Same revision everywhere](#test-layers-same-revision), [no configuration](#test-layers-no-configuration).
+**Tests:** [Same revision everywhere](#test-layers-same-revision), [no configuration](#test-layers-no-configuration), [split session](#test-layers-split-session).
 
 **Status:** specified.
 
@@ -1185,13 +1185,13 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 <a id="decision-split-detection"></a>
 ### Decision: session parts detect a split resolution instead of preventing it
 
-**Choice:** Each session part resolves on its own. The text fingerprint and revision every part already carries detect parts cut from different resolutions; the fingerprint covers every layer's commit. The resolution lines, with every layer's tree path and context files, start in part 1 and continue in later parts. Part 1's resolution governs: on a split, the parts tell the agent to read every file that part 1's resolution lines list.
+**Choice:** Each session part resolves on its own. The text fingerprint and revision every part already carries detect parts cut from different resolutions; the fingerprint covers every layer's commit. Part 1 holds all of its resolution lines, each context file named inside its layer's tree line. Part 1's resolution governs: on a split, the parts tell the agent to read every file that part 1's resolution lines list. A resolution whose lines do not fit in part 1's 8 800 characters is a failed resolution: part 1 prints an error line that names the layer with the most context files, and the session gets the global default's rules.
 
-**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 1 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which asked how all parts of one session event receive one resolution. Completed by a lead decision, 2026-10-24, on the blocking lead decision of the Warden round 2 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed that the House Rules tree alone holds no team layer's context files.
+**Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 1 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which asked how all parts of one session event receive one resolution. Completed by a lead decision, 2026-10-24, on the blocking lead decision of the Warden round 2 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed that the House Rules tree alone holds no team layer's context files. Changed by a lead decision, 2026-10-24, on the blocking lead decision of the Warden round 5 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221). It supersedes the round 4 lead decision that resolution lines start in part 1 and continue in later parts.
 
-**Reason:** Claude Code starts the parts as independent processes and passes them no identity of the event they belong to; a session identity is shared by later compactions too. Any capture keyed on time would be another window with the same edge. Detection already exists, costs nothing in the normal case, and tells the agent exactly what to do in the rare one.
+**Reason:** Claude Code starts the parts as independent processes and passes them no identity of the event they belong to; a session identity is shared by later compactions too. Any capture keyed on time would be another window with the same edge. Detection already exists, costs nothing in the normal case, and tells the agent exactly what to do in the rare one. Recovery needs part 1's complete list: in the reviewers' split case, a team layer lists 128 context files of 128 characters, part 1 resolves configuration A, and every later part resolves configuration B after an edit, so lines that continued past part 1 would come only from B and A's remaining files could not be found. Holding the whole list in part 1 adds no cache state and fails visibly; the limit is a few hundred context files per session.
 
-**Rejected alternatives:** A per-session capture file reused for a few seconds: the same window problem, plus state to clean up. One hook that prints every part: Claude Code caps one hook's output at 10 000 characters, which is why the parts exist. Telling the agent to run `house-rules resolve` on a split: a third resolution, which may match neither part.
+**Rejected alternatives:** A per-session capture file reused for a few seconds: the same window problem, plus state to clean up. One hook that prints every part: Claude Code caps one hook's output at 10 000 characters, which is why the parts exist. Telling the agent to run `house-rules resolve` on a split: a third resolution, which may match neither part. Resolution lines that continue into later parts: a split loses the continuation. A file in the cache that holds the complete list, named by its hash: complete without a limit, but a new kind of cache state written by a session hook. Only tree lines in part 1, with the agent rebuilding the list from each tree's [`ruleset.json`](#ruleset): the agent would repeat the merge rule by hand, and an error there is silent.
 
 <a id="decision-hook-deadline"></a>
 ### Decision: a hook has one deadline, 2 s before the hook timeout
@@ -1583,6 +1583,19 @@ Evidence: planned, following [a repository with no configuration](#examples).
 **Expected:** The session's first context part, the worker's run log and the check report each name the same layers and commits.
 
 Evidence: planned, following [Migration](#rollout).
+
+<a id="test-layers-split-session"></a>
+### Demonstration: split session
+
+**Method:** demonstration.
+
+**Requirements:** [Consumers](#req-layers-consumers).
+
+**Inputs:** A team layer whose ruleset lists 128 context files of 128 characters each, in configuration A. Part 1 resolves A; every later part resolves configuration B, which lists other files. Separately, a team layer with 300 such files.
+
+**Expected:** Part 1 names every one of A's 128 files inside its layer's tree line, and the later parts name another text, so the agent reads all of A's files from part 1 alone. The 300-file layer gets part 1's error line naming that layer and the count, followed by the global default's rules.
+
+Evidence: planned, following [Agent sessions](#consumer-sessions).
 
 <a id="test-layers-machine-files"></a>
 ### Demonstration: machine files
