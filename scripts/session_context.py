@@ -50,8 +50,7 @@ RESERVE = 1_200   # Room in a part for its label, the part 1 introduction, an ov
 SLOTS = 12        # Claude Code hooks registered; the last one reports text that needs more.
 TIMEOUT = 10      # Seconds each product waits for one hook.
 ERROR = "HOUSE RULES HOOK ERROR:"
-# Every reply is operator-facing text, which INDEX.md sends to this skill.
-EXTRA_FILES = ["skills/operator-writing/SKILL.md"]
+RULESET = "ruleset.json"  # House Rules' own defaults; its context lists the files every session receives
 LOCAL_INDEX = "custom/INDEX.md"
 APPROVED_CONF = "custom/approved-work.conf"
 APPROVED_CAP = 3_000  # characters the hook prints; issue rows that do not fit give way to one notice
@@ -96,18 +95,38 @@ def local_index(base):
     return module.config_home() / LOCAL_INDEX
 
 
-def layer_context(record):
-    """(name, text) of each custom layer's context file, in layer order, from the resolution's `context` list."""
-    if record is None:
+def context_files(base, failures):
+    """(name, path, House Rules' own) of every context file, in order.
+
+    Through house-rules exec they come from the resolution's `context` list, which holds every layer's ruleset
+    context, House Rules' always-load rules first. A hook that runs this script directly reads its own tree's
+    ruleset.json, once, so the list and the files come from one reading. House Rules' own files keep their bare
+    path as their name; another layer's carry its label.
+    """
+    record = resolution()
+    if record is not None:
+        module = house_rules()
+        for item in record.get("context", []):
+            layer = item["layer"].split("/", 1)[0]
+            name = item["path"] if layer == "house-rules" else f"{item['layer']} {item['path']}"
+            yield name, Path(module.layer_tree(record, layer)) / item["path"], layer == "house-rules"
         return
-    module = house_rules()
-    for item in record.get("context", []):
-        tree = Path(module.layer_tree(record, item["layer"].split("/", 1)[0]))
-        name, path = f"{item['layer']} {item['path']}", tree / item["path"]
-        try:
-            yield name, path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError) as error:
-            yield name, f"{ERROR} cannot read {path}: {error}\n"
+    path = base / RULESET
+    try:
+        listed = json.loads(path.read_text(encoding="utf-8")).get("context", [])
+    except FileNotFoundError:
+        listed = None
+    except (OSError, ValueError, AttributeError) as error:
+        failures.append(RULESET)
+        yield RULESET, None, f"{ERROR} cannot read {path}: {error}\n"
+        return
+    if not isinstance(listed, list) or not listed or not all(isinstance(name, str) for name in listed):
+        failures.append(RULESET)
+        yield RULESET, None, (f"{ERROR} {path} is missing.\n" if listed is None
+                              else f"{ERROR} {path} lists no context files.\n")
+        return
+    for name in listed:
+        yield name, base / name, True
 
 
 def units(text):
@@ -116,7 +135,7 @@ def units(text):
 
 
 def always_load(index_text):
-    """Rule files under INDEX.md's "Always load" heading, in index order."""
+    """Rule files under INDEX.md's "Always load" heading, in index order; ruleset.json's context starts with them."""
     section = index_text.split("## Always load", 1)
     if len(section) != 2:
         return []
@@ -136,38 +155,32 @@ def revision(base):
 
 
 def sources(base, failures=None):
-    """(name, text) for every injected file; a missing file becomes an error line.
+    """(name, text) for every injected file: INDEX.md, every context file, then this computer's local index.
 
-    failures, when given, collects each House Rules file that could not be supplied. A missing local
-    index is the operator's state, not a House Rules failure, so it is not collected.
+    A missing file becomes an error line. failures, when given, collects each House Rules file that could not be
+    supplied. A missing local index is the operator's state, not a House Rules failure, so it is not collected.
     """
     failures = [] if failures is None else failures
     index = base / "INDEX.md"
-    names = ["INDEX.md"]
-    # Read the index once: the file list and the printed index come from the same text, so an update
-    # between two reads cannot print an index whose newly listed file was never loaded.
-    index_text = index.read_text(encoding="utf-8") if index.is_file() else None
-    if index_text is not None:
-        listed = always_load(index_text)
-        if not listed:
-            failures.append("INDEX.md")
-            yield "INDEX.md", f"{ERROR} {index} lists no always-load rule files.\n"
-        names += listed
-    names += EXTRA_FILES
-    for name in names:
-        path = base / name
-        if name == "INDEX.md":
-            # Only the first read counts: an index restored after it was found missing is not printed
-            # with a file list that was never loaded from it.
-            if index_text is not None:
-                yield name, index_text
-            else:
-                failures.append(name)
-                yield name, f"{ERROR} {path} is missing.\n"
-        elif path.is_file():
+    # INDEX.md is the human index; the files it lists arrive through House Rules' ruleset context below.
+    if index.is_file():
+        yield "INDEX.md", index.read_text(encoding="utf-8")
+    else:
+        failures.append("INDEX.md")
+        yield "INDEX.md", f"{ERROR} {index} is missing.\n"
+    for name, path, own in context_files(base, failures):
+        if path is None:  # ruleset.json itself could not be read; own holds the error line
+            yield name, own
+        elif path.is_file() and own:  # a House Rules file that cannot be read reaches the caller, as INDEX.md does
             yield name, path.read_text(encoding="utf-8")
+        elif path.is_file():
+            try:
+                yield name, path.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError) as error:
+                yield name, f"{ERROR} cannot read {path}: {error}\n"
         else:
-            failures.append(name)
+            if own:
+                failures.append(name)
             yield name, f"{ERROR} {path} is missing.\n"
     path = local_index(base)
     # Only an absent local index is the operator's state; any other read failure (a denied folder, for
@@ -178,7 +191,6 @@ def sources(base, failures=None):
         local = (f"{ERROR} this computer's local index {path} is missing, so its local policies are not loaded. "
                  "INSTALL-AGENTS.md §4 creates it.\n")
     yield LOCAL_INDEX, local
-    yield from layer_context(resolution())
 
 
 def sections(name, text):

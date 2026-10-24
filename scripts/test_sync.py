@@ -67,9 +67,11 @@ class SyncFixture:
         shutil.copyfile(REPO / "scripts/session_context.py", self.origin / "scripts/session_context.py")
         self.write(self.origin / "INDEX.md", "# Index\n\n## Always load\n\n" + "".join(
             f"- [{name}](rules/{name}.md)\n" for name in RULES) + "\n## Load when needed\n")
+        self.write(self.origin / "ruleset.json", json.dumps({"version": 1, "context": [
+            *(f"rules/{name}.md" for name in RULES), "skills/operator-writing/SKILL.md"]}))
         for name in RULES:
             self.write(self.origin / f"rules/{name}.md", f"# {name} rules\n")
-        self.commit(self.origin, [".gitignore", "INSTALL-AGENTS.md", "INDEX.md", "skills/sample/SKILL.md",
+        self.commit(self.origin, [".gitignore", "INSTALL-AGENTS.md", "INDEX.md", "ruleset.json", "skills/sample/SKILL.md",
                                   "skills/operator-writing/SKILL.md", "scripts/session_context.py",
                                   *(f"rules/{name}.md" for name in RULES)])
         self.root = self.base / "House Rules checkout"
@@ -1318,6 +1320,8 @@ class SessionContextTests(unittest.TestCase):
         self.write("rules/core.md", "# Core rules\n\n" + sections)
         self.write("rules/writing.md", "# Writing rules\n\n```markdown\n## Not a heading\n```\n\n" + sections)
         self.write("skills/operator-writing/SKILL.md", "# Operator writing\n\nWrite plainly.\n")
+        self.write("ruleset.json", json.dumps({"version": 1, "context": [
+            "rules/core.md", "rules/writing.md", "skills/operator-writing/SKILL.md"]}))
         self.write("custom/INDEX.md", "# Machine-local capability index\n\nLocal policy line.\n")
 
     def write(self, name, text):

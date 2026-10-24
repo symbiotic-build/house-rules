@@ -500,9 +500,10 @@ class SessionContextTests(Fixture):
         house = self.source("house-rules", {
             "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n\n## Load when needed\n",
             "rules/core.md": "# Core rules\n", "skills/operator-writing/SKILL.md": "# Operator writing\n",
+            hr.RULESET: {"version": 1, "context": ["rules/core.md", "skills/operator-writing/SKILL.md"]},
             "scripts/session_context.py": (here / "session_context.py").read_text(),
             "scripts/house_rules.py": (here / "house_rules.py").read_text()})
-        team = self.source("team-rules", {hr.BASE_FILE: {"version": 1, "context": ["rules/team.md"]},
+        team = self.source("team-rules", {hr.RULESET: {"version": 1, "context": ["rules/team.md"]},
                                           "rules/team.md": "# Team rules\n\nReview every migration twice.\n"})
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
                                                           {"name": "team-rules", "url": team}]})
@@ -519,6 +520,7 @@ class SessionContextTests(Fixture):
         self.assertIn(f"house-rules: repository {repo}, configuration house-rules.json (working tree)", text)
         self.assertRegex(text, rf"house-rules: layer team-rules  {team} ref main -> [0-9a-f]{{40}} \(fetched ")
         self.assertIn("# This computer", text)
+        self.assertIn("===== House Rules file rules/core.md =====\n# Core rules", text)  # through the ruleset context
         self.assertIn("===== House Rules file team-rules rules/team.md =====\n# Team rules", text)
         self.assertNotIn("HOUSE RULES HOOK ERROR", text)
         team_tree = re.search(r"house-rules: tree of team-rules: (\S+)", text).group(1)
