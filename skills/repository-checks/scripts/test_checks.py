@@ -2158,7 +2158,8 @@ class InstallCase(RunnerCase):
         """Start one hook file directly, as Git does, with Git's arguments and standard input."""
         self.reset_stub()
         return subprocess.run([str(self.repo.path / ".git/hooks" / stage), *args], cwd=str(self.repo.path),
-                              env=dict(self.repo.env, **(env or {})), input=input, capture_output=True, text=True)
+                              env=dict(self.repo.env, **(env or {})), input=input, capture_output=True, text=True,
+                              stdin=None if input is not None else subprocess.DEVNULL)
 
     def executable(self, repo, name, content):
         path = repo.path / name
