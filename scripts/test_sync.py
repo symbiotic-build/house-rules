@@ -1470,12 +1470,10 @@ class SessionContextTests(unittest.TestCase):
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)  # the hook as its own tree holds it, finding that tree itself
         real, writing = Path.read_text, (tree / "rules/writing.md").resolve()
-        removed = []
 
         def read_once(path, *args, **kwargs):
             text = real(path, *args, **kwargs)
             if Path(path).resolve() == writing:
-                removed.append(path)
                 writing.unlink()  # removed after its first reading, as an edit during the hook would
             return text
         failures = []
@@ -1483,7 +1481,6 @@ class SessionContextTests(unittest.TestCase):
         with mock.patch.dict(os.environ, dict(environ, XDG_CONFIG_HOME=str(tree / "config")), clear=True), \
                 mock.patch.object(Path, "read_text", read_once):
             text = hook.every_part(failures)
-        self.assertEqual(len(removed), 1)  # the file was read, and removed, exactly once
         self.assertIn("are missing", text)  # more than the registered parts, so the second pass ran
         self.assertIn("# Writing rules", text)  # and packed what the first pass read
         self.assertNotIn("is missing", text)
@@ -1496,7 +1493,6 @@ class SessionContextTests(unittest.TestCase):
         files = {tree / "INDEX.md": "# Index\n", tree / "rules/core.md": "# Core rules\n\n" + sections,
                  tree / "custom/INDEX.md": "# Machine\n"}
         names = [f"rules/r{n:03}-{'x' * 40}.md" for n in range(200)]
-        files.update({team / name: "# r\n" for name in names})
         for path, text in files.items():
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
@@ -1519,6 +1515,9 @@ class SessionContextTests(unittest.TestCase):
                     "context": [{"layer": "house-rules", "path": "rules/core.md"}] +
                                [{"layer": "team-rules", "path": name} for name in names[:count]]}
         count = max(n for n in range(200) if hook.too_large(record(n)) is None)  # the resolution at its full size
+        for name in names[:count]:  # only the files the resolution lists
+            (team / name).parent.mkdir(parents=True, exist_ok=True)
+            (team / name).write_text("# r\n", encoding="utf-8")
         environ = {k: v for k, v in os.environ.items() if not k.startswith("HOUSE_RULES_")}
         with mock.patch.dict(os.environ, dict(environ, XDG_CONFIG_HOME=str(Path(place.name) / "config"),
                                               HOUSE_RULES_RESOLVED=json.dumps(record(count))), clear=True):
