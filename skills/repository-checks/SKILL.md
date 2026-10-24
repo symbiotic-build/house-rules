@@ -27,6 +27,9 @@ A rerun repairs missing pieces and keeps every choice the repository made.
    - Add `--dry-run` first to list each item as `create`, `update`, `unchanged` or `refused`. It writes
      none of them, but `exec` still resolves House Rules and can fill its cache.
    - Resolve each refused hook file with the step its line prints, then install again.
+   - The install is the only writer of the hooks folder while it runs: it refuses a hook that changed after it
+     read it, but an edit, permission change or link change made during the install itself is outside its
+     contract; don't edit hooks while installing.
 4. **Stage the install:** `git add` the files its `next: stage the install` line names.
 5. **Check everything:** `house-rules exec --origin index skills/repository-checks/scripts/checks.py run --stage ci --index`.
    - Fix failures in existing files before the hooks start refusing commits.
@@ -39,13 +42,15 @@ and [Hook block](../../docs/design/194-repository-checks.md#hook-block) give the
 When `prepare` or the session line says `house-rules.json` is not staged, review and stage it; do not
 run `init` again, which refuses an existing file.
 
-To check a clone, run `house-rules exec skills/repository-checks/scripts/checks.py status`.
+To check a clone, run `house-rules exec --origin index skills/repository-checks/scripts/checks.py status`;
+`status` reads the staged configuration, so exec must resolve that one too.
 It prints the resolved House Rules revision and the effective checks for each stage. The runner's
 `status` never fetches; `exec` around it resolves first and can.
 
 ## Integrate a refused hook by hand
 
-A pre-commit framework hook or a hook in another language stays refused: the install never edits it.
+A pre-commit framework hook, a hook in another language, or a shell hook whose first line sets an option such
+as `-n` stays refused: the install never edits it.
 
 1. **Add the call:** for the framework, add the `repo: local` entry the refusal prints to
    `.pre-commit-config.yaml`. In another hook, call `"$(git config --get house-rules.command)"` with the
@@ -53,8 +58,13 @@ A pre-commit framework hook or a hook in another language stays refused: the ins
    its status.
 2. **Install again:** the rest of the install completes. That hook stays listed as `refused`, and the
    install exits 1; that refusal is expected.
-3. **Verify the hook:** stage a file with a trailing space and commit. The hook must refuse the commit
-   with a `FAIL  whitespace` line. Unstage the file afterwards.
+3. **Verify each integrated stage on its own:**
+   - pre-commit: stage a file with a trailing space and commit. The hook must refuse the commit with a
+     `FAIL  whitespace` line. Unstage the file afterwards.
+   - pre-push: push a commit to a local bare repository (`git init --bare /tmp/verify.git`, then
+     `git push /tmp/verify.git HEAD:refs/heads/verify`). The hook must print a
+     `repository checks: pre-push on …` header; the defaults list no pre-push check, so the header is the
+     evidence, and a check the configuration lists at pre-push must run too.
 
 The session line keeps reporting "no hook block" for that hook, because it looks for the block.
 
