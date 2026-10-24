@@ -154,6 +154,21 @@ def credentials(url, what):
     return parts.password is not None or parts.scheme.lower() in ("http", "https")
 
 
+def check_url(url, what, status=2):
+    """Refuse a source URL no tool should fetch or store; `what` names it, because the URL itself may hold secrets."""
+    try:
+        url.encode("utf-8")
+    except UnicodeEncodeError:
+        raise Failure(f"house-rules: {what} is not valid text", status=status)
+    if "\0" in url:
+        raise Failure(f"house-rules: {what} contains a NUL character", status=status)
+    if TRANSPORT.match(url):  # the address inside escapes every check, so the form is refused
+        raise Failure(f"house-rules: {what} uses Git's <transport>:: form, which this command does not accept; use a "
+                      "plain URL and a Git credential helper", status=status)
+    if credentials(url, what):
+        raise Failure(f"house-rules: {what} carries credentials; use a Git credential helper", status=status)
+
+
 def digest(text):
     """The lowercase hexadecimal SHA-256 of `text`'s UTF-8 bytes, undecodable bytes kept: a cache file name."""
     return hashlib.sha256(text.encode("utf-8", "surrogateescape")).hexdigest()
@@ -291,13 +306,7 @@ def check_sources(sources, where):
         url = entry.get("url", DEFAULT_URL if name == "house-rules" else None)
         if not isinstance(url, str) or not url:
             raise Failure(f"house-rules: {at}: layer {name} needs a url")
-        if TRANSPORT.match(url):  # the address inside escapes every check, so the form is refused
-            raise Failure(f"house-rules: {at}: the URL of {name} uses Git's <transport>:: form, which this command "
-                          "does not accept; use a plain URL and a Git credential helper")
-        if "\0" in url:
-            raise Failure(f"house-rules: {at}: the URL of {name} contains a NUL character")
-        if credentials(url, f"{at}: the URL of {name}"):
-            raise Failure(f"house-rules: {at}: the URL of {name} carries credentials; use a Git credential helper")
+        check_url(url, f"{at}: the URL of {name}")
         ref = entry.get("ref", "main")
         if not isinstance(ref, str) or not ref or "\0" in ref:
             raise Failure(f"house-rules: {at}: ref must be a branch name, a full commit identity or a release tag")
@@ -443,19 +452,19 @@ def read_configuration(repository, rev=None):
         {"origin": "commit", "commit": commit}
 
 
-def staged_or_committed(repository, listing, column, where, keep=()):
-    """The bytes of house-rules.json in a commit or the index, or None when it has none.
+def staged_or_committed(repository, listing, column, where):
+    """The bytes of house-rules.json in a commit, or None when it has none.
 
-    `listing` is the ls-tree or ls-files command that lists the file, and `column` the field holding its object.
+    `listing` is the ls-tree command that lists the file, and `column` the field holding its object.
     A listing or read that Git fails is a failure that names it, never a missing file.
     """
-    listed = git(repository, *listing, check=False, foreign=True, keep=keep)
+    listed = git(repository, *listing, check=False, foreign=True)
     if listed.returncode:
         raise Failure(f"house-rules: cannot read {CONFIG} from {where} in {repository} ({last_line(listed.stderr)})")
     if not listed.stdout:
         return None
     blob = listed.stdout.split(b"\t", 1)[0].split(b" ")[column].decode()
-    shown = git(repository, "cat-file", "blob", blob, check=False, foreign=True, keep=keep)
+    shown = git(repository, "cat-file", "blob", blob, check=False, foreign=True)
     if shown.returncode:
         raise Failure(f"house-rules: cannot read {CONFIG} from {where} in {repository} ({last_line(shown.stderr)})")
     return shown.stdout
@@ -475,9 +484,10 @@ def pushed_commits(stdin):
         if not line:
             continue
         fields = line.split(b" ")
-        local = fields[1].decode("ascii", "replace") if len(fields) == 4 else ""
-        if not OBJECT.fullmatch(local):
+        if len(fields) != 4 or not (fields[0] and fields[2]) or not all(
+                OBJECT.fullmatch(fields[i].decode("ascii", "replace")) for i in (1, 3)):
             raise Failure("house-rules: cannot read a pre-push line from Git; run the push again")
+        local = fields[1].decode("ascii")
         if set(local) != {"0"}:
             commits.append(local)
     return commits
@@ -490,9 +500,14 @@ def hook_configuration(repository, origin, stdin):
     hook reads Git's lines from standard input; the caller handles a push that only deletes refs first.
     """
     if origin == "index":
-        data = staged_or_committed(repository, ["ls-files", "-s", "-z", "--", CONFIG], 1, "the index",
-                                   keep=("GIT_INDEX_FILE",))
-        return data, {"origin": "index", "commit": None}
+        keep = ("GIT_INDEX_FILE",)
+        shown = git(repository, "show", f":{CONFIG}", check=False, foreign=True, keep=keep)
+        if not shown.returncode:
+            return shown.stdout, {"origin": "index", "commit": None}
+        listed = git(repository, "ls-files", "-z", "--", CONFIG, check=False, foreign=True, keep=keep)
+        if not listed.returncode and not listed.stdout:  # nothing is staged at or below that path
+            return None, {"origin": "index", "commit": None}
+        raise Failure(f"house-rules: cannot read {CONFIG} from the index in {repository} ({last_line(shown.stderr)})")
     return read_configuration(repository, pushed_commits(stdin)[0])
 
 
@@ -1321,10 +1336,6 @@ def cmd_exec(args):
         data = origin = None
         if args.origin:
             data, origin = hook_configuration(repository, args.origin, stdin or b"")
-            if data is None:  # the snapshot has adopted no repository checks, so no dependency may refuse it
-                snapshot = "staged index" if args.origin == "index" else f"pushed commit {origin['commit']}"
-                print(f"nothing to check: the {snapshot} has no {CONFIG}")
-                return 0
         record = resolve(repository, data=data, origin=origin, deadline=deadline)
         tree = layer_tree(record)
     except Failure as failure:
@@ -1373,9 +1384,7 @@ def cmd_link(args):
         if proc.returncode:
             raise Failure(f"house-rules: {checkout} has no remote.origin.url; name the source with --url URL", status=1)
         url = proc.stdout.decode().strip()
-    what = "the --url value" if args.url is not None else f"remote.origin.url of {checkout}"
-    if credentials(url, what):
-        raise Failure(f"house-rules: {what} carries credentials; use a Git credential helper", status=1)
+    check_url(url, "the --url value" if args.url is not None else f"remote.origin.url of {checkout}", status=1)
     key = url
     with links_lock():
         links = read_links()
@@ -1429,11 +1438,15 @@ def answers(source):
     records = []
     for kind, folder in ANSWER_FOLDERS.items():
         for path in sorted((source / folder).glob("*.json")):
-            with contextlib.suppress(OSError, ValueError, KeyError, TypeError):
+            try:
                 value = json.loads(path.read_text())
                 fields = (value[kind], value["revision"], value["fetched"], value["url"])
-                if all(isinstance(field, str) for field in fields):
-                    records.append((path, kind, *fields))
+            except (OSError, ValueError, KeyError, TypeError):
+                fields = ()
+            if fields and all(isinstance(field, str) for field in fields):
+                records.append((path, kind, *fields))
+            else:
+                print(f"warning: {path} is not a usable {kind} record; it is left out", file=sys.stderr)
     return records
 
 
