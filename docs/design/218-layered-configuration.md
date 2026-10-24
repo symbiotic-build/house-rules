@@ -1276,7 +1276,7 @@ The old checkout and any per-commit checkouts stay on disk; the install removes 
 1. **Register the checkout's hooks again:** `python3 <checkout>/scripts/sync.py --install-hooks`. It replaces the command-form hook entries with the interpreter form for that checkout.
 2. **Restore the other files from the receipt:** for each skill link and instruction file the receipt lists, put back its backup.
 3. **Restore local tooling:** point worker and lane scripts back at the checkout path they used.
-4. **Check:** `python3 <checkout>/scripts/sync.py` reports no findings.
+4. **Verify the undo:** `python3 <checkout>/scripts/sync.py` reports no findings.
 
 The installed command and the cache can stay; nothing starts them any more.
 
@@ -1399,6 +1399,7 @@ The last three keep the names and meanings the runner PRs gave them; `HOUSE_RULE
 - `link` is `null`, or an object with `path`, `head` (the checkout's commit) and `dirty` (true when the working tree differs from it).
 - The checks runner's report holds one such record per snapshot, as `resolution` in the snapshot entry, beside `settings`: a list of objects with `key` (such as `checks.spec-docs.stages`), `value`, `layer`, `replaces` (the earlier layer, or `null` for a new key) and `reason`.
 
+<a id="messages"></a>
 ### Messages
 
 | Cause | Message | Exit |
