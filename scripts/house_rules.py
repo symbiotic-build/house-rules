@@ -1104,7 +1104,10 @@ def effective(record, config=None, repository=None, hooks=False, configured=UNRE
     if hooks:
         configured = global_config(warnings) if configured is UNREAD else configured
         for stage, entry in (configured or {}).get("budgets", {}).items():
-            merge_budget(state, settings, stage, entry, "global", False)
+            try:  # the one merge rule holds here too, but a machine file only warns
+                merge_budget(state, settings, stage, entry, "global", True)
+            except Failure as failure:
+                warnings.append(f"warning: {str(failure)[len('house-rules: '):]}; the global budget is ignored")
     flat = {section: {key: {field: value for field, (value, _) in entry.items()} for key, entry in state[section].items()}
             for section in state}
     layers_of = {key: {field: label for field, (_, label) in entry.items()} for key, entry in state["checks"].items()}
@@ -1255,7 +1258,7 @@ def cmd_link(args):
         proc = git(checkout, "config", "--get", "remote.origin.url", foreign=True, check=False)
         if proc.returncode:
             raise Failure(f"house-rules: {checkout} has no remote.origin.url; name the source with --url URL", status=1)
-        url = proc.stdout.decode().strip()
+        url = os.fsdecode(proc.stdout).strip()  # undecodable bytes reach check_url, which refuses them
     check_url(url, "the --url value" if args.url is not None else f"remote.origin.url of {checkout}", status=1)
     key = url
     with links_lock():
