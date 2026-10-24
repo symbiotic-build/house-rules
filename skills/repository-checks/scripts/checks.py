@@ -760,7 +760,15 @@ def override_revision():
     return value.lower()
 
 
-def handed_resolution(source=None, other_snapshot=False):
+# At pre-push exec resolves HEAD's configuration; an override or link it applied names no source of its own.
+PUSH_SELECTION = ("a House Rules override or link selects HEAD's source",
+                  "push this branch without it, or push it separately")
+# An install that reads only the index runs under exec's resolution of another configuration.
+INSTALL_SELECTION = ("a House Rules override or link selects the source of another configuration than the staged one",
+                     "run the install without it")
+
+
+def handed_resolution(source=None, other_snapshot=None):
     """The House Rules layer this runner was started with, or None.
 
     `house-rules exec` passes its whole resolution record, and its first layer counts when exec started this runner
@@ -768,9 +776,10 @@ def handed_resolution(source=None, other_snapshot=False):
     nothing again. A handing runner passes one layer that names this runner's own revision.
 
     With `source`, the source this runner read from the configuration now, a handed layer of another source stops
-    the run: the configuration changed between the handing read and this one. With `other_snapshot`, exec's record
-    may describe another snapshot, as at pre-push, where exec resolves HEAD and the runner checks each pushed commit:
-    a record of another source is then ignored, and the runner resolves that snapshot itself.
+    the run: the configuration changed between the handing read and this one. With `other_snapshot`, a (cause,
+    repair) pair, exec's record may describe another snapshot, as at pre-push, where exec resolves HEAD and the
+    runner checks each pushed commit. A record of another source is then ignored, and the runner resolves that
+    snapshot itself; a record of an override or a link stops the run with that pair instead.
     """
     try:
         resolution = json.loads(HANDED or "null")
@@ -788,42 +797,14 @@ def handed_resolution(source=None, other_snapshot=False):
         return None
     if source is not None and not same_source(resolution, source):
         if from_exec and other_snapshot:
-            return explicit_selection(resolution, source)
+            if resolution["source"] in ("override", "link"):
+                raise Failure(*other_snapshot)
+            return None
         raise Failure("the configuration changed during the run", "run again")
     return resolution
 
 
-def explicit_selection(resolution, source):
-    """For a snapshot whose source differs from the one exec resolved: exec's explicit selection, kept, or None.
-
-    exec removes HOUSE_RULES_REVISION and HOUSE_RULES_LINK before it starts this runner, so only its record can
-    carry them. The revision override and a one-run link, HOUSE_RULES_LINK, apply to the House Rules layer whatever
-    its URL and ref; a link that `house-rules link` stored applies to its URL only. Without either, the runner
-    resolves the snapshot's own source itself.
-    """
-    one_run_link = resolution["source"] == "link" and stored_link(resolution["url"]) != resolution["tree"]
-    if resolution["source"] == "override" or one_run_link or (
-            resolution["source"] == "link" and resolution["url"] == source["url"]):
-        kept = {k: resolution[k] for k in ("revision", "source", "fetched", "tree")}
-        if resolution.get("warning"):
-            kept["warning"] = resolution["warning"]
-        return dict(kept, name=source["name"], url=source["url"], ref=source["ref"])
-    return None
-
-
-def stored_link(url):
-    """The checkout that `house-rules link` stored for `url` in the per-user links.json, or None."""
-    home = (Path(os.environ["XDG_CONFIG_HOME"]).resolve() if os.environ.get("XDG_CONFIG_HOME")
-            else Path.home() / ".config")
-    try:
-        links = json.loads((home / "house-rules" / "links.json").read_text()).get("links")
-    except (OSError, ValueError, AttributeError):
-        return None
-    return next((link.get("path") for link in links if isinstance(link, dict) and link.get("key") == url), None) \
-        if isinstance(links, list) else None
-
-
-def resolve(source, offline_repair=None, other_snapshot=False):
+def resolve(source, offline_repair=None, other_snapshot=None):
     """Resolve the House Rules layer `source` for this run: the override, else its commit ref, else its branch
     fetched now, else the commit last resolved for that branch.
 
@@ -938,7 +919,7 @@ def dispatch(tree, argv, resolution, stdin=None):
         raise Failure(f"cannot start the resolved runner {runner} ({exc})", f"run `{runner_command('prepare')}` again")
 
 
-def resolve_layers(data, offline_repair=None, other_snapshot=False):
+def resolve_layers(data, offline_repair=None, other_snapshot=None):
     """Resolve the source layers that `data`, the bytes of a configuration, names, for this run.
 
     Returns the layers in order, House Rules first, each {"name", "url", "ref", "revision", "source", "fetched",
@@ -957,7 +938,7 @@ def layer_tree(revision):
     return own_tree() if own_revision() == revision else revision_folder(revision)
 
 
-def resolved_tree(argv, data, stdin=None, offline_repair=None, other_snapshot=False):
+def resolved_tree(argv, data, stdin=None, offline_repair=None, other_snapshot=None):
     """Resolve the layers `data` names; return (the House Rules tree, the layers), or start the runner there.
 
     The started runner replaces this process and receives the same House Rules layer.
@@ -1158,7 +1139,8 @@ def check_stage(args, argv, run):
                 # Read only the version and sources before handing over: the resolved runner judges the rest.
                 _, source = load_document(target["data"])
                 if house_rules is None:
-                    house_rules, layers = resolved_tree(argv, target["data"], stdin, offline, other_snapshot=pushing)
+                    house_rules, layers = resolved_tree(argv, target["data"], stdin, offline,
+                                                        other_snapshot=PUSH_SELECTION if pushing else None)
                     layer = layers[0]
                     run["layers"] = [{k: layer[k] for k in ("name", "url", "ref", "revision", "source", "fetched")}]
                     run["kinds"] = [layer.get("ref_kind")]  # for the text header only; the report keeps six fields
@@ -1789,17 +1771,32 @@ class Installation:
                 yield " " * (self.WIDTH + 1) + line
 
 
+SPECIAL_OPEN_ERRORS = {errno.ENXIO, errno.ENODEV, errno.EOPNOTSUPP, errno.ENOTSUP}
+
+
+class ReadFailure(OSError):
+    """An error while reading a regular file that opened, as opposed to an error finding or opening it."""
+
+
 def read_regular(path):
     """(The bytes, the mode) of the file at `path`, opened once without blocking and judged by that open file, so a
     named pipe or a device swapped in meanwhile is never read: (None, mode) for anything but a regular file. A
     missing file raises FileNotFoundError."""
-    descriptor = os.open(str(path), os.O_RDONLY | os.O_NONBLOCK)
+    try:
+        descriptor = os.open(str(path), os.O_RDONLY | os.O_NONBLOCK)
+    except OSError as exc:
+        if exc.errno in SPECIAL_OPEN_ERRORS:  # a socket or a device without a driver cannot be opened as a file
+            return None, None
+        raise
     try:
         mode = os.fstat(descriptor).st_mode
         if not stat.S_ISREG(mode):
             return None, mode
-        with os.fdopen(descriptor, "rb", closefd=False) as stream:
-            return stream.read(), mode
+        try:
+            with os.fdopen(descriptor, "rb", closefd=False) as stream:
+                return stream.read(), mode
+        except OSError as exc:
+            raise ReadFailure(exc.errno, exc.strerror) from None
     finally:
         os.close(descriptor)
 
@@ -1823,7 +1820,7 @@ def install_hook(plan, path, target, shared):
         data = ("#!/bin/sh\n" + "".join(block)).encode()
         plan.add("create", label, path, lambda: publish(target, data, 0o755, label))
         return
-    except PermissionError as exc:  # any other error, such as a looping link, stops the install at the boundary
+    except (PermissionError, ReadFailure) as exc:  # any other error, such as a looping link, stops the install
         plan.add("refused", f"{label}: cannot read it ({exc.strerror or exc})", detail=[INSPECT_REPAIR])
         return
     if data is None:
@@ -1842,7 +1839,7 @@ def install_hook(plan, path, target, shared):
         plan.add("refused", f"{label}: written by the pre-commit framework; add this entry to its configuration "
                             "(.pre-commit-config.yaml) under repos:", detail=framework_entry(stage))
         return
-    first = data.split(b"\n", 1)[0].rstrip(b"\r")
+    first = data.split(b"\n", 1)[0]  # a carriage return stays: the kernel would take it as part of the shell's name
     if text is None or "\0" in text or first.decode("utf-8", "backslashreplace") not in SHELL_LINES:
         shown = first[:60].decode("utf-8", "backslashreplace") + ("…" if len(first) > 60 else "")
         plan.add("refused", f"{label}: its first line is {shown!r}, not a plain shell line", detail=[PLAIN_SHELL_REPAIR])
@@ -1937,7 +1934,7 @@ def command_install(args, argv):
         # The install prepares what the hooks' first run needs; the runner at the resolved revision judges the file.
         # Without a working tree file, exec resolved another configuration than the staged one the install reads, so
         # its record is a bootstrap one: kept when it names the same source, else the install resolves its own.
-        tree, _ = resolved_tree(argv, data, other_snapshot=origin == "index")
+        tree, _ = resolved_tree(argv, data, other_snapshot=INSTALL_SELECTION if origin == "index" else None)
         config = effective_checks(data)
     plan = Installation(root)
     with inspecting("the hooks folder"):

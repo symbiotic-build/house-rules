@@ -57,13 +57,15 @@ or another language, is refused with "call your existing hook from a plain shell
 2. **Write a plain shell hook in its place:** `#!/bin/sh`, then
    `exec "$(dirname -- "$0")/pre-commit.local" "$@"`, and make it executable.
 3. **Install again:** the install adds its block before that line, and your hook still runs after the
-   checks pass.
+   checks pass, with its own first line unchanged. A hook that could not start before, such as one starting
+   `#!/usr/bin/env sh -e` on Linux, still cannot: review and repair its first line.
 
 A pre-commit framework hook stays refused: add the `repo: local` entry the refusal prints to
 `.pre-commit-config.yaml`. Each rerun of the install lists that hook as `refused` and exits 1, and the
 session line reports "no hook block" for it; both are expected.
 
-Verify each stage you changed on its own:
+Verify each stage you changed on its own, and that a clean commit or push also reaches your original hook,
+for example through a line it prints:
 
 - pre-commit: stage a file with a trailing space and commit. The hook must refuse the commit with a
   `FAIL  whitespace` line. Unstage the file afterwards.

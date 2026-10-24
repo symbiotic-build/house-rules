@@ -16,6 +16,7 @@ import re
 import shlex
 import shutil
 import signal
+import socket
 import stat
 import subprocess
 import sys
@@ -2416,7 +2417,9 @@ class InstallTest(InstallCase):
         self.assertEqual((proc.returncode, [i[0] for i in items(proc.stdout)]), (0, ["create", "create", "create"]),
                          proc.stdout + proc.stderr)
 
-    def test_pre_push_keeps_an_override_or_link_for_a_pushed_branch_of_another_source(self):
+    def test_pre_push_refuses_an_override_or_link_for_a_pushed_branch_of_another_source(self):
+        """exec applies an override or a link to HEAD's source; a pushed branch that names another source cannot
+        tell which rules the person meant, so the push stops with a preparation failure."""
         self.repo.configure(PUSHED_TOO)
         self.repo.commit("main names House Rules main")
         self.assertEqual(self.install().returncode, 0)
@@ -2425,39 +2428,16 @@ class InstallTest(InstallCase):
         self.repo.reconfigure(ref="release")
         self.repo.commit("topic names House Rules release")
         self.repo.git("checkout", "-q", "main")
-        cases = [("override", {"HOUSE_RULES_REVISION": self.house_rules.main}, "(override HOUSE_RULES_REVISION of "),
-                 ("link", {"HOUSE_RULES_LINK": str(self.house_rules.path)}, f"(link of {self.house_rules.url})")]
-        for name, env, label in cases:
+        cases = [("override", {"HOUSE_RULES_REVISION": self.house_rules.main}),
+                 ("link", {"HOUSE_RULES_LINK": str(self.house_rules.path)})]
+        for name, env in cases:
             with self.subTest(name):
                 status, output = self.git_hook(self.repo, "push", "-q", "origin", f"topic:refs/heads/topic-{name}",
                                                env=env)
-                self.assertEqual(status, 0, output)
-                self.assertIn(label, headers(output)[0])
-
-    def test_pre_push_keeps_a_one_run_link_when_the_pushed_source_url_differs(self):
-        """HOUSE_RULES_LINK decides the House Rules layer for the run, whatever its URL; a link that
-        `house-rules link` stored applies to its URL only, so the other URL's snapshot resolves its own source."""
-        other = self.house_rules.url + "/"  # another spelling is another source
-        self.repo.configure(PUSHED_TOO)
-        self.repo.commit("main names the House Rules URL")
-        self.assertEqual(self.install().returncode, 0)
-        self.remote()
-        self.repo.git("checkout", "-q", "-b", "topic")
-        self.repo.reconfigure(url=other)
-        self.repo.commit("topic names another URL")
-        self.repo.git("checkout", "-q", "main")
-        with self.subTest("a one-run link"):
-            status, output = self.git_hook(self.repo, "push", "-q", "origin", "topic:refs/heads/topic-one-run",
-                                           env={"HOUSE_RULES_LINK": str(self.house_rules.path)})
-            self.assertEqual(status, 0, output)
-            self.assertIn(f"(link of {other})", headers(output)[0])
-        with self.subTest("a stored link"):
-            linked = self.house_rules_command("link", str(self.house_rules.path), "--url", self.house_rules.url)
-            self.assertEqual(linked.returncode, 0, linked.stderr)
-            self.addCleanup(self.house_rules_command, "unlink", self.house_rules.url)
-            status, output = self.git_hook(self.repo, "push", "-q", "origin", "topic:refs/heads/topic-stored")
-            self.assertEqual(status, 0, output)
-            self.assertIn(f"(fetched branch main of {other}, cached ", headers(output)[0])
+                self.assertEqual(status, 1, output)
+                self.assertIn("repository checks: a House Rules override or link selects HEAD's source; push this "
+                              "branch without it, or push it separately\n", output)
+                self.assertEqual(headers(output), [])
 
     def test_install_updates_a_worktree_setting_that_wins_over_the_clone_setting(self):
         self.repo.git("config", "extensions.worktreeConfig", "true")
@@ -2697,6 +2677,9 @@ class InstallTest(InstallCase):
              ".git/hooks/pre-commit: its first line is '#!/bin/sh -n', not a plain shell line", ["call your existing hook from a plain shell hook"]),
             ("env with a shell option, which env takes as one name", "#!/usr/bin/env sh -e\necho tool\n", 0o755,
              ".git/hooks/pre-commit: its first line is '#!/usr/bin/env sh -e', not a plain shell line", ["call your existing hook from a plain shell hook"]),
+            ("a plain shell line ended by a carriage return", "#!/bin/sh\r\necho tool\r\n", 0o755,
+             ".git/hooks/pre-commit: its first line is '#!/bin/sh\\r', not a plain shell line",
+             ["call your existing hook from a plain shell hook"]),
             ("another shell", "#!/bin/zsh\necho tool\n", 0o755,
              ".git/hooks/pre-commit: its first line is '#!/bin/zsh', not a plain shell line", ["call your existing hook from a plain shell hook"]),
             ("an incomplete block", "#!/bin/sh\n" + BEGIN + "echo tool\n", 0o755,
@@ -2764,6 +2747,43 @@ class InstallTest(InstallCase):
                     self.assertEqual(item, ("refused", f"{WORKFLOW}: not a regular file",
                                             ["replace it with a workflow file, or remove it, then run install again"]))
                 path.rmdir() if path.is_dir() else path.unlink()
+
+    def test_install_refuses_a_socket_at_a_hook_or_the_workflow_path_and_continues(self):
+        """A Unix-domain socket cannot be opened as a file; it is refused as any other file that is not regular."""
+        for folder, name in ((".git/hooks", "pre-commit"), (".github/workflows", "repository-checks.yml")):
+            (self.repo.path / folder).mkdir(parents=True, exist_ok=True)
+            here = os.getcwd()
+            os.chdir(str(self.repo.path / folder))  # a socket's path has a short length limit; bind it relatively
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+                    listener.bind(name)
+            finally:
+                os.chdir(here)
+        proc = self.install("--dry-run")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(items(proc.stdout), [
+            ("refused", f".git/hooks/pre-commit: {self.repo.path / '.git/hooks/pre-commit'} is not a regular file",
+             ["replace it with a hook script, then run install again"]),
+            ("create", ".git/hooks/pre-push", []),
+            ("create", f"setting house-rules.command {self.command}", []),
+            ("refused", f"{WORKFLOW}: not a regular file",
+             ["replace it with a workflow file, or remove it, then run install again"])])
+
+    def test_install_refuses_a_hook_it_cannot_read_and_continues(self):
+        """The hook opens, then reading it fails: that hook is refused with its repair, and the install goes on."""
+        self.executable(self.repo, ".git/hooks/pre-commit", "#!/bin/sh\necho tool\n")
+        faults = ("class Failing:\n"
+                  "    def __init__(self, *args, **kwargs): pass\n"
+                  "    def __enter__(self): return self\n"
+                  "    def __exit__(self, *args): return False\n"
+                  "    def read(self): raise OSError(5, 'Input/output error')\n"
+                  "unittest.mock.patch('os.fdopen', Failing).start()")
+        proc = self.run_with_faults(faults, "install", "--dry-run")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(items(proc.stdout)[:2], [
+            ("refused", ".git/hooks/pre-commit: cannot read it (Input/output error)",
+             ["repair access to it, then run install again"]),
+            ("create", ".git/hooks/pre-push", [])])
 
     def test_workflow_is_read_from_the_file_whose_type_was_checked(self):
         """Right after the workflow's open file passes the type check, a named pipe replaces it at its path: the
