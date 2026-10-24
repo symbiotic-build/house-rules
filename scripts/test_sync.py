@@ -1403,7 +1403,7 @@ class SessionContextTests(unittest.TestCase):
         _, packed, too_long = context.parts(self.root)
         self.assertEqual(too_long, [("rules/core.md", "Long section")])
         text = "".join(self.rendered())
-        self.assertRegex(text, r'HOUSE RULES HOOK ERROR: rules/core\.md section "Long section" is \d+ characters, '
+        self.assertRegex(text, r'HOUSE RULES HOOK ERROR: the section "Long section" is \d+ characters, '
                                r'more than the \d+ one part holds, so it is not in this context\.')
         self.assertNotIn("word word", text)
         self.assertIn("## Short\n\nKept.", text)
@@ -1549,7 +1549,7 @@ class SessionContextTests(unittest.TestCase):
         prompt = {"session_id": "session_a"}
         self.write("rules/core.md", "# Core rules\n\n## Long section\n\n" + "word " * 3000 + "\n")
         for _ in range(2):
-            self.assertIn('rules/core.md section "Long section" is', self.kimi("prompt", prompt))
+            self.assertIn('the section "Long section" is', self.kimi("prompt", prompt))
 
     def delivered_with_index_changing(self, first_read, later_reads):
         """Delivered text and failures while INDEX.md changes between filesystem checks."""
