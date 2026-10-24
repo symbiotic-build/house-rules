@@ -1607,9 +1607,9 @@ Evidence: planned, following [Migration](#rollout).
 
 **Requirements:** [Consumers](#req-layers-consumers).
 
-**Inputs:** A team layer whose ruleset lists 128 context files of 128 characters each, in configuration A. Part 1 resolves A; every later part resolves configuration B, which lists other files. Separately, a team layer with 300 such files.
+**Inputs:** A team layer whose ruleset lists 40 context files of 128 characters each, in configuration A: its resolution lines need about 6 600 characters, within part 1's 8 800. Part 1 resolves A; every later part resolves configuration B, which lists other files. Separately, the reviewers' layer with 128 such files, whose lines need about 21 000 characters.
 
-**Expected:** Part 1 names every one of A's 128 files inside its layer's tree line, and the later parts name another text, so the agent reads all of A's files from part 1 alone. The 300-file layer gets part 1's error line naming that layer and the count, followed by the global default's rules.
+**Expected:** Part 1 names every one of A's 40 files inside its layer's tree line, and the later parts name another text, so the agent reads all of A's files from part 1 alone. The 128-file layer gets part 1's error line naming that layer and the count, followed by the global default's rules.
 
 Evidence: planned, following [Agent sessions](#consumer-sessions).
 
