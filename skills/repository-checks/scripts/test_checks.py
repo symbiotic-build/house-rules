@@ -1896,6 +1896,25 @@ class RevisionTest(RunnerCase):
                                       "install one, then run `", " prepare`")
 
 
+    def test_outside_attributes_never_drop_files_from_the_cached_revision(self):
+        """A personal attributes file or a template's info/attributes that marks the spec checker export-ignore
+        leaves the cached House Rules tree whole."""
+        outside = self.repo.path.parent / "outside-attributes"
+        (outside / "template/info").mkdir(parents=True)
+        rule = "skills/spec-writing/scripts/spec_docs.py export-ignore\n"
+        (outside / "attributes").write_text(rule)
+        (outside / "template/info/attributes").write_text(rule)
+        (outside / "global").write_text(f"[core]\n\tattributesFile = {outside / 'attributes'}\n")
+        self.repo.configure(NO_SPEC)
+        env = dict(self.repo.env, GIT_CONFIG_GLOBAL=str(outside / "global"), GIT_TEMPLATE_DIR=str(outside / "template"),
+                   HOUSE_RULES_CACHE=str(outside / "cache"))
+        proc = self.repo.run("prepare", env=env)
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        tree = outside / "cache/revisions" / self.repo.main
+        self.assertTrue((tree / RUNNER).is_file())
+        self.assertTrue((tree / "skills/spec-writing/scripts/spec_docs.py").is_file())
+
+
 class StatusTest(RunnerCase):
     def test_status_prints_the_effective_configuration_and_cache_state(self):
         cache = self.repo.path.parent / "status-cache"
@@ -1960,6 +1979,19 @@ class StatusTest(RunnerCase):
                 proc = self.repo.run("status", "--session")
                 self.assertEqual(proc.returncode, 0, proc.stderr)
                 self.assertRegex(proc.stdout, r"\A" + expected + r"\Z")
+
+
+    def test_staged_configuration_that_cannot_be_read_is_a_failure_not_an_absent_file(self):
+        """A configuration the index lists but whose blob is missing stops status and prepare with Git's message;
+        the session line prints that failure and exits 0."""
+        self.repo.configure(NO_SPEC)
+        blob = self.repo.git("rev-parse", ":house-rules.json")
+        (self.repo.path / ".git/objects" / blob[:2] / blob[2:]).unlink()
+        for command in ("status", "prepare"):
+            self.assertPreparationFailure(self.repo.run(command), "git cat-file blob failed", "house-rules.json")
+        session = self.repo.run("status", "--session")
+        self.assertEqual(session.returncode, 0, session.stderr)
+        self.assertIn("git cat-file blob failed", session.stdout)
 
 
 class PortabilityTest(unittest.TestCase):
