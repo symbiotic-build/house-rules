@@ -1223,14 +1223,26 @@ def script_in(tree, relative):
     return script
 
 
-def fallback_line(text):
-    """`text` cut to HOOK_LINE_UNITS UTF-16 units, ending in an ellipsis when cut: a URL or Git error of any length
-    then still leaves the session script the room it keeps for this line."""
-    if len(text.encode("utf-16-le")) // 2 <= HOOK_LINE_UNITS:
+def clip(text, most):
+    """`text` within `most` UTF-16 units, its start and end kept around an ellipsis: a failure names its cause first
+    and its repair last, and a long URL or Git error sits between them."""
+    widths = [1 + (ord(char) > 0xFFFF) for char in text]
+    if sum(widths) <= most:
         return text
-    while len(text.encode("utf-16-le")) // 2 > HOOK_LINE_UNITS - 1:
-        text = text[:-1]
-    return text + "…"
+    room, used, head, tail = max(most - 1, 0), 0, 0, 0
+    while used + widths[head] <= room // 2:
+        used, head = used + widths[head], head + 1
+    while used + widths[-1 - tail] <= room:
+        used, tail = used + widths[-1 - tail], tail + 1
+    return text[:head] + "…" + text[len(text) - tail:]
+
+
+def fallback_line(failure, explanation):
+    """The hook's failure line within HOOK_LINE_UNITS UTF-16 units: the failure gives way in its middle, so its cause,
+    its repair and the explanation stay. A lone surrogate, as an undecodable branch byte, prints as its escape."""
+    failure, explanation = (text.encode("utf-8", "backslashreplace").decode() for text in (failure, explanation))
+    room = HOOK_LINE_UNITS - len(f"{HOOK_ERROR} . {explanation}".encode("utf-16-le")) // 2
+    return clip(f"{HOOK_ERROR} {clip(failure, room)}. {explanation}", HOOK_LINE_UNITS)
 
 
 def cmd_exec(args):
@@ -1267,7 +1279,7 @@ def cmd_exec(args):
         repository = None
         tree, record = Path(os.path.realpath(str(cache_root() / "default"))), None
         known = prepared(tree) and (tree / args.path).is_file()
-        print(fallback_line(f"{HOOK_ERROR} {failure}. " + (
+        print(fallback_line(str(failure), (
             f"The House Rules below are the global default's ({tree}), not this repository's resolved rules, and "
             "this repository's custom layers are missing." if known else "No House Rules tree is cached, so this "
             "context holds no House Rules; fix the cause above and start a new session.")))

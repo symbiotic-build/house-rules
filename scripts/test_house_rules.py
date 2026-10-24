@@ -540,16 +540,18 @@ class SessionContextTests(Fixture):
     def test_a_fallback_part_and_its_failure_line_stay_under_the_cap(self):
         here = Path(__file__).resolve().parent
         import session_context
-        self.assertEqual(session_context.FALLBACK_LINE, hr.HOOK_LINE_UNITS + 1)  # the reserve is exec's line and its end
         banner = "\n===== House Rules file rules/big.md =====\n"
         most = 10 ** len(str(session_context.SLOTS * 100))  # a later part's room before any fallback reserve
         room = session_context.CAP - 4 - session_context.units(session_context.end_line(most, most)) - \
             session_context.units(session_context.label(most, most, "0" * 12, "0" * 12, "rules/big.md", "Big"))
-        body = "w " * ((room - 10 - session_context.units(banner) - len("# Big\n\n")) // 2)  # fills a part
+        # A part holds big.md with 300 units to spare after the 601 a fallback line and its end take; small.md takes
+        # more than those 300, so it shares big.md's part only when that room is not kept.
+        body = "w " * ((room - 601 - 300 - session_context.units(banner) - len("# Big\n\n")) // 2)
         house = self.source("house-rules", {
             "INDEX.md": "# Index\n\n## Always load\n\n- [core rules](rules/core.md)\n",
             "rules/core.md": "# Core rules\n", "rules/big.md": "# Big\n\n" + body + "\n",
-            hr.RULESET: {"version": 1, "context": ["rules/core.md", "rules/big.md"]},
+            "rules/small.md": "# Small\n\n" + "s " * 200 + "\n",
+            hr.RULESET: {"version": 1, "context": ["rules/core.md", "rules/big.md", "rules/small.md"]},
             "scripts/session_context.py": (here / "session_context.py").read_text(),
             "scripts/house_rules.py": (here / "house_rules.py").read_text()})
         (self.root / "config" / "house-rules" / "custom").mkdir(parents=True)
@@ -559,18 +561,34 @@ class SessionContextTests(Fixture):
         missing = "file://" + str(self.root / "missing" / ("g/" * 300)) + "rules.git"  # its error repeats the URL
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house},
                                                           {"name": "team-rules", "url": missing}]})
-        for part in ("1", "2"):
+        for part, content in (("1", "# Core rules"), ("2", "w w w"), ("3", "s s s")):
             proc = subprocess.run([sys.executable, "-I", str(SCRIPT), "exec", "--hook", "scripts/session_context.py",
                                    "claude", part], input=json.dumps({"cwd": repo}).encode(), stdin=None,
                                   capture_output=True, env=os.environ)
             out = proc.stdout.decode().rstrip("\n")
             self.assertEqual(proc.returncode, 0, proc.stderr)
-            first = out.split("\n", 1)[0]
+            first, rest = out.split("\n", 1)
             self.assertTrue(first.startswith("HOUSE RULES HOOK ERROR: house-rules: "), first)
-            self.assertTrue(first.endswith("…"), first)  # the long URL cut to the reserve
-            self.assertLessEqual(session_context.units(first), hr.HOOK_LINE_UNITS)
+            self.assertRegex(first, r"(g/){3}g?…/?(g/){3}")  # the long URL gives way in its middle
+            self.assertIn("is cached; run again when online. ", first)  # the failure's repair stays
+            self.assertTrue(first.endswith(", not this repository's resolved rules, and this repository's custom "
+                                           "layers are missing."), first)
+            self.assertLessEqual(session_context.units(first), 600)  # the line the issue bounds
+            self.assertIn(f"===== House Rules part {part} of 3 ", rest)
+            self.assertIn(content, rest)  # each section arrives whole, in its own part
+            self.assertNotIn("is not in this context", rest)
             self.assertLess(session_context.units(out), session_context.CAP)  # the hook output Claude Code takes
             self.assertNotIn("-character cap", out)
+
+    def test_a_fallback_line_keeps_its_cause_repair_and_explanation(self):
+        failure = "house-rules: team: no branch gone-\udcff at " + "x" * 40000 + "; check the ref in house-rules.json"
+        explanation = "The House Rules below are the global default's (/" + "cache/" * 60 + "default), not this one's."
+        line = hr.fallback_line(failure, explanation)  # a long cache path makes the explanation long too
+        self.assertLessEqual(len(line.encode("utf-16-le")) // 2, 600)
+        self.assertTrue(line.startswith("HOUSE RULES HOOK ERROR: house-rules: team: no branch gone-\\udcff at x"))
+        self.assertTrue(line.endswith(f"x; check the ref in house-rules.json. {explanation}"), line)
+        line.encode("utf-8")  # an undecodable branch byte prints as its escape, so the hook still prints
+        self.assertEqual(hr.fallback_line("house-rules: short", "Done."), "HOUSE RULES HOOK ERROR: house-rules: short. Done.")
 
     def test_large_resolutions_name_their_files(self):
         here = Path(__file__).resolve().parent
