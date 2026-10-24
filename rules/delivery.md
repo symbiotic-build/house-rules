@@ -70,6 +70,7 @@
 - Run a rerunnable benchmark in the project's benchmark environment: by default a Linux container from Apple's `container` tool, with a fixed core count, memory size and recorded image.
 - Use a macOS virtual machine with the same fixed setup only for a benchmark that measures macOS-specific behaviour.
 - Run a benchmark's arms interleaved, one run of each arm per round in rotating order, and compare them by round.
+  A valid stored baseline is reused instead of rerun, as `bench-discipline` allows; interleave only the arms that run.
 - Run one benchmark or measured performance run at a time per machine, across all agents, lanes and sessions.
 - Start no build or test suite of your own while your measured run is active.
 - Record the machine load with each run.
