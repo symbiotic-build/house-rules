@@ -295,8 +295,11 @@ class ConfigurationTests(Fixture):
                                                 "that rust-settings/rust set; add a reason")
         config["checks"] = {"spec-docs": {"stages": ["pre-push", "ci"]}}  # the value it already has
         with self.assertRaises(hr.Failure) as caught:  # an equal value needs a reason too: one merge rule
-            hr.effective(hr.resolve(repo), hr.repository_config(json.dumps(config)), repo)
-        self.assertIn("checks.spec-docs.stages: sets a field that ", str(caught.exception))
+            hr.resolve(self.repository(config))
+        self.assertEqual(str(caught.exception), "house-rules: repository checks.spec-docs.stages: sets a field "
+                                                "that rust-settings/rust set; add a reason")
+        config["checks"] = {"spec-docs": {"stages": ["pre-push", "ci"], "reason": "Kept on purpose."}}
+        self.assertEqual(hr.resolve(self.repository(config))["layers"][0]["name"], "house-rules")  # with a reason
 
     def test_a_layer_file_that_lists_sources_is_refused(self):
         config, _ = self.tour()
