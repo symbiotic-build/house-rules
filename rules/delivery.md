@@ -45,7 +45,7 @@
 - Inspect process state before stopping runs because of silence or wrapper timeouts.
 - Do not stop a paid run on your own while it progresses at a reasonable pace, unless a configured ceiling is reached or a safety requirement applies.
 - Investigate a paid run that stops progressing, stop it early when it has stalled, and report the stop at once.
-- Obtain operator approval before stopping progressing, materially paid work, except under rules/core.md §Operator correction or safety requirements.
+- Obtain operator approval before stopping progressing, materially paid work, except when a configured ceiling is reached or under rules/core.md §Operator correction or safety requirements.
 - Follow `handoff-continuity` §Authorized, bounded, and durable external runs for procedure.
 
 <a id="git"></a>
