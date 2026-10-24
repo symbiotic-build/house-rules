@@ -36,11 +36,7 @@ class Fixture(unittest.TestCase):
             os.environ.pop(name, None)
 
     def cleanup(self):
-        for folder, names, _ in os.walk(str(self.root)):
-            for name in names:
-                with contextlib.suppress(OSError):
-                    os.chmod(os.path.join(folder, name), 0o755)
-        subprocess.run(["chmod", "-R", "u+w", str(self.root)], check=False, stdin=subprocess.DEVNULL)
+        subprocess.run(["chmod", "-R", "u+w", str(self.root)], check=False, stdin=subprocess.DEVNULL)  # read-only trees
         subprocess.run(["rm", "-rf", str(self.root)], check=False, stdin=subprocess.DEVNULL)
 
     def source(self, name, files):
@@ -96,9 +92,10 @@ class Fixture(unittest.TestCase):
     def tour(self):
         """The design's tour: House Rules, team-rules on main and rust-settings pinned."""
         base = {"version": 1, "checks": {
-            "whitespace": {"run": ["git", "diff", "--check"], "stages": ["pre-commit", "ci"], "enforced": True,
+            "whitespace": {"run": ["git", "diff", "--check", "{base}", "{snapshot}"], "stages": ["pre-commit", "ci"],
+                           "enforced": True,
                            "paths": ["**"], "fix": "remove the whitespace"},
-            "spec-docs": {"run": ["spec"], "stages": ["pre-commit", "ci"], "enforced": True, "paths": ["**"],
+            "spec-docs": {"run": ["spec", "{snapshot}"], "stages": ["pre-commit", "ci"], "enforced": True, "paths": ["**"],
                           "fix": "fix the specification"}}}
         house = self.source("house-rules", {hr.RULESET: dict(base, profiles={"rust": {}, "specs": {}}),
                                             "INDEX.md": "rules\n"})
@@ -150,7 +147,7 @@ class ResolutionTests(Fixture):
         offline = hr.resolve(repo)
         self.assertEqual([layer["source"] for layer in offline["layers"]], ["offline", "offline", "pinned"])
         self.assertEqual(offline["layers"][1]["revision"], fetched["layers"][1]["revision"])
-        self.assertTrue(any(w.startswith("warning: cannot reach file://") and "team-rules main last fetched" in w
+        self.assertTrue(any(w.startswith("warning: cannot reach file://") and "team-rules main as last answered" in w
                             for w in offline["warnings"]), offline["warnings"])
         subprocess.run(["rm", "-rf", str(self.root / "cache")], check=True, stdin=subprocess.DEVNULL)
         with self.assertRaises(hr.Failure) as caught:
@@ -281,7 +278,7 @@ class ConfigurationTests(Fixture):
         record = hr.resolve(repo)
         result = hr.effective(record, hr.repository_config(json.dumps(config)), repo)
         self.assertEqual(result["checks"]["spec-docs"]["stages"], ["pre-push", "ci"])
-        self.assertEqual(result["checks"]["spec-docs"]["run"], ["spec"])
+        self.assertEqual(result["checks"]["spec-docs"]["run"], ["spec", "{snapshot}"])
         self.assertEqual(result["layers_of"]["spec-docs"]["stages"], "rust-settings/rust")
         self.assertEqual(result["layers_of"]["spec-docs"]["run"], "house-rules")
         self.assertEqual(result["budgets"]["pre-commit"]["seconds"], 20)
@@ -330,7 +327,7 @@ class ConfigurationTests(Fixture):
         home.mkdir(parents=True)
         hr.global_path().write_text(json.dumps({"version": 1, "budgets": {"pre-commit": {"seconds": 1}},
                                                 "checks": {"whitespace": {"stages": []},
-                                                           "todo-scan": {"run": ["grep"], "stages": ["pre-commit"],
+                                                           "todo-scan": {"run": ["grep", "{snapshot}"], "stages": ["pre-commit"],
                                                                          "paths": ["**"], "fix": "f", "reason": "Mine."}}}))
         result = hr.effective(record, parsed, repo, hooks=True)
         self.assertEqual(result["budgets"]["pre-commit"], {"seconds": 1})  # a budget replaces its stage's entry whole
@@ -466,7 +463,7 @@ class CommandTests(Fixture):
         self.assertEqual(record["layers"][1]["source"], "offline")
         self.assertEqual(record["layers"][1]["revision"], first["layers"][1]["revision"])
         self.assertTrue(any(w.startswith(f"warning: the remote did not answer within {hr.HOOK_SECONDS} s; using "
-                                         "team-rules main last fetched") for w in record["warnings"]), record["warnings"])
+                                         "team-rules main as last answered") for w in record["warnings"]), record["warnings"])
 
     def test_a_refused_fetch_fails_and_keeps_the_previous_answer(self):
         config, _ = self.tour()
@@ -474,9 +471,14 @@ class CommandTests(Fixture):
         first = hr.resolve(repo)["layers"][1]["revision"]
         newer = self.push("team-rules", {"rules/team.md": "# Team v2\n"})
         self.expire_answers()
-        real = hr.fetch_commit
-        with mock.patch.object(hr, "fetch_commit", side_effect=lambda url, commit, deadline=hr.NO_DEADLINE:
-                               "fatal: refused" if commit == newer else real(url, commit, deadline)):
+        shim = self.root / "bin"
+        shim.mkdir()
+        real = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True, check=True,
+                              stdin=subprocess.DEVNULL).stdout.strip()
+        (shim / "git").write_text(f'#!/bin/sh\ncase "$*" in *fetch*{newer}*) echo "fatal: refused" >&2; exit 128;; esac\n'
+                                  f'exec {real} "$@"\n')  # the server refuses to send the commit it named
+        (shim / "git").chmod(0o755)
+        with mock.patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}):
             with self.assertRaises(hr.Failure) as caught:
                 hr.resolve(repo)
         self.assertIn(f"team-rules: {config['sources'][1]['url']} names {newer} for main but cannot send it "
@@ -688,7 +690,7 @@ class RoundOneTests(Fixture):
         hr.mark_used(tree)  # another run used it after the plan
         self.assertEqual(hr.prune_tree(tree), ("keep", "used or named again"))
         os.utime(str(tree) + ".used", (old, old))
-        with mock.patch.object(hr, "remove_tree", side_effect=OSError("interrupted")):
+        with mock.patch.object(hr.shutil, "rmtree", side_effect=OSError("interrupted")):
             with self.assertRaises(OSError):
                 hr.prune_tree(tree)
         self.assertFalse(tree.exists())  # renamed away before deletion started
@@ -697,23 +699,31 @@ class RoundOneTests(Fixture):
         self.assertTrue((Path(layer["tree"]) / hr.RULESET).is_file())  # fetched again, whole
 
     def test_init_never_overwrites_a_file_created_meanwhile(self):
-        repo = self.repository()
-        path = Path(repo) / hr.CONFIG
-        real = hr.repository_config
-
-        def appear(*args, **kwargs):
-            path.write_text("theirs\n")
-            return real(*args, **kwargs)
-        with mock.patch.object(hr, "repository_config", side_effect=appear):
-            self.assertEqual(hr.main(["init", "--repo", repo]), 1)
+        path = Path(self.repository()) / hr.CONFIG
+        path.write_text("theirs\n")  # another writer created it after init's first check
+        with self.assertRaises(hr.Failure):
+            hr.create_once(path, "ours\n")
         self.assertEqual(path.read_text(), "theirs\n")
 
     def test_a_failed_cleanup_of_a_fetch_repository_is_reported(self):
         config, pin = self.tour()
-        with mock.patch.object(hr, "remove_tree", side_effect=OSError(13, "Permission denied")):
+        with mock.patch.object(hr.shutil, "rmtree", side_effect=OSError(13, "Permission denied")):
             with self.assertRaises(hr.Failure) as caught:
                 hr.resolve(self.repository(config))
         self.assertIn("cannot remove the temporary fetch repository", str(caught.exception))
+        subprocess.run(["rm", "-rf", str(self.root / "cache")], check=True, stdin=subprocess.DEVNULL)
+        shim = self.root / "bin"
+        shim.mkdir()
+        real = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True, check=True,
+                              stdin=subprocess.DEVNULL).stdout.strip()
+        (shim / "git").write_text(f'#!/bin/sh\ncase "$*" in *" fetch "*) echo "fatal: refused" >&2; exit 128;; esac\n'
+                                  f'exec {real} "$@"\n')  # every fetch fails
+        (shim / "git").chmod(0o755)
+        with mock.patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}), \
+                mock.patch.object(hr.shutil, "rmtree", side_effect=OSError(13, "Permission denied")):
+            with self.assertRaises(hr.Failure) as caught:
+                hr.resolve(self.repository(config))
+        self.assertIn("; the fetch had failed first: fatal: refused", str(caught.exception))  # the first cause stays
 
 
 class RoundTwoTests(Fixture):
@@ -779,6 +789,28 @@ class RoundTwoTests(Fixture):
                                       stdin=f"(delete) {'0' * 40} refs/heads/old {pushed}\n".encode())
         self.assertEqual((code, out), (0, "nothing to check: the push only deletes references\n"), err)
 
+    def test_a_command_naming_its_layer_changes_with_the_layer(self):
+        config, _ = self.tour()
+        run_layer = ["{python}", "{layer}/scripts/lint.py", "{snapshot}"]
+        lint = {"run": run_layer, "stages": ["ci"], "paths": ["**"], "fix": "fix it"}
+        self.push("team-rules", {hr.RULESET: {"version": 1, "checks": {"lint": lint}}})
+        self.push("rust-settings", {hr.RULESET: {"version": 1, "checks": {"lint": {"run": run_layer}}}})
+        config["sources"][2]["ref"] = run(self.root / "work" / "rust-settings", "rev-parse", "HEAD")
+        with self.assertRaises(hr.Failure) as caught:  # the same text runs rust-settings' script: a change
+            hr.resolve(self.repository(config))
+        self.assertEqual(str(caught.exception), "house-rules: rust-settings checks.lint.run: changes team-rules's value; "
+                                                "add a reason")
+
+    def test_a_hook_fallback_tells_its_script(self):
+        house = self.source("house-rules", {"scripts/show.py": "import os\nprint(os.environ.get('HOUSE_RULES_FALLBACK'))\n"})
+        (self.root / "config" / "house-rules").mkdir(parents=True)
+        hr.global_path().write_text(json.dumps({"version": 1, "sources": [{"name": "house-rules", "url": house}]}))
+        hr.resolve(None)
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house, "ref": "gone"}]})
+        code, out, _ = self.command("exec", "--hook", "scripts/show.py", stdin=json.dumps({"cwd": repo}).encode())
+        self.assertEqual(code, 0)
+        self.assertTrue(out.splitlines()[-1].startswith("house-rules: house-rules: no branch gone at "), out)
+
     def test_a_hook_passes_its_deadline_to_the_script(self):
         house = self.source("house-rules", {"scripts/show.py": "import os\nprint(os.environ['HOUSE_RULES_DEADLINE'])\n"})
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house}]})
@@ -794,15 +826,12 @@ class RoundTwoTests(Fixture):
         record = hr.answer_path(config["sources"][1]["url"], "branch", "main")
         old = time.time() - 31 * 86_400
         os.utime(str(record), (old, old))
-        plan = hr.prune_plan()
-        self.assertIn(record, [path for path, _, _ in plan])
+        source = next(source for path, _, source in hr.prune_plan() if path == record)
         os.utime(str(record), None)  # a resolution used it after the plan
-        with mock.patch.object(hr, "prune_plan", return_value=plan):
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                hr.main(["cache", "prune"])
-        self.assertIn(f"keep {record} (used again)", output.getvalue())
+        self.assertEqual(hr.prune_record(record, source), ("keep", "used again"))
         self.assertTrue(record.exists())
+        os.utime(str(record), (old, old))
+        self.assertEqual(hr.prune_record(record, source), ("remove", None))
 
     def test_a_cache_that_cannot_be_written_names_the_repair(self):
         config, _ = self.tour()
@@ -874,6 +903,11 @@ class RoundThreeTests(Fixture):
             record = hr.resolve(self.repository(config))
         self.assertTrue(seen and all(seen), seen)  # .fetched exists before every tree is renamed into place
         tree = Path(record["layers"][2]["tree"])
+        stamp = Path(str(tree) + ".fetched").read_text()
+        subprocess.run(["chmod", "-R", "u+w", str(tree)], check=True, stdin=subprocess.DEVNULL)
+        subprocess.run(["rm", "-rf", str(tree)], check=True, stdin=subprocess.DEVNULL)  # an interrupted fetch
+        self.assertIsNone(hr.fetch_commit(config["sources"][2]["url"], pin))  # left .fetched; the next one completes
+        self.assertEqual(Path(str(tree) + ".fetched").read_text(), stamp)
         (tree / "marker").write_text("the existing tree\n")
         self.assertIsNone(hr.fetch_commit(config["sources"][2]["url"], pin))
         self.assertTrue((tree / "marker").is_file())  # an existing tree is never replaced
