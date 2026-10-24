@@ -1402,9 +1402,9 @@ class SessionContextTests(unittest.TestCase):
     def test_a_long_checkout_path_keeps_a_nearly_full_section(self):
         place = tempfile.TemporaryDirectory(prefix="house-rules-long-")
         self.addCleanup(place.cleanup)
-        tree = Path(place.name).joinpath(*(letter * 100 for letter in "defgh"))  # a 500-character checkout path
+        tree = Path(place.name).joinpath(*(letter * 100 for letter in "defghij"))  # a 700-character checkout path
         files = {"INDEX.md": "# Index\n\n## Always load\n\n- [core](rules/core.md)\n",
-                 "rules/core.md": "# Core rules\n\n## Big\n\n" + "w " * 4300 + "\n",
+                 "rules/core.md": "# Core rules\n\n## Big\n\n" + "w " * 4320 + "\n",
                  "ruleset.json": json.dumps({"version": 1, "context": ["rules/core.md"]}),
                  "custom/INDEX.md": "# Machine\n"}
         for name, text in files.items():
@@ -1420,7 +1420,7 @@ class SessionContextTests(unittest.TestCase):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         text = json.loads(proc.stdout)["hookSpecificOutput"]["additionalContext"]
         self.assertNotIn(context.ERROR, text)  # neither a cap error nor a section replaced by one
-        self.assertIn("## Big\n\n" + "w " * 4300 + "\n", text)  # the whole section, in the part it starts
+        self.assertIn("## Big\n\n" + "w " * 4320 + "\n", text)  # the whole section, in the part it starts
         self.assertIn(f"Read the files from {tree.resolve()} directly.", text)  # the introduction names the long path
 
     def test_a_wide_label_never_pushes_a_part_over_the_cap(self):
@@ -1469,11 +1469,13 @@ class SessionContextTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("fixture_context", tree / "scripts/session_context.py")
         hook = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(hook)  # the hook as its own tree holds it, finding that tree itself
-        real, writing = Path.read_text, tree / "rules/writing.md"
+        real, writing = Path.read_text, (tree / "rules/writing.md").resolve()
+        removed = []
 
         def read_once(path, *args, **kwargs):
             text = real(path, *args, **kwargs)
-            if Path(path) == writing:
+            if Path(path).resolve() == writing:
+                removed.append(path)
                 writing.unlink()  # removed after its first reading, as an edit during the hook would
             return text
         failures = []
@@ -1481,6 +1483,7 @@ class SessionContextTests(unittest.TestCase):
         with mock.patch.dict(os.environ, dict(environ, XDG_CONFIG_HOME=str(tree / "config")), clear=True), \
                 mock.patch.object(Path, "read_text", read_once):
             text = hook.every_part(failures)
+        self.assertEqual(len(removed), 1)  # the file was read, and removed, exactly once
         self.assertIn("are missing", text)  # more than the registered parts, so the second pass ran
         self.assertIn("# Writing rules", text)  # and packed what the first pass read
         self.assertNotIn("is missing", text)
