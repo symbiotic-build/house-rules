@@ -69,7 +69,7 @@ Each technical term below links to its defining Markdown section.
 - [Effective configuration](218-layered-configuration.md#effective-configuration) (`layered-configuration.effective-configuration`) — The effective configuration is the result of applying every ruleset, the repository configuration and the global configuration in order, with the layer that set each value recorded beside it.
 - [Global configuration](218-layered-configuration.md#global-configuration) (`layered-configuration.global-configuration`) — The global configuration is the per-user JSON file ~/.config/house-rules/house-rules.json that supplies default sources for repositories without a repository configuration, machine-only budgets and personal checks.
 - [House Rules command](218-layered-configuration.md#house-rules-command) (`layered-configuration.house-rules-command`) — The House Rules command is scripts/house_rules.py, one standard-library Python file that resolves layers, manages the version cache and links, and starts House Rules scripts at the resolved version.
-- [Isolated Git environment](218-layered-configuration.md#git-isolation) (`layered-configuration.isolated-git-environment`) — An isolated Git environment is the set of environment variables with which the checks runner starts every check, so that no system or personal Git setting reaches it, and the repository configuration's git_settings apply on top of the clone's own.
+- [Isolated Git environment](218-layered-configuration.md#git-isolation) (`layered-configuration.isolated-git-environment`) — An isolated Git environment is the set of environment variables with which the checks runner starts every check, so that no system or personal Git setting reaches it.
 - [Run placeholder for layers](218-layered-configuration.md#run-placeholder-layer) (`layered-configuration.layer-placeholder`) — The run placeholder {layer} is the absolute path of the tree of the layer whose file defined the check's run.
 - [Link mode](218-layered-configuration.md#link-mode) (`layered-configuration.link-mode`) — Link mode is the developer mode in which a source layer reads the working tree of a local checkout instead of a fetched commit.
 - [Offline resolution](218-layered-configuration.md#offline-use) (`layered-configuration.offline-use`) — Offline resolution is resolution without a network, from what the version cache already holds.
@@ -230,7 +230,7 @@ The file has six top-level fields:
 - `profiles` lists [profile](#profile) names in order. It is optional and defaults to none.
 - `budgets` maps a [check stage](194-repository-checks.md#check-stage) to an entry with `seconds` and `reason`, as the repository checks design defines.
 - `checks` maps a check identity to an entry, with the fields of the [check configuration](194-repository-checks.md#check-configuration).
-- `git_settings` maps a Git configuration key to `{"value": "<string>", "reason": "<text>"}`. Each entry applies to every check on top of the clone's own settings, as [Isolated Git environment](#git-isolation) explains, and the check report lists it as a changed value with its reason. `core.attributesFile`, `core.bare`, `core.worktree`, `core.repositoryformatversion`, `extensions.*`, `include.*` and `includeIf.*` are refused: the runner sets the first itself, the next ones change how Git finds or reads the repository, and an include would bring in settings nobody declared.
+- There is no field for Git settings. A file that still has `git_settings` stops with the unknown-field error, as the [no Git settings decision](#decision-no-git-settings) records.
 
 The tour's file lists three sources and two profiles and changes no check. The exact schema is in [the schema reference](#schema-repository).
 
@@ -247,7 +247,7 @@ Layers let a team share rules and settings in their own repositories, after Hous
 Each layer entry has three fields:
 
 - `name` is the layer's name in logs and reports, in lower kebab case, unique in the list. The first layer is always `house-rules`, and no other layer may use that name.
-- `url` is the repository to fetch. The `house-rules` layer may omit it; its default is `https://github.com/symbiotic-build/house-rules`. Every other layer needs it. A URL that carries a password, or any user name over `http` or `https`, stops resolution with a configuration error that says to use a Git credential helper, as the [credentials decision](#decision-no-credentials) records. An `ssh` login without a password is part of the URL.
+- `url` is the repository to fetch. The `house-rules` layer may omit it; its default is `https://github.com/symbiotic-build/house-rules`. Every other layer needs it. A URL that carries a password, or any user name over `http` or `https`, stops resolution with a configuration error that says to use a Git credential helper, as the [credentials decision](#decision-no-credentials) records. An `ssh` login without a password is part of the URL. A URL in Git's `<transport>::<address>` form, which has `::` before its first `/`, such as `https::https://host/rules`, stops resolution too, because the address inside escapes that check; a `::` after the first `/` is part of a path.
 - `ref` is a branch name, a full commit identity or an exact release tag. It is optional and defaults to `main`.
 
 A `ref` of 40 hexadecimal digits is a commit. A `ref` of 64 hexadecimal digits, a SHA-256 commit, stops resolution with "SHA-256 sources are not supported yet", as the [SHA-1 sources decision](#decision-sha1-sources) records; it is never taken as a branch name. A `ref` of the form `v<major>.<minor>.<patch>`, digits only, such as `v1.4.0`, is a release tag. Any other value is a branch name.
@@ -606,7 +606,7 @@ This replaces the runner's own resolution of House Rules `main`; everything else
 <a id="git-isolation"></a>
 #### Isolated Git environment
 
-An isolated Git environment is the set of environment variables with which the checks runner starts every check, so that no system or personal Git setting reaches it, and the repository configuration's `git_settings` apply on top of the clone's own.
+An isolated Git environment is the set of environment variables with which the checks runner starts every check, so that no system or personal Git setting reaches it.
 It makes a hook give the same result as CI's fresh clone for the same commit and layers, unless the clone's own `.git/config` or `.git/info/attributes` says otherwise.
 The runner PR [#212](https://github.com/symbiotic-build/house-rules/pull/212) builds it; this design records its contract, because every layer's checks rely on it.
 
@@ -614,7 +614,7 @@ The runner starts each check with:
 
 - `GIT_CONFIG_NOSYSTEM=1` and `GIT_CONFIG_GLOBAL=/dev/null`, so no system or global Git configuration is read.
 - `GIT_ATTR_NOSYSTEM=1`, so no system attribute file is read, and `GIT_NO_REPLACE_OBJECTS=1`, so no replace reference changes what a check reads.
-- `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` holding `core.attributesFile=/dev/null` and then each `git_settings` entry. The personal attribute file under `~/.config/git/` is therefore not read either, and the declared settings win over the clone's.
+- `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` holding only `core.attributesFile=/dev/null`. The personal attribute file under `~/.config/git/` is therefore not read either.
 
 The runner first removes every inherited `GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, which `git -c` passes to hooks.
 A check still reads the clone's `.git/config` and `.git/info/attributes`. They belong to that clone, and a clone owner who changes them accepts that a hook can disagree with CI; CI's fresh clone has neither, so CI decides. The operator's [isolation decision](#decision-git-isolation) records this limit.
@@ -1006,7 +1006,7 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 <a id="decision-git-isolation"></a>
 ### Decision: checks never read personal Git configuration
 
-**Choice:** Checks read no system or global Git configuration and no personal attribute file; the declared `git_settings` apply on top of the clone's own settings. Only environment variables do this. A clone's `.git/config` and `.git/info/attributes` still reach checks, and CI's fresh clone decides when they make a hook disagree.
+**Choice:** Checks read no system or global Git configuration and no personal attribute file. Only environment variables do this. A clone's `.git/config` and `.git/info/attributes` still reach checks, and CI's fresh clone decides when they make a hook disagree.
 
 **Authority:** Operator decision, relayed by the lead on 2026-10-24. The lead's relay states the decision; it did not quote the operator's words for it. Narrowed the same day, when the operator answered "3. 1" to the question whether the [isolated Git environment](#git-isolation) is more mechanism than the equal-result promise needs: only the environment variables stay.
 
@@ -1257,7 +1257,20 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 
 **Reason:** Redacting credentials from every record, message and Git error was a mechanism with many places to get wrong. Git credential helpers already keep secrets out of URLs. Without credentials, the URL as written is a safe key and a safe display string, and an `ssh` login stays part of it.
 
-**Rejected alternatives:** Normalizing URLs into a canonical key: equal spellings would share answers, at the cost of rules for logins, ports and suffixes that two tools must keep identical.
+A URL in Git's `<transport>::<address>` form is refused as well. Python's URL parser sees an empty address in front of the `::`, so the check never looks at the address inside, and a Warden probe on [#212](https://github.com/symbiotic-build/house-rules/pull/212) printed a token from such a URL in both reports. The lead added this on 2026-10-24, relayed by the owner of [#212](https://github.com/symbiotic-build/house-rules/pull/212); both tools refuse any URL with `::` before its first `/`.
+
+**Rejected alternatives:** Normalizing URLs into a canonical key: equal spellings would share answers, at the cost of rules for logins, ports and suffixes that two tools must keep identical. Parsing the address inside the transport form: one more URL grammar to keep identical in two tools, for a form no source needs.
+
+<a id="decision-no-git-settings"></a>
+### Decision: a repository declares no Git settings
+
+**Choice:** `house-rules.json` has no `git_settings` field; a file with one stops with the unknown-field error. The checks runner's only `GIT_CONFIG_COUNT` entry is `core.attributesFile=/dev/null`, beside `GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM=1`, `GIT_ATTR_NOSYSTEM=1` and `GIT_NO_REPLACE_OBJECTS=1`, and it still removes inherited `GIT_CONFIG_*` variables.
+
+**Authority:** Lead decision, 2026-10-24, after Warden round 4 of [#212](https://github.com/symbiotic-build/house-rules/pull/212), relayed by that PR's owner. It replaces the `git_settings` field of the operator's narrowed isolation decision.
+
+**Reason:** The field existed only to restore settings that the removed temporary Git folder shut out, and that folder is gone. Warden showed that its values leak credentials: an `http.extraHeader` value, or a credential inside a key such as `url."https://user:token@host/".insteadOf`, is printed in the report's overrides. Refusing such settings one by one would be the repeated repair the rules warn against.
+
+**Rejected alternatives:** A list of refused keys and values: it grows with every new way to carry a secret. A repository that needs a Git setting in CI as well can ask for it later as a new feature.
 
 <a id="decision-no-runner-handover"></a>
 ### Decision: the checks runner hands no snapshot to another revision
@@ -1295,7 +1308,7 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 <a id="decision-ruleset"></a>
 ### Decision: one ruleset file per rule repository, with one merge rule
 
-**Choice:** A project keeps `house-rules.json` at its root with `sources`, `profiles`, `git_settings` and its own `checks` and `budgets`. Each rule repository, House Rules included, has one [`ruleset.json`](#ruleset) at its root, with `context`, `checks`, `budgets` and `profiles.<name>` entries of the same three fields. Every source applies its top level, then its selected profiles in the project's order; the project's own entries come last. Checks change field by field, budgets per stage and context appends. House Rules' ruleset lists its always-load rules in `context`, and a CI test keeps `INDEX.md`'s always-load list in step with it.
+**Choice:** A project keeps `house-rules.json` at its root with `sources`, `profiles` and its own `checks` and `budgets`. Each rule repository, House Rules included, has one [`ruleset.json`](#ruleset) at its root, with `context`, `checks`, `budgets` and `profiles.<name>` entries of the same three fields. Every source applies its top level, then its selected profiles in the project's order; the project's own entries come last. Checks change field by field, budgets per stage and context appends. House Rules' ruleset lists its always-load rules in `context`, and a CI test keeps `INDEX.md`'s always-load list in step with it.
 
 **Authority:** The file locations are an operator decision of 2026-10-24, relayed by the lead. The operator wrote: "house-rules.json in target repo is fine ... Then for the repo which holds the rules only that should have some standard simple format easy to understand ... It should map easily into overrides and general house-rules defaults." The format and the merge rule are lead decisions of the same day. They replace `checks/base.json` and `checks/profiles/<profile>.json`, and they answer the open question about the folder of those files.
 
@@ -1375,7 +1388,6 @@ This chapter lists the exact schemas, commands, variables, record formats, messa
 | `profiles` | list of names | no | profiles in order |
 | `budgets` | map of stage to budget entry | no | warning budgets |
 | `checks` | map of identity to check entry | no | check changes and repository checks |
-| `git_settings` | map of Git key to `{value, reason}` | no | Git settings every check gets |
 
 A layer entry has `name` (required), `url` (required except for `house-rules`) and `ref` (default `main`).
 A budget entry has `seconds`, a positive number, and `reason`. A check entry has the fields of the repository checks design's [configuration fields](194-repository-checks.md#configuration-fields); it cannot set `enforced`.
@@ -1475,13 +1487,13 @@ A command environment variable is an environment variable of the [House Rules co
 | first layer | `house-rules: <file>: sources[0] must be house-rules; House Rules is always the first layer` | 2 |
 | record too large | `house-rules: the record for this run is <n> bytes, over the 64 KiB limit; <layer> lists the most context files (<count>)` | 2 |
 | credentials in a URL | `house-rules: <file>: sources[<i>]: the URL of <layer> carries credentials; use a Git credential helper` | 2 |
+| transport form | `house-rules: <file>: sources[<i>]: the URL of <layer> uses Git's <transport>::<address> form; write the address itself` | 2 |
 | [ruleset](#ruleset) lists sources | `house-rules: <layer> <file>: only house-rules.json lists sources` | 2 |
 | unknown profile | `house-rules: profile <name> is defined by no layer (<layer names>)` | 2 |
 | missing reason | `house-rules: <layer> <key>: changes <earlier layer>'s value; add a reason` | 2 |
 | missing branch | `house-rules: <layer>: no branch <branch> at <url>; check the ref in house-rules.json` | 2 |
 | SHA-256 source | `house-rules: <layer>: SHA-256 sources are not supported yet` | 2 |
 | missing tag | `house-rules: <layer>: no release tag <tag> at <url>; check the ref in house-rules.json` | 2 |
-| refused Git setting | `house-rules: house-rules.json: git_settings.<key>: a repository cannot set this Git setting` | 2 |
 | missing commit | `house-rules: <layer>: commit <commit> not found at <url> (<git error>); check the ref` | 2 |
 | offline, no record | `house-rules: cannot reach <url> (<git error>) and no earlier fetch of <layer> <branch> is cached; run again when online` | 2 |
 | both one-run variables | `house-rules: set HOUSE_RULES_LINK or HOUSE_RULES_REVISION, not both` | 1 |
@@ -1499,7 +1511,7 @@ Warnings start with `warning:` and never change an exit status: [offline resolut
 
 Each kind of public name in this design follows one convention:
 
-- Configuration and record fields are lower snake case with modifiers before the head noun: `ref_kind`, `git_settings`. A time is a past participle, `fetched`, as in the runner PRs' report; the House Rules naming defaults' `_at` suffix gives way to that existing field. They have no prefix.
+- Configuration and record fields are lower snake case with modifiers before the head noun: `ref_kind`. A time is a past participle, `fetched`, as in the runner PRs' report; the House Rules naming defaults' `_at` suffix gives way to that existing field. They have no prefix.
 - Layer names, profile names and check identities are lower kebab case, noun first: `team-rules`, `rust-settings`. They have no prefix or suffix.
 - Layer labels are a layer name, optionally followed by `/` and a profile name: `rust-settings/rust`.
 - Commands are lower-case words after `house-rules`, verb first: `resolve`, `cache list`, `self-update`.
@@ -1588,9 +1600,9 @@ Evidence: planned, following [Effective configuration](#effective-configuration)
 
 **Requirements:** [Git isolation](#req-layers-git-isolation).
 
-**Inputs:** A staged trailing space in a fixture clone, with `core.whitespace=-blank-at-eol` in the global configuration, a global `core.attributesFile` holding `* -whitespace`, and a commit started with `git -c core.whitespace=-blank-at-eol commit`. Separately, a check that runs `git config --get core.autocrlf`, with `git_settings` setting `core.autocrlf` to `false` and the clone's `.git/config` setting it to `true`.
+**Inputs:** A staged trailing space in a fixture clone, with `core.whitespace=-blank-at-eol` in the global configuration, a global `core.attributesFile` holding `* -whitespace`, and a commit started with `git -c core.whitespace=-blank-at-eol commit`.
 
-**Expected:** The whitespace check fails in every case, as it does in a fresh clone. The second check prints `false`, because the declared setting wins over the clone's.
+**Expected:** The whitespace check fails in every case, as it does in a fresh clone.
 
 Evidence: planned, following [Isolated Git environment](#git-isolation).
 
