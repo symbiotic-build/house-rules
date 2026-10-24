@@ -1436,7 +1436,7 @@ house-rules version
 - `--rev COMMIT` reads the [repository configuration](#repository-configuration) from that commit instead of the working tree. Warden and tests use it.
 - `exec --origin index` reads it from the staged index, and `exec --rev COMMIT` from that commit, as [Git hooks and CI](#consumer-checks) describes.
 - `--profile NAME` replaces the detected profiles.
-- Output channels: `path` prints only the path on standard output; `resolve --json` prints only the JSON record on standard output; every other line the command itself writes, warnings and errors included, goes to standard error, except `resolve` without `--json`, which prints its text form on standard output. `exec` passes its script's standard output and standard error through unchanged, so a session hook's context still reaches the agent on standard output.
+- Output channels: `path` prints only the path on standard output, and `resolve --json` only the JSON record. A command's own result goes to standard output: the text form of `resolve` and `install`, the listing of `cache list`, and what `link`, `unlink`, `init` and `version` did. Warnings and errors go to standard error, except a hook fallback's `HOUSE RULES HOOK ERROR:` line, which goes to standard output so that the agent sees it in the session's context. `exec` passes its script's standard output and standard error through unchanged, so a session hook's context still reaches the agent on standard output.
 - Exit status 0 is success, 1 a usage error and 2 a configuration or resolution failure, matching the checks runner's status 2 for preparation failures. `exec` exits with its script's status.
 
 <a id="environment-variables"></a>
