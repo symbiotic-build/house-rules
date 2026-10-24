@@ -473,7 +473,7 @@ A machine without a network keeps working on the rules it last fetched, and ever
 > **Detail — offline lines**
 >
 > ```text
-> warning: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …); using team-rules main last fetched 2026-10-24T09:00:01Z, 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80
+> warning: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …); using team-rules main as last answered 2026-10-24T09:00:01Z, 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80
 > house-rules: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …) and no earlier fetch of team-rules main is cached; run again when online
 > ```
 
@@ -649,7 +649,7 @@ Agent session hooks put House Rules rules into an agent's context at session sta
 - **Machine index.** The script reads this computer's `custom/INDEX.md` from the global configuration folder when `house-rules exec` starts it, and from the checkout's own `custom/` when an install from before the command runs it directly.
 - **End-of-turn guard.** A local guard that names a House Rules tool, such as the PR watcher, names it through `house-rules exec`, so the tool's revision matches the repository's.
 
-A failed resolution never stops a session from starting. The hook prints the [resolution failure](#failure-resolution) line with its repair, then the House Rules files of the tree that `default` points to, under a line that says they are the global default's rules, not this repository's, and that the repository's custom layers are missing. The [session fallback decision](#decision-session-fallback) records why.
+A failed resolution never stops a session from starting. The hook prints the [resolution failure](#failure-resolution) line with its repair, then the House Rules files of the tree that `default` points to, under a line that says they are the global default's rules, not this repository's, and that the repository's custom layers are missing. The [session fallback decision](#decision-session-fallback) records why. The script it starts gets no resolution record but [`HOUSE_RULES_FALLBACK`](#environment-variables), set to the failure line, so it knows that `exec` started it and reads the machine index from the configuration folder, as the [fallback handover decision](#decision-fallback-handover) records.
 
 Agent-home skill links serve every repository at once, so they follow the global default sources. They point through the cache's `default` link, which each resolution of the global default moves to its House Rules tree. `house-rules install` resolves the global default before it registers any link, so the link target exists; when that resolution fails, the install stops with its message and registers nothing.
 In a repository whose House Rules commit differs from the global default's, the first context part names the repository's tree and says to read skill files there.
@@ -772,8 +772,8 @@ The tour's developer commits on a train. The cache holds every layer from a fetc
 > **Detail — the pre-commit report's resolution lines**
 >
 > ```text
-> warning: cannot reach https://github.com/symbiotic-build/house-rules (fatal: unable to access …); using house-rules main last fetched 2026-10-24T09:00:00Z, 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e
-> warning: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …); using team-rules main last fetched 2026-10-24T09:00:01Z, 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80
+> warning: cannot reach https://github.com/symbiotic-build/house-rules (fatal: unable to access …); using house-rules main as last answered 2026-10-24T09:00:00Z, 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e
+> warning: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …); using team-rules main as last answered 2026-10-24T09:00:01Z, 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80
 > house-rules: layer house-rules   https://github.com/symbiotic-build/house-rules ref main -> 4b1f0c2d9e8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e (offline, fetched 2026-10-24T09:00:00Z)
 > house-rules: layer team-rules    https://git.example.com/team/team-rules ref main -> 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80 (offline, fetched 2026-10-24T09:00:01Z)
 > house-rules: layer rust-settings https://git.example.com/team/rust-settings ref 3f2a9c0d41b7e65a8c1d2b3f4e5a6b7c8d9e0f1a (pinned, fetched 2026-10-23T16:40:12Z)
@@ -1309,6 +1309,28 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 
 **Rejected alternatives:** Handing each snapshot to the runner of its resolved revision: one more process per snapshot and a version-to-version protocol.
 
+<a id="decision-layer-command"></a>
+### Decision: a command that names its layer changes with the layer
+
+**Choice:** A `run` that contains `{layer}` counts as changed when a later layer sets it, even with the same text. The later layer needs a reason, and the report lists the change.
+
+**Authority:** Lead decision, 2026-10-24, on a blocking lead decision of the Warden round 2 triage of the resolver PR [#222](https://github.com/symbiotic-build/house-rules/pull/222), whose probe showed a later layer taking over a command without a record.
+
+**Reason:** `{layer}` makes the same text run another tree's script, so equal text is not an equal command. Treating it as a change keeps the merge rule that every change carries a reason.
+
+**Rejected alternatives:** Keeping the earlier owner for equal text: a team could then never point a command at its own script.
+
+<a id="decision-fallback-handover"></a>
+### Decision: a hook fallback says so to its script
+
+**Choice:** When resolution fails in a hook, `exec` runs the script from the `default` tree with `HOUSE_RULES_FALLBACK` set to the failure line and passes no resolution record. The script treats itself as started by `exec`: it reads the machine index from the configuration folder, and the line `exec` printed says that custom layers are missing.
+
+**Authority:** Lead decision, 2026-10-24, on a blocking lead decision of the Warden round 2 triage of the resolver PR [#222](https://github.com/symbiotic-build/house-rules/pull/222), which showed that a script could not tell a fallback from a direct run.
+
+**Reason:** One variable tells the script what happened without inventing a resolution that failed. The session script needs only to know where the machine index lives.
+
+**Rejected alternatives:** A minimal fallback record with a new source word: every reader of the record would have to learn that word for a case that resolved nothing.
+
 <a id="decision-ruleset"></a>
 ### Decision: one ruleset file per rule repository, with one merge rule
 
@@ -1410,7 +1432,7 @@ Each kind of file has its own `version`: 2 for the [repository configuration](#r
 <a id="run-placeholder-layer"></a>
 ### Run placeholder for layers
 
-The run placeholder `{layer}` is the absolute path of the tree of the layer whose file defined the check's `run`. It joins the [run placeholders](194-repository-checks.md#configuration-fields) of the repository checks design; `{house_rules}` stays the House Rules layer's tree.
+The run placeholder `{layer}` is the absolute path of the tree of the layer whose file defined the check's `run`. It joins the [run placeholders](194-repository-checks.md#configuration-fields) of the repository checks design; `{house_rules}` stays the House Rules layer's tree. A `run` that names `{layer}` counts as changed when a later layer sets it, even with the same text, because it then runs that layer's files; the later layer needs a reason, as the [layer command decision](#decision-layer-command) records.
 
 <a id="commands"></a>
 ### Commands
@@ -1449,6 +1471,7 @@ A command environment variable is an environment variable of the [House Rules co
 | `HOUSE_RULES_CACHE` | cache root |
 | `HOUSE_RULES_RESOLVED` | set by a starting tool: the [resolution record](#resolution-record) in JSON |
 | `HOUSE_RULES_DEADLINE` | set by `exec --hook`: the hook's deadline, in seconds since 1970-01-01 UTC |
+| `HOUSE_RULES_FALLBACK` | set by `exec --hook` when resolution failed: the failure line; no record is passed |
 
 `HOUSE_RULES_REVISION`, `HOUSE_RULES_CACHE` and `HOUSE_RULES_RESOLVED` keep the names and meanings the runner PRs gave them; `HOUSE_RULES_RESOLVED` now holds the whole resolution record. The runner PRs' `HOUSE_RULES_URL` is retired: a fork or a fixture is a `url` in the repository configuration.
 
@@ -1505,7 +1528,7 @@ A command environment variable is an environment variable of the [House Rules co
 | cache not writable | `house-rules: cannot write the cache <folder> (<system error>); free space, make it writable or set HOUSE_RULES_CACHE` | 2 |
 | old command | `house-rules: <file> has version <n>; this house-rules command knows version 2; run house-rules self-update` | 2 |
 | old default command | `house-rules: the global default's House Rules has the same command; run python3 <checkout>/scripts/house_rules.py install from a newer checkout` | 2 |
-| hook deadline | `warning: the remote did not answer within 8 s; using <layer> <branch> last fetched <time>, <commit>` | 0 |
+| hook deadline | `warning: the remote did not answer within 8 s; using <layer> <branch> as last answered <time>, <commit>` | 0 |
 | source not allowed | `Warden: layer <name> at <url> is not an allowed source; ask the Warden operator to allow it` | review stops |
 
 Warnings start with `warning:` and never change an exit status: [offline resolution](#offline-use), the hook deadline, a link, an override, an invalid global configuration, a personal check that names an existing check and an installed command that differs from the global default's.
