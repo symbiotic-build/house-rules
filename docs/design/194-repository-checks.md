@@ -1343,6 +1343,7 @@ Clone settings keep machine paths out of the hook blocks, so a block can also li
 |---|---|
 | [`house-rules.checks-runner`](#clone-settings) | the runner's absolute path in the cache |
 | [`house-rules.checks-python`](#clone-settings) | an absolute interpreter path |
+| [`house-rules.command`](#clone-settings) | the absolute path of the installed `house-rules` command: one executable, no arguments |
 
 <a id="naming-conventions"></a>
 ### Naming conventions

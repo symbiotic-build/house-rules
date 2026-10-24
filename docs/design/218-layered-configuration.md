@@ -411,7 +411,7 @@ It runs once per run of any consumer, so every part of one run uses one set of c
 > - A release tag resolves like a branch. Each run asks the remote, reuses an answer younger than 60 s, and falls back to the tag's last record when the remote cannot be reached. A tag moved on the remote is therefore followed at the next run that asks, the same as CI with an empty cache follows it. A tag the remote does not have stops resolution with the missing-tag message. A tag with no record while the remote cannot be reached stops with "run again when online".
 > - Fetching a commit by its identity needs a server that allows it. GitHub does. A server that refuses stops resolution with an error that names the commit and the server's answer.
 > - Every `ls-remote` and fetch passes `-c http.lowSpeedLimit=1 -c http.lowSpeedTime=30`, so Git stops a transfer that moves less than 1 byte per second for 30 s. Resolution adds no timer of its own, except in hook mode.
-> - In hook mode (`house-rules exec --hook`), the agent product kills the hook after its timeout, 10 s, which would leave no visible line. `exec` owns one deadline for the whole hook, 8 s after the hook starts: `ls-remote`, fetches and the started script all share it. `exec` passes it to the script in [`HOUSE_RULES_DEADLINE`](#environment-variables), so the script knows the time left. At the deadline during resolution, a branch or tag takes the [offline resolution](#offline-use) path with the warning "the remote did not answer within 8 s", and a layer with nothing cached stops with the resolution failure below. A script that reaches the deadline stops its slow work and prints a visible line that names what was cut short. This is the one place House Rules stops on elapsed time, because the host's timeout is not progress-based and a killed hook reports nothing.
+> - In hook mode (`house-rules exec --hook`), the agent product kills the hook after its timeout, 10 s, which would leave no visible line. `exec` owns one deadline, 8 s after the hook starts: `ls-remote`, fetches and the started script all share it. Local preparation, a linked checkout's inspection and the transport processes Git starts are outside it, as the [hook deadline decision](#decision-hook-deadline) records; such work that runs past the host's timeout leaves no visible line. `exec` passes it to the script in [`HOUSE_RULES_DEADLINE`](#environment-variables), so the script knows the time left. At the deadline during resolution, a branch or tag takes the [offline resolution](#offline-use) path with the warning "the remote did not answer within 8 s", and a layer with nothing cached stops with the resolution failure below. A script that reaches the deadline stops its slow work and prints a visible line that names what was cut short. This is the one place House Rules stops on elapsed time, because the host's timeout is not progress-based and a killed hook reports nothing.
 > - Messages show each URL as written, because a source URL never carries credentials. A message that refuses a URL never shows it, because it may hold the credentials it refuses.
 
 `house-rules exec` passes the resolution to the script it starts in [`HOUSE_RULES_RESOLVED`](194-repository-checks.md#runner-environment-variables). The script uses it and resolves nothing again.
@@ -943,7 +943,7 @@ A run never reads a half-written tree or record, and a finished tree never chang
 
 **Condition:** A fetch or a branch or tag answer is interrupted, fails, or competes with another run that publishes the same commit or answer.
 
-**Result:** A tree appears at its ready path only complete, by one rename. An existing tree is never replaced, also when two runs fetch the same commit; the run that loses keeps using the winner's tree. A branch or tag record is replaced only after its commit's tree is complete, so an interrupted or failed run leaves the previous usable record.
+**Result:** A tree appears at its ready path only complete: by one rename, or, for a commit with no files, by creating its empty folder. An existing tree is never replaced, also when two runs fetch the same commit; the run that loses keeps using the winner's tree. A branch or tag record is replaced only after its commit's tree is complete, so an interrupted or failed run leaves the previous usable record.
 
 **Verification:** Fetches interrupted before and after extraction, and two runs that fetch the same commit, an empty commit included, at the same time.
 
@@ -1207,7 +1207,7 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 
 **Rejected alternatives:** A per-session capture file reused for a few seconds: the same window problem, plus state to clean up. One hook that prints every part: Claude Code caps one hook's output at 10 000 characters, which is why the parts exist. Telling the agent to run `house-rules resolve` on a split: a third resolution, which may match neither part. Resolution lines that continue into later parts: a split loses the continuation. A file in the cache that holds the complete list, named by its hash: complete without a limit, but a new kind of cache state written by a session hook. Only tree lines in part 1, with the agent rebuilding the list from each tree's [`ruleset.json`](#ruleset): the agent would repeat the merge rule by hand, and an error there is silent.
 
-**Limit:** Recovery covers files that still exist. A [linked](#link-mode) layer can list an uncommitted file that the developer deletes before the later parts run; no commit holds it, so it cannot be read. The parts tell the agent that a listed file it cannot read means the files changed: it says so and starts a new session. Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 14 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221); capturing the linked files' contents would add the session state this decision rejects.
+**Limit:** Recovery by rereading covers fetched and pinned trees only, which no edit can change. A [linked](#link-mode) layer reads a working tree: the developer can delete or rewrite one of its files before the later parts run, and no commit holds the text part 1 had. The parts therefore tell the agent two things. A listed file it cannot read means the files changed. A split where part 1's resolution lists any layer with source `link` cannot be recovered by rereading. In both cases the agent says so and starts a new session. Lead decisions, 2026-10-24, on the blocking lead decisions of the Warden round 14 and round 15 triages of [#221](https://github.com/symbiotic-build/house-rules/pull/221); capturing the linked files' contents would add the session state this decision rejects.
 
 <a id="decision-hook-deadline"></a>
 ### Decision: a hook has one deadline, 2 s before the hook timeout
@@ -1218,7 +1218,7 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 
 **Scope:** The deadline covers `ls-remote`, fetches and the started script. Local preparation, such as extracting a fetched commit's files, the inspection of a linked checkout, and the transport processes Git starts are outside it on purpose: bounding them needs process control that no requirement asks for. The accepted side effect is that a slow linked checkout or a large extraction can run past the host's 10 s timeout, and the session then sees no recovery line. Lead decision, 2026-10-24, on the Warden round 9 triage of the resolver PR [#222](https://github.com/symbiotic-build/house-rules/pull/222), which raised these cases a third time.
 
-**Reason:** The product kills a hook at its timeout, and a killed hook shows the agent nothing, which breaks the rule that every failure is visible. The verification rules prefer progress-based limits, but here the host's limit is fixed and elapsed; the deadline only turns a silent kill into a named fallback. Everywhere else resolution keeps Git's progress-based limit.
+**Reason:** The product kills a hook at its timeout, and a killed hook shows the agent nothing, which breaks the rule that every failure is visible. The verification rules prefer progress-based limits, but here the host's limit is fixed and elapsed; the deadline turns a silent kill during the work it covers into a named fallback. Everywhere else resolution keeps Git's progress-based limit.
 
 **Rejected alternatives:** A longer hook timeout: it delays every session start on a stalled network and still ends in a silent kill. Resolving in a separate background step before the session: the hooks are the only code that runs at session start. Fixed shares, such as 3 s for resolution and 5 s for the script: two timers, and a slow fetch would fail even when the script needs no time.
 
@@ -1251,7 +1251,7 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 
 **Authority:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 3 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed that two sources fetching one commit under different source locks could replace a finished tree under a running consumer. The [simplification pass](#decision-simplification-pass) removed the `revisions/<commit>.fetched` side file that this decision wrote before the rename.
 
-**Reason:** Trees are shared by commit, so two sources can publish one commit at the same time. With the rename as the only publication step, there is nothing left to repair: a folder at the ready path is always complete.
+**Reason:** Trees are shared by commit, so two sources can publish one commit at the same time. With the rename, or for an empty tree the creation of its folder, as the only publication step, there is nothing left to repair: a folder at the ready path is always complete.
 
 **Rejected alternatives:** A lock per commit around publication: one more lock kind, in both tools. A side file with the first-fetch time, written before the rename: a second file per tree that every publisher must write, for a time no requirement needs. Replacing an existing tree: it can replace a finished tree that another publisher just placed.
 
@@ -1583,9 +1583,9 @@ Evidence: planned, following [a default single-language repository](#examples).
 
 **Requirements:** [Ordered merge](#req-layers-ordered-merge), [refs](#req-layers-refs), [logging](#req-layers-logging).
 
-**Inputs:** The tour's three fixture sources. Then a new commit on `team-rules` `main` and on `rust-settings` `main`, more than 60 s later. Separately, a `team-rules` [ruleset](#ruleset) that lists `sources`, and a `rust-settings` change without a reason.
+**Inputs:** The tour's three fixture sources. Then a new commit on `team-rules` `main` and on `rust-settings` `main`, more than 60 s later. Separately, a `team-rules` [ruleset](#ruleset) that lists `sources`, and a `rust-settings` change without a reason. Separately, a repository check whose `run` names a file with [`{layer}`](#run-placeholder-layer), and a `team-rules` check that does the same.
 
-**Expected:** The tour's report, with the `settings` block naming `team-rules` and `rust-settings/rust`. After the new commits, `team-rules` resolves to its new commit and `rust-settings` stays at its pin. The ruleset with `sources` and the change without a reason stop with their messages.
+**Expected:** The tour's report, with the `settings` block naming `team-rules` and `rust-settings/rust`. After the new commits, `team-rules` resolves to its new commit and `rust-settings` stays at its pin. The ruleset with `sources` and the change without a reason stop with their messages. The repository check's `{layer}` is the repository root and the `team-rules` check's is that layer's tree; at pre-commit the repository check reads the snapshot only, as every repository command does.
 
 Evidence: planned, following the [tour](#tour).
 
@@ -1624,7 +1624,7 @@ Evidence: planned, following [Migration](#rollout).
 
 **Inputs:** A team layer whose ruleset lists 40 context files of 128 characters each, in configuration A: its resolution lines need about 6 600 characters, within part 1's 8 800. Part 1 resolves A; every later part resolves configuration B, which lists other files. Separately, the reviewers' layer with 128 such files, whose lines need about 21 000 characters.
 
-**Expected:** Part 1 names every one of A's 40 files inside its layer's tree line, and the later parts name another text, so the agent reads all of A's files from part 1 alone. The 128-file layer gets part 1's error line naming that layer and the count, followed by the global default's rules. Separately, a linked layer whose uncommitted context file is deleted after part 1: the parts tell the agent to say so and start a new session, and nothing claims the rules are complete.
+**Expected:** Part 1 names every one of A's 40 files inside its layer's tree line, and the later parts name another text, so the agent reads all of A's files from part 1 alone. The 128-file layer gets part 1's error line naming that layer and the count, followed by the global default's rules. Separately, a linked layer whose uncommitted context file is deleted after part 1, and one whose file is rewritten after part 1 and stays readable: in both, the parts tell the agent to say so and start a new session, and nothing claims that rereading recovered part 1's rules.
 
 Evidence: planned, following [Agent sessions](#consumer-sessions).
 
@@ -1700,9 +1700,9 @@ Evidence: planned, following [Version cache](#version-cache).
 
 **Requirements:** [Cache publication](#req-layers-publication).
 
-**Inputs:** A fetch stopped after the Git fetch and before the extraction ends, one stopped after the extraction and before the rename, a failed fetch of a branch's new commit, and two runs that fetch the same commit, alone and for an empty commit, while a third process works inside the first published tree.
+**Inputs:** A fetch stopped after the Git fetch and before the extraction ends, one stopped after the extraction and before the rename, a failed fetch of a branch's new commit, and two runs that fetch the same commit, alone and for an empty commit, while a third process works inside the first published tree. Separately, a branch answer and a tag answer whose record write is stopped before it completes, and two runs that answer the same branch at the same time while another process reads its record.
 
-**Expected:** No stopped fetch leaves a tree at its ready path; the failed branch fetch leaves the previous record. Of the competing runs, one publishes and the other uses its tree; the third process's working folder still exists afterwards.
+**Expected:** No stopped fetch leaves a tree at its ready path; the failed branch fetch leaves the previous record. Of the competing runs, one publishes and the other uses its tree; the third process's working folder still exists afterwards. Every read of a branch or tag record gets the previous complete record or the new complete one, never a partial one.
 
 Evidence: planned; the resolver PR [#222](https://github.com/symbiotic-build/house-rules/pull/222) carries `test_a_tree_is_published_whole_and_never_replaced` and `test_an_empty_tree_is_never_replaced`.
 
