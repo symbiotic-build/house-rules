@@ -1225,14 +1225,24 @@ def start_check(command, version_arguments, root, env):
 def find_program(name, root, env):
     """The program the command's start will run, as far as a lookup before the start can tell, or None.
 
-    A name with a slash is taken from the repository root. Otherwise it is the first executable on PATH, a relative
-    entry counted from the repository root and joined, never normalized, so `link/../bin` resolves through the file
-    system as the start does. The start can still pass a candidate, such as a script whose first line names a missing
-    interpreter; the version then names the first candidate.
+    A name with a slash is taken from the repository root. Otherwise it is the first PATH entry that holds `name` as an
+    executable regular file; a relative entry counts from the repository root and is joined, never normalized, so
+    `link/../bin` resolves through the file system as the start does. Only a regular file counts, so a named pipe is
+    never read for the version. The start can still pass a candidate, such as a script whose first line names a
+    missing interpreter; the version then names the first candidate.
     """
-    if "/" in name:
-        return name if os.path.isfile(os.path.join(str(root), name)) else None
-    return shutil.which(name, path=os.pathsep.join(os.path.join(str(root), e) for e in os.get_exec_path(env)))
+    def regular(path):
+        try:
+            return stat.S_ISREG(os.stat(os.path.join(str(root), path)).st_mode)
+        except OSError:
+            return False
+    if "/" in name:  # the start itself reports a file it cannot run, such as one without execute permission
+        return name if regular(name) else None
+    for entry in os.get_exec_path(env):  # split before joining, so a separator in the root splits nothing
+        candidate = os.path.join(str(root), entry, name)
+        if regular(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    return None
 
 
 def version_input(root, argument):

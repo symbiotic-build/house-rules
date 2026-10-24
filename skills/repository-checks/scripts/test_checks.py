@@ -1526,6 +1526,38 @@ class RevisionTest(RunnerCase):
         self.assertEqual((proc.returncode, lint["status"], lint["output"], lint["version"]),
                          (0, "pass", "working\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
 
+    def test_program_lookup_finds_a_relative_path_entry_in_a_repository_whose_path_holds_a_colon(self):
+        self.repo = Repo(Path(tempfile.mkdtemp(dir=str(self.folder))), self.house_rules, self.cache, name="repo:one")
+        self.repo.write("bin/lint", "#!/bin/sh\necho linted\n")
+        (self.repo.path / "bin/lint").chmod(0o755)
+        self.repo.configure({"lint": check(["lint", "{snapshot}"], ["pre-commit"])})
+        env = dict(self.repo.env, PATH=os.pathsep.join(["bin", os.environ["PATH"]]))
+        proc, entry = self.repo.snapshot("run", "--stage", "pre-commit", "--only", "lint", env=env)
+        lint = entry["checks"][0]
+        program = os.path.join(self.repo.root, "bin", "lint")
+        self.assertEqual((proc.returncode, lint["status"], lint["output"], lint["version"]),
+                         (0, "pass", "linted\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
+
+    def test_program_lookup_skips_an_executable_named_pipe(self):
+        # Reading a named pipe for the version would wait for a writer forever, so the run is bounded.
+        self.repo.write("ran/lint", "#!/bin/sh\necho working\n")
+        (self.repo.path / "ran/lint").chmod(0o755)
+        (self.repo.path / "first").mkdir()
+        os.mkfifo(str(self.repo.path / "first/lint"), 0o755)
+        self.repo.configure({"lint": check(["lint", "{snapshot}"], ["pre-commit"])})
+        env = dict(self.repo.env, PATH=os.pathsep.join(["first", "ran", os.environ["PATH"]]))
+        try:
+            proc = subprocess.run([sys.executable, "-B", str(SCRIPT), "run", "--stage", "pre-commit", "--only", "lint",
+                                   "--json"], cwd=str(self.repo.path), env=env, capture_output=True, text=True,
+                                  stdin=subprocess.DEVNULL, timeout=120)
+        except subprocess.TimeoutExpired:
+            self.fail("the run waited on the named pipe")
+        (entry,) = json.loads(proc.stdout)["snapshots"]
+        lint = entry["checks"][0]
+        program = os.path.join(self.repo.root, "ran", "lint")
+        self.assertEqual((proc.returncode, lint["status"], lint["output"], lint["version"]),
+                         (0, "pass", "working\n", [{"path": program, "sha256": sha256(program)}]), proc.stderr)
+
     def test_version_names_the_first_candidate_when_the_start_passes_it(self):
         # The start passes a script whose first line names a missing interpreter; the version names it all the same.
         def broken():
