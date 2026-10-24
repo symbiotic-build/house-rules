@@ -8,7 +8,7 @@ One small `house-rules` command per machine resolves the layers into a [version 
 Agent session hooks, worker tooling, Git hooks, CI and Warden all resolve the same layers, and every run logs what it resolved.
 
 Readers need Git branches and commits, JSON, and the [repository checks design](194-repository-checks.md#repository-checks) at the level of "a runner reads a configuration file and runs checks in Git hooks and CI".
-This design is a draft. The operator decided its eight main choices on 2026-10-22 and 2026-10-23 and directed its implementation; the operator has not reviewed this record yet. The work is tracked in [#218](https://github.com/symbiotic-build/house-rules/issues/218).
+The operator approved this design on 2026-10-24, after two simplification passes, as the [approval decision](#decision-approval) records; implementation follows it. The work is tracked in [#218](https://github.com/symbiotic-build/house-rules/issues/218).
 
 How does one repository's configuration reach every tool that uses House Rules?
 
@@ -54,7 +54,7 @@ Use this map to choose the next explanation to read.
 - [Worked examples](218-layered-configuration.md#examples) — Apply the design to a default repository, no configuration, link mode, a Warden review and an offline run.
 - [Requirements](218-layered-configuration.md#requirements) — Find the obligations each mechanism must meet.
 - [Decisions and alternatives](218-layered-configuration.md#decisions) — Read the operator's decisions with their words, the lead's recommendations and the design choices.
-- [Open questions](218-layered-configuration.md#questions) — See which choices wait for the operator's review.
+- [Open questions](218-layered-configuration.md#questions) — See which questions stay open after the approval.
 - [Migration](218-layered-configuration.md#rollout) — Move a machine from one checkout to the command, and adopt the file in a repository.
 - [Work packages](218-layered-configuration.md#work) — Plan the implementation pull requests and their order.
 - [Reference](218-layered-configuration.md#reference) — Look up schemas, commands, variables, record formats, messages and naming conventions.
@@ -763,7 +763,7 @@ The commit is checked with the rules last fetched. When the developer pushes lat
 ## Requirements
 
 These obligations make the mechanisms above implementable and testable.
-Their status is specified: the operator decided the choices they rest on, and this design record awaits the operator's review.
+Their status is specified: the operator approved the design they belong to.
 
 <a id="req-layers-ordered-merge"></a>
 ### Requirement: layers apply in order, field by field
@@ -958,8 +958,19 @@ A PR cannot change the configuration of its own review.
 <a id="decisions"></a>
 ## Decisions and alternatives
 
-The operator decided the first eight records below on 2026-10-22 and 2026-10-23, and the next two on 2026-10-24; the lead relayed them, with the operator's words, on 2026-10-24.
-The lead's recommendations follow; the operator saw them and did not contest them, and can still change them when reviewing this design. The design choices made while writing it come last.
+The first record is the operator's approval of this design, on 2026-10-24. The operator decided the next eight records on 2026-10-22 and 2026-10-23, and the two after them on 2026-10-24; the lead relayed them, with the operator's words, on 2026-10-24.
+The lead's recommendations follow; the operator saw them and approved them with the design. The design choices made while writing it come last.
+
+<a id="decision-approval"></a>
+### Decision: approve the design
+
+**Choice:** Approve this design. Implementation follows it, in the work packages under [Work packages](#work).
+
+**Authority:** Operator decision, 2026-10-24, relayed by the lead. The operator answered "10. 1" to the question "Approve the design once these last cleanups are pushed, without a third check?". The approval follows two [simplification passes](#decision-simplification-pass), and it took effect with the push that carried the second pass's cleanups.
+
+**Reason:** Two fresh read-only reviews found nothing left to cut beyond the cleanups this push carries, and Warden's reviews had settled every mechanism the design keeps.
+
+**Rejected alternatives:** A third simplification pass before approval: the second pass found only text left over from removed mechanisms and a few small items.
 
 <a id="decision-layered-sources"></a>
 ### Decision: ordered source layers, later entries win
@@ -1080,9 +1091,9 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 
 **Choice:** Implement this design in the work packages under [Work packages](#work), and bring the lead's recommendations and design choices to the operator for review.
 
-**Authority:** Operator instruction, 2026-10-23, relayed by the lead: "Make a new thread for this compile all these finidngs spec it and implement it.. this is necessary for this tool to be usable by general public...". The operator gave it before this record existed and has not reviewed the record.
+**Authority:** Operator instruction, 2026-10-23, relayed by the lead: "Make a new thread for this compile all these finidngs spec it and implement it.. this is necessary for this tool to be usable by general public...". The operator gave it before this record existed, and the [approval decision](#decision-approval) later approved the record.
 
-**Reason:** The operator decided the main choices and asked for implementation. The remaining choices are the lead's and can change at the operator's review without changing the mechanisms above.
+**Reason:** The operator decided the main choices and asked for implementation. The remaining choices were the lead's; the operator approved them with the design.
 
 **Rejected alternatives:** Waiting for an approval of the record before any implementation: the operator asked for implementation, and the record's open choices change file names and defaults, not the mechanisms.
 
@@ -1311,14 +1322,14 @@ A URL in Git's `<transport>::<address>` form is refused as well. Python's URL pa
 <a id="questions"></a>
 ## Open questions
 
-The operator's review of this design is in progress; the design stays a draft until it ends. On 2026-10-24 the operator raised these points; release tags, Git isolation and the files' folder are answered above, and these remain. Until they are answered, the mechanisms above stand as written.
+These questions stay open after the [approval](#decision-approval). On 2026-10-24 the operator raised points; release tags, Git isolation and the files' folder are answered above, and these remain. Until they are answered, the mechanisms above stand as written.
 
 - **Language of the command:** whether the installed `house-rules` command stays standard-library Python, as the checks runner is, or moves to another language. The operator asked for a measurement first: Rust and JavaScript versions of the spec checker are compared with Python. The command stays Python until that result is in.
 - **Local sources:** whether a [source layer](#source-layer) can be a local folder rather than a Git repository, beyond the developer [link mode](#link-mode).
 - **Snapshots without configuration:** a hook on a snapshot without `house-rules.json` still depends on the global default sources, [#230](https://github.com/symbiotic-build/house-rules/issues/230).
 - **Automatic pruning:** how to reclaim space from trees no repository uses any more, without breaking a running consumer, a fetch in progress or a commit pin, is [#227](https://github.com/symbiotic-build/house-rules/issues/227). The language decision may move the command to Rust; pruning would then be designed fresh in that implementation.
 
-The three recommendations and the lead's decisions above also wait for that review; changing them changes names or defaults, not the mechanisms.
+Answering them changes names, defaults or the implementation language, not the approved mechanisms.
 
 <a id="rollout"></a>
 ## Migration
