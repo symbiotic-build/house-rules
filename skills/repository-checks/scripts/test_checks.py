@@ -5,6 +5,7 @@ revision the runner reads comes from a synthetic local clone that each test conf
 in its sources, so no case needs a network.
 """
 import ast
+import contextlib
 import fcntl
 import hashlib
 import importlib.metadata
@@ -14,12 +15,17 @@ import os
 import re
 import shlex
 import shutil
+import signal
+import socket
+import stat
 import subprocess
 import sys
 import sysconfig
 import tempfile
+import textwrap
 import time
 import unittest
+import unittest.mock
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().with_name("checks.py")
@@ -87,8 +93,11 @@ class HouseRules:
         self.path = folder / "house-rules"
         shutil.copytree(str(SPEC), str(self.path / "skills/spec-writing"),
                         ignore=shutil.ignore_patterns("__pycache__"))
-        (self.path / "rules").mkdir()
-        shutil.copyfile(str(ROOT / "rules/writing.md"), str(self.path / "rules/writing.md"))
+        # The layer file and the context files it names, which `house-rules exec` reads, and the command itself,
+        # which a CI job runs from its clone of House Rules.
+        for name in ["ruleset.json", "scripts/house_rules.py", *json.loads((ROOT / "ruleset.json").read_text())["context"]]:
+            (self.path / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(str(ROOT / name), str(self.path / name))
         (self.path / RUNNER).parent.mkdir(parents=True)
         shutil.copyfile(str(SCRIPT), str(self.path / RUNNER))
         git(self.path, "init", "-q", "-b", "main")
@@ -1389,6 +1398,49 @@ class RevisionTest(RunnerCase):
         self.assertTrue(entry["checks"][0]["rerun"].startswith(
             shlex.join([sys.executable, str(cache / "revisions" / moved / RUNNER)])), entry["checks"][0])
 
+    def test_exec_record_is_used_even_after_main_moved(self):
+        """A runner that `house-rules exec` started from the tree of the record's first layer checks with exactly that
+        commit and its warnings, and asks the remote nothing, although main moved since exec resolved; a record
+        naming another tree is ignored, and the runner resolves itself."""
+        house_rules = self.own_house_rules()
+        cache = self.fresh_cache("exec-cache")
+        self.repo.configure(NO_SPEC)
+        proc, _, first = self.repo.checked("run", "--stage", "pre-commit")
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        (house_rules.path / "MOVED").write_text("main moved\n")
+        moved = house_rules.commit("Move main")
+        runner = cache / "revisions" / house_rules.main / RUNNER
+        fields = ("name", "url", "ref", "revision", "source", "fetched")
+        for tree, expected, asked in ((runner.parents[3], dict(first, source="reused"), False),
+                                      (self.repo.path, dict(first, revision=moved), True)):
+            with self.subTest(tree=str(tree)):
+                layer = dict({k: first[k] for k in fields}, source="reused", tree=str(tree), ref_kind="branch",
+                             link=None)
+                record = {"version": 1, "repository": str(self.repo.path), "profiles": [], "context": [],
+                          "configuration": {"origin": "index", "commit": None}, "layers": [layer],
+                          "warnings": ["warning: an exec warning"]}
+                marker = self.repo.path.parent / f"asked-{asked}"
+                env = dict(self.repo.env, HOUSE_RULES_RESOLVED=json.dumps(record),
+                           PATH=self.racing_git("ls-remote", f": > {shlex.quote(str(marker))}"))
+                proc, entry, used = self.repo.checked("run", "--stage", "pre-commit", script=runner, env=env)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual({k: used[k] for k in fields if k != "fetched"},
+                                 {k: expected[k] for k in fields if k != "fetched"})
+                self.assertEqual(marker.exists(), asked)
+                if not asked:
+                    self.assertEqual(used["fetched"], first["fetched"])
+                    self.assertIn("an exec warning", self.repo.report(
+                        "run", "--stage", "pre-commit", script=runner, env=env)[1]["warnings"])
+        # A linked checkout: exec's record names the tree the runner runs from, with no fetch time.
+        layer = dict({k: first[k] for k in fields}, source="link", fetched=None, tree=str(runner.parents[3]),
+                     ref_kind="branch", link={"path": str(runner.parents[3]), "head": first["revision"], "dirty": False})
+        record = {"version": 1, "repository": str(self.repo.path), "profiles": [], "context": [], "warnings": [],
+                  "configuration": {"origin": "index", "commit": None}, "layers": [layer]}
+        proc = self.repo.run("run", "--stage", "pre-commit", script=runner,
+                             env=dict(self.repo.env, HOUSE_RULES_RESOLVED=json.dumps(record)))
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn(f"House Rules {first['revision']} (link of {first['url']})", proc.stdout.splitlines()[0])
+
     def test_offline_run_uses_the_cached_main_with_a_warning(self):
         self.fresh_cache("cached-main")
         self.repo.configure(NO_SPEC)
@@ -1962,7 +2014,8 @@ class StatusTest(RunnerCase):
         cases = [
             ("unmanaged repository without configuration", lambda: None, ""),
             ("managed repository without configuration", lambda: self.repo.write(".agents/rules.md", "# Rules\n"),
-             re.escape(f"repository checks: not installed; run: {install}\n")),
+             re.escape("repository checks: not installed; run `house-rules init`, review and stage house-rules.json "
+                       f"(git add house-rules.json), then run: house-rules exec {RUNNER} install\n")),
             ("no hooks and main not fetched yet", lambda: self.repo.configure(NO_SPEC),
              re.escape(f"repository checks: not ready: no hook block in pre-commit, pre-push (run: {install}); "
                        f"House Rules main not fetched yet (run: {prepare})\n")),
@@ -2008,7 +2061,1070 @@ class StatusTest(RunnerCase):
                 "repository checks: no house-rules.json in the index; this repository has not adopted repository "
                 "checks\n"), ""))
             self.assertEqual(repo.run("status", "--session").stdout, "")
-            self.assertPreparationFailure(repo.run("prepare"), "no house-rules.json in the index")
+            self.assertPreparationFailure(repo.run("prepare"), "no house-rules.json in the index; run `house-rules init`, "
+                                          "review and stage house-rules.json (git add house-rules.json), then run "
+                                          f"`house-rules exec {RUNNER} install`")
+
+    def test_unstaged_configuration_is_reviewed_and_staged_not_initialized_again(self):
+        """Right after `house-rules init` the file is in the working tree only; `init` would refuse to run again."""
+        self.repo.write(".agents/rules.md", "# Rules\n")
+        self.repo.write("house-rules.json", "{}\n")
+        self.assertPreparationFailure(self.repo.run("prepare"), (
+            "repository checks: no house-rules.json in the index; review house-rules.json and stage it (git add "
+            f"house-rules.json), then run `house-rules exec {RUNNER} install`"))
+        self.assertEqual(self.repo.run("status", "--session").stdout, (
+            "repository checks: not installed; review house-rules.json and stage it (git add house-rules.json), then "
+            f"run: house-rules exec {RUNNER} install\n"))
+
+
+ACTIONS = ("create", "update", "unchanged", "refused")
+WORKFLOW = ".github/workflows/repository-checks.yml"
+ZERO = "0" * 40
+BEGIN, END = "# house-rules:repository-checks:begin\n", "# house-rules:repository-checks:end\n"
+COMMAND_INSTALL = "python3 <House Rules checkout>/scripts/house_rules.py install"
+CHECKS_INSTALL = f"house-rules exec {RUNNER} install"
+NOT_INSTALLED = ("repository checks: house-rules.command names no executable file; run: " + COMMAND_INSTALL
+                 + ", then " + CHECKS_INSTALL + "\n")
+PUSHED_TOO = {"whitespace": {"stages": ["pre-commit", "pre-push", "ci"], "reason": "Pushes are checked too."}}
+# The house-rules command on PATH: the real scripts/house_rules.py of this checkout.
+COMMAND = """#!/bin/sh
+exec {python} -I {script} "$@"
+"""
+
+
+def items(output):
+    """The install's item lines as (action, label, detail lines)."""
+    result = []
+    for line in output.splitlines():
+        action = line.split(" ", 1)[0]
+        if action in ACTIONS and line[10:11] == " ":
+            result.append((action, line[11:], []))
+        elif line.startswith(" " * 11) and result:
+            result[-1][2].append(line[11:])
+    return result
+
+
+def next_command(output, step):
+    """The command of the install's `next: <step>: <command>` line."""
+    (line,) = [line for line in output.splitlines() if line.startswith(f"next: {step}: ")]
+    return shlex.split(line[len(f"next: {step}: "):])
+
+
+def text_statuses(output):
+    """Check statuses from a text report, as the hook prints it."""
+    labels = {"PASS": "pass", "FAIL": "fail", "ERROR": "error", "SKIP": "skipped"}
+    return {m[2]: labels[m[1]] for m in re.finditer(r"^(PASS|FAIL|ERROR|SKIP) +(\S+)", output, re.M)}
+
+
+def headers(output):
+    """The report header lines of each checked snapshot."""
+    return [line for line in output.splitlines() if line.startswith("repository checks: ") and " on " in line]
+
+
+class InstallCase(RunnerCase):
+    """Installs into fixture clones that have a configuration, through the real house-rules command on PATH.
+
+    Every source is the fixture's file:// clone, the cache is the test cache, and the command's per-user folder is a
+    test folder whose global configuration names the fixture, so nothing reaches a network or the user's files.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.bin = cls.folder / "bin"
+        cls.bin.mkdir()
+        cls.command = cls.bin / "house-rules"
+        cls.command.write_text(COMMAND.format(python=shlex.quote(sys.executable),
+                                              script=shlex.quote(str(ROOT / "scripts/house_rules.py"))))
+        cls.command.chmod(0o755)
+        cls.config_home = cls.folder / "config"
+        (cls.config_home / "house-rules").mkdir(parents=True)
+        (cls.config_home / "house-rules/house-rules.json").write_text(json.dumps(
+            {"version": 1, "sources": [{"name": "house-rules", "url": cls.house_rules.url, "ref": "main"}]}))
+        git(cls.house_rules.path, "branch", "release", "main")
+        git(cls.house_rules.path, "tag", "v1.0.0", "main")
+
+    def setUp(self):
+        super().setUp()
+        self.prepare(self.repo)
+        self.repo.configure(NO_SPEC)
+
+    def prepare(self, repo):
+        repo.env.update(PATH=f"{self.bin}{os.pathsep}{repo.env['PATH']}", XDG_CONFIG_HOME=str(self.config_home))
+        return repo
+
+    def fresh(self):
+        """Another fixture clone, without a configuration."""
+        return self.prepare(Repo(Path(tempfile.mkdtemp(dir=str(self.folder))), self.house_rules, self.cache))
+
+    def house_rules_command(self, *args, repo=None, cwd=None, env=None, input=None):
+        repo = repo or self.repo
+        return subprocess.run([str(self.command), *args], cwd=str(cwd or repo.path), env=env or repo.env,
+                              capture_output=True, text=True, input=input,
+                              stdin=None if input is not None else subprocess.DEVNULL)
+
+    def install(self, *args, repo=None, cwd=None, env=None):
+        """`house-rules exec skills/repository-checks/scripts/checks.py install`, as a person runs it."""
+        return self.house_rules_command("exec", RUNNER, "install", *args, repo=repo, cwd=cwd, env=env)
+
+    def init(self, repo):
+        """`house-rules init`, then point its House Rules layer at the fixture: the one change a test makes."""
+        proc = self.house_rules_command("init", repo=repo)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        config = json.loads((repo.path / "house-rules.json").read_text())
+        self.assertEqual(config["sources"], [{"name": "house-rules", "ref": "main"}])
+        config["sources"][0]["url"] = self.house_rules.url
+        (repo.path / "house-rules.json").write_text(json.dumps(config, indent=2) + "\n")
+        return config
+
+    def git_hook(self, repo, *args, env=None):
+        """Run a Git command that starts the hooks; return its exit status and combined output."""
+        proc = subprocess.run(["git", *args], cwd=str(repo.path), env=dict(repo.env, **(env or {})),
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, stdin=subprocess.DEVNULL)
+        return proc.returncode, proc.stdout
+
+    def run_hook(self, stage, *args, input="", env=None):
+        """Start one hook file directly, as Git does, with Git's arguments and standard input."""
+        return subprocess.run([str(self.repo.path / ".git/hooks" / stage), *args], cwd=str(self.repo.path),
+                              env=dict(self.repo.env, **(env or {})), input=input, capture_output=True, text=True,
+                              stdin=None if input is not None else subprocess.DEVNULL)
+
+    def executable(self, repo, name, content):
+        path = repo.path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content if isinstance(content, bytes) else content.encode())
+        path.chmod(0o755)
+        return path
+
+    def observed(self, repo):
+        """What an install can change: the repository's files and index, its hooks folder and its settings."""
+        hooks = repo.path / ".git/hooks"
+        return (repo.state(), {p.name: p.read_bytes() for p in hooks.iterdir()},
+                repo.git("config", "--list", "--local"))
+
+    def remote(self, repo=None):
+        repo = repo or self.repo
+        remote = repo.path.parent / "remote.git"
+        git(remote.parent, "init", "-q", "--bare", str(remote))
+        repo.git("remote", "add", "origin", str(remote))
+        return remote
+
+    def shim(self, name, script):
+        """A PATH whose `git` runs `script`, a shell fragment, before the real Git; $REAL is the real Git."""
+        folder = self.repo.path.parent / name
+        folder.mkdir()
+        (folder / "git").write_text(f"#!/bin/sh\nREAL={shlex.quote(shutil.which('git'))}\n{script}\n"
+                                    'exec "$REAL" "$@"\n')
+        (folder / "git").chmod(0o755)
+        return f"{folder}{os.pathsep}{self.repo.env['PATH']}"
+
+    def install_bounded(self, *args, repo=None):
+        """The install in its own process group, so a run that blocks, as on a named pipe, is ended whole."""
+        repo = repo or self.repo
+        proc = subprocess.Popen([str(self.command), "exec", RUNNER, "install", *args], cwd=str(repo.path),
+                                env=repo.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                                stdin=subprocess.DEVNULL, start_new_session=True)
+        try:
+            stdout, stderr = proc.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            self.fail(f"the install with {args} blocked")
+        return proc.returncode, stdout, stderr
+
+    def run_with_faults(self, faults, *args, script=SCRIPT, tree=ROOT, url=None, env=None):
+        """The runner's main(args) in a child Python after `faults`, code that patches the standard library.
+
+        The child gets the record `house-rules exec` would pass for a link to `tree`, the runner's own tree, so it
+        resolves nothing and hands over to no other runner, and the patches stay in force.
+        """
+        layer = {"name": "house-rules", "url": url or self.house_rules.url, "ref": "main", "ref_kind": "branch",
+                 "revision": "0" * 40, "source": "link", "fetched": None, "tree": str(tree), "link": None}
+        record = {"version": 1, "repository": str(self.repo.path), "profiles": [], "context": [], "warnings": [],
+                  "configuration": {"origin": "working tree", "commit": None}, "layers": [layer]}
+        code = ("import importlib.util, os, shutil, subprocess, sys, unittest.mock\n"
+                f"spec = importlib.util.spec_from_file_location('checks', {str(script)!r})\n"
+                "checks = importlib.util.module_from_spec(spec)\nspec.loader.exec_module(checks)\n"
+                f"{faults}\nsys.exit(checks.main({list(args)!r}))\n")
+        proc = subprocess.Popen([sys.executable, "-I", "-c", code], cwd=str(self.repo.path), stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, text=True, stdin=subprocess.DEVNULL, start_new_session=True,
+                                env=dict(env or self.repo.env, HOUSE_RULES_RESOLVED=json.dumps(record)))
+        try:
+            stdout, stderr = proc.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            os.killpg(proc.pid, signal.SIGKILL)
+            proc.communicate()
+            self.fail(f"the runner with {args} blocked")
+        return subprocess.CompletedProcess(proc.args, proc.returncode, stdout, stderr)
+
+    def assertBlockFile(self, path, after=""):
+        """The hook file holds `#!/bin/sh`, then exactly one marked block, then `after`, and is executable."""
+        text = path.read_text()
+        self.assertTrue(text.startswith("#!/bin/sh\n" + BEGIN), text)
+        self.assertEqual((text.count(BEGIN), text.count(END)), (1, 1), text)
+        self.assertEqual(text.split(END, 1)[1], after)
+        self.assertTrue(os.access(str(path), os.X_OK))
+
+
+class InstallTest(InstallCase):
+    def test_install_without_a_configuration_is_refused_and_writes_nothing(self):
+        repo = self.fresh()
+        before = self.observed(repo)
+        proc = self.install(repo=repo)
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (2, "", (
+            "repository checks: no house-rules.json in this repository; run `house-rules init` first\n")))
+        self.assertEqual(self.observed(repo), before)
+        config = json.dumps({"version": 2, "sources": [{"name": "house-rules", "url": self.house_rules.url,
+                                                        "ref": "main"}], "checks": NO_SPEC})
+        with self.subTest("a configuration only in the working tree"):
+            repo.write("house-rules.json", config)
+            proc = self.install("--dry-run", repo=repo)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+        with self.subTest("a configuration only in the index"):
+            repo.stage("house-rules.json")
+            (repo.path / "house-rules.json").unlink()
+            proc = self.install("--dry-run", repo=repo)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+
+    def test_install_without_house_rules_on_path_is_refused_and_writes_nothing(self):
+        tools = self.repo.path.parent / "tools"
+        tools.mkdir()
+        (tools / "git").write_text(f"#!/bin/sh\nexec {shlex.quote(shutil.which('git'))} \"$@\"\n")
+        (tools / "git").chmod(0o755)
+        before = self.observed(self.repo)
+        proc = self.repo.run("install", env=dict(self.repo.env, PATH=str(tools)))
+        self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (2, "", (
+            f"repository checks: the house-rules command is not on PATH; run `{COMMAND_INSTALL}` first\n")))
+        self.assertEqual(self.observed(self.repo), before)
+
+    def test_runner_accepts_the_configuration_init_writes_and_refuses_profiles(self):
+        with self.subTest("init in a repository without profile markers writes an empty list"):
+            repo = self.fresh()
+            config = self.init(repo)
+            self.assertEqual(config["profiles"], [])
+            repo.stage("house-rules.json")
+            proc = self.house_rules_command("exec", "--origin", "index", RUNNER, "run", "--stage", "ci", "--index",
+                                            repo=repo)
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertIn("PASS  whitespace", proc.stdout)
+        def run_with(profiles, ref="main"):
+            repo = self.fresh()
+            repo.write("docs/ENTITIES.json", "{}\n")
+            config = self.init(repo)
+            self.assertEqual(config["profiles"], ["specs"])
+            config.update(profiles=profiles, sources=[dict(config["sources"][0], ref=ref)])
+            repo.write("house-rules.json", json.dumps(config, indent=2) + "\n")
+            repo.stage("house-rules.json")
+            return self.house_rules_command("exec", "--origin", "index", RUNNER, "run", "--stage", "ci", "--index",
+                                            repo=repo)
+        with self.subTest("init beside docs/ENTITIES.json writes specs, which House Rules defines as empty"):
+            proc = run_with(["specs"])
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertIn("PASS  whitespace", proc.stdout)
+        with self.subTest("a profile House Rules does not define is refused: by exec, and by the runner itself"):
+            self.assertPreparationFailure(run_with(["haskell"]), "profile haskell is defined by no layer")
+            repo = self.fresh()
+            repo.configure(NO_SPEC)
+            repo.write_config(dict(repo.config, profiles=["haskell"]))
+            self.assertPreparationFailure(repo.run("run", "--stage", "ci", "--index"),
+                                          "profiles lists 'haskell', which this House Rules revision does not define")
+        with self.subTest("a profile that sets anything stops the run until #217, never ignored"):
+            ruleset = json.loads((self.house_rules.path / "ruleset.json").read_text())
+            ruleset["profiles"]["specs"] = {"checks": {"spec-docs": {"stages": ["ci"], "reason": "A test."}}}
+            revision = self.house_rules.variant("A profile with content", {"ruleset.json": json.dumps(ruleset)})
+            self.assertPreparationFailure(run_with(["specs"], ref=revision),
+                                          "house-rules: house-rules.json: profile specs sets checks or settings, "
+                                          "which this runner does not support yet (#217); remove specs from "
+                                          "profiles in house-rules.json")
+
+    def test_install_writes_both_hook_blocks_and_the_command_setting(self):
+        hooks = self.repo.path / ".git/hooks"
+        setting = ("create", f"setting house-rules.command {self.command}", [])
+        proc = self.install()
+        self.assertEqual((proc.returncode, items(proc.stdout)), (0, [
+            ("create", ".git/hooks/pre-commit", []), ("create", ".git/hooks/pre-push", []), setting]),
+            proc.stdout + proc.stderr)
+        for name in ("pre-commit", "pre-push"):
+            self.assertBlockFile(hooks / name)
+            self.assertEqual((hooks / name).stat().st_mode & 0o777, 0o755)
+        self.assertEqual(self.repo.git("config", "--local", "--get", "house-rules.command"), str(self.command))
+        self.assertEqual(next_command(proc.stdout, "check everything before the hooks refuse commits"),
+                         ["house-rules", "exec", "--origin", "index", RUNNER, "run", "--stage", "ci", "--index"])
+        with self.subTest("a PATH entry relative to the repository root gives an absolute path"):
+            relative = os.path.relpath(str(self.bin), str(self.repo.path))
+            proc = self.install(env=dict(self.repo.env, PATH=f"{relative}{os.pathsep}{self.repo.env['PATH']}"))
+            selected = os.path.join(str(self.repo.path), relative, "house-rules")
+            self.assertEqual((proc.returncode, items(proc.stdout)[2]),
+                             (0, ("update", f"setting house-rules.command {selected}", [])), proc.stdout + proc.stderr)
+            self.assertTrue(os.access(self.repo.git("config", "--get", "house-rules.command"), os.X_OK))
+
+    def test_command_setting_keeps_the_path_that_path_lookup_selected(self):
+        """A `..` after a link leaves the link's target; collapsing it would name a folder that does not exist."""
+        base = self.repo.path.parent
+        (base / "far/inner").mkdir(parents=True)
+        (base / "far/bin").mkdir()
+        shutil.copyfile(str(self.command), str(base / "far/bin/house-rules"))
+        (base / "far/bin/house-rules").chmod(0o755)
+        os.symlink(str(base / "far/inner"), str(base / "link"))
+        entry = str(base / "link") + "/../bin"
+        proc = self.install(env=dict(self.repo.env, PATH=f"{entry}{os.pathsep}{base_env()['PATH']}"))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        saved = self.repo.git("config", "--get", "house-rules.command")
+        self.assertEqual(saved, entry + "/house-rules")
+        self.assertTrue(os.path.isfile(saved) and os.access(saved, os.X_OK))
+        self.assertFalse(os.path.exists(os.path.normpath(saved)))
+
+    def test_hooks_check_the_staged_index_and_each_pushed_commit_through_exec(self):
+        """Pre-commit resolves from the index, so the first commit, before any HEAD, is checked; pre-push names the
+        remote, so a new branch compares with the remote's default branch."""
+        self.repo.configure(PUSHED_TOO)
+        self.assertEqual(self.install().returncode, 0)
+        status, output = self.git_hook(self.repo, "commit", "-q", "-m", "first commit, with no HEAD before it")
+        self.assertEqual(status, 0, output)
+        self.assertRegex(headers(output)[0], r"\Arepository checks: pre-commit on the staged index, House Rules ")
+        self.remote()
+        self.assertEqual(self.repo.git("push", "-q", "--no-verify", "origin", "main"), "")
+        self.repo.git("fetch", "-q", "origin")
+        self.repo.git("remote", "set-head", "origin", "main")
+        main = self.repo.git("rev-parse", "HEAD")
+        self.repo.git("checkout", "-q", "-b", "topic")
+        topic = self.repo.commit("on topic")
+        status, output = self.git_hook(self.repo, "push", "-q", "origin", "topic")
+        self.assertEqual(status, 0, output)
+        self.assertRegex(headers(output)[0], r"\A" + re.escape(
+            f"repository checks: pre-push on refs/heads/topic at commit {topic[:7]}, base {main[:7]}, House Rules "))
+
+    def test_pre_push_resolves_a_pushed_branch_whose_source_differs_from_head(self):
+        """exec resolves HEAD's configuration; the pushed branch names another ref, so the runner resolves that
+        snapshot itself instead of calling it a configuration that changed during the run."""
+        self.repo.configure(PUSHED_TOO)
+        self.repo.commit("main names House Rules main")
+        self.assertEqual(self.install().returncode, 0)
+        self.remote()
+        self.repo.git("checkout", "-q", "-b", "topic")
+        self.repo.reconfigure(ref="release")
+        self.repo.commit("topic names House Rules release")
+        self.repo.git("checkout", "-q", "main")
+        status, output = self.git_hook(self.repo, "push", "-q", "origin", "topic")
+        self.assertEqual(status, 0, output)
+        self.assertIn("(fetched branch release of ", headers(output)[0])
+
+    def test_install_resolves_a_staged_configuration_that_exec_did_not_read(self):
+        """Only the index holds the configuration, naming another ref; exec resolved the global default instead."""
+        self.repo.reconfigure(ref="release")
+        (self.repo.path / "house-rules.json").unlink()
+        proc = self.install()
+        self.assertEqual((proc.returncode, [i[0] for i in items(proc.stdout)]), (0, ["create", "create", "create"]),
+                         proc.stdout + proc.stderr)
+
+    def test_pre_push_refuses_an_override_or_link_for_a_pushed_branch_of_another_source(self):
+        """exec applies an override or a link to HEAD's source; a pushed branch that names another source cannot
+        tell which rules the person meant, so the push stops with a preparation failure."""
+        self.repo.configure(PUSHED_TOO)
+        self.repo.commit("main names House Rules main")
+        self.assertEqual(self.install().returncode, 0)
+        self.remote()
+        self.repo.git("checkout", "-q", "-b", "topic")
+        self.repo.reconfigure(ref="release")
+        self.repo.commit("topic names House Rules release")
+        self.repo.git("checkout", "-q", "main")
+        cases = [("override", {"HOUSE_RULES_REVISION": self.house_rules.main}),
+                 ("link", {"HOUSE_RULES_LINK": str(self.house_rules.path)})]
+        for name, env in cases:
+            with self.subTest(name):
+                status, output = self.git_hook(self.repo, "push", "-q", "origin", f"topic:refs/heads/topic-{name}",
+                                               env=env)
+                self.assertEqual(status, 1, output)
+                self.assertIn("repository checks: a House Rules override or link selects HEAD's source; push this "
+                              "branch without it, or push it separately\n", output)
+                self.assertEqual(headers(output), [])
+
+    def test_install_updates_a_worktree_setting_that_wins_over_the_clone_setting(self):
+        self.repo.git("config", "extensions.worktreeConfig", "true")
+        self.repo.git("config", "--worktree", "house-rules.command", str(self.repo.path.parent / "stale"))
+        proc = self.install()
+        self.assertEqual((proc.returncode, items(proc.stdout)[2:]), (0, [
+            ("create", f"setting house-rules.command {self.command}", []),
+            ("update", f"setting house-rules.command {self.command} (this worktree's own)", [])]),
+            proc.stdout + proc.stderr)
+        status, output = self.git_hook(self.repo, "commit", "-q", "-m", "through the hook")
+        self.assertEqual(status, 0, output)
+        self.assertRegex(headers(output)[0], r"\Arepository checks: pre-commit on the staged index, ")
+
+    def test_environment_is_built_from_the_lock_bytes_its_name_digests(self):
+        """The lock changes between its read and pip's start, as an edit in a linked checkout can: pip installs the
+        bytes the environment's name digests."""
+        house_rules = HouseRules(Path(tempfile.mkdtemp(dir=str(self.folder))))  # its own checkout, safe to edit
+        lock = house_rules.path / "skills/spec-writing/scripts/requirements.lock"
+        original, seen = lock.read_bytes(), self.repo.path.parent / "pip-read.lock"
+        self.repo.reconfigure(url=house_rules.url)
+        self.repo.write_config(dict(self.repo.config, checks={}))
+        faults = (
+            "real_run = subprocess.run\n"
+            "def run(command, *args, **kwargs):\n"
+            "    if command[1:4] == ['-I', '-m', 'venv']:\n"
+            "        os.makedirs(os.path.join(command[4], 'bin'))\n"
+            "        open(os.path.join(command[4], 'bin', 'python'), 'w').close()\n"
+            f"        open({str(lock)!r}, 'ab').write(b'# changed after the read\\n')\n"
+            "        return subprocess.CompletedProcess(command, 0, b'', b'')\n"
+            "    if '-r' in command:\n"
+            f"        shutil.copyfile(command[command.index('-r') + 1], {str(seen)!r})\n"
+            "        return subprocess.CompletedProcess(command, 0, b'', b'')\n"
+            "    return real_run(command, *args, **kwargs)\n"
+            "unittest.mock.patch('subprocess.run', side_effect=run).start()")
+        cache = self.repo.path.parent / "environment-cache"
+        proc = self.run_with_faults(faults, "prepare", script=house_rules.path / RUNNER, tree=house_rules.path,
+                                    url=house_rules.url, env=dict(self.repo.env, HOUSE_RULES_CACHE=str(cache)))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertEqual(seen.read_bytes(), original)
+        self.assertNotEqual(lock.read_bytes(), original)
+        version = f"CPython {sys.version_info[0]}.{sys.version_info[1]}".encode()
+        folder = cache / "environments" / hashlib.sha256(original + b"\0" + version).hexdigest()
+        self.assertIn(f"spec checker environment ready at {folder}\n", proc.stdout)
+
+    def test_looping_hooks_folder_is_a_preparation_failure(self):
+        """A looping hooks folder is a preparation failure, also on Python 3.9, whose Path.resolve raises RuntimeError
+        on a loop: the item label resolves nothing, and reading the hook raises OSError inside the boundary."""
+        os.symlink("loop", str(self.repo.path / "loop"))
+        self.repo.git("config", "core.hooksPath", "loop")
+        for python in [sys.executable] + ([python39()] if python39() else []):
+            with self.subTest(python=python):
+                proc = self.repo.run("install", "--dry-run", python=python)
+                self.assertPreparationFailure(proc, "repository checks: cannot read loop/pre-commit (",
+                                              "repair access to it, then run install again")
+
+    def test_hook_block_passes_the_exec_status_through(self):
+        log = self.repo.path.parent / "tool.log"
+        for stage in ("pre-commit", "pre-push"):
+            self.executable(self.repo, f".git/hooks/{stage}", f"#!/bin/sh\necho ran >> {shlex.quote(str(log))}\n")
+        self.repo.configure(PUSHED_TOO)
+        self.assertEqual([i[0] for i in items(self.install().stdout)], ["update", "update", "create"])
+        clean = self.repo.commit("clean")
+        self.repo.write("dirty.txt", "trailing \n")
+        self.repo.stage("dirty.txt")
+        dirty = self.repo.commit("dirty")
+        self.repo.git("reset", "-q", "--hard", clean)
+        line = lambda commit: f"refs/heads/main {commit} refs/heads/main {ZERO}\n"
+        cases = [("pre-commit", 0, None), ("pre-commit", 1, "trailing whitespace staged"),
+                 ("pre-commit", 2, "a staged configuration that is not JSON"),
+                 ("pre-push", 0, clean), ("pre-push", 1, dirty), ("pre-push", 2, "1" * 40)]
+        for stage, status, case in cases:
+            with self.subTest(stage=stage, status=status):
+                with contextlib.suppress(FileNotFoundError):
+                    log.unlink()
+                if stage == "pre-commit" and status == 1:
+                    self.repo.write("staged.txt", "trailing \n")
+                    self.repo.stage("staged.txt")
+                if stage == "pre-commit" and status == 2:
+                    self.repo.git("rm", "-q", "--cached", "staged.txt")
+                    self.repo.write("house-rules.json", "not JSON\n")
+                    self.repo.stage("house-rules.json")
+                args, text = (("origin", "/remote.git"), line(case)) if stage == "pre-push" else ((), "")
+                proc = self.run_hook(stage, *args, input=text)
+                self.assertEqual(proc.returncode, status, proc.stdout + proc.stderr)
+                self.assertEqual(log.exists(), status == 0)
+                if stage == "pre-commit" and status == 2:
+                    self.repo.git("reset", "-q", "--hard", clean)
+
+    def test_hook_block_without_a_usable_command_setting_names_the_command_install(self):
+        log = self.repo.path.parent / "tool.log"
+        for stage in ("pre-commit", "pre-push"):
+            self.executable(self.repo, f".git/hooks/{stage}", f"#!/bin/sh\necho ran >> {shlex.quote(str(log))}\n")
+        self.assertEqual(self.install().returncode, 0)
+        plain = self.repo.path.parent / "plain"
+        plain.write_text("#!/bin/sh\nexit 0\n")
+        cases = [("setting missing", None), ("no such file", str(self.repo.path.parent / "missing")),
+                 ("file not executable", str(plain)), ("a folder", str(self.bin))]
+        for name, value in cases:
+            if value is None:
+                self.repo.git("config", "--local", "--unset", "house-rules.command")
+            else:
+                self.repo.git("config", "--local", "house-rules.command", value)
+            for stage, args in (("pre-commit", ()), ("pre-push", ("origin", "/remote.git"))):
+                with self.subTest(name, stage=stage):
+                    proc = self.run_hook(stage, *args, input=f"refs/heads/main {'1' * 40} refs/heads/main {ZERO}\n")
+                    self.assertEqual((proc.returncode, proc.stdout, proc.stderr), (1, "", NOT_INSTALLED))
+                    self.assertFalse(log.exists())
+
+    def test_pre_push_references_reach_house_rules_and_a_later_reader(self):
+        seen = self.repo.path.parent / "tool-saw.txt"
+        self.executable(self.repo, ".git/hooks/pre-push", f"#!/bin/sh\ncat > {shlex.quote(str(seen))}\n")
+        self.repo.configure(PUSHED_TOO)
+        proc = self.install()
+        self.assertEqual((proc.returncode, items(proc.stdout)[1]), (0, ("update", ".git/hooks/pre-push", [])),
+                         proc.stdout + proc.stderr)
+        self.remote()
+        sent = self.repo.commit("configuration")
+        status, output = self.git_hook(self.repo, "push", "-q", "origin", "main")
+        self.assertEqual(status, 0, output)
+        self.assertRegex(headers(output)[0], r"\A" + re.escape(
+            f"repository checks: pre-push on refs/heads/main at commit {sent[:7]}, "))
+        self.assertEqual(seen.read_text(), f"refs/heads/main {sent} refs/heads/main {ZERO}\n")
+
+    def test_failed_copy_of_the_pushed_references_refuses_before_house_rules_starts(self):
+        if os.geteuid() == 0:
+            self.skipTest("an unwritable file is writable for the superuser")
+        self.assertEqual(self.install().returncode, 0)
+        made = self.repo.path.parent / "made.txt"
+        shims = self.repo.path.parent / "mktemp-shim"
+        shims.mkdir()
+        mktemp = shutil.which("mktemp")
+        (shims / "mktemp").write_text(f'#!/bin/sh\nf=$({shlex.quote(mktemp)}) && chmod 000 "$f" && '
+                                      f'echo "$f" >> {shlex.quote(str(made))} && echo "$f"\n')
+        (shims / "mktemp").chmod(0o755)
+        failing = self.repo.path.parent / "failing-mktemp"
+        failing.mkdir()
+        (failing / "mktemp").write_text("#!/bin/sh\necho 'mktemp: no space left on device' >&2\nexit 1\n")
+        (failing / "mktemp").chmod(0o755)
+        line = f"refs/heads/main {'1' * 40} refs/heads/main {ZERO}\n"
+        cases = [("the copy cannot be written", shims, "repository checks: cannot save the pushed references; push refused"),
+                 ("the copy cannot be created", failing, "repository checks: cannot create a temporary file; push refused")]
+        for name, folder, message in cases:
+            with self.subTest(name):
+                proc = self.run_hook("pre-push", "origin", "/remote.git", input=line,
+                                     env={"PATH": f"{folder}{os.pathsep}{self.repo.env['PATH']}"})
+                self.assertEqual((proc.returncode, proc.stdout), (1, ""), proc.stderr)
+                self.assertEqual(proc.stderr.splitlines()[-1], message)
+        self.assertEqual(len(made.read_text().splitlines()), 1)
+        self.assertFalse(Path(made.read_text().strip()).exists())
+
+    def test_dry_run_lists_each_item_and_writes_nothing(self):
+        self.executable(self.repo, ".git/hooks/pre-commit", "#!/bin/sh\necho tool\n")
+        expected = [("update", ".git/hooks/pre-commit", []), ("create", ".git/hooks/pre-push", []),
+                    ("create", f"setting house-rules.command {self.command}", []), ("create", WORKFLOW, [])]
+        before = self.observed(self.repo)
+        proc = self.install("--dry-run", "--ci", "github")
+        self.assertEqual((proc.returncode, items(proc.stdout)), (0, expected), proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout.splitlines()[0], "repository checks: install preview; nothing is written")
+        self.assertEqual(self.observed(self.repo), before)
+        proc = self.install("--ci", "github")
+        self.assertEqual((proc.returncode, items(proc.stdout)), (0, expected), proc.stdout + proc.stderr)
+        self.assertEqual(proc.stdout.splitlines()[0], "repository checks: install")
+        self.assertNotEqual(self.observed(self.repo), before)
+
+    def test_install_prepares_the_spec_checker_environment(self):
+        """A non-preview install with spec-docs enabled prepares its environment, as `prepare` does; a preview and
+        a configuration without spec-docs prepare nothing."""
+        self.repo.configure()
+        self.seed_environment()
+        folder = re.search(r"^environment: in the cache at (\S+)$", self.repo.run("status").stdout, re.M)[1]
+        self.assertNotIn("environment:", self.install("--dry-run").stdout)
+        proc = self.install()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn(f"environment: spec checker environment ready at {folder}\n", proc.stdout)
+        self.repo.configure(NO_SPEC)
+        self.assertNotIn("environment:", self.install().stdout)
+
+    def test_install_keeps_other_tools_hooks_and_a_second_install_changes_nothing(self):
+        repo = self.repo
+        log = repo.path.parent / "tools.log"
+        quoted = shlex.quote(str(log))
+        config = (repo.path / "house-rules.json").read_bytes()
+        tool = f"#!/bin/sh\necho 'tool pre-commit ran' >> {quoted}\nexit 0\n"
+        self.executable(repo, ".git/hooks/pre-commit", tool)
+        self.executable(repo, ".git/hooks/post-commit", f"#!/bin/sh\necho 'tool post-commit ran' >> {quoted}\n")
+        old = (f"#!/bin/sh\necho 'before' >> {quoted}\n{BEGIN}echo 'old block'\n{END}echo 'after' >> {quoted}\n")
+        self.executable(repo, ".git/hooks/pre-push", old)
+        first = self.install()
+        self.assertEqual((first.returncode, [i[:2] for i in items(first.stdout)]), (0, [
+            ("update", ".git/hooks/pre-commit"), ("update", ".git/hooks/pre-push"),
+            ("create", f"setting house-rules.command {self.command}")]), first.stdout + first.stderr)
+        self.assertBlockFile(repo.path / ".git/hooks/pre-commit", after=tool.split("\n", 1)[1])
+        pre_push = (repo.path / ".git/hooks/pre-push").read_text()
+        self.assertTrue(pre_push.startswith(f"#!/bin/sh\necho 'before' >> {quoted}\n{BEGIN}"), pre_push)
+        self.assertNotIn("old block", pre_push)
+        self.assertEqual(pre_push.split(END, 1)[1], f"echo 'after' >> {quoted}\n")
+        with self.subTest("a second install reports every item unchanged"):
+            hooks = {name: (repo.path / ".git/hooks" / name).read_bytes() for name in ("pre-commit", "pre-push")}
+            second = self.install()
+            self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+            self.assertEqual([action for action, _, _ in items(second.stdout)], ["unchanged"] * 3, second.stdout)
+            self.assertEqual({name: (repo.path / ".git/hooks" / name).read_bytes() for name in hooks}, hooks)
+            self.assertEqual((repo.path / "house-rules.json").read_bytes(), config)
+        with self.subTest("the block runs before the tool's exit, and other tools' lines still run"):
+            repo.write("dirty.txt", "trailing \n")
+            repo.stage("dirty.txt")
+            status, output = self.git_hook(repo, "commit", "-q", "-m", "refused")
+            self.assertEqual((status, text_statuses(output)["whitespace"]), (1, "fail"), output)
+            self.assertFalse(log.exists())
+            repo.write("dirty.txt", "clean\n")
+            repo.stage("dirty.txt")
+            status, output = self.git_hook(repo, "commit", "-q", "-m", "passed")
+            self.assertEqual(status, 0, output)
+            self.assertEqual(log.read_text(), "tool pre-commit ran\ntool post-commit ran\n")
+
+    def test_install_refuses_hook_files_it_cannot_edit(self):
+        framework = ("#!/usr/bin/env bash\n# File generated by pre-commit: https://pre-commit.com\n"
+                     "# ID: 138fd403232d2ddd5efb44317e38bf03\nexec pre-commit hook-impl --hook-type=pre-commit\n")
+        entry = ["- repo: local", "  hooks:", "    - id: repository-checks-pre-commit", "      name: repository checks",
+                 "      entry: sh -c '\"$(git config --get house-rules.command)\" exec --origin index "
+                 f"{RUNNER} run --stage pre-commit'",
+                 "      language: system", "      pass_filenames: false", "      always_run: true",
+                 "      stages: [pre-commit]"]
+        cases = [
+            ("not executable", "#!/bin/sh\necho tool\n", 0o644,
+             ".git/hooks/pre-commit: not executable, so Git ignores it; making it executable also starts its own code",
+             ["to run it and add the block: chmod +x {path}, then run install again"]),
+            ("pre-commit framework", framework, 0o755,
+             ".git/hooks/pre-commit: written by the pre-commit framework; add this entry to its configuration "
+             "(.pre-commit-config.yaml) under repos:", entry),
+            ("binary", b"\x7fELF\x02\x01\x01\x00" + bytes(24), 0o755,
+             ".git/hooks/pre-commit: its first line is '\\x7fELF\\x02\\x01\\x01\\x00"
+             + "\\x00" * 24 + "', not a plain shell line", ["call your existing hook from a plain shell hook"]),
+            ("another language", "#!/usr/bin/env python3\nprint('tool')\n", 0o755,
+             ".git/hooks/pre-commit: its first line is '#!/usr/bin/env python3', not a plain shell line", ["call your existing hook from a plain shell hook"]),
+            ("a shell that only reads the script", "#!/bin/sh -n\necho tool\n", 0o755,
+             ".git/hooks/pre-commit: its first line is '#!/bin/sh -n', not a plain shell line", ["call your existing hook from a plain shell hook"]),
+            ("env with a shell option, which env takes as one name", "#!/usr/bin/env sh -e\necho tool\n", 0o755,
+             ".git/hooks/pre-commit: its first line is '#!/usr/bin/env sh -e', not a plain shell line", ["call your existing hook from a plain shell hook"]),
+            ("a plain shell line ended by a carriage return", "#!/bin/sh\r\necho tool\r\n", 0o755,
+             ".git/hooks/pre-commit: its first line is '#!/bin/sh\\r', not a plain shell line",
+             ["call your existing hook from a plain shell hook"]),
+            ("another shell", "#!/bin/zsh\necho tool\n", 0o755,
+             ".git/hooks/pre-commit: its first line is '#!/bin/zsh', not a plain shell line", ["call your existing hook from a plain shell hook"]),
+            ("an incomplete block", "#!/bin/sh\n" + BEGIN + "echo tool\n", 0o755,
+             ".git/hooks/pre-commit: its repository-checks markers are incomplete or repeated; "
+             "remove the block by hand, then run install again", []),
+        ]
+        for name, content, mode, label, detail in cases:
+            with self.subTest(name):
+                repo = self.fresh()
+                repo.configure(NO_SPEC)
+                path = self.executable(repo, ".git/hooks/pre-commit", content)
+                path.chmod(mode)
+                original = path.read_bytes()
+                detail = [line.format(path=shlex.quote(str(path))) for line in detail]
+                for run in ("first", "second"):
+                    proc = self.install(repo=repo)
+                    self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+                    self.assertEqual(items(proc.stdout)[0], ("refused", label, detail), run)
+                    self.assertEqual(items(proc.stdout)[1][:2],
+                                     ("create" if run == "first" else "unchanged", ".git/hooks/pre-push"), run)
+                    self.assertEqual((path.read_bytes(), path.stat().st_mode & 0o777), (original, mode), run)
+
+    def test_install_refuses_shared_and_special_hook_targets_before_reading(self):
+        hooks = self.repo.path / ".git/hooks"
+        with self.subTest("both hooks link to one script"):
+            shared = self.executable(self.repo, ".git/hooks/shared.sh", "#!/bin/sh\necho tool\n")
+            for name in ("pre-commit", "pre-push"):
+                os.symlink("shared.sh", str(hooks / name))
+            for run in ("first", "second"):
+                proc = self.install()
+                self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+                self.assertEqual(items(proc.stdout)[:2], [
+                    ("refused", f".git/hooks/{name}: pre-commit and pre-push are the same file, {shared.resolve()}",
+                     ["give each hook its own file, then run install again"]) for name in ("pre-commit", "pre-push")],
+                    run)
+                self.assertEqual(shared.read_text(), "#!/bin/sh\necho tool\n", run)
+            for name in ("pre-commit", "pre-push"):
+                (hooks / name).unlink()
+        kinds = [("a named pipe", lambda path: os.mkfifo(str(path))), ("a folder", lambda path: path.mkdir())]
+        for kind, make in kinds:
+            with self.subTest(kind):
+                path = hooks / "pre-commit"
+                make(path)
+                for args in (("--dry-run",), ()):
+                    status, stdout, stderr = self.install_bounded(*args)
+                    self.assertEqual(status, 1, stdout + stderr)
+                    self.assertEqual(items(stdout)[0], (
+                        "refused", f".git/hooks/pre-commit: {path} is not a regular file",
+                        ["replace it with a hook script, then run install again"]))
+                if path.is_dir():
+                    path.rmdir()
+                else:
+                    path.unlink()
+
+    def test_install_refuses_a_workflow_path_that_is_no_regular_file(self):
+        path = self.repo.path / WORKFLOW
+        path.parent.mkdir(parents=True)
+        for kind, make in (("a named pipe", os.mkfifo), ("a folder", os.mkdir)):
+            with self.subTest(kind):
+                make(str(path))
+                for args in (("--dry-run",), ()):
+                    status, stdout, stderr = self.install_bounded(*args)
+                    self.assertEqual(status, 1, stdout + stderr)
+                    (item,) = [i for i in items(stdout) if i[1].startswith(WORKFLOW)]
+                    self.assertEqual(item, ("refused", f"{WORKFLOW}: not a regular file",
+                                            ["replace it with a workflow file, or remove it, then run install again"]))
+                path.rmdir() if path.is_dir() else path.unlink()
+
+    def test_install_refuses_a_socket_at_a_hook_or_the_workflow_path_and_continues(self):
+        """A Unix-domain socket cannot be opened as a file; it is refused as any other file that is not regular."""
+        for folder, name in ((".git/hooks", "pre-commit"), (".github/workflows", "repository-checks.yml")):
+            (self.repo.path / folder).mkdir(parents=True, exist_ok=True)
+            here = os.getcwd()
+            os.chdir(str(self.repo.path / folder))  # a socket's path has a short length limit; bind it relatively
+            try:
+                with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as listener:
+                    listener.bind(name)
+            finally:
+                os.chdir(here)
+        proc = self.install("--dry-run")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(items(proc.stdout), [
+            ("refused", f".git/hooks/pre-commit: {self.repo.path / '.git/hooks/pre-commit'} is not a regular file",
+             ["replace it with a hook script, then run install again"]),
+            ("create", ".git/hooks/pre-push", []),
+            ("create", f"setting house-rules.command {self.command}", []),
+            ("refused", f"{WORKFLOW}: not a regular file",
+             ["replace it with a workflow file, or remove it, then run install again"])])
+
+    def test_install_refuses_a_hook_it_cannot_read_and_continues(self):
+        """The hook opens, then reading it fails: that hook is refused with its repair, and the install goes on."""
+        self.executable(self.repo, ".git/hooks/pre-commit", "#!/bin/sh\necho tool\n")
+        faults = ("class Failing:\n"
+                  "    def __init__(self, *args, **kwargs): pass\n"
+                  "    def __enter__(self): return self\n"
+                  "    def __exit__(self, *args): return False\n"
+                  "    def read(self): raise OSError(5, 'Input/output error')\n"
+                  "unittest.mock.patch('os.fdopen', Failing).start()")
+        proc = self.run_with_faults(faults, "install", "--dry-run")
+        self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+        self.assertEqual(items(proc.stdout)[:2], [
+            ("refused", ".git/hooks/pre-commit: cannot read it (Input/output error)",
+             ["repair access to it, then run install again"]),
+            ("create", ".git/hooks/pre-push", [])])
+
+    def test_workflow_is_read_from_the_file_whose_type_was_checked(self):
+        """Right after the workflow's open file passes the type check, a named pipe replaces it at its path: the
+        install reads the file it checked, so it never opens the pipe and never blocks."""
+        workflow = self.repo.path / WORKFLOW
+        workflow.parent.mkdir(parents=True)
+        workflow.write_text("name: Own\n")
+        faults = (
+            "real_open, real_fstat, opened = os.open, os.fstat, {}\n"
+            "def tracked_open(path, *args, **kwargs):\n"
+            "    descriptor = real_open(path, *args, **kwargs)\n"
+            "    opened[descriptor] = os.fspath(path)\n"
+            "    return descriptor\n"
+            "def swapping_fstat(descriptor):\n"
+            "    result = real_fstat(descriptor)\n"
+            "    path = opened.get(descriptor, '')\n"
+            "    if path.endswith('repository-checks.yml') and not os.path.exists(path + '.moved'):\n"
+            "        os.rename(path, path + '.moved')\n"
+            "        os.mkfifo(path)\n"
+            "    return result\n"
+            "unittest.mock.patch('os.open', side_effect=tracked_open).start()\n"
+            "unittest.mock.patch('os.fstat', side_effect=swapping_fstat).start()")
+        proc = self.run_with_faults(faults, "install", "--dry-run")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertIn(("unchanged", WORKFLOW), [i[:2] for i in items(proc.stdout)])
+        self.assertTrue(stat.S_ISFIFO(os.lstat(str(workflow)).st_mode))
+
+    def test_install_never_overwrites_a_file_that_changed_after_it_was_read(self):
+        workflow = self.repo.path / WORKFLOW
+        cases = [
+            # The setting's read comes after the hooks are read: the race edits the planned pre-commit file.
+            ("a hook edited after the plan read it", "config --local --get house-rules.command",
+             f"echo 'echo edited' >> {shlex.quote(str(self.repo.path / '.git/hooks/pre-commit'))}",
+             "repository checks: .git/hooks/pre-commit changed after the install read it; review the change, then "
+             "run install again\n"),
+            # The setting's write comes after every read: the race creates the workflow the plan found absent.
+            ("a workflow created after the plan read its folder", "config --local house-rules.command",
+             f"mkdir -p {shlex.quote(str(workflow.parent))} && echo 'name: Own' > {shlex.quote(str(workflow))}",
+             f"repository checks: {WORKFLOW} appeared after the install read its folder; review it, then run "
+             "install again\n"),
+        ]
+        for index, (name, command, action, message) in enumerate(cases):
+            with self.subTest(name):
+                self.executable(self.repo, ".git/hooks/pre-commit", "#!/bin/sh\necho tool\n")
+                marker = shlex.quote(str(self.repo.path.parent / f"acted-{index}"))
+                path = self.shim(f"race-{index}", f'case " $* " in *" {command} "*) if [ ! -e {marker} ]; then\n'
+                                                  f"  : > {marker}\n  {action}\nfi;; esac")
+                proc = self.install("--ci", "github", env=dict(self.repo.env, PATH=path))
+                self.assertEqual((proc.returncode, proc.stderr), (2, message), proc.stdout)
+                if index == 0:
+                    self.assertEqual((self.repo.path / ".git/hooks/pre-commit").read_text(),
+                                     "#!/bin/sh\necho tool\necho edited\n")
+                else:
+                    self.assertEqual(workflow.read_text(), "name: Own\n")
+
+    def test_install_reports_files_it_cannot_read_with_their_repair(self):
+        if os.geteuid() == 0:
+            self.skipTest("an unreadable file is readable for the superuser")
+        with self.subTest("an unreadable workflow"):
+            workflow = self.repo.path / WORKFLOW
+            workflow.parent.mkdir(parents=True)
+            workflow.write_text("name: Own\n")
+            workflow.chmod(0o200)
+            proc = self.install()
+            self.assertPreparationFailure(proc, f"repository checks: cannot read {WORKFLOW} (Permission denied); "
+                                                "repair access to it, then run install again")
+            workflow.chmod(0o644)
+            workflow.unlink()
+        with self.subTest("an unreadable hook"):
+            path = self.executable(self.repo, ".git/hooks/pre-commit", "#!/bin/sh\necho tool\n")
+            path.chmod(0o311)
+            proc = self.install()
+            self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+            self.assertEqual(items(proc.stdout)[0], ("refused", ".git/hooks/pre-commit: cannot read it (Permission "
+                                                     "denied)", ["repair access to it, then run install again"]))
+            path.chmod(0o755)
+
+    def test_install_stops_when_git_cannot_read_the_setting(self):
+        path = self.shim("failing-config", 'case " $* " in *" config --local --get house-rules.command "*)\n'
+                                           '  echo "fatal: injected read failure" >&2; exit 5;; esac')
+        proc = self.install("--dry-run", env=dict(self.repo.env, PATH=path))
+        self.assertPreparationFailure(proc, "repository checks: cannot read the setting house-rules.command (fatal: "
+                                            "injected read failure); repair the clone's Git configuration, then run "
+                                            "install again")
+
+    def test_failed_publish_reports_both_causes_through_the_install(self):
+        hook = self.executable(self.repo, ".git/hooks/pre-commit", "#!/bin/sh\necho tool\n")
+        faults = (
+            "real_unlink = os.unlink\n"
+            "def unlink(path, *args, **kwargs):\n"
+            "    if '.house-rules-' in os.fspath(path):\n"
+            "        raise OSError(13, 'Permission denied')\n"
+            "    return real_unlink(path, *args, **kwargs)\n"
+            "unittest.mock.patch('os.replace', side_effect=OSError(28, 'No space left on device')).start()\n"
+            "unittest.mock.patch('os.unlink', side_effect=unlink).start()")
+        proc = self.run_with_faults(faults, "install")
+        self.assertEqual((proc.returncode, proc.stdout), (2, ""), proc.stderr)
+        self.assertEqual(len(proc.stderr.splitlines()), 1, proc.stderr)
+        self.assertRegex(proc.stderr, r"\Arepository checks: cannot write \.git/hooks/pre-commit \(No space left on "
+                                      r"device\); removing \S+ failed too \(Permission denied\); repair access to it, "
+                                      r"then run install again\n\Z")
+        self.assertEqual(hook.read_text(), "#!/bin/sh\necho tool\n")
+
+    def test_interrupted_creation_leaves_no_partial_hook(self):
+        """The process dies while it writes a new hook: nothing is at the hook's path, so the next install creates
+        the complete file instead of calling a partial one unchanged."""
+        faults = "unittest.mock.patch('os.fchmod', side_effect=lambda *args: os.kill(os.getpid(), 9)).start()"
+        proc = self.run_with_faults(faults, "install")
+        self.assertEqual(proc.returncode, -9, proc.stdout + proc.stderr)
+        self.assertFalse(os.path.lexists(str(self.repo.path / ".git/hooks/pre-commit")))
+        proc = self.install()
+        self.assertEqual((proc.returncode, items(proc.stdout)[0][:2]), (0, ("create", ".git/hooks/pre-commit")),
+                         proc.stdout + proc.stderr)
+        self.assertBlockFile(self.repo.path / ".git/hooks/pre-commit")
+
+    def test_install_writes_into_the_husky_hooks_folder(self):
+        repo = self.repo
+        log = repo.path.parent / "husky.log"
+        repo.git("config", "core.hooksPath", ".husky")
+        self.executable(repo, ".husky/pre-commit", f'#!/usr/bin/env sh\necho "husky pre-commit ran" >> '
+                                                   f'{shlex.quote(str(log))}\n')
+        repo.stage(".husky")
+        repo.commit("husky")
+        proc = self.install()
+        self.assertEqual((proc.returncode, [i[:2] for i in items(proc.stdout)]), (0, [
+            ("update", ".husky/pre-commit"), ("create", ".husky/pre-push"),
+            ("create", f"setting house-rules.command {self.command}")]), proc.stdout + proc.stderr)
+        self.assertEqual(next_command(proc.stdout, "stage the install"),
+                         ["git", "add", "--", ".husky/pre-commit", ".husky/pre-push"])
+        self.assertEqual(repo.git("config", "--get", "core.hooksPath"), ".husky")
+        self.assertFalse((repo.path / ".git/hooks/pre-commit").exists())
+        repo.stage(".husky")
+        status, output = self.git_hook(repo, "commit", "-q", "-m", "adopt")
+        self.assertEqual(status, 0, output)
+        self.assertRegex(headers(output)[0], r"\Arepository checks: pre-commit on the staged index, ")
+        self.assertEqual(log.read_text(), "husky pre-commit ran\n")
+
+    def test_linked_worktree_with_a_relative_hooks_folder_needs_its_own_install(self):
+        repo = self.repo
+        repo.git("config", "core.hooksPath", ".githooks")
+        repo.commit("configuration")
+        proc = self.install()
+        self.assertEqual((proc.returncode, [i[:2] for i in items(proc.stdout)][:2]),
+                         (0, [("create", ".githooks/pre-commit"), ("create", ".githooks/pre-push")]), proc.stdout)
+        linked = repo.path.parent / "linked"
+        repo.git("worktree", "add", "-q", "-b", "linked", str(linked))
+        missing = "no hook block in pre-commit, pre-push"
+        session = lambda cwd: repo.run("status", "--session", cwd=cwd).stdout
+        self.assertNotIn(missing, session(repo.path))
+        self.assertIn(missing, session(linked))
+        proc = self.install(cwd=linked)
+        self.assertEqual((proc.returncode, [i[0] for i in items(proc.stdout)]),
+                         (0, ["create", "create", "unchanged"]), proc.stdout + proc.stderr)
+        self.assertTrue((linked / ".githooks/pre-commit").is_file())
+        self.assertNotIn(missing, session(linked))
+
+    def test_ci_workflow_is_written_once_and_a_changed_runner_step_is_reported(self):
+        path = self.repo.path / WORKFLOW
+        with self.subTest("--ci github writes the workflow"):
+            proc = self.install("--ci", "github")
+            self.assertIn(("create", WORKFLOW, []), items(proc.stdout))
+            workflow = path.read_text()
+            steps = re.split(r"^      - ", workflow, flags=re.M)[1:]
+            self.assertEqual(len(steps), 4, workflow)
+            self.assertIn("fetch-depth: 0", steps[0])  # the base commit the runner diffs against is in the clone
+            self.assertIn("run: |", steps[-1])  # the step the fetch test runs
+            self.assertEqual(next_command(proc.stdout, "stage the install"), ["git", "add", "--", WORKFLOW])
+        with self.subTest("an existing workflow folder needs no --ci"):
+            again = self.install()
+            self.assertIn(("unchanged", WORKFLOW, []), items(again.stdout))
+            other = self.fresh()
+            other.configure(NO_SPEC)
+            other.write(".github/workflows/other.yml", "name: Other\n")
+            self.assertIn(("create", WORKFLOW, []), items(self.install(repo=other).stdout))
+        with self.subTest("an existing workflow with its own runner step"):
+            own = workflow.rstrip("\n") + " --only whitespace\n"
+            path.write_text(own)
+            proc = self.install()
+            (item,) = [i for i in items(proc.stdout) if i[1] == WORKFLOW]
+            self.assertEqual(item[0], "unchanged")
+            self.assertEqual(len(item[2]), 1 + len(("      - " + steps[-1]).splitlines()), item)
+            self.assertEqual("\n".join(item[2][1:]) + "\n", "      - " + steps[-1])
+            self.assertEqual(path.read_text(), own)
+
+    def test_ci_workflow_fetches_a_missing_base_before_checking(self):
+        """The run step, run as GitHub Actions runs it, in a checkout that lacks the event's base: the tip a force
+        push replaced. The remote still sends that commit when asked for it by name, as GitHub does."""
+        self.assertEqual(self.install("--ci", "github").returncode, 0)
+        workflow = (self.repo.path / WORKFLOW).read_text()
+        step = workflow[workflow.rindex("        run: |\n"):]  # the last step runs the checks
+        script = textwrap.dedent(step.split("\n", 1)[1])
+        # A repository check that would see the token: the run step must not hand it to the checks.
+        token = check([sys.executable, "-c", "import os; print('token seen:', os.environ.get('TOKEN'))"], ["ci"])
+        self.repo.configure(dict(NO_SPEC, token=token, **PUSHED_TOO))
+        remote = self.remote()
+        git(remote, "config", "uploadpack.allowAnySHA1InWant", "true")
+        first = self.repo.commit("the configuration")
+        replaced = self.repo.commit("the tip a force push replaces")
+        self.repo.git("push", "-q", "--no-verify", "origin", f"{replaced}:refs/hidden/replaced")
+        self.repo.git("reset", "-q", "--hard", first)
+        self.repo.write("change.txt", "trailing \n")
+        self.repo.stage("change.txt")
+        head = self.repo.commit("the pushed tip")
+        self.repo.git("push", "-q", "--no-verify", "origin", "main")
+        checkout = self.repo.path.parent / "checkout"
+        git(self.repo.path.parent, "clone", "-q", "--no-local", str(remote), str(checkout))
+        self.assertNotEqual(subprocess.run(["git", "cat-file", "-e", f"{replaced}^{{commit}}"], cwd=str(checkout),
+                                           env=self.repo.env, stdin=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL).returncode, 0)
+        git(self.repo.path.parent, "clone", "-q", self.house_rules.url, str(checkout / ".tmp/house-rules"))
+        tools = self.repo.path.parent / "python-shim"
+        tools.mkdir()
+        os.symlink(sys.executable, str(tools / "python"))
+        cases = [("a base the checkout lacks is fetched", replaced, True),
+                 ("a base the remote lacks stops the job before the checks", "2" * 40, False),
+                 ("no base compares with the first parent", ZERO, True)]
+        for name, base, checked in cases:
+            with self.subTest(name):
+                env = dict(self.repo.env, BASE=base, TOKEN="a-secret-token", GITHUB_SHA=head,
+                           PATH=f"{tools}{os.pathsep}{self.repo.env['PATH']}")
+                proc = subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", script],
+                                      cwd=str(checkout), env=env, capture_output=True, text=True,
+                                      stdin=subprocess.DEVNULL)
+                self.assertEqual(proc.returncode, 1, proc.stdout + proc.stderr)
+                self.assertEqual(bool(headers(proc.stdout)), checked, proc.stdout + proc.stderr)
+                if checked:
+                    self.assertEqual(text_statuses(proc.stdout)["whitespace"], "fail", proc.stdout)
+                    self.assertIn("token seen: None", proc.stdout)
+                else:
+                    self.assertIn(base, proc.stderr)
+                self.assertNotIn("a-secret-token", proc.stdout + proc.stderr)
+                self.assertNotIn("unknown base revision", proc.stderr)
+
+    def test_other_ci_system_gets_the_one_command_and_no_workflow(self):
+        proc = self.install()
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertNotIn(WORKFLOW, proc.stdout)
+        self.assertFalse((self.repo.path / ".github").exists())
+        self.assertIn(
+            "ci: no .github/workflows/ here; for another CI system the job clones House Rules into .tmp/house-rules "
+            f"and runs: python .tmp/house-rules/scripts/house_rules.py exec --rev <commit> {RUNNER} run --stage ci "
+            "--base <PR base or previous commit> --head <commit>\n", proc.stdout)
+
+    def test_framework_pre_push_entry_compares_with_the_remote_commit(self):
+        """The printed entry, run as the pre-commit framework runs it, checks a pushed branch against the commit the
+        remote had, not the remote's default branch, and a new branch against the commit before its first one."""
+        repo = self.repo
+        repo.configure(dict(NO_SPEC, **PUSHED_TOO))
+        framework = ("#!/usr/bin/env bash\n# File generated by pre-commit: https://pre-commit.com\n"
+                     "# ID: 138fd403232d2ddd5efb44317e38bf03\nexec pre-commit hook-impl --hook-type=pre-push\n")
+        self.executable(repo, ".git/hooks/pre-push", framework)
+        proc = self.install()
+        (item,) = [i for i in items(proc.stdout) if i[1].startswith(".git/hooks/pre-push")]
+        (entry,) = [line for line in item[2] if line.startswith("      entry: ")]
+        command = shlex.split(entry[len("      entry: "):])
+        remote = self.remote()
+        old = repo.commit("topic before")
+        repo.git("push", "-q", "--no-verify", "origin", f"{old}:refs/heads/topic")
+        repo.write("dirty.txt", "trailing \n")
+        repo.stage("dirty.txt")
+        dirty = repo.commit("adds trailing whitespace")
+        repo.git("push", "-q", "--no-verify", "origin", "main")  # the default branch already has the change
+        repo.git("fetch", "-q", "origin")
+        repo.git("remote", "set-head", "origin", "main")
+        cases = [("an update of topic", old, 1), ("a new branch without a comparison commit", None, 0)]
+        for name, before, status in cases:
+            with self.subTest(name):
+                env = dict(repo.env, PRE_COMMIT_REMOTE_NAME="origin", PRE_COMMIT_REMOTE_URL=str(remote),
+                           PRE_COMMIT_LOCAL_BRANCH="refs/heads/main", PRE_COMMIT_REMOTE_BRANCH="refs/heads/topic",
+                           PRE_COMMIT_TO_REF=dirty)
+                if before:
+                    env["PRE_COMMIT_FROM_REF"] = before
+                proc = subprocess.run(command, cwd=str(repo.path), env=env, capture_output=True, text=True,
+                                      stdin=subprocess.DEVNULL)
+                self.assertEqual(proc.returncode, status, proc.stdout + proc.stderr)
+                self.assertRegex(headers(proc.stdout)[0], r"\A" + re.escape(
+                    f"repository checks: pre-push on refs/heads/main at commit {dirty[:7]}, base "
+                    f"{(before or dirty)[:7]}, "))
+
+    def test_report_names_a_release_tag_ref_as_a_tag(self):
+        self.repo.reconfigure(ref="v1.0.0")
+        proc = self.house_rules_command("exec", "--origin", "index", RUNNER, "run", "--stage", "pre-commit")
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        self.assertRegex(headers(proc.stdout)[0], r"\((?:fetched|reused) tag v1\.0\.0 of " + re.escape(
+            f"{self.house_rules.url}, cached "))
+
+    def test_default_install_follows_the_tour(self):
+        if spec_environment_reason():
+            self.skipTest(spec_environment_reason())
+        repo = self.fresh()
+        repo.spec(rejected="batch machine")
+        repo.write(".github/workflows/other.yml", "name: Other\n")
+        repo.stage(".github")
+        repo.commit("a specification and another workflow")
+        with self.subTest("init writes the configuration with the profile specs, which the runner accepts"):
+            config = self.init(repo)
+            self.assertEqual(config, {"version": 2, "profiles": ["specs"], "checks": {},
+                                      "sources": [{"name": "house-rules", "url": self.house_rules.url, "ref": "main"}]})
+            repo.stage("house-rules.json")
+        self.repo = repo
+        self.seed_environment()
+        expected = [("create", ".git/hooks/pre-commit", []), ("create", ".git/hooks/pre-push", []),
+                    ("create", f"setting house-rules.command {self.command}", []), ("create", WORKFLOW, [])]
+        with self.subTest("the preview lists two hook files, the setting and the workflow, and writes nothing"):
+            before = self.observed(repo)
+            proc = self.install("--dry-run", repo=repo)
+            self.assertEqual((proc.returncode, items(proc.stdout)), (0, expected), proc.stdout + proc.stderr)
+            self.assertEqual(self.observed(repo), before)
+        with self.subTest("the install writes both hook blocks and the workflow, and prepares the environment"):
+            proc = self.install(repo=repo)
+            self.assertEqual((proc.returncode, items(proc.stdout)), (0, expected), proc.stdout + proc.stderr)
+            for name in ("pre-commit", "pre-push"):
+                self.assertBlockFile(repo.path / ".git/hooks" / name)
+            self.assertIn("environment: spec checker environment ready at ", proc.stdout)
+        with self.subTest("the preflight skips the stub that reads the working tree"):
+            stage = next_command(proc.stdout, "stage the install")
+            self.assertEqual(stage, ["git", "add", "--", WORKFLOW])
+            repo.git(*stage[1:])
+            config["checks"]["stub"] = check([sys.executable, "-c", "print('stub ran')"], ["ci"])
+            repo.write("house-rules.json", json.dumps(config, indent=2) + "\n")
+            repo.stage("house-rules.json")
+            preflight = subprocess.run(next_command(proc.stdout, "check everything before the hooks refuse commits")
+                                       + ["--json"], cwd=str(repo.path), env=repo.env, capture_output=True,
+                                       text=True, stdin=subprocess.DEVNULL)
+            self.assertEqual(preflight.returncode, 0, preflight.stdout + preflight.stderr)
+            (snapshot,) = json.loads(preflight.stdout)["snapshots"]
+            self.assertEqual(statuses(snapshot), {"whitespace": "pass", "spec-docs": "pass", "stub": "skipped"})
+            self.assertEqual(snapshot["checks"][-1]["skip_reason"], "reads the working tree; runs in CI on the commit")
+        with self.subTest("the hook commits the install and CI runs the stub"):
+            status, output = self.git_hook(repo, "commit", "-q", "-m", "Adopt repository checks")
+            self.assertEqual((status, text_statuses(output)), (0, {"whitespace": "pass", "spec-docs": "pass"}), output)
+            _, ci = repo.snapshot("run", "--stage", "ci", "--head", "HEAD")
+            self.assertEqual(statuses(ci), {"whitespace": "pass", "spec-docs": "pass", "stub": "pass"})
+        with self.subTest("the hook and CI give the same result for the same commit"):
+            repo.sentence("The batch machine is fast.")
+            repo.stage("docs/example.md")
+            status, output = self.git_hook(repo, "commit", "-q", "-m", "uses a rejected form")
+            self.assertEqual((status, text_statuses(output)), (1, {"spec-docs": "fail", "whitespace": "pass"}), output)
+            repo.commit("uses a rejected form")
+            _, ci = repo.snapshot("run", "--stage", "ci", "--head", "HEAD")
+            self.assertEqual(statuses(ci), {"spec-docs": "fail", "whitespace": "pass", "stub": "pass"})
 
 
 class PortabilityTest(unittest.TestCase):

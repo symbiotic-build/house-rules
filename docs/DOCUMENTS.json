@@ -500,6 +500,11 @@
       "reason": "Skill procedure or supporting reference, not a specification or design document."
     },
     {
+      "path": "skills/repository-checks/SKILL.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
       "path": "skills/rust-canon/SKILL.md",
       "kind": "other",
       "reason": "Skill procedure or supporting reference, not a specification or design document."
@@ -1091,7 +1096,7 @@
             "acceptance",
             "acceptance-evidence"
           ],
-          "summary": "See the planned demonstrations for each requirement.",
+          "summary": "See the tests, demonstrations and analysis for each requirement.",
           "prerequisites": [],
           "explanatory_dependencies": []
         }
