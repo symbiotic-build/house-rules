@@ -20,8 +20,6 @@ A rerun repairs missing pieces and keeps every choice the repository made.
 **Procedure: install repository checks**
 
 1. **Write the configuration:** `house-rules init`, unless the repository has `house-rules.json`.
-   - Until [#217](https://github.com/symbiotic-build/house-rules/issues/217) the runner refuses a
-     non-empty `profiles` list; empty the list `init` wrote.
 2. **Review and stage the configuration:** `git add house-rules.json`. The install never lists it.
 3. **Install:** `house-rules exec skills/repository-checks/scripts/checks.py install --ci github`.
    - Writes the hook blocks, the `house-rules.command` setting and the GitHub Actions workflow, and

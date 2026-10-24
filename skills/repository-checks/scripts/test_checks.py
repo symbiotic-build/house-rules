@@ -2274,17 +2274,35 @@ class InstallTest(InstallCase):
                                             repo=repo)
             self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
             self.assertIn("PASS  whitespace", proc.stdout)
-        with self.subTest("init beside docs/ENTITIES.json writes the specs profile, which this runner refuses"):
+        def run_with(profiles, ref="main"):
             repo = self.fresh()
             repo.write("docs/ENTITIES.json", "{}\n")
             config = self.init(repo)
             self.assertEqual(config["profiles"], ["specs"])
+            config.update(profiles=profiles, sources=[dict(config["sources"][0], ref=ref)])
+            repo.write("house-rules.json", json.dumps(config, indent=2) + "\n")
             repo.stage("house-rules.json")
-            proc = self.house_rules_command("exec", "--origin", "index", RUNNER, "run", "--stage", "ci", "--index",
+            return self.house_rules_command("exec", "--origin", "index", RUNNER, "run", "--stage", "ci", "--index",
                                             repo=repo)
-            self.assertPreparationFailure(proc, "repository checks: house-rules: house-rules.json: profiles are not "
-                                                "supported by this runner yet (#217); remove the entries from "
-                                                "profiles in house-rules.json")
+        with self.subTest("init beside docs/ENTITIES.json writes specs, which House Rules defines as empty"):
+            proc = run_with(["specs"])
+            self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+            self.assertIn("PASS  whitespace", proc.stdout)
+        with self.subTest("a profile House Rules does not define is refused: by exec, and by the runner itself"):
+            self.assertPreparationFailure(run_with(["haskell"]), "profile haskell is defined by no layer")
+            repo = self.fresh()
+            repo.configure(NO_SPEC)
+            repo.write_config(dict(repo.config, profiles=["haskell"]))
+            self.assertPreparationFailure(repo.run("run", "--stage", "ci", "--index"),
+                                          "profiles lists 'haskell', which this House Rules revision does not define")
+        with self.subTest("a profile that sets anything stops the run until #217, never ignored"):
+            ruleset = json.loads((self.house_rules.path / "ruleset.json").read_text())
+            ruleset["profiles"]["specs"] = {"checks": {"spec-docs": {"stages": ["ci"], "reason": "A test."}}}
+            revision = self.house_rules.variant("A profile with content", {"ruleset.json": json.dumps(ruleset)})
+            self.assertPreparationFailure(run_with(["specs"], ref=revision),
+                                          "house-rules: house-rules.json: profile specs sets checks or settings, "
+                                          "which this runner does not support yet (#217); remove specs from "
+                                          "profiles in house-rules.json")
 
     def test_install_writes_both_hook_blocks_and_the_command_setting(self):
         hooks = self.repo.path / ".git/hooks"
@@ -2846,16 +2864,10 @@ class InstallTest(InstallCase):
         repo.write(".github/workflows/other.yml", "name: Other\n")
         repo.stage(".github")
         repo.commit("a specification and another workflow")
-        with self.subTest("init writes the configuration; until #217 the runner refuses its profiles"):
+        with self.subTest("init writes the configuration with the profile specs, which the runner accepts"):
             config = self.init(repo)
             self.assertEqual(config, {"version": 2, "profiles": ["specs"], "checks": {},
                                       "sources": [{"name": "house-rules", "url": self.house_rules.url, "ref": "main"}]})
-            repo.stage("house-rules.json")
-            proc = self.house_rules_command("exec", "--origin", "index", RUNNER, "run", "--stage", "ci", "--index",
-                                            repo=repo)
-            self.assertPreparationFailure(proc, "profiles are not supported by this runner yet (#217)")
-            config["profiles"] = []
-            repo.write("house-rules.json", json.dumps(config, indent=2) + "\n")
             repo.stage("house-rules.json")
         self.repo = repo
         self.seed_environment()

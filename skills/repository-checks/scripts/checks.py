@@ -509,6 +509,19 @@ def budget_override(stage, entry):
             "reason": entry["reason"]}
 
 
+def profile_definitions():
+    """The profiles that this runner's House Rules tree defines in its ruleset.json, or {} without that file."""
+    path = own_tree() / "ruleset.json"
+    try:
+        ruleset = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as exc:
+        raise Failure(f"cannot read {path} ({exc})", "delete the House Rules cache and run again")
+    profiles = ruleset.get("profiles") if isinstance(ruleset, dict) else None
+    return profiles if isinstance(profiles, dict) else {}
+
+
 def effective_checks(data):
     """Validate the whole file against this runner's built-in definitions and return the effective set.
 
@@ -520,9 +533,13 @@ def effective_checks(data):
     profiles = document.get("profiles", [])
     if not isinstance(profiles, list):
         raise config_error("profiles must be a list")
-    if profiles:  # `house-rules init` writes the list; this runner applies no profile yet, so it never ignores one
-        raise Failure(f"{HOUSE_RULES}: {CONFIG}: profiles are not supported by this runner yet (#217)",
-                      f"remove the entries from profiles in {CONFIG}")
+    defined = profile_definitions() if profiles else {}
+    for name in profiles:  # `house-rules init` writes the list; a profile that sets nothing changes nothing
+        if not isinstance(name, str) or name not in defined:
+            raise config_error(f"profiles lists {name!r}, which this House Rules revision does not define")
+        if defined[name]:  # this runner cannot apply what a profile sets yet, and never ignores it
+            raise Failure(f"{HOUSE_RULES}: {CONFIG}: profile {name} sets checks or settings, which this runner "
+                          "does not support yet (#217)", f"remove {name} from profiles in {CONFIG}")
     budgets = check_budgets(document.get("budgets", {}))
     entries = document["checks"]
     if not isinstance(entries, dict):
