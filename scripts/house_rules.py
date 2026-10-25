@@ -354,6 +354,7 @@ def check_budgets(budgets, where):
 def repository_config(data, where=CONFIG):
     """Parse a repository configuration; return it with sources defaulted to None and the other fields filled in."""
     value = load_json(data, where)
+    check_printable(value, where)  # first: later messages repeat keys and values
     check_version(value, where, VERSION)
     known_fields(value, REPOSITORY_FIELDS, where)
     if "sources" not in value:
@@ -373,7 +374,6 @@ def repository_config(data, where=CONFIG):
         if "reason" not in entry:
             raise Failure(f"house-rules: {where}: budgets.{stage} needs a reason")
     sources = check_sources(value["sources"], where)
-    check_printable(value, where)
     return {"sources": sources, "profiles": profiles, "budgets": budgets, "checks": checks}
 
 
@@ -400,9 +400,9 @@ def ruleset(data, where):
     value = load_json(data, where)
     if "sources" in value:
         raise Failure(f"house-rules: {where}: only house-rules.json lists sources")
+    check_printable(value, where)  # first: later messages repeat keys and values
     check_version(value, where)
     known_fields(value, RULESET_FIELDS, where)
-    check_printable(value, where)
     profiles = check_map(value.get("profiles", {}), "profiles", where)
     entries = {}
     for name, entry in profiles.items():
@@ -913,8 +913,10 @@ def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADL
     return resolution(repository, rev, data, origin, deadline, machine)[0]
 
 
-def resolution(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADLINE, machine=True):
+def resolution(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADLINE, machine=True, config=None):
     """(the resolution record, the effective configuration that resolution built), as `resolve` describes.
+
+    `config` is `data` already parsed by `repository_config`, so a caller that parsed it is not validated twice.
 
     The configuration is `data` when the caller read it (the checks runner reads it from its snapshot, with its
     own `origin`; an origin without data means that snapshot has none), else the file at commit `rev`, else the
@@ -924,10 +926,10 @@ def resolution(repository=None, rev=None, data=None, origin=None, deadline=NO_DE
     """
     if os.environ.get(LINK) and os.environ.get(OVERRIDE):
         raise Failure(f"house-rules: set {LINK} or {OVERRIDE}, not both", status=1)
-    warnings, config = [], None
+    warnings = []
     if repository is not None and data is None and origin is None:
         data, origin = read_configuration(repository, rev)
-    if data is not None:
+    if data is not None and config is None:
         config = repository_config(data)
     # Read once: its sources when the repository names none, its budgets on this machine.
     configured = global_config(warnings, need_sources=config is None) if config is None or machine else None

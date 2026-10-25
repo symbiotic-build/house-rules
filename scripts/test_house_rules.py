@@ -158,11 +158,17 @@ class ResolutionTests(Fixture):
         team = dict(config["sources"][1], name="team-copy")
         config["sources"].insert(2, team)  # the same URL and branch under a second name
         repo = self.repository(config)
-        real, asked = hr.ask_named, []
-        with mock.patch.object(hr, "ask_named", side_effect=lambda entry, *rest: asked.append(entry["name"])
-                               or real(entry, *rest)):
+        shim, log = self.root / "bin", self.root / "ls-remote.log"
+        shim.mkdir()
+        real = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True, check=True,
+                              stdin=subprocess.DEVNULL).stdout.strip()
+        (shim / "git").write_text(f'#!/bin/sh\ncase " $* " in *" ls-remote "*) echo "$*" >> {log};; esac\n'
+                                  f'exec {real} "$@"\n')
+        (shim / "git").chmod(0o755)
+        with mock.patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}):
             record = hr.resolve(repo)
-        self.assertEqual(asked, ["house-rules", "team-rules"])  # team-copy took team-rules' answer
+        asked = log.read_text().splitlines()
+        self.assertEqual(sum(team["url"] in line for line in asked), 1, asked)  # team-copy took team-rules' answer
         self.assertEqual(record["layers"][2]["revision"], record["layers"][1]["revision"])
         os.rename(str(self.root / "remotes"), str(self.root / "remotes-away"))
         self.expire_answers()
@@ -1331,9 +1337,13 @@ class ResolverRoundThreeTests(Fixture):
         self.assertIn(f"remote.origin.url of {checkout} is not valid text", err)
         self.assertFalse(hr.links_path().exists())
         with self.assertRaises(hr.Failure) as caught:  # a lone surrogate cannot become a cache key
+            hr.check_sources([{"name": "house-rules"}, {"name": "team", "url": "https://host/\ud800"}], hr.CONFIG)
+        self.assertIn("sources[1]: the URL of team is not valid text", str(caught.exception))
+        with self.assertRaises(hr.Failure) as caught:  # in a repository file, the whole file is refused first
             hr.repository_config('{"version": 2, "sources": [{"name": "house-rules"}, '
                                  '{"name": "team", "url": "https://host/\\ud800"}]}')
-        self.assertIn("sources[1]: the URL of team is not valid text", str(caught.exception))
+        self.assertEqual(str(caught.exception), "house-rules: house-rules.json: the file holds text that cannot be "
+                                                "printed or passed to a program")
 
     def test_the_staged_configuration_is_read_by_its_exact_path(self):
         repo = self.repository({"version": 2, "sources": [{"name": "house-rules"}]})
@@ -1370,7 +1380,7 @@ class ResolverRoundThreeTests(Fixture):
             hr.repository_config(json.dumps({"version": 2, "sources": [dict(source, ref="ma\0in")]}))
         self.assertIn("ref must be a branch name", str(caught.exception))
         with self.assertRaises(hr.Failure) as caught:  # a lone surrogate cannot become a process argument
-            hr.repository_config('{"version": 2, "sources": [{"name": "house-rules", "ref": "ma\\ud800in"}]}')
+            hr.check_sources([{"name": "house-rules", "ref": "ma\ud800in"}], hr.CONFIG)
         self.assertIn("ref must be a branch name", str(caught.exception))
         if hasattr(sys, "set_int_max_str_digits"):  # Python 3.11 and later limit integer digits
             with self.assertRaises(hr.Failure) as caught:

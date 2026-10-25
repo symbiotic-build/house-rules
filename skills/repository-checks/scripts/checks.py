@@ -376,7 +376,7 @@ def configuration(root, data, origin, stage, selection, deadline=house_rules.NO_
             if HANDED is not None and HANDED["layers"][0]["source"] in ("override", "link"):
                 raise Failure(*selection)
             record, built = house_rules.resolution(str(root), data=data, origin=origin, deadline=deadline,
-                                                   machine=hooks)
+                                                   machine=hooks, config=config)
     except house_rules.Failure as failure:
         raise resolver_failure(failure) from None
     checks = []
@@ -410,7 +410,7 @@ def handed(value):
     for layer in record["layers"]:
         if not (isinstance(layer, dict) and all(isinstance(layer.get(k), str) for k in LAYER_FIELDS)
                 and layer.get("ref_kind") in ("branch", "tag", "commit") and isinstance(layer.get("source"), str)
-                and (layer.get("fetched") is None or isinstance(layer["fetched"], str))):
+                and "fetched" in layer and (layer["fetched"] is None or isinstance(layer["fetched"], str))):
             return None
     return record
 
@@ -590,15 +590,15 @@ def check_stage(args, snapshots):
                 snapshots.append(unadopted(target))
             else:
                 origin = INDEX if from_index else {"origin": "commit", "commit": target["snapshot"]}
-                record, config = configuration(root, target["data"], origin, args.stage, selection)
-                known = [c["id"] for c in config["checks"]]
-                for name in args.only or ():
-                    if name not in known:
-                        raise Failure(f"unknown check '{name}' in --only", f"name one of {', '.join(known)}")
                 base = select_base(root, args.stage, args.base, args.remote, target)
-                try:
+                record, config = configuration(root, target["data"], origin, args.stage, selection)
+                try:  # every failure after the resolution keeps the layers this snapshot resolved
+                    known = [c["id"] for c in config["checks"]]
+                    for name in args.only or ():
+                        if name not in known:
+                            raise Failure(f"unknown check '{name}' in --only", f"name one of {', '.join(known)}")
                     snapshots.append(check_snapshot(root, args, target, record, config, base, pushing))
-                except Failure:  # a preparation failure keeps the layers this snapshot resolved
+                except Failure:
                     snapshots.append(snapshot_entry(target, record, config, base, "error", [], []))
                     raise
             if from_index and index_tree(root) != target["tree"]:

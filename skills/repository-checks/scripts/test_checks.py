@@ -493,6 +493,14 @@ class DefaultsTest(RunnerCase):
                 self.assertEqual((proc.returncode, proc.stdout, proc.stderr),
                                  (2, "", f"repository checks: house-rules: {message}\n"))
 
+    def test_unknown_only_check_keeps_the_snapshots_resolution(self):
+        self.repo.configure(NO_SPEC)
+        proc, report = self.repo.report("run", "--stage", "pre-commit", "--only", "nonexistent")
+        self.assertEqual((proc.returncode, report["error"]["cause"]), (2, (
+            "unknown check 'nonexistent' in --only; name one of whitespace, spec-docs")), proc.stderr)
+        (entry,) = report["snapshots"]
+        self.assertEqual((entry["result"], entry["resolution"]["layers"][0]["revision"]), ("error", self.repo.main))
+
     def test_configuration_without_checks_runs_the_layers_checks(self):
         self.repo.write_config({"version": 2, "sources": [{"name": "house-rules", "url": self.repo.url, "ref": "main"}]})
         proc, entry = self.repo.snapshot("run", "--stage", "pre-commit")
@@ -1953,7 +1961,7 @@ class RevisionTest(RunnerCase):
         self.assertTrue(warning.startswith(f"warning: LINKED house-rules -> {self.house_rules.path} at "), warning)
         self.assertEqual(failure, "repository checks: the configuration changed during the run; run again")
 
-    def test_failure_cause_and_repair_stay_separate_when_a_path_holds_a_separator(self):
+    def test_failure_line_keeps_a_quoted_repair_whole_when_a_path_holds_a_separator(self):
         revision = self.house_rules.variant("Require an interpreter that does not exist", self.IMPOSSIBLE_RUNTIME)
         cache = self.fresh_cache("house; cache")
         self.repo.spec()
@@ -2104,10 +2112,15 @@ class LayerTest(RunnerCase):
         url, _ = self.team_rules({"version": 1, "checks": {"team-lint": lint}}, {})
         self.repo.write_config({"version": 2, "checks": NO_SPEC, "sources": [
             {"name": "house-rules", "url": self.repo.url, "ref": "main"}, {"name": "team-rules", "url": url, "ref": "main"}]})
+        cause = "house-rules: team-rules ruleset.json: the file holds text that cannot be printed or passed to a program"
         proc, report = self.repo.report("run", "--stage", "ci", "--index")
-        self.assertEqual((proc.returncode, report["error"]["cause"]), (2, (
-            "house-rules: team-rules ruleset.json: the file holds text that cannot be printed or passed to a program")),
-                         proc.stderr)
+        self.assertEqual((proc.returncode, report["error"]["cause"]), (2, cause), proc.stderr)
+        with self.subTest("a key that cannot be printed, which a field check would repeat"):
+            url, _ = self.team_rules({"version": 1, "\ud800": True}, {})
+            self.repo.write_config(dict(self.repo.config, sources=[self.repo.config["sources"][0],
+                                                                   {"name": "team-rules", "url": url, "ref": "main"}]))
+            proc = self.repo.run("run", "--stage", "ci", "--index")
+            self.assertEqual((proc.returncode, proc.stderr), (2, f"repository checks: {cause}\n"))
 
     def test_profile_that_no_layer_defines_stops_the_run(self):
         self.repo.configure(NO_SPEC, profiles=["haskell"])
@@ -2161,8 +2174,11 @@ class StatusTest(RunnerCase):
     def test_malformed_inherited_record_is_ignored(self):
         self.repo.configure(NO_SPEC)
         self.assertEqual(self.repo.run("prepare").returncode, 0)
+        layer = {"name": "house-rules", "url": self.repo.url, "ref": "main", "ref_kind": "branch",
+                 "revision": self.repo.main, "source": "fetched", "tree": str(self.cache)}  # no `fetched`
         for record in ({"version": 1, "layers": [{}]}, {"version": 1, "layers": [{"name": "house-rules"}],
-                                                        "profiles": [], "warnings": []}):
+                                                        "profiles": [], "warnings": []},
+                       {"version": 1, "layers": [layer], "profiles": [], "warnings": []}):
             with self.subTest(record=record):
                 env = dict(self.repo.env, HOUSE_RULES_RESOLVED=json.dumps(record))
                 proc = self.repo.run("status", "--session", env=env)
@@ -2579,7 +2595,6 @@ class InstallTest(InstallCase):
     def test_pushed_commit_that_reuses_execs_layers_names_its_own_configuration(self):
         """exec resolves HEAD's configuration; another pushed commit with the same sources uses those layers but
         records its own commit as its configuration's origin."""
-        self.repo.configure(PUSHED_TOO)
         first = self.repo.commit("first")
         self.assertEqual(self.install().returncode, 0)
         self.remote()
