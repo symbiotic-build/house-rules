@@ -784,7 +784,7 @@ A pushed object resolves to no commit, such as a tag of a tree.
 At pre-push, the [hook block](#hook-block) cannot create or write its temporary copy of the pushed references; the block refuses the push itself, before the runner starts. Reopening the copy after the checks can fail too; the push is then refused after the checks ran.
 
 **Outcome:** The runner exits 2 and prints one error line naming the cause and the command that repairs it. The hook refuses the commit or push.
-A resolver failure keeps the resolver's message: the runner splits it at its last `; ` into cause and repair. A message without `; ` gets the repair "repair the cause it names and run again".
+The line is one piece: the cause, then the repair, as written. The runner splits no message, so a resolver failure reads as the resolver wrote it, and a quoted command in a repair stays whole.
 The report's `error` names the pushed reference the failure concerns: the reference of a pushed commit with an invalid configuration, for example. A failure outside any pushed reference names none.
 
 **Retained state:** The working tree, the index and the stash are unchanged. A partly built cache entry is left in its temporary folder and is never used. A failed fetch deletes its temporary repository; an interrupted one, or one whose deletion failed, leaves it, unused. A failed temporary copy of the pushed references is removed, except when a plain `/bin/sh` exits at a failed reopening; the file then stays in the temporary folder.
@@ -809,7 +809,8 @@ For a failed temporary copy the author frees space in, or repairs access to, the
 This chapter explains how a repository's changes to the defaults stay visible, and which rules stay with reviewers.
 
 Every change to a default is one entry in one file, with a reason.
-A reviewer therefore sees each override in the PR's diff of `house-rules.json`, without reading hook scripts or CI files.
+A repository's own changes are entries in `house-rules.json`. A reviewer sees them in the PR's diff of that file, without reading hook scripts or CI files.
+A custom layer's changes are entries in its own [ruleset](218-layered-configuration.md#ruleset), reviewed in that rule repository. A layer that follows a branch can change a setting with no edit to `house-rules.json`.
 Each report also lists, under `settings:`, every value a later layer changed, with its layer and reason, so a reader of a CI log sees them without opening the file.
 
 CI reads the configuration from the commit under test, not from the PR's base.
@@ -1520,7 +1521,7 @@ Entities in this example: [runner options](#runner-options).
 - one line per stage with its effective checks, where a check that warns first is listed with "(warning only)";
 - the `settings:` block, each value with its layer and reason.
 
-Without a cached answer, `status` prints the resolver's failure with "(run: <prepare command>)", then `checks: unavailable until the layers are in the cache (run: <prepare command>)`.
+Without a cached answer, `status` prints the resolver's download failure, whose cause is "not asked (status never fetches)" and whose repair is "run: <prepare command>". Then it prints `checks: unavailable until the layers are in the cache (run: <prepare command>)`.
 
 The runner reads the [runner environment variables](#runner-environment-variables) whose names start with `HOUSE_RULES_`.
 
@@ -1591,7 +1592,7 @@ A runner option is one of the double-dash options of the runner's commands, such
 ### Report format
 
 `run --json` prints one object for the run, with one entry in `snapshots` for each snapshot it checked.
-The report's `version` is 4. The configuration's `version` is 2.
+The report's `version` is 4: each snapshot holds its own `resolution` and `settings`, and `error` holds the whole failure line in `cause`. The configuration's `version` is 2.
 
 ```json
 {"version": 4, "stage": "pre-commit", "result": "fail",
@@ -1627,7 +1628,7 @@ The run object holds `version`, `stage`, `result` and `snapshots`. It names no H
 
 The run's `result` is `error` after a preparation failure, matching exit status 2. Otherwise it is `fail` when any snapshot `result` is `fail`, matching exit status 1, and `pass` with exit status 0. A check with status `error` makes its snapshot's result `fail`; the [start-failure boundary](#start-failure-boundary) decides when a check that cannot start has it. A check with status `warn` leaves its snapshot's result `pass`.
 
-On a preparation failure the run object also holds `error`: one object with `reference` (the pushed reference it concerns, or `null`), `cause` and `repair`; the snapshots checked before the failure stay listed. A failure while a snapshot's checks run also lists that snapshot with its completed checks. `snapshots` is empty for a push that only deletes references, and the run's result is then `pass`.
+On a preparation failure the run object also holds `error`: one object with `reference` and `cause`. `reference` is the pushed reference the failure concerns, or `null`. `cause` is the whole failure line with its repair, as standard error shows it after `repository checks: `. The error has no separate `repair`, by operator decision of 2026-10-25: one piece for every preparation failure. The snapshots checked before the failure stay listed. A failure after a snapshot resolved its layers also lists that snapshot, with its `resolution`, its completed checks and the result `error`. An environment that cannot be built is such a failure. `snapshots` is empty for a push that only deletes references, and the run's result is then `pass`.
 
 In each snapshot entry, `reference` is the pushed local reference at pre-push and `null` otherwise. `source` is `index` when the snapshot was built from the staged index and `commit` otherwise. `snapshot` is the commit identity passed to the checks. `base` is a commit identity, or the empty tree's identity in the cases the [check definition](#check-definition) names.
 

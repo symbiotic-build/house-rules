@@ -85,7 +85,7 @@ prints the check's output, a `fix:` line and a `rerun:` line.
 4. **Commit or push again.**
 
 A line that starts `repository checks:` on standard error, with exit status 2, is a preparation failure:
-run the repair after its last `; `. A check that is wrong for the repository changes in `house-rules.json`,
+follow the repair the line names, as written, including any quoted command. A check that is wrong for the repository changes in `house-rules.json`,
 with a `reason`, through a reviewed PR. Skipping the hooks follows the
 [rule line](../../docs/design/194-repository-checks.md#rule-line). The
 [report format](../../docs/design/194-repository-checks.md#report-format) and the

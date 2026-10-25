@@ -68,11 +68,12 @@ house_rules = load_resolver()
 class Failure(Exception):
     """A configuration or preparation failure: exit 2 with one line naming the cause and its repair.
 
-    The line is "<cause>; <repair>". `reference` names the pushed reference the failure concerns, if any.
+    The line is "<cause>; <repair>", or `cause` alone when it already ends with its repair, as a resolver failure
+    does. `reference` names the pushed reference the failure concerns, if any.
     """
 
-    def __init__(self, cause, repair, reference=None):
-        super().__init__(f"{cause}; {repair}")
+    def __init__(self, cause, repair=None, reference=None):
+        super().__init__(cause if repair is None else f"{cause}; {repair}")
         self.cause, self.repair, self.reference = cause, repair, reference
 
 
@@ -337,14 +338,17 @@ INSTALL_SELECTION = ("a House Rules override or link selects the source of anoth
                      "run the install without it")
 CHANGED = ("the configuration changed during the run", "run again")
 # `status` reports what the cache holds: the resolver asks no remote, and a branch uses its last answer.
-NOT_ASKED = house_rules.Deadline(0, "not asked (status never fetches)")
+NOT_ASKED = house_rules.Deadline(0, "not asked (status never fetches)", f"run: {runner_command('prepare')}")
 HANDED = None  # exec's resolution record, read at start
 
 
+class Unavailable(Failure):
+    """A layer's commit cannot be downloaded: `status` reports it as missing from the cache."""
+
+
 def resolver_failure(failure):
-    """The runner's form of a resolver failure, whose one line ends with its repair after the last "; "."""
-    cause, _, repair = str(failure).rpartition("; ")
-    return Failure(cause, repair) if cause else Failure(str(failure), "repair the cause it names and run again")
+    """The runner's form of a resolver failure: its one line, which already names its repair, unchanged."""
+    return (Unavailable if isinstance(failure, house_rules.DownloadFailure) else Failure)(str(failure))
 
 
 def parse(data):
@@ -364,12 +368,15 @@ def configuration(root, data, origin, stage, selection, deadline=house_rules.NO_
     config = parse(data)
     hooks = stage != "ci"
     try:
-        record = HANDED if HANDED is not None and same_layers(HANDED, config) else None
-        if record is None:
+        if HANDED is not None and same_layers(HANDED, config):
+            # exec's layers and commits, recorded as this configuration's: only the choice of commit is shared.
+            record = dict(HANDED, repository=str(root), configuration=origin)
+            built = house_rules.effective(record, config, str(root), hooks=hooks)
+        else:
             if HANDED is not None and HANDED["layers"][0]["source"] in ("override", "link"):
                 raise Failure(*selection)
-            record = house_rules.resolve(str(root), data=data, origin=origin, deadline=deadline, machine=hooks)
-        built = house_rules.effective(record, config, str(root), hooks=hooks)
+            record, built = house_rules.resolution(str(root), data=data, origin=origin, deadline=deadline,
+                                                   machine=hooks)
     except house_rules.Failure as failure:
         raise resolver_failure(failure) from None
     checks = []
@@ -387,16 +394,25 @@ def same_layers(record, config):
             for layer in record["layers"]] == [(s["name"], s["url"], s["ref"]) for s in config["sources"]])
 
 
+LAYER_FIELDS = ("name", "url", "ref", "revision", "tree")
+
+
 def handed(value):
-    """exec's resolution record, or None."""
+    """exec's resolution record, or None when it is absent or lacks a field the runner reads."""
     try:
         record = json.loads(value or "null")
     except ValueError:
         return None
-    if isinstance(record, dict) and record.get("version") == 1 and isinstance(record.get("layers"), list) \
-            and record["layers"]:
-        return record
-    return None
+    if not (isinstance(record, dict) and record.get("version") == 1 and isinstance(record.get("layers"), list)
+            and record["layers"] and isinstance(record.get("profiles"), list)
+            and isinstance(record.get("warnings"), list)):
+        return None
+    for layer in record["layers"]:
+        if not (isinstance(layer, dict) and all(isinstance(layer.get(k), str) for k in LAYER_FIELDS)
+                and layer.get("ref_kind") in ("branch", "tag", "commit") and isinstance(layer.get("source"), str)
+                and (layer.get("fetched") is None or isinstance(layer["fetched"], str))):
+            return None
+    return record
 
 
 # Cache -----------------------------------------------------------------------------------
@@ -526,7 +542,7 @@ def command_run(args):
     result = "error" if error else "fail" if any(s["result"] == "fail" for s in snapshots) else "pass"
     report = {"version": 4, "stage": args.stage, "result": result, "snapshots": snapshots}
     if error:
-        report["error"] = {"reference": error.reference, "cause": error.cause, "repair": error.repair}
+        report["error"] = {"reference": error.reference, "cause": str(error)}  # the whole line, repair included
     if args.json:
         print(json.dumps(report))  # ASCII only: a path byte that is not UTF-8 stays a lossless escape
     elif nothing:
@@ -579,7 +595,12 @@ def check_stage(args, snapshots):
                 for name in args.only or ():
                     if name not in known:
                         raise Failure(f"unknown check '{name}' in --only", f"name one of {', '.join(known)}")
-                snapshots.append(check_snapshot(root, args, target, record, config, pushing))
+                base = select_base(root, args.stage, args.base, args.remote, target)
+                try:
+                    snapshots.append(check_snapshot(root, args, target, record, config, base, pushing))
+                except Failure:  # a preparation failure keeps the layers this snapshot resolved
+                    snapshots.append(snapshot_entry(target, record, config, base, "error", [], []))
+                    raise
             if from_index and index_tree(root) != target["tree"]:
                 raise Failure("the staged index changed during the run, so the checks did not see the content Git "
                               "would commit", "review what was staged and commit again")
@@ -608,10 +629,9 @@ def unadopted(target):
                           [f"no {CONFIG} in this snapshot; repository checks are not adopted here"])
 
 
-def check_snapshot(root, args, target, record, config, pushing):
+def check_snapshot(root, args, target, record, config, base, pushing):
     """Run the selected checks of one snapshot; every check reads only that snapshot's commit."""
     snapshot, from_index = target["snapshot"], target["source"] == "index"
-    base = select_base(root, args.stage, args.base, args.remote, target)
     changed = changed_files(root, base, snapshot) if args.stage in HOOK_STAGES else None
     rerun = ["run", "--stage", args.stage]
     for flag, value in (("--remote", args.remote), ("--head", snapshot if pushing else args.head),
@@ -840,7 +860,7 @@ def render(report):
         where = ("the staged index" if entry["source"] == "index" else f"commit {entry['snapshot'][:7]}")
         if entry["reference"]:
             where = f"{entry['reference']} at {where}"
-        if entry["base"] is None:  # no configuration in this snapshot
+        if entry["resolution"] is None:  # no configuration in this snapshot
             lines.append(f"repository checks: {report['stage']} on {where}: no {CONFIG}; "
                          "repository checks are not adopted here")
             continue
@@ -905,12 +925,11 @@ def command_status(args):
     if data is None:
         print(f"repository checks: no {CONFIG} in the index; this repository has not adopted repository checks")
         return 0
-    parse(data)  # a configuration error stops status, as it stops a run
     prepare = runner_command("prepare")
     try:
         record, config = configuration(root, data, INDEX, None, CHANGED, NOT_ASKED)
-    except Failure as exc:
-        print(f"repository checks: {exc.cause} (run: {prepare})")
+    except Unavailable as exc:
+        print(f"repository checks: {exc}")
         print(f"checks: unavailable until the layers are in the cache (run: {prepare})")
         return 0
     tree = house_rules.layer_tree(record)
@@ -937,12 +956,11 @@ def session_line():
         if (root / ".agents" / "rules.md").is_file():
             return f"repository checks: not installed; {unstaged_repair(root, f'run: {CHECKS_INSTALL}')}"
         return None
-    parse(data)  # a configuration error is the line, as status prints it
     try:
         record, config = configuration(root, data, INDEX, None, CHANGED, NOT_ASKED)
         problem = environment_problem(config, house_rules.layer_tree(record))
-    except Failure as exc:
-        record, problem = None, f"{exc.cause} (run: {runner_command('prepare')})"
+    except Unavailable as exc:
+        record, problem = None, str(exc)
     hooks = root / out(root, "rev-parse", "--git-path", "hooks")
     missing = [name for name in HOOK_STAGES if not has_block(hooks / name)]
     # Git ignores a hook file that is not executable, so its block never runs.

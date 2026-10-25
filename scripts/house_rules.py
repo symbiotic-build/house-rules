@@ -233,17 +233,22 @@ def partial(folder):
     return Path(tempfile.mkdtemp(prefix=".partial-", dir=str(folder)))
 
 
+ONLINE = "run again when online"  # the repair of a network cause, and of no other
+
+
 class Deadline:
     """Hook mode's limit on ls-remote and fetches: 2 s before the agent product's 10 s hook timeout.
 
     Outside hook mode there is no deadline; Git's own progress limit (PROGRESS) is the only one.
     """
 
-    def __init__(self, seconds=None, message=None):
+    def __init__(self, seconds=None, message=None, repair=None):
         self.seconds = seconds
         self.end = None if seconds is None else time.monotonic() + seconds
-        # What a passed deadline reports; `checks.py status` passes one that has passed already, so it asks nothing.
+        # What a passed deadline reports, and the repair when nothing is cached; `checks.py status` passes one that
+        # has passed already, so it asks nothing.
         self.message = message or f"the server did not answer within {HOOK_SECONDS} s"
+        self.repair = repair or ONLINE
 
     def left(self):
         return None if self.end is None else max(0.0, self.end - time.monotonic())
@@ -368,11 +373,16 @@ def repository_config(data, where=CONFIG):
         if "reason" not in entry:
             raise Failure(f"house-rules: {where}: budgets.{stage} needs a reason")
     sources = check_sources(value["sources"], where)
-    try:  # a lone surrogate from a JSON escape cannot be printed or passed to a program; the message repeats none
+    check_printable(value, where)
+    return {"sources": sources, "profiles": profiles, "budgets": budgets, "checks": checks}
+
+
+def check_printable(value, where):
+    """A lone surrogate from a JSON escape cannot be printed or passed to a program; the message repeats none of it."""
+    try:
         json.dumps(value, ensure_ascii=False).encode(sys.getfilesystemencoding(), "surrogateescape")
     except UnicodeEncodeError:
         raise Failure(f"house-rules: {where}: the file holds text that cannot be printed or passed to a program") from None
-    return {"sources": sources, "profiles": profiles, "budgets": budgets, "checks": checks}
 
 
 def ruleset_entry(value, where):
@@ -392,6 +402,7 @@ def ruleset(data, where):
         raise Failure(f"house-rules: {where}: only house-rules.json lists sources")
     check_version(value, where)
     known_fields(value, RULESET_FIELDS, where)
+    check_printable(value, where)
     profiles = check_map(value.get("profiles", {}), "profiles", where)
     entries = {}
     for name, entry in profiles.items():
@@ -694,6 +705,10 @@ def offline_text(error, url, deadline):
     return error if error == deadline.message else f"cannot reach {url} ({error})"
 
 
+class DownloadFailure(Failure):
+    """A layer's commit cannot be downloaded; `checks.py status` reports it as missing from the cache."""
+
+
 class Unavailable(Exception):
     """A layer's commit cannot be downloaded: why, and the repair that fits that cause."""
 
@@ -702,12 +717,11 @@ class Unavailable(Exception):
         self.cause, self.repair = cause, repair
 
 
-ONLINE = "run again when online"  # the repair of a network cause, and of no other
 CHECK_REF = f"check the ref in {CONFIG}"
 REF_NOUNS = {"branch": "branch", "tag": "release tag", "commit": "commit"}
 
 
-def resolve_layer(entry, links, warnings, deadline, required_by):
+def resolve_layer(entry, links, warnings, deadline, required_by, answers):
     """Resolve one layer entry to {name, url, ref, ref_kind, revision, source, fetched, tree, link}.
 
     For the house-rules layer, the one-run variables HOUSE_RULES_LINK and HOUSE_RULES_REVISION win over links.json.
@@ -743,14 +757,14 @@ def resolve_layer(entry, links, warnings, deadline, required_by):
             fetch_pinned(entry, commit, deadline, missing)
             fetched = None  # a pin asks nothing, so it has no answer time
         else:
-            commit, source, fetched = resolve_named(entry, kind, warnings, deadline)
+            commit, source, fetched = resolve_named(entry, kind, warnings, deadline, answers)
         return dict(entry, ref_kind=kind, revision=commit, source=source, fetched=fetched,
                     tree=str(tree_folder(url, commit)), link=None)
     except Unavailable as unavailable:
         version = (f"commit {commit}, which {OVERRIDE} requires," if source == "override"
                    else f"{REF_NOUNS[kind]} {ref}, which {required_by} requires,")
-        raise Failure(f"house-rules: {name} {version} cannot be downloaded from {url}: {unavailable.cause}; "
-                      f"{unavailable.repair}")
+        raise DownloadFailure(f"house-rules: {name} {version} cannot be downloaded from {url}: {unavailable.cause}; "
+                              f"{unavailable.repair}")
     except OSError as exc:
         raise Failure(f"house-rules: cannot write the cache {cache_root()} ({exc.strerror or exc}); free space, "
                       "make it writable or set HOUSE_RULES_CACHE")
@@ -771,55 +785,54 @@ def fetch_pinned(entry, commit, deadline, missing):
         except DeadlinePassed:
             offline = True
         if offline:
-            raise Unavailable(error, ONLINE)
+            raise Unavailable(error, deadline.repair if error == deadline.message else ONLINE)
         raise Unavailable(f"the server has no commit {commit} ({error})", missing)
 
 
-# The checks runner sets this to a dict: within one run a branch or tag of one source is asked for once, so every
-# snapshot that lists it uses the same commit. Keyed by (url, kind, ref); each value is (commit, source, fetched,
-# warning or None).
+# Within one resolution a branch or tag of one source is asked for once, so two layers that name it use one commit.
+# The checks runner sets this to a dict that lasts its whole run, so every snapshot shares the answers too. Keyed by
+# (url, kind, ref); each value is (commit, source, fetched, the offline cause or None).
 ANSWERS = None
 
 
 def remember(record):
-    """Seed ANSWERS with the branch and tag answers of a record that `exec` resolved for this run."""
+    """Seed ANSWERS with the branch and tag answers of a record that `exec` resolved for this run; a key the run
+    already answered keeps its answer."""
     for layer in record["layers"]:
         if layer["ref_kind"] in ANSWER_FOLDERS and layer["source"] in ("fetched", "reused", "offline"):
-            warning = (f"warning: using {layer['name']} {layer['ref']} as last answered {layer['fetched']}, "
-                       f"{layer['revision']}, as this run's first resolution did") if layer["source"] == "offline" else None
-            ANSWERS[(layer["url"], layer["ref_kind"], layer["ref"])] = (layer["revision"], layer["source"],
-                                                                        layer["fetched"], warning)
+            cause = "the server could not be asked when this run started" if layer["source"] == "offline" else None
+            ANSWERS.setdefault((layer["url"], layer["ref_kind"], layer["ref"]),
+                               (layer["revision"], layer["source"], layer["fetched"], cause))
 
 
-def resolve_named(entry, kind, warnings, deadline):
+def resolve_named(entry, kind, warnings, deadline, answers):
     """(commit, source, fetched) for a branch or release tag: reused, fetched, or offline from the last answer.
 
-    With ANSWERS set, the first answer for a branch or tag is the run's answer; its warning repeats for each use.
+    The first answer in `answers` for a branch or tag is used again; an offline answer warns for each layer that
+    uses it, naming that layer.
     """
-    if ANSWERS is None:
-        return ask_named(entry, kind, warnings, deadline)
     key = (entry["url"], kind, entry["ref"])
-    if key not in ANSWERS:
-        found = []
-        answer = ask_named(entry, kind, found, deadline)
-        ANSWERS[key] = (*answer, found[0] if found else None)
-    *answer, warning = ANSWERS[key]
-    warnings.extend([warning] if warning else [])
-    return tuple(answer)
+    if key not in answers:
+        answers[key] = ask_named(entry, kind, deadline)
+    commit, source, fetched, cause = answers[key]
+    if cause is not None:
+        warnings.append(f"warning: {cause}; using {entry['name']} {entry['ref']} as last answered {fetched}, {commit}")
+    return commit, source, fetched
 
 
-def ask_named(entry, kind, warnings, deadline):
-    """(commit, source, fetched) for a branch or release tag: reused, fetched, or offline from the last answer.
+def ask_named(entry, kind, deadline):
+    """(commit, source, fetched, offline cause or None) for a branch or release tag: reused, fetched, or offline from
+    the last answer.
 
     A tag is asked on every run, like a branch, so a tag that moves on the remote is followed, as CI with an empty
     cache does. `fetched` is the time of the answer used.
     """
-    url, ref, name = entry["url"], entry["ref"], entry["name"]
+    url, ref = entry["url"], entry["ref"]
     noun, reference = ("branch", f"refs/heads/{ref}") if kind == "branch" else ("release tag", f"refs/tags/{ref}")
     record, error = read_answer(url, kind, ref), None
     if record and 0 <= time.time() - record["seconds"] < REUSE_SECONDS and \
             prepared(tree_folder(url, record["revision"])):
-        return record["revision"], "reused", record["fetched"]
+        return record["revision"], "reused", record["fetched"], None
     asked = utc()  # the answer's time is when the remote gave it, not when preparation ended
     try:
         commit, error = ask_ref(url, reference, deadline)
@@ -836,14 +849,13 @@ def ask_named(entry, kind, warnings, deadline):
             if not error:
                 # Published only now that the commit's tree is complete.
                 write_answer(url, kind, {"url": url, kind: ref, "revision": commit, "fetched": asked})
-                return commit, "fetched", asked
+                return commit, "fetched", asked, None
     except DeadlinePassed as passed:
         error = str(passed)
     if record is None or not prepared(tree_folder(url, record["revision"])):
-        raise Unavailable(error, ONLINE)  # no earlier answer is cached to fall back to
-    warnings.append(f"warning: {offline_text(error, url, deadline)}; using {name} {ref} as last answered "
-                    f"{record['fetched']}, {record['revision']}")
-    return record["revision"], "offline", record["fetched"]
+        # No earlier answer is cached to fall back to.
+        raise Unavailable(error, deadline.repair if error == deadline.message else ONLINE)
+    return record["revision"], "offline", record["fetched"], offline_text(error, url, deadline)
 
 
 # Links
@@ -897,7 +909,12 @@ def default_sources(configured):
 
 
 def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADLINE, machine=True):
-    """Resolve the layers for `repository` (or for no repository) and return the resolution record.
+    """Resolve the layers for `repository` (or for no repository) and return the resolution record."""
+    return resolution(repository, rev, data, origin, deadline, machine)[0]
+
+
+def resolution(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADLINE, machine=True):
+    """(the resolution record, the effective configuration that resolution built), as `resolve` describes.
 
     The configuration is `data` when the caller read it (the checks runner reads it from its snapshot, with its
     own `origin`; an origin without data means that snapshot has none), else the file at commit `rev`, else the
@@ -921,7 +938,8 @@ def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADL
         origin = {"origin": kind, "commit": None}
     links = read_links()
     required_by = "this repository" if config is not None else "the default sources"
-    layers = [resolve_layer(entry, links, warnings, deadline, required_by) for entry in sources]
+    answers = ANSWERS if ANSWERS is not None else {}  # this resolution's, unless the runner shares its run's
+    layers = [resolve_layer(entry, links, warnings, deadline, required_by, answers) for entry in sources]
     record = {"version": 1, "repository": repository, "configuration": origin,
               "profiles": config["profiles"] if config else [], "layers": layers, "context": [],
               "warnings": warnings}
@@ -940,7 +958,7 @@ def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADL
                       f"the most context files ({counts.get(most, 0)})")
     if config is None:
         point_default(layers[0])
-    return record
+    return record, built
 
 
 def point_default(layer):

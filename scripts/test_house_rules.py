@@ -153,13 +153,31 @@ class ResolutionTests(Fixture):
         hr.ANSWERS = None
         self.assertNotEqual(hr.resolve(repo)["layers"][1]["revision"], first["layers"][1]["revision"])
 
+    def test_two_layers_of_one_branch_share_one_answer_and_each_warning_names_its_layer(self):
+        config, _ = self.tour()
+        team = dict(config["sources"][1], name="team-copy")
+        config["sources"].insert(2, team)  # the same URL and branch under a second name
+        repo = self.repository(config)
+        real, asked = hr.ask_named, []
+        with mock.patch.object(hr, "ask_named", side_effect=lambda entry, *rest: asked.append(entry["name"])
+                               or real(entry, *rest)):
+            record = hr.resolve(repo)
+        self.assertEqual(asked, ["house-rules", "team-rules"])  # team-copy took team-rules' answer
+        self.assertEqual(record["layers"][2]["revision"], record["layers"][1]["revision"])
+        os.rename(str(self.root / "remotes"), str(self.root / "remotes-away"))
+        self.expire_answers()
+        offline = hr.resolve(repo)
+        named = [w for w in offline["warnings"] if " team-" in w]
+        self.assertEqual([w.split("; using ")[1].split(" main ")[0] for w in named], ["team-rules", "team-copy"],
+                         offline["warnings"])
+
     def test_passed_deadline_uses_only_cached_answers(self):
         config, _ = self.tour()
         repo = self.repository(config)
         first = hr.resolve(repo)
         self.push("team-rules", {"rules/team.md": "# Team v2\n"})
         self.expire_answers()
-        status = hr.Deadline(0, "not asked (status never fetches)")
+        status = hr.Deadline(0, "not asked (status never fetches)", "run: checks.py prepare")
         record = hr.resolve(repo, deadline=status)
         team = record["layers"][1]
         self.assertEqual((team["revision"], team["source"]), (first["layers"][1]["revision"], "offline"))
@@ -170,7 +188,7 @@ class ResolutionTests(Fixture):
             hr.resolve(repo, deadline=status)
         self.assertEqual(str(caught.exception), (
             f"house-rules: house-rules branch main, which this repository requires, cannot be downloaded from "
-            f"{config['sources'][0]['url']}: not asked (status never fetches); run again when online"))
+            f"{config['sources'][0]['url']}: not asked (status never fetches); run: checks.py prepare"))
 
     def test_branch_answer_is_reused_within_the_window(self):
         config, _ = self.tour()
