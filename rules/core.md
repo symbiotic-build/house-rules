@@ -155,7 +155,7 @@
    Judge that need by what the operator needs the work to do, not by the smallest version that could get by.
    Remove each one that serves none, and report what was removed.
    A safeguard also names the harm it prevents and why the checks already in place do not prevent it.
-   Never remove a security boundary that an approved threat model, specification or shipped runtime declares.
+   §Security limits what this pass may remove.
 13. **Give no unmeasured time estimates.**
    State work size as files and lines touched.
    Give durations only from measured comparable past runs.
