@@ -134,6 +134,43 @@ class ResolutionTests(Fixture):
         self.assertEqual(second["layers"][2]["revision"], pin)
         self.assertTrue((Path(second["layers"][1]["tree"]) / "rules/team.md").read_text().startswith("# Team v2"))
 
+    def test_one_run_asks_each_branch_once(self):
+        config, _ = self.tour()
+        repo = self.repository(config)
+        first = hr.resolve(repo)
+        self.addCleanup(setattr, hr, "ANSWERS", None)
+        for name, seed in (("memo filled by the run's first resolution", None), ("memo seeded from exec's record", first)):
+            with self.subTest(name):
+                hr.ANSWERS = {}
+                if seed:
+                    hr.remember(seed)
+                first = seed or hr.resolve(repo)
+                self.push("team-rules", {"rules/team.md": f"# Team after {name}\n"})
+                self.expire_answers()
+                later = hr.resolve(repo)
+                self.assertEqual([(layer["revision"], layer["source"]) for layer in later["layers"]],
+                                 [(layer["revision"], layer["source"]) for layer in first["layers"]])
+        hr.ANSWERS = None
+        self.assertNotEqual(hr.resolve(repo)["layers"][1]["revision"], first["layers"][1]["revision"])
+
+    def test_passed_deadline_uses_only_cached_answers(self):
+        config, _ = self.tour()
+        repo = self.repository(config)
+        first = hr.resolve(repo)
+        self.push("team-rules", {"rules/team.md": "# Team v2\n"})
+        self.expire_answers()
+        status = hr.Deadline(0, "not asked (status never fetches)")
+        record = hr.resolve(repo, deadline=status)
+        team = record["layers"][1]
+        self.assertEqual((team["revision"], team["source"]), (first["layers"][1]["revision"], "offline"))
+        self.assertIn(f"warning: not asked (status never fetches); using team-rules main as last answered "
+                      f"{team['fetched']}, {team['revision']}", record["warnings"])
+        os.environ["HOUSE_RULES_CACHE"] = str(self.root / "empty-cache")
+        with self.assertRaises(hr.Failure) as caught:
+            hr.resolve(repo, deadline=status)
+        self.assertIn("house-rules: not asked (status never fetches) and no earlier fetch of house-rules main is cached",
+                      str(caught.exception))
+
     def test_branch_answer_is_reused_within_the_window(self):
         config, _ = self.tour()
         repo = self.repository(config)
@@ -1299,9 +1336,12 @@ class ResolverRoundThreeTests(Fixture):
             with self.assertRaises(hr.Failure) as caught:
                 hr.load_json(b'{"version": ' + b"1" * 5000 + b"}", "f")
             self.assertIn("f: invalid JSON: ", str(caught.exception))
-        self.assertEqual(hr.check_budgets({"ci": {"seconds": 10 ** 400}}, "f")["ci"]["seconds"], 10 ** 400)
+        self.assertEqual(hr.check_budgets({"pre-push": {"seconds": 10 ** 400}}, "f")["pre-push"]["seconds"], 10 ** 400)
         with self.assertRaises(hr.Failure):
-            hr.check_budgets({"ci": {"seconds": float("inf")}}, "f")
+            hr.check_budgets({"pre-push": {"seconds": float("inf")}}, "f")
+        with self.assertRaises(hr.Failure) as caught:  # CI has no budget
+            hr.check_budgets({"ci": {"seconds": 10}}, "f")
+        self.assertIn("budgets.ci: the stages with a budget are pre-commit, pre-push", str(caught.exception))
 
     def test_reasons_are_text(self):
         config, _ = self.tour()

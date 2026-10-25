@@ -127,12 +127,12 @@ def git(cwd, *args, foreign=False, check=True, deadline=None, keep=()):
         with_settings(environ, NO_MAINTENANCE)
     left = deadline.left() if deadline is not None else None
     if left is not None and left <= 0:
-        raise DeadlinePassed()
+        raise DeadlinePassed(deadline.message)
     try:
         proc = subprocess.run(["git", *args], cwd=str(cwd), env=environ, stdin=subprocess.DEVNULL,
                               capture_output=True, timeout=left)
     except subprocess.TimeoutExpired:
-        raise DeadlinePassed()
+        raise DeadlinePassed(deadline.message)
     except OSError as exc:
         raise Failure(f"house-rules: cannot run git in {cwd} ({exc.strerror or exc}); install Git and run again")
     if check and proc.returncode:
@@ -233,9 +233,11 @@ class Deadline:
     Outside hook mode there is no deadline; Git's own progress limit (PROGRESS) is the only one.
     """
 
-    def __init__(self, seconds=None):
+    def __init__(self, seconds=None, message=None):
         self.seconds = seconds
         self.end = None if seconds is None else time.monotonic() + seconds
+        # What a passed deadline reports; `checks.py status` passes one that has passed already, so it asks nothing.
+        self.message = message or f"the remote did not answer within {HOOK_SECONDS} s"
 
     def left(self):
         return None if self.end is None else max(0.0, self.end - time.monotonic())
@@ -325,8 +327,9 @@ def check_budgets(budgets, where):
     """A budget entry replaces its stage's entry whole, so every entry is complete: a stage, positive seconds."""
     check_map(budgets, "budgets", where)
     for stage, entry in budgets.items():
-        if stage not in STAGES:
-            raise Failure(f"house-rules: {where}: budgets.{stage}: the stages are {', '.join(STAGES)}")
+        if stage not in HOOK_STAGES:  # CI has no budget
+            raise Failure(f"house-rules: {where}: budgets.{stage}: the stages with a budget are "
+                          f"{', '.join(HOOK_STAGES)}")
         known_fields(entry, BUDGET_FIELDS, f"{where}: budgets.{stage}")
         seconds = entry.get("seconds")
         if isinstance(seconds, bool) or not isinstance(seconds, (int, float)) or seconds <= 0 \
@@ -354,8 +357,16 @@ def repository_config(data, where=CONFIG):
         if "enforced" in entry:
             raise Failure(f"house-rules: {where}: checks.{identity}.enforced: only a layer file decides whether a "
                           "check refuses or warns")
-    return {"sources": check_sources(value["sources"], where), "profiles": profiles,
-            "budgets": check_budgets(value.get("budgets", {}), where), "checks": checks}
+    budgets = check_budgets(value.get("budgets", {}), where)
+    for stage, entry in budgets.items():  # a repository budget changes a House Rules default, so it says why
+        if "reason" not in entry:
+            raise Failure(f"house-rules: {where}: budgets.{stage} needs a reason")
+    sources = check_sources(value["sources"], where)
+    try:  # a lone surrogate from a JSON escape cannot be printed or passed to a program; the message repeats none
+        json.dumps(value, ensure_ascii=False).encode(sys.getfilesystemencoding(), "surrogateescape")
+    except UnicodeEncodeError:
+        raise Failure(f"house-rules: {where}: the file holds text that cannot be printed or passed to a program") from None
+    return {"sources": sources, "profiles": profiles, "budgets": budgets, "checks": checks}
 
 
 def ruleset_entry(value, where):
@@ -566,7 +577,7 @@ def extract(repository, commit, folder, deadline=NO_DEADLINE):
     except subprocess.TimeoutExpired:
         archive.kill()
         archive.communicate()
-        raise DeadlinePassed()
+        raise DeadlinePassed(deadline.message)
     except OSError as exc:
         archive.kill()
         archive.communicate()
@@ -673,8 +684,8 @@ def linked_layer(entry, path, how):
     return layer, warning
 
 
-def offline_text(error, url):
-    return error if error.startswith("the remote did not answer") else f"cannot reach {url} ({error})"
+def offline_text(error, url, deadline):
+    return error if error == deadline.message else f"cannot reach {url} ({error})"
 
 
 def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
@@ -725,21 +736,54 @@ def fetch_pinned(entry, commit, deadline):
         return
     try:
         error = fetch_commit(url, commit, deadline)
-    except DeadlinePassed:
-        error = f"the remote did not answer within {HOOK_SECONDS} s"
+    except DeadlinePassed as passed:
+        error = str(passed)
     if error:
         try:
-            offline = error.startswith("the remote did not answer") or reachable(url, deadline)
+            offline = error == deadline.message or reachable(url, deadline)
         except DeadlinePassed:
             offline = True
         if offline:
-            raise Failure(f"house-rules: {offline_text(error, url)} and {name} {commit} is not cached; "
+            raise Failure(f"house-rules: {offline_text(error, url, deadline)} and {name} {commit} is not cached; "
                           "run again when online")
         raise Failure(f"house-rules: {name}: commit {commit} not found at {url} ({error}); "
                       "check the ref")
 
 
+# The checks runner sets this to a dict: within one run a branch or tag of one source is asked for once, so every
+# snapshot that lists it uses the same commit. Keyed by (url, kind, ref); each value is (commit, source, fetched,
+# warning or None).
+ANSWERS = None
+
+
+def remember(record):
+    """Seed ANSWERS with the branch and tag answers of a record that `exec` resolved for this run."""
+    for layer in record["layers"]:
+        if layer["ref_kind"] in ANSWER_FOLDERS and layer["source"] in ("fetched", "reused", "offline"):
+            warning = (f"warning: using {layer['name']} {layer['ref']} as last answered {layer['fetched']}, "
+                       f"{layer['revision']}, as this run's first resolution did") if layer["source"] == "offline" else None
+            ANSWERS[(layer["url"], layer["ref_kind"], layer["ref"])] = (layer["revision"], layer["source"],
+                                                                        layer["fetched"], warning)
+
+
 def resolve_named(entry, kind, warnings, deadline):
+    """(commit, source, fetched) for a branch or release tag: reused, fetched, or offline from the last answer.
+
+    With ANSWERS set, the first answer for a branch or tag is the run's answer; its warning repeats for each use.
+    """
+    if ANSWERS is None:
+        return ask_named(entry, kind, warnings, deadline)
+    key = (entry["url"], kind, entry["ref"])
+    if key not in ANSWERS:
+        found = []
+        answer = ask_named(entry, kind, found, deadline)
+        ANSWERS[key] = (*answer, found[0] if found else None)
+    *answer, warning = ANSWERS[key]
+    warnings.extend([warning] if warning else [])
+    return tuple(answer)
+
+
+def ask_named(entry, kind, warnings, deadline):
     """(commit, source, fetched) for a branch or release tag: reused, fetched, or offline from the last answer.
 
     A tag is asked on every run, like a branch, so a tag that moves on the remote is followed, as CI with an empty
@@ -759,8 +803,8 @@ def resolve_named(entry, kind, warnings, deadline):
         if not error:
             try:
                 failed = fetch_commit(url, commit, deadline)
-            except DeadlinePassed:
-                failed, error = None, f"the remote did not answer within {HOOK_SECONDS} s"
+            except DeadlinePassed as passed:
+                failed, error = None, str(passed)
             if failed:
                 raise Failure(f"house-rules: {name}: {url} names {commit} for {ref} but cannot send it "
                               f"({failed}); run again, or check the server")
@@ -768,12 +812,12 @@ def resolve_named(entry, kind, warnings, deadline):
                 # Published only now that the commit's tree is complete.
                 write_answer(url, kind, {"url": url, kind: ref, "revision": commit, "fetched": asked})
                 return commit, "fetched", asked
-    except DeadlinePassed:
-        error = f"the remote did not answer within {HOOK_SECONDS} s"
+    except DeadlinePassed as passed:
+        error = str(passed)
     if record is None or not prepared(tree_folder(url, record["revision"])):
-        raise Failure(f"house-rules: {offline_text(error, url)} and no earlier fetch of {name} {ref} is cached; "
+        raise Failure(f"house-rules: {offline_text(error, url, deadline)} and no earlier fetch of {name} {ref} is cached; "
                       "run again when online")
-    warnings.append(f"warning: {offline_text(error, url)}; using {name} {ref} as last answered "
+    warnings.append(f"warning: {offline_text(error, url, deadline)}; using {name} {ref} as last answered "
                     f"{record['fetched']}, {record['revision']}")
     return record["revision"], "offline", record["fetched"]
 
@@ -992,10 +1036,21 @@ def check_entry(entry, where, enforced_allowed):
                 valid = valid and bool(value) and all(v in STAGES for v in value)
             if field == "run":
                 valid = valid and bool(value)
-        if field == "reason":
+            if field in ("paths", "requires"):  # repository-relative paths; a check needs at least one paths entry
+                valid = valid and all(relative_path(v) for v in value) and (field == "requires" or bool(value))
+        if field in ("reason", "fix"):
             valid = valid and bool(value.strip())
+        if field == "run" and valid and any("\0" in v for v in value):
+            raise Failure(f"house-rules: {where}: run has an argument with a NUL character")
+        if field == "stages" and valid and len(set(value)) != len(value):
+            raise Failure(f"house-rules: {where}: stages lists a stage twice")
         if not valid:
             raise Failure(f"house-rules: {where}: {field} has the wrong type or value")
+
+
+def relative_path(value):
+    return (bool(value.strip()) and not value.startswith("/") and "\\" not in value and "\0" not in value
+            and not any(part in ("", ".", "..") for part in value.split("/")))
 
 
 def check_identity(identity, where):
