@@ -149,6 +149,13 @@
    Keep one way to do things.
    Apply five-whys before adding code.
    Keep code clean even in experiments.
+   Before a design, prototype or pull request goes to the operator, run a simplification pass.
+   List every mechanism, option, command and safeguard the work adds.
+   Name the current requirement or user that each one serves.
+   Judge that need by what the operator needs the work to do, not by the smallest version that could get by.
+   Remove each one that serves none, and report what was removed.
+   A safeguard also names the harm it prevents and why the checks already in place do not prevent it.
+   Never remove a security boundary that an approved threat model, specification or shipped runtime declares.
 13. **Give no unmeasured time estimates.**
    State work size as files and lines touched.
    Give durations only from measured comparable past runs.
