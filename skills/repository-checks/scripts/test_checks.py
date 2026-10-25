@@ -2107,6 +2107,18 @@ class LayerTest(RunnerCase):
                       "(reason: No specifications in this fixture.)"),
             re.escape("All 2 selected checks passed; 1 skipped.")])
 
+    def test_layer_named_repository_runs_its_check_from_its_own_tree(self):
+        lint = {"run": ["sh", "{layer}/check.sh", "{snapshot}"], "stages": ["ci"], "paths": ["**"], "fix": "Fix it."}
+        url, commit = self.team_rules({"version": 1, "checks": {"team-lint": lint}}, {"check.sh": "exit 1\n"})
+        self.repo.write("check.sh", "exit 0\n")  # the repository's own file of the same name passes
+        self.repo.write_config({"version": 2, "checks": NO_SPEC, "sources": [
+            {"name": "house-rules", "url": self.repo.url, "ref": "main"}, {"name": "repository", "url": url, "ref": "main"}]})
+        self.repo.stage("check.sh")
+        proc, entry = self.repo.snapshot("run", "--stage", "ci", "--index", "--only", "team-lint")
+        team = entry["checks"][0]
+        self.assertEqual((proc.returncode, team["status"], team["command"][1]),
+                         (1, "fail", str(self.cache / "revisions" / commit / "check.sh")), proc.stderr)
+
     def test_ruleset_text_that_cannot_be_printed_is_a_configuration_error(self):
         lint = {"run": ["lint", "\ud800", "{snapshot}"], "stages": ["ci"], "paths": ["**"], "fix": "Fix it."}
         url, _ = self.team_rules({"version": 1, "checks": {"team-lint": lint}}, {})
@@ -2176,9 +2188,13 @@ class StatusTest(RunnerCase):
         self.assertEqual(self.repo.run("prepare").returncode, 0)
         layer = {"name": "house-rules", "url": self.repo.url, "ref": "main", "ref_kind": "branch",
                  "revision": self.repo.main, "source": "fetched", "tree": str(self.cache)}  # no `fetched`
+        complete = dict(layer, fetched="2026-10-25T00:00:00Z")
         for record in ({"version": 1, "layers": [{}]}, {"version": 1, "layers": [{"name": "house-rules"}],
                                                         "profiles": [], "warnings": []},
-                       {"version": 1, "layers": [layer], "profiles": [], "warnings": []}):
+                       {"version": 1, "layers": [layer], "profiles": [], "warnings": []},
+                       {"version": 1, "layers": [dict(complete, source="other")], "profiles": [], "warnings": []},
+                       {"version": 1, "layers": [dict(complete, source="link")], "profiles": [], "warnings": []},
+                       {"version": 1, "layers": [complete], "profiles": [], "warnings": [None]}):
             with self.subTest(record=record):
                 env = dict(self.repo.env, HOUSE_RULES_RESOLVED=json.dumps(record))
                 proc = self.repo.run("status", "--session", env=env)

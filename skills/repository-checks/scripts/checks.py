@@ -381,9 +381,9 @@ def configuration(root, data, origin, stage, selection, deadline=house_rules.NO_
         raise resolver_failure(failure) from None
     checks = []
     for identity, fields in built["checks"].items():
-        layer = built["layers_of"][identity]["run"]  # {layer} is the tree of the file that defined the run
-        tree = root if layer == "repository" else house_rules.layer_tree(record, layer.split("/")[0])
-        checks.append(dict(DEFINITION_DEFAULTS, **fields, id=identity, layer=layer, layer_tree=str(tree)))
+        tree = built["run_trees"][identity] or root  # {layer}: the tree of the file that set the run
+        checks.append(dict(DEFINITION_DEFAULTS, **fields, id=identity, layer=built["layers_of"][identity]["run"],
+                           layer_tree=str(tree)))
     # The record already holds the warnings of its own resolution; the rest are this configuration's.
     warnings = [w[len("warning: "):] for w in built["warnings"] if w not in record["warnings"]]
     return record, {"checks": checks, "budgets": built["budgets"], "settings": built["settings"], "warnings": warnings}
@@ -395,22 +395,28 @@ def same_layers(record, config):
 
 
 LAYER_FIELDS = ("name", "url", "ref", "revision", "tree")
+LAYER_SOURCES = ("fetched", "reused", "offline", "pinned", "override", "link")
 
 
 def handed(value):
-    """exec's resolution record, or None when it is absent or lacks a field the runner reads."""
+    """exec's resolution record, or None when it is absent or any value the runner reads, to reuse, seed or print
+    it, has another shape than the resolver writes."""
     try:
         record = json.loads(value or "null")
     except ValueError:
         return None
     if not (isinstance(record, dict) and record.get("version") == 1 and isinstance(record.get("layers"), list)
             and record["layers"] and isinstance(record.get("profiles"), list)
-            and isinstance(record.get("warnings"), list)):
+            and isinstance(record.get("warnings"), list)
+            and all(isinstance(item, str) for item in record["profiles"] + record["warnings"])):
         return None
     for layer in record["layers"]:
         if not (isinstance(layer, dict) and all(isinstance(layer.get(k), str) for k in LAYER_FIELDS)
-                and layer.get("ref_kind") in ("branch", "tag", "commit") and isinstance(layer.get("source"), str)
+                and layer.get("ref_kind") in ("branch", "tag", "commit") and layer.get("source") in LAYER_SOURCES
                 and "fetched" in layer and (layer["fetched"] is None or isinstance(layer["fetched"], str))):
+            return None
+        link = layer.get("link")
+        if layer["source"] == "link" and not (isinstance(link, dict) and isinstance(link.get("dirty"), bool)):
             return None
     return record
 

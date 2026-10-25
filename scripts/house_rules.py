@@ -1127,7 +1127,7 @@ def check_complete(identity, fields, where):
                       "hook stage needs a check that reads the snapshot, otherwise list only ci")
 
 
-def merge_entry(state, settings, section, key, entry, label, need_reason, earlier_defined):
+def merge_entry(state, settings, section, key, entry, label, need_reason, earlier_defined, repository=False):
     """Apply one entry field by field; record each value it sets with its layer, and require a reason for it.
 
     One rule: an entry that sets any field of a check an earlier step defined carries a reason, whether or not
@@ -1136,7 +1136,7 @@ def merge_entry(state, settings, section, key, entry, label, need_reason, earlie
     current = state[section].get(key)
     if current is None:
         check_complete(key, entry, label)  # an identity is introduced whole; a later file only changes it
-        if label == "repository" and not isinstance(entry.get("reason"), str):
+        if repository and not isinstance(entry.get("reason"), str):  # the repository's file, not a layer of that name
             raise Failure(f"house-rules: {CONFIG} checks.{key}: a repository check needs a reason")
         state[section][key] = {field: (value, label) for field, value in entry.items()}
         if earlier_defined:
@@ -1192,11 +1192,12 @@ def effective(record, config=None, repository=None, hooks=False, configured=UNRE
     it. Checks merge field by field, budgets replace per stage and context appends.
 
     Returns {"checks": {id: {field: value}}, "budgets": {...}, "budget_layers": {stage: label},
-    "context": [(label, path)], "layers_of": {...},
+    "context": [(label, path)], "layers_of": {...}, "run_trees": {id: tree or None for the repository},
     "settings": [...], "warnings": [...]}.
     """
     state = {"checks": {}, "budgets": {}}
     settings, context, warnings = [], [], []
+    run_trees = {}  # identity -> the tree of the layer whose file set its run, or None for the repository
     profiles = record["profiles"]
     defined = {profile: False for profile in profiles}
     first = True  # only House Rules' top level sets defaults without reasons; every later step's change is listed
@@ -1216,6 +1217,8 @@ def effective(record, config=None, repository=None, hooks=False, configured=UNRE
                     check_identity(key, f"{label} checks")
                     check_entry(entry, f"{label} checks.{key}", True)
                     merge_entry(state, settings, "checks", key, entry, label, not first, not first)
+                    if "run" in entry:
+                        run_trees[key] = layer["tree"]
                 for stage, entry in content["budgets"].items():
                     merge_budget(state, settings, stage, entry, label, not first)
                 for name in content["context"]:
@@ -1234,7 +1237,9 @@ def effective(record, config=None, repository=None, hooks=False, configured=UNRE
             check_identity(key, f"{CONFIG} checks")
             check_entry(entry, f"{CONFIG} checks.{key}", False)
         for key, entry in config["checks"].items():
-            merge_entry(state, settings, "checks", key, entry, "repository", True, True)
+            merge_entry(state, settings, "checks", key, entry, "repository", True, True, repository=True)
+            if "run" in entry:
+                run_trees[key] = None
         for stage, entry in config["budgets"].items():
             merge_budget(state, settings, stage, entry, "repository", True)
     for identity, fields in state["checks"].items():
@@ -1251,7 +1256,7 @@ def effective(record, config=None, repository=None, hooks=False, configured=UNRE
     layers_of = {key: {field: label for field, (_, label) in entry.items()} for key, entry in state["checks"].items()}
     budget_layers = {stage: entry["seconds"][1] for stage, entry in state["budgets"].items()}
     return {"checks": flat["checks"], "budgets": flat["budgets"], "budget_layers": budget_layers,
-            "context": context, "layers_of": layers_of,
+            "context": context, "layers_of": layers_of, "run_trees": run_trees,
             "settings": settings, "warnings": warnings}
 
 

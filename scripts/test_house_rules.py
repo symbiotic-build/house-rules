@@ -4,6 +4,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -162,10 +163,12 @@ class ResolutionTests(Fixture):
         shim.mkdir()
         real = subprocess.run(["sh", "-c", "command -v git"], capture_output=True, text=True, check=True,
                               stdin=subprocess.DEVNULL).stdout.strip()
-        (shim / "git").write_text(f'#!/bin/sh\ncase " $* " in *" ls-remote "*) echo "$*" >> {log};; esac\n'
-                                  f'exec {real} "$@"\n')
+        (shim / "git").write_text(f'#!/bin/sh\ncase " $* " in *" ls-remote "*) echo "$*" >> {shlex.quote(str(log))};; '
+                                  f'esac\nexec {shlex.quote(real)} "$@"\n')
         (shim / "git").chmod(0o755)
-        with mock.patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}):
+        # No answer is reused across the window here, so only the resolution's own sharing can save the second ask.
+        with mock.patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}), \
+                mock.patch.object(hr, "REUSE_SECONDS", 0):
             record = hr.resolve(repo)
         asked = log.read_text().splitlines()
         self.assertEqual(sum(team["url"] in line for line in asked), 1, asked)  # team-copy took team-rules' answer
