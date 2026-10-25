@@ -44,8 +44,8 @@ run `init` again, which refuses an existing file.
 
 To check a clone, run `house-rules exec --origin index skills/repository-checks/scripts/checks.py status`;
 `status` reads the staged configuration, so exec must resolve that one too.
-It prints the resolved House Rules revision and the effective checks for each stage. The runner's
-`status` never fetches; `exec` around it resolves first and can.
+It prints the resolved layers, the effective checks for each stage and the settings a later layer
+changed. The runner's `status` never fetches; `exec` around it resolves first and can.
 
 ## Integrate a refused hook
 
@@ -85,7 +85,7 @@ prints the check's output, a `fix:` line and a `rerun:` line.
 4. **Commit or push again.**
 
 A line that starts `repository checks:` on standard error, with exit status 2, is a preparation failure:
-run the repair after its `;`. A check that is wrong for the repository changes in `house-rules.json`,
+run the repair after its last `; `. A check that is wrong for the repository changes in `house-rules.json`,
 with a `reason`, through a reviewed PR. Skipping the hooks follows the
 [rule line](../../docs/design/194-repository-checks.md#rule-line). The
 [report format](../../docs/design/194-repository-checks.md#report-format) and the
