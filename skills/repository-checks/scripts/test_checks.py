@@ -41,6 +41,8 @@ TOUR_FIX = ("apply the remedy for each code in the spec checker's diagnostic tab
             "run spec_docs.py generate, stage the result")
 DURATION = r"\d+\.\d s"
 VERSION = r"      version: (?:\S+@[0-9a-f]{12} ?)+"
+# The start of a resolver failure for the House Rules layer that a repository's configuration names at main.
+NEED = "house-rules: house-rules branch main, which this repository requires, cannot be downloaded from "
 
 
 def base_env():
@@ -1173,8 +1175,7 @@ class PushTest(RunnerCase):
         error = report["error"]
         self.assertEqual((proc.returncode, error["reference"], error["repair"]),
                          (2, "refs/heads/feature", "run again when online"), proc.stderr)
-        self.assertRegex(error["cause"], r"\Ahouse-rules: cannot reach " + re.escape(OFFLINE) + r" \(.+\) and no "
-                                         r"earlier fetch of house-rules main is cached\Z")
+        self.assertRegex(error["cause"], r"\A" + re.escape(f"{NEED}{OFFLINE}: fatal: ") + r".+\Z")
 
     def test_unwritable_cache_is_a_preparation_failure_that_keeps_earlier_snapshots(self):
         self.repo.git("checkout", "-q", "-b", "plain", "main")
@@ -1747,8 +1748,8 @@ class RevisionTest(RunnerCase):
         self.repo.configure(NO_SPEC)
         interrupted = self.repo.run("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
         self.assertEqual((interrupted.returncode, interrupted.stderr), (2, (
-            f"repository checks: house-rules: house-rules: {self.repo.url} names {self.repo.main} for main but cannot "
-            "send it (fatal: the fetch was interrupted); run again, or check the server\n")))
+            f"repository checks: {NEED}{self.repo.url}: the server names {self.repo.main} for it but does not send it "
+            "(fatal: the fetch was interrupted); run again, or check the server\n")))
         proc, _, resolved = self.repo.checked("run", "--stage", "pre-commit")
         self.assertEqual((proc.returncode, resolved["revision"], resolved["source"]), (0, self.repo.main, "fetched"),
                          proc.stderr)
@@ -1804,8 +1805,7 @@ class RevisionTest(RunnerCase):
                 proc = self.repo.run("run", "--stage", "pre-commit", env=dict(
                     self.repo.env, PATH=path, HOUSE_RULES_CACHE=str(Path(tempfile.mkdtemp(dir=str(self.folder))))))
                 self.assertEqual((proc.returncode, proc.stderr), (2, (
-                    f"repository checks: house-rules: cannot reach {url} (fatal: offline) and no earlier fetch of "
-                    "house-rules main is cached; run again when online\n")))
+                    f"repository checks: {NEED}{url}: fatal: offline; run again when online\n")))
 
     def test_house_rules_url_that_cannot_be_parsed_is_a_preparation_failure_that_shows_none_of_it(self):
         cases = [("fullwidth solidus", "https://tokenuser:s3cr3tpass@example\uff0finvalid/house-rules"),
@@ -1866,8 +1866,7 @@ class RevisionTest(RunnerCase):
         self.assertIn("https://github.com/symbiotic-build/house-rules", log.read_text().splitlines())
         self.assertEqual(report["error"], {
             "reference": None, "repair": "run again when online",
-            "cause": "house-rules: cannot reach https://github.com/symbiotic-build/house-rules (fatal: offline) and no "
-                     "earlier fetch of house-rules main is cached"})
+            "cause": f"{NEED}https://github.com/symbiotic-build/house-rules: fatal: offline"})
 
     def test_failed_fetch_keeps_the_previous_branch_record_and_its_commit(self):
         """The remote names a moved main but cannot send it: the run stops, and the cache keeps the last answer."""
@@ -1883,7 +1882,7 @@ class RevisionTest(RunnerCase):
         path = self.racing_git("fetch", "echo 'fatal: the fetch was interrupted' >&2; exit 128")  # ls-remote names it
         proc = self.repo.run("run", "--stage", "pre-commit", env=dict(self.repo.env, PATH=path))
         self.assertEqual((proc.returncode, proc.stderr), (2, (
-            f"repository checks: house-rules: house-rules: {house_rules.url} names {moved} for main but cannot send it "
+            f"repository checks: {NEED}{house_rules.url}: the server names {moved} for it but does not send it "
             "(fatal: the fetch was interrupted); run again, or check the server\n")))
         self.assertEqual(branch_record(cache, house_rules.url).read_text(), record)
         self.assertFalse((cache / "revisions" / moved).exists())
@@ -1982,19 +1981,21 @@ class RevisionTest(RunnerCase):
         url = self.house_rules.url
         cases = [
             ("offline before main was ever fetched", OFFLINE, "main", {"HOUSE_RULES_CACHE": fresh("cache-1")},
-             [f"repository checks: house-rules: cannot reach {OFFLINE} (",
-              ") and no earlier fetch of house-rules main is cached; run again when online\n"]),
+             [f"repository checks: {NEED}{OFFLINE}: fatal: ", "; run again when online\n"]),
             ("invalid override", url, "main", {"HOUSE_RULES_REVISION": "abc1234"},
              ["repository checks: house-rules: HOUSE_RULES_REVISION='abc1234' is not a full commit identity; set a "
               "full commit or unset it\n"]),
             ("override that the URL lacks", url, "main", {"HOUSE_RULES_REVISION": "1" * 40},
-             [f"repository checks: house-rules: house-rules: commit {'1' * 40} not found at {url} (",
-              "); check the ref\n"]),
+             [f"repository checks: house-rules: house-rules commit {'1' * 40}, which HOUSE_RULES_REVISION requires, "
+              f"cannot be downloaded from {url}: the server has no commit {'1' * 40} (fatal: ",
+              "); set HOUSE_RULES_REVISION to a commit of that source, or unset it\n"]),
             ("commit ref that the URL lacks", url, "2" * 40, {"HOUSE_RULES_CACHE": fresh("cache-3")},
-             [f"repository checks: house-rules: house-rules: commit {'2' * 40} not found at {url} (",
-              "); check the ref\n"]),
+             [f"repository checks: house-rules: house-rules commit {'2' * 40}, which this repository requires, "
+              f"cannot be downloaded from {url}: the server has no commit {'2' * 40} (fatal: ",
+              "); check the ref in house-rules.json\n"]),
             ("branch that the URL lacks", url, "no-such-branch", {"HOUSE_RULES_CACHE": fresh("cache-4")},
-             [f"repository checks: house-rules: house-rules: no branch no-such-branch at {url}; check the ref in "
+             [f"repository checks: house-rules: house-rules branch no-such-branch, which this repository requires, "
+              f"cannot be downloaded from {url}: the server has no branch no-such-branch; check the ref in "
               "house-rules.json\n"]),
         ]
         for name, url, ref, extra, parts in cases:
@@ -2123,8 +2124,7 @@ class StatusTest(RunnerCase):
         revision = cache / "revisions" / self.repo.main
         before = self.repo.run("status")  # status never fetches, and nothing is cached yet
         self.assertEqual(before.stdout.splitlines(), [
-            "repository checks: house-rules: not asked (status never fetches) and no earlier fetch of house-rules main "
-            f"is cached (run: {prepare})",
+            f"repository checks: {NEED}{self.repo.url}: not asked (status never fetches) (run: {prepare})",
             f"checks: unavailable until the layers are in the cache (run: {prepare})"])
         self.assertEqual(self.repo.run("run", "--stage", "ci", "--index", "--only", "whitespace").returncode, 0)
         answered = age_answer(cache, self.repo.url)  # past the reuse window: status uses the last answer, offline
@@ -2162,8 +2162,7 @@ class StatusTest(RunnerCase):
                        f"(git add house-rules.json), then run: house-rules exec {RUNNER} install\n")),
             ("no hooks and main not fetched yet", lambda: self.repo.configure(NO_SPEC),
              re.escape(f"repository checks: not ready: no hook block in pre-commit, pre-push (run: {install}); "
-                       "house-rules: not asked (status never fetches) and no earlier fetch of house-rules main is "
-                       f"cached (run: {prepare})\n")),
+                       f"{NEED}{self.repo.url}: not asked (status never fetches) (run: {prepare})\n")),
             ("hooks installed, main prepared", lambda: (install_hooks(0o755), self.repo.run("prepare")),
              re.escape("repository checks: ready (") + prepared + re.escape(", hooks installed)\n")),
             ("hook files not executable, so Git ignores them", lambda: install_hooks(0o644),

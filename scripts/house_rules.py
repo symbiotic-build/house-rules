@@ -111,6 +111,12 @@ def last_line(data):
     return lines[-1] if lines else "no output"
 
 
+def git_error(data):
+    """Git's first fatal or error line, which names the cause; its last line is often only advice."""
+    lines = data.decode(errors="replace").strip().splitlines()
+    return next((line for line in lines if line.startswith(("fatal: ", "error: "))), last_line(data))
+
+
 def git(cwd, *args, foreign=False, check=True, deadline=None, keep=()):
     """Run Git; `foreign` drops variables that bind it to a calling repository, as for the cache's own repositories,
     except those in `keep`, such as the index file of a pre-commit hook.
@@ -237,7 +243,7 @@ class Deadline:
         self.seconds = seconds
         self.end = None if seconds is None else time.monotonic() + seconds
         # What a passed deadline reports; `checks.py status` passes one that has passed already, so it asks nothing.
-        self.message = message or f"the remote did not answer within {HOOK_SECONDS} s"
+        self.message = message or f"the server did not answer within {HOOK_SECONDS} s"
 
     def left(self):
         return None if self.end is None else max(0.0, self.end - time.monotonic())
@@ -503,7 +509,7 @@ def ask_ref(url, reference, deadline=NO_DEADLINE):
     proc = git(cache_root(), *PROGRESS, "ls-remote", url, reference, peeled, foreign=True, check=False,
                deadline=deadline)
     if proc.returncode:
-        return None, last_line(proc.stderr)
+        return None, git_error(proc.stderr)
     # Records end at LF only: a branch name may hold other line separators that Git accepts.
     lines = (line.split(b"\t", 1) for line in proc.stdout.split(b"\n") if b"\t" in line)
     heads = {name: commit for commit, name in lines}
@@ -520,7 +526,7 @@ def reachable(url, deadline=NO_DEADLINE):
     """Git's error when the remote cannot be reached at all, else None."""
     proc = git(cache_root(), *PROGRESS, "ls-remote", "--heads", url, "refs/heads/main", foreign=True, check=False,
                deadline=deadline)
-    return last_line(proc.stderr) if proc.returncode else None
+    return git_error(proc.stderr) if proc.returncode else None
 
 
 ANSWER_FOLDERS = {"branch": "branches", "tag": "tags"}
@@ -607,7 +613,7 @@ def fetch_commit(url, commit, deadline=NO_DEADLINE):
         proc = git(repository, *PROGRESS, "fetch", "--quiet", "--depth=1", "--no-tags", url,
                    f"{commit}:refs/pins/{commit}", foreign=True, check=False, deadline=deadline)
         if proc.returncode:
-            cause = last_line(proc.stderr)
+            cause = git_error(proc.stderr)
             return cause
         temporary = partial(source_folder(url))
         extract(repository, commit, temporary, deadline)
@@ -688,12 +694,27 @@ def offline_text(error, url, deadline):
     return error if error == deadline.message else f"cannot reach {url} ({error})"
 
 
-def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
+class Unavailable(Exception):
+    """A layer's commit cannot be downloaded: why, and the repair that fits that cause."""
+
+    def __init__(self, cause, repair):
+        super().__init__(cause)
+        self.cause, self.repair = cause, repair
+
+
+ONLINE = "run again when online"  # the repair of a network cause, and of no other
+CHECK_REF = f"check the ref in {CONFIG}"
+REF_NOUNS = {"branch": "branch", "tag": "release tag", "commit": "commit"}
+
+
+def resolve_layer(entry, links, warnings, deadline, required_by):
     """Resolve one layer entry to {name, url, ref, ref_kind, revision, source, fetched, tree, link}.
 
     For the house-rules layer, the one-run variables HOUSE_RULES_LINK and HOUSE_RULES_REVISION win over links.json.
     A branch falls back to its last answer only when the remote cannot be asked (offline, or the hook deadline);
     a remote that names a commit it then refuses to send is a failure, never a quiet return to older rules.
+    Every download failure has one form: the version `required_by` requires, where it comes from, the cause and
+    its repair.
     """
     url, ref, name = entry["url"], entry["ref"], entry["name"]
     override = os.environ.get(OVERRIDE) if name == "house-rules" else None
@@ -718,20 +739,26 @@ def resolve_layer(entry, links, warnings, deadline=NO_DEADLINE):
     kind = ref_kind(ref)
     try:
         if commit is not None and source in ("pinned", "override"):
-            fetch_pinned(entry, commit, deadline)
+            missing = CHECK_REF if source == "pinned" else f"set {OVERRIDE} to a commit of that source, or unset it"
+            fetch_pinned(entry, commit, deadline, missing)
             fetched = None  # a pin asks nothing, so it has no answer time
         else:
             commit, source, fetched = resolve_named(entry, kind, warnings, deadline)
         return dict(entry, ref_kind=kind, revision=commit, source=source, fetched=fetched,
                     tree=str(tree_folder(url, commit)), link=None)
+    except Unavailable as unavailable:
+        version = (f"commit {commit}, which {OVERRIDE} requires," if source == "override"
+                   else f"{REF_NOUNS[kind]} {ref}, which {required_by} requires,")
+        raise Failure(f"house-rules: {name} {version} cannot be downloaded from {url}: {unavailable.cause}; "
+                      f"{unavailable.repair}")
     except OSError as exc:
         raise Failure(f"house-rules: cannot write the cache {cache_root()} ({exc.strerror or exc}); free space, "
                       "make it writable or set HOUSE_RULES_CACHE")
 
 
-def fetch_pinned(entry, commit, deadline):
-    """Make a pinned commit's files available; a commit that cannot be fetched is a failure naming why."""
-    url, name = entry["url"], entry["name"]
+def fetch_pinned(entry, commit, deadline, missing):
+    """Make a pinned commit's files available, or raise Unavailable; `missing` repairs a commit the server lacks."""
+    url = entry["url"]
     if prepared(tree_folder(url, commit)):
         return
     try:
@@ -744,10 +771,8 @@ def fetch_pinned(entry, commit, deadline):
         except DeadlinePassed:
             offline = True
         if offline:
-            raise Failure(f"house-rules: {offline_text(error, url, deadline)} and {name} {commit} is not cached; "
-                          "run again when online")
-        raise Failure(f"house-rules: {name}: commit {commit} not found at {url} ({error}); "
-                      "check the ref")
+            raise Unavailable(error, ONLINE)
+        raise Unavailable(f"the server has no commit {commit} ({error})", missing)
 
 
 # The checks runner sets this to a dict: within one run a branch or tag of one source is asked for once, so every
@@ -799,15 +824,15 @@ def ask_named(entry, kind, warnings, deadline):
     try:
         commit, error = ask_ref(url, reference, deadline)
         if error == "missing":
-            raise Failure(f"house-rules: {name}: no {noun} {ref} at {url}; check the ref in {CONFIG}")
+            raise Unavailable(f"the server has no {noun} {ref}", CHECK_REF)
         if not error:
             try:
                 failed = fetch_commit(url, commit, deadline)
             except DeadlinePassed as passed:
                 failed, error = None, str(passed)
             if failed:
-                raise Failure(f"house-rules: {name}: {url} names {commit} for {ref} but cannot send it "
-                              f"({failed}); run again, or check the server")
+                raise Unavailable(f"the server names {commit} for it but does not send it ({failed})",
+                                  "run again, or check the server")
             if not error:
                 # Published only now that the commit's tree is complete.
                 write_answer(url, kind, {"url": url, kind: ref, "revision": commit, "fetched": asked})
@@ -815,8 +840,7 @@ def ask_named(entry, kind, warnings, deadline):
     except DeadlinePassed as passed:
         error = str(passed)
     if record is None or not prepared(tree_folder(url, record["revision"])):
-        raise Failure(f"house-rules: {offline_text(error, url, deadline)} and no earlier fetch of {name} {ref} is cached; "
-                      "run again when online")
+        raise Unavailable(error, ONLINE)  # no earlier answer is cached to fall back to
     warnings.append(f"warning: {offline_text(error, url, deadline)}; using {name} {ref} as last answered "
                     f"{record['fetched']}, {record['revision']}")
     return record["revision"], "offline", record["fetched"]
@@ -896,7 +920,8 @@ def resolve(repository=None, rev=None, data=None, origin=None, deadline=NO_DEADL
         sources, kind = default_sources(configured)
         origin = {"origin": kind, "commit": None}
     links = read_links()
-    layers = [resolve_layer(entry, links, warnings, deadline) for entry in sources]
+    required_by = "this repository" if config is not None else "the default sources"
+    layers = [resolve_layer(entry, links, warnings, deadline, required_by) for entry in sources]
     record = {"version": 1, "repository": repository, "configuration": origin,
               "profiles": config["profiles"] if config else [], "layers": layers, "context": [],
               "warnings": warnings}

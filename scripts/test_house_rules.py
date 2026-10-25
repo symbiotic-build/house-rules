@@ -168,8 +168,9 @@ class ResolutionTests(Fixture):
         os.environ["HOUSE_RULES_CACHE"] = str(self.root / "empty-cache")
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(repo, deadline=status)
-        self.assertIn("house-rules: not asked (status never fetches) and no earlier fetch of house-rules main is cached",
-                      str(caught.exception))
+        self.assertEqual(str(caught.exception), (
+            f"house-rules: house-rules branch main, which this repository requires, cannot be downloaded from "
+            f"{config['sources'][0]['url']}: not asked (status never fetches); run again when online"))
 
     def test_branch_answer_is_reused_within_the_window(self):
         config, _ = self.tour()
@@ -194,18 +195,26 @@ class ResolutionTests(Fixture):
         subprocess.run(["rm", "-rf", str(self.root / "cache")], check=True, stdin=subprocess.DEVNULL)
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(repo)
-        self.assertIn("no earlier fetch of house-rules main is cached; run again when online", str(caught.exception))
+        self.assertRegex(str(caught.exception), (
+            r"\Ahouse-rules: house-rules branch main, which this repository requires, cannot be downloaded from "
+            + re.escape(config["sources"][0]["url"]) + r": fatal: .+; run again when online\Z"))
 
     def test_missing_pinned_commit_and_missing_branch_name_their_layer(self):
         config, _ = self.tour()
         config["sources"][2]["ref"] = "0" * 40
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(self.repository(config))
-        self.assertIn(f"rust-settings: commit {'0' * 40} not found at file://", str(caught.exception))
+        self.assertRegex(str(caught.exception), (
+            rf"\Ahouse-rules: rust-settings commit {'0' * 40}, which this repository requires, cannot be downloaded "
+            + re.escape(f"from {config['sources'][2]['url']}: the server has no commit {'0' * 40} (")
+            + r".+\); check the ref in house-rules\.json\Z"))
         config["sources"][2]["ref"] = "release"
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(self.repository(config))
-        self.assertIn("rust-settings: no branch release at file://", str(caught.exception))
+        self.assertIn("rust-settings branch release, which this repository requires, cannot be downloaded from file://",
+                      str(caught.exception))
+        self.assertTrue(str(caught.exception).endswith(": the server has no branch release; check the ref in "
+                                                       "house-rules.json"), str(caught.exception))
 
     def test_revision_override_replaces_house_rules_for_one_run(self):
         config, _ = self.tour()
@@ -451,7 +460,9 @@ class CommandTests(Fixture):
                               env=os.environ)
         lines = proc.stdout.decode().splitlines()
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertTrue(lines[0].startswith("HOUSE RULES HOOK ERROR: house-rules: house-rules: no branch gone at file://"))
+        self.assertTrue(lines[0].startswith(f"HOUSE RULES HOOK ERROR: house-rules: house-rules branch gone, which this "
+                                            f"repository requires, cannot be downloaded from {house}: the server has no "
+                                            "branch gone; check the ref in house-rules.json"), lines[0])
         self.assertIn("The House Rules below are the global default's, not this repository's resolved rules, "
                       "and this repository's custom layers are missing.", lines[0])
         self.assertEqual(lines[1], f"rules from {tree}/scripts/show.py")
@@ -480,7 +491,7 @@ class CommandTests(Fixture):
             record = hr.resolve(repo, deadline=hr.Deadline(0.3))
         self.assertEqual(record["layers"][1]["source"], "offline")
         self.assertEqual(record["layers"][1]["revision"], first["layers"][1]["revision"])
-        self.assertTrue(any(w.startswith(f"warning: the remote did not answer within {hr.HOOK_SECONDS} s; using "
+        self.assertTrue(any(w.startswith(f"warning: the server did not answer within {hr.HOOK_SECONDS} s; using "
                                          "team-rules main as last answered") for w in record["warnings"]), record["warnings"])
 
     def test_a_refused_fetch_fails_and_keeps_the_previous_answer(self):
@@ -499,8 +510,10 @@ class CommandTests(Fixture):
         with mock.patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}):
             with self.assertRaises(hr.Failure) as caught:
                 hr.resolve(repo)
-        self.assertIn(f"team-rules: {config['sources'][1]['url']} names {newer} for main but cannot send it "
-                      "(fatal: refused)", str(caught.exception))
+        self.assertEqual(str(caught.exception), (
+            f"house-rules: team-rules branch main, which this repository requires, cannot be downloaded from "
+            f"{config['sources'][1]['url']}: the server names {newer} for it but does not send it (fatal: refused); "
+            "run again, or check the server"))
         self.assertEqual(hr.read_answer(config["sources"][1]["url"], "branch", "main")["revision"], first)
 
     def test_the_record_lists_custom_context_and_answer_times(self):
@@ -606,8 +619,9 @@ class SessionContextTests(Fixture):
             self.assertEqual(proc.returncode, 0, proc.stderr)
             first, rest = out.split("\n", 1)
             self.assertTrue(first.startswith("HOUSE RULES HOOK ERROR: house-rules: "), first)
-            self.assertRegex(first, r" file://\S*…\S*g/grules\.git ")  # the long URL gives way in its middle
-            self.assertIn("is cached; run again when online. ", first)  # the failure's repair stays
+            # The long URL, and the Git error that repeats it, give way in their middle; the cause's end stays.
+            self.assertRegex(first, r" file://\S*…\S*g/grules\.git' does not appear to be a git repository; ")
+            self.assertIn("; run again when online. ", first)  # the failure's repair stays
             self.assertTrue(first.endswith("The House Rules below are the global default's, not this repository's "
                                            "resolved rules, and this repository's custom layers are missing."), first)
             self.assertLessEqual(len(first.encode("utf-16-le")) // 2, 600)  # the line the issue bounds
@@ -641,7 +655,7 @@ class SessionContextTests(Fixture):
              ["house-rules: ", "house-rules.json: unknown field \\udc80; allowed: "]),
             ({"version": 2, "sources": [{"name": "house-rules", "url": house}, {"name": "team-rules", "url": house,
                                                                                "ref": "gone-" + "b" * 700}]}, None,
-             ["team-rules: no branch gone-bbb", "; check the ref in house-rules.json"]),
+             ["team-rules branch gone-bbb", "; check the ref in house-rules.json"]),
             # links to missing checkouts: a 3 030-character path, a path with spaces, one just longer than the line,
             (linked("team-rules", team), "/" + "/".join(["g" * 100] * 30), broken),
             (linked("team-rules", team), "/" + "/".join(["g g " * 25] * 8), broken),
@@ -782,7 +796,8 @@ class SessionContextTests(Fixture):
             {"name": "house-rules", "url": house, "ref": "gone"}]}))
         proc = subprocess.run(command, input=json.dumps({"cwd": repo, "session_id": "s2"}).encode(), stdin=None,
                               capture_output=True, env=dict(os.environ, KIMI_CODE_HOME=str(kimi)))
-        self.assertIn("HOUSE RULES HOOK ERROR: house-rules: house-rules: no branch gone", proc.stdout.decode())
+        self.assertIn("HOUSE RULES HOOK ERROR: house-rules: house-rules branch gone, which this repository requires",
+                      proc.stdout.decode())
         self.assertFalse((kimi / "house-rules-sessions" / "s2").exists())  # the default's rules are not complete
         tree = hr.layer_tree(hr.resolve(None))
         direct = subprocess.run([sys.executable, "-I", str(tree / "scripts/session_context.py"), "kimi", "prompt"],
@@ -798,7 +813,8 @@ class SessionContextTests(Fixture):
             {"name": "house-rules", "url": house}, {"name": "team-rules", "url": team, "ref": "gone"}]}))
         proc = subprocess.run(command, input=json.dumps({"cwd": repo, "session_id": "s4"}).encode(), stdin=None,
                               capture_output=True, env=dict(os.environ, KIMI_CODE_HOME=str(kimi)))
-        self.assertIn("HOUSE RULES HOOK ERROR: house-rules: team-rules: no branch gone", proc.stdout.decode())
+        self.assertIn("HOUSE RULES HOOK ERROR: house-rules: team-rules branch gone, which this repository requires",
+                      proc.stdout.decode())
         self.assertIn(f"Read the files from {checkout.resolve()} directly.", proc.stdout.decode())  # the linked default
         self.assertFalse((kimi / "house-rules-sessions" / "s4").exists())  # a linked default's fallback is not complete
 
@@ -933,7 +949,8 @@ class RoundOneTests(Fixture):
         config["sources"][1]["url"] += "/"  # the same repository, spelled with a trailing slash: no shared answer
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(self.repository(config))
-        self.assertIn("no earlier fetch of team-rules main is cached", str(caught.exception))
+        self.assertIn(f"team-rules branch main, which this repository requires, cannot be downloaded from "
+                      f"{config['sources'][1]['url']}: fatal: ", str(caught.exception))
 
     def test_house_rules_profiles_need_reasons_too(self):
         config, _ = self.tour()
@@ -1092,7 +1109,10 @@ class RoundTwoTests(Fixture):
         config["sources"][1]["ref"] = "v9.9.9"
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(self.repository(config))
-        self.assertIn("team-rules: no release tag v9.9.9 at file://", str(caught.exception))
+        self.assertIn("team-rules release tag v9.9.9, which this repository requires, cannot be downloaded from file://",
+                      str(caught.exception))
+        self.assertTrue(str(caught.exception).endswith(": the server has no release tag v9.9.9; check the ref in "
+                                                       "house-rules.json"), str(caught.exception))
         self.assertEqual(hr.ref_kind("v1"), "branch")  # a range is not a release tag
 
     def test_a_lightweight_tag_and_an_offline_tag_without_a_record(self):
@@ -1107,7 +1127,9 @@ class RoundTwoTests(Fixture):
         config["sources"][1]["ref"] = "v2.0.1"
         with self.assertRaises(hr.Failure) as caught:
             hr.resolve(self.repository(config))
-        self.assertIn("no earlier fetch of team-rules v2.0.1 is cached; run again when online", str(caught.exception))
+        self.assertIn("team-rules release tag v2.0.1, which this repository requires, cannot be downloaded from ",
+                      str(caught.exception))
+        self.assertTrue(str(caught.exception).endswith("; run again when online"), str(caught.exception))
 
     def test_hooks_read_the_staged_and_the_named_commit_configuration(self):
         script = "import json, os, sys\nr = json.loads(os.environ['HOUSE_RULES_RESOLVED'])\n" \

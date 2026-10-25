@@ -411,7 +411,7 @@ It runs once per run of any consumer, so every part of one run uses one set of c
 > - A release tag resolves like a branch. Each run asks the remote, reuses an answer younger than 60 s, and falls back to the tag's last record when the remote cannot be reached. A tag moved on the remote is therefore followed at the next run that asks, the same as CI with an empty cache follows it. A tag the remote does not have stops resolution with the missing-tag message. A tag with no record while the remote cannot be reached stops with "run again when online".
 > - Fetching a commit by its identity needs a server that allows it. GitHub does. A server that refuses stops resolution with an error that names the commit and the server's answer.
 > - Every `ls-remote` and fetch passes `-c http.lowSpeedLimit=1 -c http.lowSpeedTime=30`, so Git stops a transfer that moves less than 1 byte per second for 30 s. Resolution adds no timer of its own, except in hook mode.
-> - In hook mode (`house-rules exec --hook`), the agent product kills the hook after its timeout, 10 s, which would leave no visible line. `exec` owns one deadline, 8 s after the hook starts: `ls-remote`, fetches and the started script all share it. Local preparation, a linked checkout's inspection and the transport processes Git starts are outside it, as the [hook deadline decision](#decision-hook-deadline) records; such work that runs past the host's timeout leaves no visible line. `exec` passes it to the script in [`HOUSE_RULES_DEADLINE`](#environment-variables), so the script knows the time left. At the deadline during resolution, a branch or tag takes the [offline resolution](#offline-use) path with the warning "the remote did not answer within 8 s", and a layer with nothing cached stops with the resolution failure below. A script that reaches the deadline stops its slow work and prints a visible line that names what was cut short. This is the one place House Rules stops on elapsed time, because the host's timeout is not progress-based and a killed hook reports nothing.
+> - In hook mode (`house-rules exec --hook`), the agent product kills the hook after its timeout, 10 s, which would leave no visible line. `exec` owns one deadline, 8 s after the hook starts: `ls-remote`, fetches and the started script all share it. Local preparation, a linked checkout's inspection and the transport processes Git starts are outside it, as the [hook deadline decision](#decision-hook-deadline) records; such work that runs past the host's timeout leaves no visible line. `exec` passes it to the script in [`HOUSE_RULES_DEADLINE`](#environment-variables), so the script knows the time left. At the deadline during resolution, a branch or tag takes the [offline resolution](#offline-use) path with the warning "the server did not answer within 8 s", and a layer with nothing cached stops with the resolution failure below. A script that reaches the deadline stops its slow work and prints a visible line that names what was cut short. This is the one place House Rules stops on elapsed time, because the host's timeout is not progress-based and a killed hook reports nothing.
 > - Messages show each URL as written, because a source URL never carries credentials. A message that refuses a URL never shows it, because it may hold the credentials it refuses.
 
 `house-rules exec` passes the resolution to the script it starts in [`HOUSE_RULES_RESOLVED`](194-repository-checks.md#runner-environment-variables). The script uses it and resolves nothing again.
@@ -457,7 +457,7 @@ A machine without a network keeps working on the rules it last fetched, and ever
 >
 > ```text
 > warning: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …); using team-rules main as last answered 2026-10-24T09:00:01Z, 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80
-> house-rules: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …) and no earlier fetch of team-rules main is cached; run again when online
+> house-rules: team-rules branch main, which this repository requires, cannot be downloaded from https://git.example.com/team/team-rules: fatal: unable to access …; run again when online
 > ```
 
 <a id="failure-resolution"></a>
@@ -1297,6 +1297,17 @@ A URL in Git's `<transport>::<address>` form is refused as well. Python's URL pa
 
 **Rejected alternatives:** Handing each snapshot to the runner of its resolved revision: one more process per snapshot and a version-to-version protocol.
 
+<a id="decision-download-failure"></a>
+### Decision: a download failure names the required version, its source and the cause
+
+**Choice:** Every failure to download a layer's commit has one form, built in one place of the resolver, so `exec`, agent sessions and the checks runner print the same line: the layer's version as the configuration writes it, the URL it comes from, the cause, and the repair that fits that cause. "Run again when online" is the repair only of a network cause. The [Messages](#messages) table lists the causes and their repairs.
+
+**Authority:** Operator decision, 2026-10-25, relayed by the lead after the #217 implementation brief. The operator wrote: "It should say that house-rules version x that this repo requires can't be downloaded because of x." It replaces the separate missing-branch, missing-tag, missing-commit and offline messages, and the checks runner's pre-push repair "push again when online".
+
+**Reason:** A reader of a refused commit, push or session needs to know which version the repository asked for, where from, and why it failed, without knowing which tool printed the line.
+
+**Rejected alternatives:** Keeping the per-case messages: four forms for one failure, and a network repair on causes that are not network ones. A pre-push repair of its own: one tool's wording for a failure every tool shares.
+
 <a id="decision-ruleset"></a>
 ### Decision: one ruleset file per rule repository, with one merge rule
 
@@ -1516,16 +1527,13 @@ A command environment variable is an environment variable of the [House Rules co
 | [ruleset](#ruleset) lists sources | `house-rules: <layer> <file>: only house-rules.json lists sources` | 2 |
 | unknown profile | `house-rules: profile <name> is defined by no layer (<layer names>)` | 2 |
 | missing reason | `house-rules: <layer> <key>: sets a field that <earlier layer> set; add a reason` | 2 |
-| missing branch | `house-rules: <layer>: no branch <branch> at <url>; check the ref in house-rules.json` | 2 |
 | SHA-256 source | `house-rules: <layer>: SHA-256 sources are not supported yet` | 2 |
-| missing tag | `house-rules: <layer>: no release tag <tag> at <url>; check the ref in house-rules.json` | 2 |
-| missing commit | `house-rules: <layer>: commit <commit> not found at <url> (<git error>); check the ref` | 2 |
-| offline, no record | `house-rules: cannot reach <url> (<git error>) and no earlier fetch of <layer> <ref> is cached; run again when online` | 2 |
+| [download failure](#decision-download-failure) | `house-rules: <layer> <version>, which <requirer> requires, cannot be downloaded from <url>: <cause>; <repair>` | 2 |
 | both [`HOUSE_RULES_LINK`](#environment-variables) and [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) set | "house-rules: set HOUSE_RULES_LINK or HOUSE_RULES_REVISION, not both" | 1 |
 | broken link | `house-rules: a linked checkout is not the root of a Git working tree; house-rules cache list shows the link, then run house-rules unlink with its checkout path: <layer> <url> -> <path>` | 2 |
 | cache not writable | [`house-rules: cannot write the cache <folder> (<system error>); free space, make it writable or set HOUSE_RULES_CACHE`](194-repository-checks.md#runner-environment-variables) | 2 |
 | old command | `house-rules: <file> has version <n>; this house-rules command knows version 2; install the newer command: python3 <House Rules checkout>/scripts/house_rules.py install` | 2 |
-| hook deadline | `warning: the remote did not answer within 8 s; using <layer> <ref> as last answered <time>, <commit>` | 0 |
+| hook deadline | `warning: the server did not answer within 8 s; using <layer> <ref> as last answered <time>, <commit>` | 0 |
 | source not allowed | `Warden: layer <name> at <url> is not an allowed source; ask the Warden operator to allow it` | review stops |
 
 The refused-URL `<reason>` is one of these texts:
@@ -1536,6 +1544,12 @@ The refused-URL `<reason>` is one of these texts:
 - `contains a NUL character`
 - `carries credentials; use a Git credential helper`
 - `uses Git's <transport>:: form, which this command does not accept; use a plain URL and a Git credential helper`
+
+In a download failure, `<version>` is the ref as the configuration writes it, with its kind: `branch <branch>`, `release tag <tag>` or `commit <commit>`. `<requirer>` is `this repository`, or `the default sources` without a repository configuration. For a [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) override, the version is that commit and the requirer is the variable. Each cause has its own repair:
+
+- The server cannot be reached and no earlier answer is cached. The cause is Git's first error line, or `the server did not answer within 8 s`. The repair is `run again when online`.
+- The cause is `the server has no branch <branch>`, `the server has no release tag <tag>` or `the server has no commit <commit> (<git error>)`. The repair is `check the ref in house-rules.json`. For an override, it says to set [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) to a commit of that source, or to unset it.
+- `the server names <commit> for it but does not send it (<git error>)`: `run again, or check the server`.
 
 For `link`, the message names `the --url value` or `remote.origin.url of <checkout>` in place of `<file>: sources[<i>]: the URL of <layer>`, and the exit status is 1.
 
