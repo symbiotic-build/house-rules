@@ -29,19 +29,20 @@ For every changed function, path and document section, attack it: concurrent cal
 interleavings, crash and restart at each step, retries and replay, boundary and malformed
 inputs, authorization and confidentiality on every path, error paths, resource bounds, and
 contradictions between code, tests, docs and the spec. A targeted reviewer applies these
-attacks within its lens. Report every defect you find, from the whole change, in one pass;
-a finding withheld for a later round costs a full round.
+attacks within its lens. An attack that finds no real-use trigger is a Follow-up.
+Report every defect you find, from the whole change, in one pass; a finding withheld for
+a later round costs a full round.
 
 You do not decide alone what blocks the merge: the lead adjudicates every item before acting.
 So do not drop or soften a finding because it might not be blocking, and do not inflate one
 either.
 Place each item honestly:
-- Blocking: a correctness, security or data-loss defect you can reach with a concrete
-  trigger; a contradiction of a written requirement or settled decision (quote it); an
-  internal inconsistency; a cost defect or design finding with the evidence above; or
-  concrete waste as defined above. A suspected defect you could not
-  fully trace still goes here when its consequence would be a correctness, security or
-  data-loss failure, with Confidence: low.
+- Blocking: a correctness, security or data-loss defect whose trigger is reachable in
+  real use, with the code path cited ([Finding rules](finding-rules.md)); a contradiction
+  of a written requirement or settled decision (quote it); an internal inconsistency; a
+  cost defect or design finding with the evidence above; or concrete waste as defined
+  above. A suspected defect whose real-use trigger you could not trace goes under
+  Follow-ups, with the missing evidence named.
 - Spec issues: the spec is silent, contradictory or evidently wrong; or you want a stronger
   guarantee than any written requirement states. Text added by this change's own fix rounds
   is judged on its merits but is not a requirement (check git blame).

@@ -26,9 +26,10 @@ Adversarial reviewers over-report by design. Your job is to keep the PR moving w
    - In a check round (the review context says so), also collect every finding the
      earlier findings list as open. Keep each one open until this round's reports or
      the code at the head show it resolved; list a resolved one under Rejected as
-     resolved, with its evidence. A finding the earlier triage rejected stays rejected
-     unless the fix changed the code it cites or a report gives new evidence; then
-     adjudicate it again and say what changed.
+     resolved, with its evidence. Reject a new finding outside the fix, or file it as
+     ISSUE when it is worth tracking; it never blocks a check round.
+   - In any later round, a decided finding (finding rules) keeps its disposition: list a
+     reviewer's repeat of it once under Rejected as "decided in round N".
 2. Merge findings that describe the same mechanism into one, even when reviewers on
    different lenses or model families word them differently. One defect reported from
    different angles (the same faulty code or text and the same fix, under different
@@ -39,13 +40,11 @@ Adversarial reviewers over-report by design. Your job is to keep the PR moving w
    under "Found by". An "Outside lens:" finding that the owning lens also reported is
    that lens's finding. Give every reported defect case a disposition in your report,
    naming the finding it merged into.
-3. Verify each merged finding against the code: is it real, reachable with a concrete
-   trigger, and introduced by this change? Check reachability yourself in the checkout
-   before dismissing a finding as unreachable or uncommon. A finding that the current
-   head already fixes is resolved, not FALSE: list it under Rejected as resolved, with
-   the fixing line. When reviewers report a dismissed finding again in a later round,
-   adjudicate it again with current code evidence instead of repeating the earlier
-   disposition.
+3. Verify each merged finding against the code: is it real, introduced by this change,
+   and is its trigger reachable in real use under the finding rules? Check the cited
+   path yourself in the checkout before dismissing a finding as unreachable. A finding
+   that the current head already fixes is resolved, not FALSE: list it under Rejected as
+   resolved, with the fixing line.
 4. Sort each finding into exactly one class:
 @rule house-rules:prompts/util/triage-classes.md
 @rule house-rules:prompts/util/finding-rules.md
@@ -54,7 +53,7 @@ Output: exactly one VERDICT: token in your response, with no quoted verdict toke
 "**Accepted · <count>**" — the FIX-NOW items, numbered. Write each for the PR author, who did not read the reviewer reports, in plain words (no internal type or field names unless explained in the same sentence; keep each item to what the author needs to act on, with no repeated or decorative text):
 `N. **<title>**` — what goes wrong and for whom, in plain words, never cut mid-phrase.
   - **What happens:** a concrete story in 2–4 short sentences: who does what, what the code does, and what the person sees on GitHub or loses.
-  - **How likely:** the conditions that must all hold, and whether they occur in normal use of this project.
+  - **How likely:** the conditions that must all hold, and the evidence that real use of this project meets them.
   - **Evidence:** file:line at the commit SHA you reviewed, plus a failing test or quoted line; otherwise write "From code reading".
   - **Fix:** the smallest fix, in one sentence.
   - **Severity:** High, Medium or Low, with the reason in a few words. Found by: reviewer label(s).

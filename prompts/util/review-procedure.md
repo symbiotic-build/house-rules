@@ -30,7 +30,8 @@ files, searches and history.
    lost result or an omitted required output, is a finding; never mark it "no defect".
 5. **Keep verification apart from disposition.** Record every missing, partial or contradicted requirement as a
    finding, even when it predates the change, is deferred, is out of the pull request's scope or is tracked in an
-   issue; state that disposition in the finding. To close a case with a decision, quote the decision's operative
+   issue; state that disposition in the finding. A finding an earlier triage of this pull request decided is the
+   exception: leave it out ([Finding rules](finding-rules.md)). To close a case with a decision, quote the decision's operative
    sentence and apply it only to what it explicitly authorizes. A decision about timing or current availability does
    not remove a requirement.
 6. **Compare old and new.** For every changed function, compare its old and new behavior using the removed (-) and
@@ -44,9 +45,9 @@ files, searches and history.
    an evidence note. An inventory whose search finds nothing in its whole scope, including the dependencies that decide
    a changed case, is one case row with the result "0 hits" and the search in its note. A behavior
    a requirement demands that the change lacks is a finding, even when a search found nothing.
-9. **Report what you could not check.** When you suspect a defect in an unchecked case, report it under Blocking with
-   Confidence: low. List other unchecked cases on security, data-loss or wrong-result paths under Follow-ups as
-   coverage gaps, each naming the missing evidence.
+9. **Report what you could not check.** When you suspect a defect in an unchecked case, report it under Follow-ups with
+   the missing evidence; it blocks only after a trace shows a real-use trigger. List other unchecked cases on security,
+   data-loss or wrong-result paths under Follow-ups as coverage gaps, each naming the missing evidence.
 
 The coverage ledger takes the place of the report format's Coverage section and is the last section of the report: the
 obligation table, then the case table, then numbered evidence notes. Keep it even when there are no findings. Every
