@@ -6,7 +6,7 @@ reviewed head: `git diff <fix base>..HEAD`. Part 5 of the review context shows i
 whole change, the requirements and all other code stay in the checkout as reference, not as the review task.
 
 1. **Verify the open findings.** Take every finding the earlier findings list as open and every blocking item of your
-   own earlier report. Check each against the code at HEAD and quote the evidence. List each in your report's findings
+   own earlier report, except decided findings ([Finding rules](finding-rules.md)). Check each against the code at HEAD and quote the evidence. List each in your report's findings
    check as RESOLVED or NOT, with that evidence; a reviewer adds a "**Findings check · <count>**" section after
    Blocking. A still-open finding keeps its earlier class: when it blocked and your lens owns it or your earlier report
    holds it, list it under Blocking again with the current evidence. A Low finding stays non-blocking.

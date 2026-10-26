@@ -33,7 +33,9 @@ rejects it as NITPICK, or files it as ISSUE when it is worth tracking.
 
 A finding an earlier triage of the same pull request rejected, filed as an issue or sent
 to a lead decision is decided. Nobody raises a decided finding again, in any round or
-section.
+section: reviewers leave it out of findings checks, inventories and reports, and triage
+lists a reviewer's repeat of it once under Rejected as decided. This exception overrides
+every rule that asks to report deferred, tracked or earlier blocking findings.
 
 A security finding names five things: who has less trust, the input they control, the
 control that should stop them, what they reach, and the concrete result. Example: an
