@@ -31,11 +31,15 @@ stay green when it does not. Write the tests that do that and no others.
   generated files equal their generator's output. Approved rule text is protected by the
   rule-change report and its mandatory review disposition, not by tests. *Check:* no test
   asserts sentences or phrases found in a repository text file.
-- **Repair before removal.** A weak behavior test that guards a stated requirement is
-  fixed, or, when behavior cannot show the defect, replaced by a static check. A rewritten
-  or merged test still fails on the defect the old one caught; show it. A cleanup also
-  shows that each kept test it relies on can fail. *Check:* the report names the old
-  test's defect and the new test's failing result.
+- **Remove what guards nothing.** A test stays only when it guards behavior that a user
+  relies on, a published interface or format, or a requirement in an approved spec or
+  operator decision. It must also prove something no other test proves. A test that fails
+  either check is deleted, not repaired.
+- **Remove unneeded guards with their tests.** When a test guards a mechanism with no
+  concrete, plausible trigger, delete the mechanism and its test in the same change. Never
+  leave the mechanism untested.
+- **Repair only real requirements.** Repair applies only to a test that guards a real
+  requirement but asserts it weakly.
 - **Cited tests move with their spec.** Remove or rename a test that a spec cites only in
   the same change as the spec edit; the selector audit is part of the gate. *Check:* the
   audit reports no missing selector.
