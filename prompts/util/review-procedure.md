@@ -44,9 +44,9 @@ files, searches and history.
    an evidence note. An inventory whose search finds nothing in its whole scope, including the dependencies that decide
    a changed case, is one case row with the result "0 hits" and the search in its note. A behavior
    a requirement demands that the change lacks is a finding, even when a search found nothing.
-9. **Report what you could not check.** When you suspect a defect in an unchecked case, report it under Blocking with
-   Confidence: low. List other unchecked cases on security, data-loss or wrong-result paths under Follow-ups as
-   coverage gaps, each naming the missing evidence.
+9. **Report what you could not check.** When you suspect a defect in an unchecked case, report it under Follow-ups with
+   the missing evidence; it blocks only after a trace shows a real-use trigger. List other unchecked cases on security,
+   data-loss or wrong-result paths under Follow-ups as coverage gaps, each naming the missing evidence.
 
 The coverage ledger takes the place of the report format's Coverage section and is the last section of the report: the
 obligation table, then the case table, then numbered evidence notes. Keep it even when there are no findings. Every

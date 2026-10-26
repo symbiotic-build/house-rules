@@ -11,10 +11,11 @@ whole change, the requirements and all other code stay in the checkout as refere
    Blocking. A still-open finding keeps its earlier class: when it blocked and your lens owns it or your earlier report
    holds it, list it under Blocking again with the current evidence. A Low finding stays non-blocking.
 2. **Review only the fix.** Apply your procedure and inventories to the fix and the code it touches: the callers,
-   callees and consumers of the changed code. Report the defects the fix introduces or exposes. Outside the fix, report
-   only correctness, security or data-loss defects. Branch-history findings follow [Triage classes](triage-classes.md).
+   callees and consumers of the changed code. Report the defects the fix introduces. Raise no new finding outside the
+   fix: a defect there waits for a later full round or an issue. Branch-history findings follow
+   [Triage classes](triage-classes.md).
    Apply the same classes as round 1. Never ask for changes that grow the pull request beyond the accepted fixes.
-3. **Keep rejected findings rejected.** A finding an earlier triage rejected stays rejected unless the fix changed the
-   code it cites or you have new evidence. Then say what changed.
+3. **Never raise a decided finding again** ([Finding rules](finding-rules.md)). When the fix rewrote the code a decided
+   finding cites, report only a defect that the new code itself introduces, as a finding about the fix.
 
 Your coverage ledger and inventories cover the fix only.
