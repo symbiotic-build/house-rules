@@ -10,6 +10,14 @@ that behaviour: a log, a failed run, an incident record or the system's own docu
 of it. A case that a written requirement or declared boundary names explicitly, such as
 "a crash at any step recovers", is real use for that requirement. A probe or test that
 builds the triggering state by hand shows the consequence, not that real use reaches it.
+"Real use can produce this state" is a claim, not evidence: it needs the code path in the
+current product that produces the state, or an observation of it. When the context shows
+that real use does not hold the triggering state, for example a deployment record without
+it, the trigger is hypothetical.
+
+The rule applies to every kind of finding. A documentation, procedure or design finding
+that rests on a failure scenario needs that scenario's real-use trigger; a design finding
+about the mechanism itself needs none.
 
 These never block, whatever their consequence:
 
