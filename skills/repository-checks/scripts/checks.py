@@ -66,7 +66,7 @@ house_rules = load_resolver()
 
 
 class Failure(Exception):
-    """A configuration or preparation failure: exit 2 with one line naming the cause and its repair.
+    """A configuration or preparation failure: exit 2 with one line naming the cause, and its repair when it has one.
 
     The line is "<cause>; <repair>", or `cause` alone when it already ends with its repair, as a resolver failure
     does. `reference` names the pushed reference the failure concerns, if any.
@@ -392,33 +392,6 @@ def configuration(root, data, origin, stage, selection, deadline=house_rules.NO_
 def same_layers(record, config):
     return (record["profiles"] == config["profiles"] and [(layer["name"], layer["url"], layer["ref"])
             for layer in record["layers"]] == [(s["name"], s["url"], s["ref"]) for s in config["sources"]])
-
-
-LAYER_FIELDS = ("name", "url", "ref", "revision", "tree")
-LAYER_SOURCES = ("fetched", "reused", "offline", "pinned", "override", "link")
-
-
-def handed(value):
-    """exec's resolution record, or None when it is absent or any value the runner reads, to reuse, seed or print
-    it, has another shape than the resolver writes."""
-    try:
-        record = json.loads(value or "null")
-    except ValueError:
-        return None
-    if not (isinstance(record, dict) and record.get("version") == 1 and isinstance(record.get("layers"), list)
-            and record["layers"] and isinstance(record.get("profiles"), list)
-            and isinstance(record.get("warnings"), list)
-            and all(isinstance(item, str) for item in record["profiles"] + record["warnings"])):
-        return None
-    for layer in record["layers"]:
-        if not (isinstance(layer, dict) and all(isinstance(layer.get(k), str) for k in LAYER_FIELDS)
-                and layer.get("ref_kind") in ("branch", "tag", "commit") and layer.get("source") in LAYER_SOURCES
-                and "fetched" in layer and (layer["fetched"] is None or isinstance(layer["fetched"], str))):
-            return None
-        link = layer.get("link")
-        if layer["source"] == "link" and not (isinstance(link, dict) and isinstance(link.get("dirty"), bool)):
-            return None
-    return record
 
 
 # Cache -----------------------------------------------------------------------------------
@@ -1410,7 +1383,8 @@ def command_install(args):
 def main(argv=None):
     global HANDED
     argv = sys.argv[1:] if argv is None else argv
-    HANDED = handed(os.environ.pop(RESOLVED, None))  # popped, so no check inherits it
+    HANDED = house_rules.handed()  # exec's record, used as written when its version is this runner's
+    os.environ.pop(RESOLVED, None)  # so no check inherits it
     house_rules.ANSWERS = {}  # one answer per branch or tag for this run, exec's first
     if HANDED is not None:
         house_rules.remember(HANDED)

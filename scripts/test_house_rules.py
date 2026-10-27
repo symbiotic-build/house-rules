@@ -166,9 +166,12 @@ class ResolutionTests(Fixture):
         (shim / "git").write_text(f'#!/bin/sh\ncase " $* " in *" ls-remote "*) echo "$*" >> {shlex.quote(str(log))};; '
                                   f'esac\nexec {shlex.quote(real)} "$@"\n')
         (shim / "git").chmod(0o755)
-        # No answer is reused across the window here, so only the resolution's own sharing can save the second ask.
+        # The clock moves past the reuse window as soon as the first layer's answer is published, as a slow first
+        # fetch would make it; only the resolution's own sharing then saves the second layer's ask.
+        published, real_time = hr.answer_path(team["url"], "branch", "main"), time.time
+        clock = lambda: real_time() + (hr.REUSE_SECONDS + 1 if published.exists() else 0)
         with mock.patch.dict(os.environ, {"PATH": f"{shim}{os.pathsep}{os.environ['PATH']}"}), \
-                mock.patch.object(hr, "REUSE_SECONDS", 0):
+                mock.patch("time.time", side_effect=clock):
             record = hr.resolve(repo)
         asked = log.read_text().splitlines()
         self.assertEqual(sum(team["url"] in line for line in asked), 1, asked)  # team-copy took team-rules' answer

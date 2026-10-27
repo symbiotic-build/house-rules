@@ -2183,24 +2183,16 @@ class StatusTest(RunnerCase):
         self.assertEqual((proc.returncode, proc.stdout), (2, ""), proc.stderr)
         self.assertIn("profile haskell is defined by no layer", proc.stderr)
 
-    def test_malformed_inherited_record_is_ignored(self):
+    def test_record_of_another_version_is_ignored(self):
+        """Only `house-rules exec` writes the record; the runner ignores one it cannot read or of another version and
+        resolves itself."""
         self.repo.configure(NO_SPEC)
         self.assertEqual(self.repo.run("prepare").returncode, 0)
-        layer = {"name": "house-rules", "url": self.repo.url, "ref": "main", "ref_kind": "branch",
-                 "revision": self.repo.main, "source": "fetched", "tree": str(self.cache)}  # no `fetched`
-        complete = dict(layer, fetched="2026-10-25T00:00:00Z")
-        for record in ({"version": 1, "layers": [{}]}, {"version": 1, "layers": [{"name": "house-rules"}],
-                                                        "profiles": [], "warnings": []},
-                       {"version": 1, "layers": [layer], "profiles": [], "warnings": []},
-                       {"version": 1, "layers": [dict(complete, source="other")], "profiles": [], "warnings": []},
-                       {"version": 1, "layers": [dict(complete, source="link")], "profiles": [], "warnings": []},
-                       {"version": 1, "layers": [complete], "profiles": [], "warnings": [None]}):
-            with self.subTest(record=record):
-                env = dict(self.repo.env, HOUSE_RULES_RESOLVED=json.dumps(record))
-                proc = self.repo.run("status", "--session", env=env)
-                self.assertEqual(proc.returncode, 0, proc.stderr)
+        for value in ("not json", json.dumps([]), json.dumps({"layers": []}), json.dumps({"version": 2, "layers": []})):
+            with self.subTest(value=value):
+                proc = self.repo.run("status", "--session", env=dict(self.repo.env, HOUSE_RULES_RESOLVED=value))
+                self.assertEqual((proc.returncode, proc.stderr), (0, ""), proc.stdout)
                 self.assertTrue(proc.stdout.startswith("repository checks: not ready (House Rules "), proc.stdout)
-                self.assertEqual(proc.stderr, "")
 
     def test_session_status_line(self):
         install = shlex.join([sys.executable, str(SCRIPT), "install"])
