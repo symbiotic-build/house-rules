@@ -1670,15 +1670,13 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
         self.assertIn("Issue #2", requirements)
         self.assertNotIn("Commit message", requirements)
 
-    def test_comment_cap_and_size_guard_trim_in_authority_order_largest_first(self):
+    def test_size_guard_trims_in_authority_order_largest_first(self):
         self.write(self.repo, "docs/spec.md", "## 1 Small\n" + "s" * 1000 + "\n## 2 Large\n" + "l" * 8000)
         self.commit(self.repo, "Requirements §1, §2")
         self.github(self.pr("Design: docs/spec.md [§1, §2]\nRefs #2"), [self.issue(2, "i" * 7000)],
                     pr_comments=[self.comment(1, body="c" * 5000)])
         full = self.review(format="pack")
-        self.assertIn("Comment capped at 4,000 characters", full.split("# 1. Review pack")[0])
-        self.assertIn("c" * 4000, full)
-        self.assertNotIn("c" * 4001, full)
+        self.assertIn("c" * 5000, full)
         for reduction, expected in [(1000, ["comment"]), (6000, ["comment", "issue"]),
                                      (14000, ["comment", "issue", "spec"])]:
             with self.subTest(reduction=reduction), mock.patch.object(prepare, "CODEX_LIMIT", len(full) - reduction):

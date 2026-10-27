@@ -28,7 +28,6 @@ def checker_unavailable():
     return None
 CODEX_LIMIT = 800_000
 SPEC_LIMIT = 2_000_000
-COMMENT_LIMIT = 4_000
 FULL_FILE_CAP = 85_000
 LOCK = re.compile(r"(^|/)([^/]*\.lock|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|go\.sum)$")
 # Lenses that run no commands and review only the structured change part.
@@ -632,7 +631,7 @@ def requirement_entries(repo, args, pr, issues, comments, texts, commits, files,
         entries.append(dict(category=category, source=source, link=source_link, body=body, **extra))
     if check:
         # A check round leaves specifications and issues in the checkout; it keeps human comments and the PR description.
-        return [*comment_entries(comments, notices), *pr_entries(pr), *([] if pr else commit_entries(repo, commits, url))]
+        return [*comment_entries(comments), *pr_entries(pr), *([] if pr else commit_entries(repo, commits, url))]
     reference_text = "\n".join([*texts, *(body for _, body in commits)])
     tests = list(dict.fromkeys([*[t.strip() for t in (args.tests or "").split(",") if t.strip()],
                               *re.findall(r"(?<![A-Za-z0-9_-])" + re.escape(args.test_prefix) + r"\d+(?![A-Za-z0-9_-])", reference_text)]))
@@ -666,20 +665,17 @@ def requirement_entries(repo, args, pr, issues, comments, texts, commits, files,
         labels = ", ".join(label["name"] for label in issue.get("labels", [])) or "(none)"
         add("issue", f"Issue #{issue['number']}: {issue['title']} (labels: {labels})",
             issue["html_url"], issue.get("body") or "")
-    entries.extend([*comment_entries(comments, notices), *pr_entries(pr)])
+    entries.extend([*comment_entries(comments), *pr_entries(pr)])
     if not pr and not issues:
         entries.extend(commit_entries(repo, commits, url))
     return entries
 
 
-def comment_entries(comments, notices):
+def comment_entries(comments):
     entries = []
     for comment in comments:
         body = comment["body"]
         source = f"Maintainer comment by {(comment.get('user') or {}).get('login') or 'unknown'} ({comment['author_association']})"
-        if len(body) > COMMENT_LIMIT:
-            notices.append(f"Comment capped at {COMMENT_LIMIT:,} characters: {comment['html_url']}")
-            body = body[:COMMENT_LIMIT] + "\n[Comment cut at character cap.]"
         entries.append(dict(category="comment", source=source, link=comment["html_url"], body=body))
     return entries
 
