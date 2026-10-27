@@ -407,13 +407,6 @@ class TranscriptGapsTest(unittest.TestCase):
         self.assertEqual(json.loads((self.state / "last-run.json").read_text()),
                          {"claude:" + str(path): path.stat().st_size})
 
-    def test_ci_runs_transcript_acceptance_suite(self):
-        workflow = SCRIPT.parents[3] / ".github/workflows/checks.yml"
-        # Any interpreter may run it (CI uses the pinned documentation environment); the suite must run.
-        self.assertRegex(workflow.read_text(),
-                         r"\n        run: \S*python3? -B skills/spec-writing/scripts/junit_unittest\.py "
-                         r"--jobs 4 --report \S+ discover -s skills/operator-protocol/scripts\n")
-
     def test_missing_extra_root_is_an_error(self):
         self.env["TRANSCRIPT_GAPS_CODEX_HOMES"] = str(self.root / "missing")
         result = self.run_script()

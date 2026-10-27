@@ -262,8 +262,6 @@ class ParallelSuite(unittest.TestSuite):
                        for name in ('setUpModule', 'tearDownModule'))
                 or len(groups) < 2
                 or len({type(group[0]) for group in groups}) != len(groups)):
-            # Custom suites may explicitly delegate their independent classes
-            # back here using result.jobs (DiagnosticCoverageSuite does this).
             previous_jobs = getattr(result, 'jobs', 1)
             result.jobs = 1 if debug or result.failfast else self.jobs
             try:

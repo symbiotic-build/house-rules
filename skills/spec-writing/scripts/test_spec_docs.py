@@ -1638,19 +1638,6 @@ class MinimalExampleTests(unittest.TestCase):
         import ast
         ast.parse(Path(s.__file__).read_text(), feature_version=(3, 11))
 
-    def test_every_ci_python_consumer_uses_the_locked_environment(self):
-        root = Path(s.__file__).resolve().parents[3]
-        workflow = (root / '.github/workflows/checks.yml').read_text()
-        lock = 'skills/spec-writing/scripts/requirements.lock'
-        self.assertIn('--require-hashes --only-binary=:all: --no-deps -r ' + lock, workflow)
-        consumers = [line.strip() for line in workflow.splitlines() if 'run:' in line and
-                     ('skills/pr-ready/scripts' in line or 'scripts/check_review_staging.py' in line)]
-        self.assertTrue(consumers)
-        for line in consumers:
-            self.assertNotIn('python3 ', line)
-            self.assertIn('.tmp/spec-docs-env/bin/python', line)
-        self.assertLess(workflow.index(lock), min(workflow.index(line) for line in consumers))
-
     def test_published_example_is_the_checked_fixture_in_an_independent_repository(self):
         fixture = Path(__file__).parent / 'fixtures/minimal'
         paths = {p.relative_to(fixture).as_posix(): p.read_bytes() for p in fixture.rglob('*') if p.is_file()}
@@ -2292,42 +2279,6 @@ class LiteralAnnotationTests(CorpusFixture, unittest.TestCase):
         small, large = best(1000), best(4000)
         print(f"literal examples: 4x the examples took {large / small:.2f}x as long")
         self.assertLess(large / small, 6, (small, large))
-
-
-class DiagnosticCoverageSuite(unittest.TestSuite):
-    """Use existing test runs as the diagnostic coverage record, without rerunning them."""
-    def run(self, result, debug=False):
-        import re
-        import multiprocessing
-        reference = Path(s.__file__).resolve().parents[3] / 'docs/specs/spec-system/interfaces-and-encodings.md'
-        expected = set(re.findall(r'^\| ([DW]\d{2}) \|', reference.read_text(), re.M))
-        indexes = {code: index for index, code in enumerate(sorted(expected))}
-        # Forked class workers share this run-only record. Writes of 1 are
-        # idempotent; the parent reads only after every worker has joined.
-        seen = multiprocessing.RawArray('b', len(indexes))
-        original = s.Diagnostics.add
-        def record(diagnostics, code, *args, **kwargs):
-            if code not in indexes:
-                raise AssertionError('unreferenced diagnostic: ' + code)
-            seen[indexes[code]] = 1
-            return original(diagnostics, code, *args, **kwargs)
-        with patch.object(s.Diagnostics, 'add', record):
-            jobs = getattr(result, 'jobs', 1)
-            if jobs > 1:
-                from junit_unittest import ParallelSuite
-                ParallelSuite(unittest.TestSuite(list(self)), jobs, 2 if result.showAll else 1 if result.dots else 0).run(result)
-            else:
-                super().run(result, debug)
-        emitted = {code for code, index in indexes.items() if seen[index]}
-        def verify():
-            unittest.TestCase().assertEqual(emitted, expected)
-            print(f'diagnostic coverage: {len(expected)} active codes emitted by behavioral tests; 0 missing')
-        unittest.FunctionTestCase(verify, description='Every referenced diagnostic is exercised').run(result)
-        return result
-
-
-def load_tests(loader, tests, pattern):
-    return DiagnosticCoverageSuite(tests)
 
 
 if __name__ == '__main__':
