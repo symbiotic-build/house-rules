@@ -1092,7 +1092,7 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 
 **Amendment:** Amended 2026-10-27 by operator decision: the line names its repair when it has one.
 
-**Reason:** A session without any House Rules would follow no rules at all, which is worse than following the default rules while knowing they are not the repository's. The labelled line keeps the difference visible to the agent, and the repair says how to get the right rules.
+**Reason:** A session without any House Rules would follow no rules at all, which is worse than following the default rules while knowing they are not the repository's. The labelled line keeps the difference visible to the agent, and the repair, when the line has one, says how to get the right rules.
 
 **Rejected alternatives:** Printing only the failure: the agent would work without any shared rules. Printing the default rules without a label: the agent could not tell they are a substitute.
 
