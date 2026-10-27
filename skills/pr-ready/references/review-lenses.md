@@ -7,7 +7,7 @@ same defects, so a full panel does not run plain generalists. The code targets a
 1. [`correctness-security`](../../../prompts/lenses/correctness-security.md): wrong
    results, invariants, error paths, authorization, secrets, input handling.
 2. [`concurrency-restarts`](../../../prompts/lenses/concurrency-restarts.md): concurrent
-   callers, crash and restart at each step, retries, replay, durability, bounds.
+   callers, interruptions under its failure inventories, retries, replay, durability, bounds.
 3. [`spec`](../../../prompts/lenses/spec.md): the change against its issue,
    specification and settled decisions.
 4. [`waste`](../../../prompts/lenses/waste.md): simplicity, dead code, duplication,

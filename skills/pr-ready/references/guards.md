@@ -12,7 +12,8 @@ fit, root causes and spec intent. Test logging, pruning and testing constraints:
 [pr-ready §3](../SKILL.md#3-review-rounds).
 
 There are no fixed caps on blocking findings or filed issues. The triager decides by
-severity and deduplication; all critical findings block. Capacity never skips or degrades
+severity and deduplication under [Finding rules](../../../prompts/util/finding-rules.md);
+all critical findings that qualify block. Capacity never skips or degrades
 a guard. Only token exhaustion stops guard work, and it goes to the operator with the
 unfinished work identified. This does not waive safety controls or operator stop requests.
 One exception: an audit unit that makes no progress in two consecutive waves is deferred

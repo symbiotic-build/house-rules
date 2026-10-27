@@ -125,8 +125,8 @@ The tracker is worked every session, not only written to at the end.
    changed since its latest claim. Continue items you own before starting new ones; when a
    request matches an existing item, work under that item instead of creating a duplicate.
 2. **Update as it happens.** Record each Status change in Git (a handoff record) and, when
-   reachable, set it on the host and mirror. File each accepted finding, deferral, scoped-out piece, or
-   follow-up as a work item in the owning repository when it arises, not at the end, and
+   reachable, set it on the host and mirror. File each accepted finding or follow-up, deferral, or
+   scoped-out piece as a work item in the owning repository when it arises, not at the end, and
    link it from the item, PR, review, or document that set it aside. A line such as
    "deferred", "not done here" or "belongs to the other side" in any document, PR, or
    handoff carries that item's link.

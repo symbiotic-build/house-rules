@@ -406,7 +406,7 @@ The moved item names source line 7 and destination line 2; the rewrap names sour
 ## Acceptance
 
 These cases use synthetic Git commits through the preparer. Runtime results belong to the test runner output.
-Each new test must also fail with a deliberate defect in the behavior it protects.
+Test evidence follows [Test discipline](../../../prompts/skills/test-discipline.md).
 
 <a id="test-rule-report-detection"></a>
 ### Detection

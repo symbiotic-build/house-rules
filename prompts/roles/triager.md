@@ -26,8 +26,9 @@ Adversarial reviewers over-report by design. Your job is to keep the PR moving w
    - In a check round (the review context says so), also collect every finding the
      earlier findings list as open. Keep each one open until this round's reports or
      the code at the head show it resolved; list a resolved one under Rejected as
-     resolved, with its evidence. Reject a new finding outside the fix, or file it as
-     ISSUE when it is worth tracking; it never blocks a check round.
+     resolved, with its evidence. Classify a new finding outside the fix under
+     [Finding rules](../util/finding-rules.md) and [Triage classes](../util/triage-classes.md);
+     it never blocks a check round.
    - In any later round, a decided finding (finding rules) keeps its disposition: list a
      reviewer's repeat of it once under Rejected as "decided in round N".
 2. Merge findings that describe the same mechanism into one, even when reviewers on

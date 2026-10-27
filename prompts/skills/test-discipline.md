@@ -15,9 +15,8 @@ stay green when it does not. Write the tests that do that and no others.
   code. Never paste current output in as the expectation; a test that records current
   behavior before a refactor says so in its name. *Check:* each expected value traces to
   its source.
-- **Shown failing once.** A regression test fails on the commit before its fix. Any other
-  new or changed test fails under a deliberate small defect in the code it protects. The
-  report names the defect and the failing result. *Check:* the report carries both.
+- **Shown failing once.** A regression test fails on the commit before its fix. The
+  regression report names the defect and the failing result. *Check:* the report carries both.
 - **One behavior per test,** named as condition and outcome; variants go in one
   table-driven test. *Check:* a failure names the behavior that broke.
 - **Assert the whole relevant result once.** No assertion that only checks "no error",
@@ -69,7 +68,8 @@ stay green when it does not. Write the tests that do that and no others.
 
 ### Systems that keep durable state
 
-Storage engines, indexes, queues, ledgers and similar systems add the rules below. The
+Storage engines, indexes, queues, ledgers and similar systems apply each requirement in
+this section only as far as the component's declared failure model needs it. The
 repository's rules name the parts in this class.
 
 - **Invariants in the spec.** The spec author states system-level and operation-level

@@ -23,13 +23,15 @@ concrete scenario.
 Challenge the spec as well: report contradictions, infeasible or unmeasurable requirements,
 undefined cases and evidently worse designs under Spec issues; a spec issue blocks only
 when the code faithfully implements a wrong spec.
+Each specification or design guarantee must pass the real-use test in
+[Finding rules](finding-rules.md) before approval.
 
 Stance: adversarial. Assume the change contains defects until you have tried to break it.
 For every changed function, path and document section, attack it: concurrent callers and
-interleavings, crash and restart at each step, retries and replay, boundary and malformed
-inputs, authorization and confidentiality on every path, error paths, resource bounds, and
-contradictions between code, tests, docs and the spec. A targeted reviewer applies these
-attacks within its lens. An attack that finds no real-use trigger is a Follow-up.
+interleavings, retries and replay, boundary and malformed inputs, authorization and
+confidentiality on every path, error paths, resource bounds, and contradictions between
+code, tests, docs and the spec. A targeted reviewer applies these attacks within its lens.
+Apply [Finding rules](finding-rules.md) to attacks without a real-use trigger.
 Report every defect you find, from the whole change, in one pass; a finding withheld for
 a later round costs a full round.
 
@@ -41,15 +43,14 @@ Place each item honestly:
   real use, with the code path cited ([Finding rules](finding-rules.md)); a contradiction
   of a written requirement or settled decision (quote it); an internal inconsistency; a
   cost defect or design finding with the evidence above; or concrete waste as defined
-  above. A suspected defect whose real-use trigger you could not trace goes under
-  Follow-ups, with the missing evidence named.
+  above. Suspected defects follow [Finding rules](finding-rules.md) for missing evidence
+  and disposition.
 - Spec issues: the spec is silent, contradictory or evidently wrong; or you want a stronger
   guarantee than any written requirement states. Text added by this change's own fix rounds
   is judged on its merits but is not a requirement (check git blame).
-- Follow-ups and Non-blocking: everything else worth knowing. For design documents, a new
-  edge case or recovery detail that no settled rule contradicts may be a Follow-up (an
-  acceptance case or tracked issue for implementation). Design-finding disposition
-  follows [Cost and design findings](cost-and-design.md).
+- Follow-ups and Non-blocking: everything else worth knowing, subject to
+  [Finding rules](finding-rules.md), including new edge cases and recovery details in design
+  documents. Design-finding disposition follows [Cost and design findings](cost-and-design.md).
 
 Settled-decision disagreements follow [Code canon](../skills/code-canon.md).
 Repairs to mechanisms added in earlier fix rounds follow
