@@ -66,7 +66,7 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   query values are redacted from warnings, errors and prompts. Mandatory documentation context
   that requires this redaction is refused before publication or dispatch, using the same
   policy from the pinned preparer. Its source bytes and provenance are never rewritten. A later GitHub read failure names the failed source and preserves already
-  fetched context. Comments are capped at 4,000 characters with a cut notice.
+  fetched context. Comments go in whole; the prompt size guard bounds the total.
   Codex defaults to `structured`, others to `pack` (file index and hunk headers);
   `--format diff` omits legacy spec content. `--format` overrides defaults.
   The structured change opens with two lists: the changed files shown whole, and the files
