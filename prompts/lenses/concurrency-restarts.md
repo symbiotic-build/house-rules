@@ -4,9 +4,7 @@ Look for:
 - Two at once: two callers, workers, processes or hosts running the changed code at the
   same time; check-then-act races, lost updates, lock order and deadlock, shared state
   without ownership.
-- Crash or restart at each step: for every write, what a crash just before and just
-  after it leaves on disk or in remote systems, and whether the next start recovers,
-  repeats or skips the step.
+- Crash or restart: apply the interruption trace below to writes and recovery paths.
 - Durability: data reported as saved before it is synced; rename, sync and directory
   sync order; temporary files left behind; recovery that trusts a half-written file.
 - Retries and replay: a retried request or replayed event applied twice; idempotency
@@ -42,11 +40,11 @@ Out of scope (owning lens):
    available at the gate, and behavior after restart when only retained state remains. The deciding line shows
    positive evidence that this cause is permitted; a shared marker, a flag that a marker exists or a generic error does
    not.
-4. **Failure-origin table.** One row per fallible stage reachable through each changed retry, replacement or recovery
-   chain, including unchanged callees: selection, preparation, reservation, execution, output capture, persistence,
-   restoration, cleanup, parsing, validation and publication. Columns: producer and line, work already completed,
+4. **Failure-origin table.** One row per failure the code or a dependency is shown to produce through each changed
+   retry, replacement or recovery chain, including unchanged callees. Cite its producer: the call, documented
+   dependency behaviour or observation. Columns: producer and line, work already completed,
    category at the handler, handler action, and the final caller-visible result. Trace a successful external
-   operation followed by each host-side failure, and a setup failure followed by a later successful alternative.
+   operation followed by each such host-side failure, and a setup failure followed by a later successful alternative.
    Logging an error, or keeping an earlier failure, does not deliver the new cause to the caller; a guard for one
    category does not cover the others.
 5. **Retained-state table.** One row per identity, assignment, exclusion, counter or result copied into a later attempt
@@ -54,9 +52,10 @@ Out of scope (owning lens):
    the alternative fails while the original is available again. Derive the complete candidate set of the second cycle,
    combine newly selected work with what was retained, and count actual dispatches per logical item to find
    duplicates.
-6. **Interruption trace.** For every multi-step durable operation and recovery path, trace on paper a stop after each
-   step, including before the first durable record and after each replacement write; then the restart through the
-   normal entry point and a second stop during recovery. Recovery never reports success after a failed cleanup, never
+6. **Interruption trace.** For each interruption the code or a dependency is shown to produce in a multi-step durable
+   operation, cite its producer as in the failure-origin table. Trace the stop and restart through the normal entry
+   point. Review interrupted recovery only where a spec names it and the code still implements that spec, under
+   [Finding rules](../util/finding-rules.md). Recovery never reports success after a failed cleanup, never
    destroys another owner's state, and invalidates results derived from replaced inputs.
 7. **Bounds table.** One row per resource the change uses: memory, disk, file handles, processes, queue length,
    retries, timeouts, fan-out and scans. Columns: owner, and worst case at the minimum, default and maximum supported

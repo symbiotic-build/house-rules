@@ -30,10 +30,11 @@ Out of scope (owning lens):
 
 ### Inventories for correctness and security
 
-1. **Failure table.** One row per fallible call in the changed call chains and per resource acquisition or ownership
-   transfer. Columns: returned error, exception or unwinding, the cleanup that runs, the work a return skips, and what
-   the caller sees. After each acquisition, list the operations that can throw or unwind, such as allocation and
-   construction, as their own rows; a row for a returned error, or a guard that only resets a flag, does not cover them.
+1. **Failure table.** One row per failure the code or a dependency is shown to produce in the changed call chains,
+   including resource acquisition and ownership transfer. Cite its producer: the call, documented dependency behaviour
+   or observation. Columns: returned error, exception or unwinding, the cleanup that runs, the work a return skips,
+   and what the caller sees. Include allocation or construction failures only with such evidence; a row for a returned
+   error, or a guard that only resets a flag, does not cover a demonstrated exception or unwind.
    Trace each error's cause and category to the final caller-visible result, through every wrapper and
    serialization. Partial success never reports success. Trace sequential propagation yourself; the retry, replacement
    and recovery that follow a failure belong to the concurrency reviewer.

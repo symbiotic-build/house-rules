@@ -7,9 +7,12 @@ when people or its own services use it as documented, including routine restarts
 deploys of a service. A trigger that depends on behaviour outside the repository (a model
 provider, the operating system, the Git host, the network) also cites an observation of
 that behaviour: a log, a failed run, an incident record or the system's own documentation
-of it. A case that a written requirement or declared boundary names explicitly, such as
-"a crash at any step recovers", is real use for that requirement. A probe or test that
-builds the triggering state by hand shows the consequence, not that real use reaches it.
+of it. A case that a written requirement or declared boundary names explicitly is real
+use only when that text names a real trigger: who or what produces the state in real use.
+It counts only while the code still matches that requirement. Specifications and design
+documents can be out of date; a guarantee the code no longer implements is not evidence.
+A probe or test that builds the triggering state by hand shows the consequence, not that
+real use reaches it.
 "Real use can produce this state" is a claim, not evidence: it needs the code path in the
 current product that produces the state, or an observation of it. When the context shows
 that real use does not hold the triggering state, for example a deployment record without
@@ -29,7 +32,7 @@ These never block, whatever their consequence:
 - "could happen if": a consequence that depends on a future change or an unobserved event.
 
 Reviewers report such an item under Follow-ups with the missing evidence named. Triage
-rejects it as NITPICK, or files it as ISSUE when it is worth tracking.
+rejects it as NITPICK. An issue is filed only when the operator asks for one.
 
 A finding an earlier triage of the same pull request rejected, filed as an issue or sent
 to a lead decision is decided. Nobody raises a decided finding again, in any round or
@@ -46,8 +49,8 @@ and a missing extra layer where another layer already blocks the attack, are har
 notes: non-blocking, never Blocking defects.
 
 A lead that depends on a fact outside the repository (a proxy setting, branch protection,
-a deployed configuration) is reported with the missing fact named. Triage files it as
-ISSUE naming that fact; it is never FALSE, because the repository alone cannot refute it.
+a deployed configuration) is reported with the missing fact named. Apply the real-use
+test and disposition above; the repository alone cannot refute the outside fact.
 
 A finding about a hard-coded credential cites the file, line and symbol, never the line's
 text.

@@ -145,10 +145,9 @@ Specialist dispatch follows
 - **Review reassessment.** After three fix rounds on one PR or design record, stop for a
   lead decision to simplify or split; first rerun the
   [premise check](../../prompts/util/premise-check.md) and record why; at most three
-  fix rounds run per PR. Follow-ups are
-  tracked before merging and never hold
-  the merge; finding disposition follows the
-  [shared review bar](../../prompts/util/review-bar.md).
+  fix rounds run per PR. Follow-up tracking follows the
+  [shared review bar](../../prompts/util/review-bar.md); qualifying follow-ups are tracked
+  before merging and never hold the merge.
   A slower reviewer's findings on an older head feed the next fix round; its fixer
   never pushes onto a head that moved. Merge eligibility has one home: §4.
 - **Repeat defects.** Use the repair order in
