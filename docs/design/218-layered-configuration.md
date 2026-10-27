@@ -80,7 +80,7 @@ Each technical term below links to its defining Markdown section.
 - [Source layer](218-layered-configuration.md#source-layer) (`layered-configuration.source-layer`) — A source layer is one entry of sources: a Git repository, named by name and url, at one ref.
 - [Version cache](218-layered-configuration.md#version-cache) (`layered-configuration.version-cache`) — The version cache is the per-user folder that holds one read-only file tree per commit, and each source's branch and tag answers.
 - [Version resolution](218-layered-configuration.md#version-resolution) (`layered-configuration.version-resolution`) — Version resolution is the procedure that turns each source layer's ref into one commit and makes that commit's files available in the version cache.
-- [Check configuration](194-repository-checks.md#check-configuration) (`repository-checks.check-configuration`) — A check configuration is the versioned JSON file house-rules.json at the repository root that names the repository's House Rules source layer and declares its checks.
+- [Check configuration](194-repository-checks.md#check-configuration) (`repository-checks.check-configuration`) — A check configuration is the versioned JSON file house-rules.json at the repository root that lists the repository's source layers and declares its checks.
 - [Check definition](194-repository-checks.md#check-definition) (`repository-checks.check-definition`) — A check definition is one command, the stages it runs at, the files it reads and how its result is read.
 - [Check installation](194-repository-checks.md#check-installation) (`repository-checks.check-installation`) — Check installation is the repository-checks procedure that writes a clone's Git hooks and clone setting and a repository's CI step; it never writes the configuration.
 - [Check run report](194-repository-checks.md#check-run-report) (`repository-checks.check-run-report`) — A check run report is the runner's account of one run and of each check in it.
@@ -411,10 +411,10 @@ It runs once per run of any consumer, so every part of one run uses one set of c
 > - A release tag resolves like a branch. Each run asks the remote, reuses an answer younger than 60 s, and falls back to the tag's last record when the remote cannot be reached. A tag moved on the remote is therefore followed at the next run that asks, the same as CI with an empty cache follows it. A tag the remote does not have stops resolution with the missing-tag message. A tag with no record while the remote cannot be reached stops with "run again when online".
 > - Fetching a commit by its identity needs a server that allows it. GitHub does. A server that refuses stops resolution with an error that names the commit and the server's answer.
 > - Every `ls-remote` and fetch passes `-c http.lowSpeedLimit=1 -c http.lowSpeedTime=30`, so Git stops a transfer that moves less than 1 byte per second for 30 s. Resolution adds no timer of its own, except in hook mode.
-> - In hook mode (`house-rules exec --hook`), the agent product kills the hook after its timeout, 10 s, which would leave no visible line. `exec` owns one deadline, 8 s after the hook starts: `ls-remote`, fetches and the started script all share it. Local preparation, a linked checkout's inspection and the transport processes Git starts are outside it, as the [hook deadline decision](#decision-hook-deadline) records; such work that runs past the host's timeout leaves no visible line. `exec` passes it to the script in [`HOUSE_RULES_DEADLINE`](#environment-variables), so the script knows the time left. At the deadline during resolution, a branch or tag takes the [offline resolution](#offline-use) path with the warning "the remote did not answer within 8 s", and a layer with nothing cached stops with the resolution failure below. A script that reaches the deadline stops its slow work and prints a visible line that names what was cut short. This is the one place House Rules stops on elapsed time, because the host's timeout is not progress-based and a killed hook reports nothing.
+> - In hook mode (`house-rules exec --hook`), the agent product kills the hook after its timeout, 10 s, which would leave no visible line. `exec` owns one deadline, 8 s after the hook starts: `ls-remote`, fetches and the started script all share it. Local preparation, a linked checkout's inspection and the transport processes Git starts are outside it, as the [hook deadline decision](#decision-hook-deadline) records; such work that runs past the host's timeout leaves no visible line. `exec` passes it to the script in [`HOUSE_RULES_DEADLINE`](#environment-variables), so the script knows the time left. At the deadline during resolution, a branch or tag takes the [offline resolution](#offline-use) path with the warning "the server did not answer within 8 s", and a layer with nothing cached stops with the resolution failure below. A script that reaches the deadline stops its slow work and prints a visible line that names what was cut short. This is the one place House Rules stops on elapsed time, because the host's timeout is not progress-based and a killed hook reports nothing.
 > - Messages show each URL as written, because a source URL never carries credentials. A message that refuses a URL never shows it, because it may hold the credentials it refuses.
 
-`house-rules exec` passes the resolution to the script it starts in [`HOUSE_RULES_RESOLVED`](194-repository-checks.md#runner-environment-variables). The script uses it and resolves nothing again.
+`house-rules exec` passes the resolution to the script it starts in [`HOUSE_RULES_RESOLVED`](194-repository-checks.md#runner-environment-variables). The script uses it and resolves nothing again. The record is an internal interface that only `house-rules exec` writes: a script uses a record of `version` 1 as written, ignores a record of any other version and resolves itself, and a hand-written record is outside the contract.
 
 <a id="version-cache"></a>
 ### Version cache
@@ -457,7 +457,7 @@ A machine without a network keeps working on the rules it last fetched, and ever
 >
 > ```text
 > warning: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …); using team-rules main as last answered 2026-10-24T09:00:01Z, 7c2e19d04b3a5f6e7d8c9b0a1f2e3d4c5b6a7f80
-> house-rules: cannot reach https://git.example.com/team/team-rules (fatal: unable to access …) and no earlier fetch of team-rules main is cached; run again when online
+> house-rules: team-rules branch main, which this repository requires, cannot be downloaded from https://git.example.com/team/team-rules: fatal: unable to access …; run again when online
 > ```
 
 <a id="failure-resolution"></a>
@@ -467,7 +467,7 @@ This refusal keeps a consumer from using layers it could not resolve completely.
 
 **Trigger:** The [repository configuration](#repository-configuration) or a [ruleset](#ruleset) is invalid; a branch or commit does not exist at its URL; a remote cannot be reached and the cache holds nothing usable for that layer; a link is broken; the cache cannot be written; or the hook-mode deadline passes with a layer uncached.
 
-**Outcome:** The command exits 2 and prints one line on standard error with the cause and its repair, as [Messages](#messages) lists. A checks run stops as the repository checks design's preparation failure does. A session hook prints the same line as a `HOUSE RULES HOOK ERROR:` line, then follows the [session fallback decision](#decision-session-fallback).
+**Outcome:** The command exits 2 and prints one line on standard error with the cause, and its repair when it has one, as [Messages](#messages) lists. A checks run stops as the repository checks design's preparation failure does. A session hook prints the same line as a `HOUSE RULES HOOK ERROR:` line, then follows the [session fallback decision](#decision-session-fallback).
 
 **Retained state:** Trees already complete stay in the cache and are used by the next resolution. No branch or tag record is replaced for a layer whose fetch failed. A temporary fetch folder is removed, or, when the process was killed, stays until the cache is cleared. When the cache cannot be written, the cache keeps what it held before.
 
@@ -625,7 +625,7 @@ Agent session hooks put House Rules rules into an agent's context at session sta
 - **Machine index.** The script reads this computer's `custom/INDEX.md` from the global configuration folder (`~/.config/house-rules/custom`) when that file exists, and from its own checkout otherwise.
 - **End-of-turn guard.** A local guard that names a House Rules tool, such as the PR watcher, names it through `house-rules exec`, so the tool's revision matches the repository's.
 
-A failed resolution never stops a session from starting. The hook prints the [resolution failure](#failure-resolution) line with its repair, then the House Rules files of the tree that `default` points to, under a line that says they are the global default's rules, not this repository's, and that the repository's custom layers are missing. The [session fallback decision](#decision-session-fallback) records why. The script it starts gets no resolution record. When `default` or its tree is missing too, for example after the cache was cleared, the hook prints the failure line, then "No House Rules tree is cached, so this context holds no House Rules; fix the cause above and start a new session.", and no rules.
+A failed resolution never stops a session from starting. The hook prints the [resolution failure](#failure-resolution) line, with its repair when it has one, then the House Rules files of the tree that `default` points to, under a line that says they are the global default's rules, not this repository's, and that the repository's custom layers are missing. The [session fallback decision](#decision-session-fallback) records why. The script it starts gets no resolution record. When `default` or its tree is missing too, for example after the cache was cleared, the hook prints the failure line, then "No House Rules tree is cached, so this context holds no House Rules; fix the cause above and start a new session.", and no rules.
 
 Agent-home skill links serve every repository at once, so they follow the global default sources. They point through the cache's `default` link, which each resolution of the global default moves to its House Rules tree. `house-rules install` resolves the global default before it registers any link, so the link target exists; when that resolution fails, the install stops with its message and registers nothing.
 In a repository whose House Rules commit differs from the global default's, the first context part names the repository's tree and says to read skill files there.
@@ -1084,13 +1084,15 @@ A per-clone `house-rules.local.json` for budgets was dropped by a lead decision 
 <a id="decision-session-fallback"></a>
 ### Decision: a session with a failed resolution gets the global default's rules, labelled
 
-**Choice:** When resolution fails in a session hook, the hook prints the failure with its repair, then the global default's House Rules files under a line that says they are not this repository's resolved rules and that its custom layers are missing.
+**Choice:** When resolution fails in a session hook, the hook prints the failure, with its repair when it has one, then the global default's House Rules files under a line that says they are not this repository's resolved rules and that its custom layers are missing.
 
 **Authority:** Operator decision, 2026-10-24, relayed by the lead: the operator answered "3. 1" to the question "What should a session get when its repository's layers cannot be resolved? 1. The error and repair, then the global default's rules with that label (recommended)." The lead had proposed it on the accepted finding of the same triage that substitute rules need an explicit decision.
 
-**Extension:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 14 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed that clearing the cache removes `default` and its tree, so a later failed resolution has no tree to fall back to. The session then gets the failure line with its repair and the line "No House Rules tree is cached, so this context holds no House Rules; fix the cause above and start a new session.", and no rules. The extension adds no state: a second copy of the default tree outside the cache would need its own reason and a rule for keeping it current.
+**Extension:** Lead decision, 2026-10-24, on the blocking lead decision of the Warden round 14 triage of [#221](https://github.com/symbiotic-build/house-rules/pull/221), which showed that clearing the cache removes `default` and its tree, so a later failed resolution has no tree to fall back to. The session then gets the failure line, with its repair when it has one, and the line "No House Rules tree is cached, so this context holds no House Rules; fix the cause above and start a new session.", and no rules. The extension adds no state: a second copy of the default tree outside the cache would need its own reason and a rule for keeping it current.
 
-**Reason:** A session without any House Rules would follow no rules at all, which is worse than following the default rules while knowing they are not the repository's. The labelled line keeps the difference visible to the agent, and the repair says how to get the right rules.
+**Amendment:** Amended 2026-10-27 by operator decision: the line names its repair when it has one.
+
+**Reason:** A session without any House Rules would follow no rules at all, which is worse than following the default rules while knowing they are not the repository's. The labelled line keeps the difference visible to the agent, and the repair, when the line has one, says how to get the right rules.
 
 **Rejected alternatives:** Printing only the failure: the agent would work without any shared rules. Printing the default rules without a label: the agent could not tell they are a substitute.
 
@@ -1296,6 +1298,17 @@ A URL in Git's `<transport>::<address>` form is refused as well. Python's URL pa
 **Reason:** A handover between runner revisions is a protocol with two sides that must stay compatible across every pair of versions. A pushed commit's rules come from its own resolution; the runner's own code changes rarely.
 
 **Rejected alternatives:** Handing each snapshot to the runner of its resolved revision: one more process per snapshot and a version-to-version protocol.
+
+<a id="decision-download-failure"></a>
+### Decision: a download failure names the required version, its source and the cause
+
+**Choice:** Every failure to download a layer's commit has one form, built in one place of the resolver, so `exec`, agent sessions and the checks runner print the same line: the layer's version as the configuration writes it, the URL it comes from, the cause, and the repair that fits that cause. "Run again when online" is the repair only of a network cause. The [Messages](#messages) table lists the causes and their repairs.
+
+**Authority:** Operator decision, 2026-10-25, relayed by the lead after the #217 implementation brief. The operator wrote: "It should say that house-rules version x that this repo requires can't be downloaded because of x." It replaces the separate missing-branch, missing-tag, missing-commit and offline messages, and the checks runner's pre-push repair "push again when online".
+
+**Reason:** A reader of a refused commit, push or session needs to know which version the repository asked for, where from, and why it failed, without knowing which tool printed the line.
+
+**Rejected alternatives:** Keeping the per-case messages: four forms for one failure, and a network repair on causes that are not network ones. A pre-push repair of its own: one tool's wording for a failure every tool shares.
 
 <a id="decision-ruleset"></a>
 ### Decision: one ruleset file per rule repository, with one merge rule
@@ -1516,16 +1529,13 @@ A command environment variable is an environment variable of the [House Rules co
 | [ruleset](#ruleset) lists sources | `house-rules: <layer> <file>: only house-rules.json lists sources` | 2 |
 | unknown profile | `house-rules: profile <name> is defined by no layer (<layer names>)` | 2 |
 | missing reason | `house-rules: <layer> <key>: sets a field that <earlier layer> set; add a reason` | 2 |
-| missing branch | `house-rules: <layer>: no branch <branch> at <url>; check the ref in house-rules.json` | 2 |
 | SHA-256 source | `house-rules: <layer>: SHA-256 sources are not supported yet` | 2 |
-| missing tag | `house-rules: <layer>: no release tag <tag> at <url>; check the ref in house-rules.json` | 2 |
-| missing commit | `house-rules: <layer>: commit <commit> not found at <url> (<git error>); check the ref` | 2 |
-| offline, no record | `house-rules: cannot reach <url> (<git error>) and no earlier fetch of <layer> <ref> is cached; run again when online` | 2 |
+| [download failure](#decision-download-failure) | `house-rules: <layer> <version>, which <requirer> requires, cannot be downloaded from <url>: <cause>; <repair>` | 2 |
 | both [`HOUSE_RULES_LINK`](#environment-variables) and [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) set | "house-rules: set HOUSE_RULES_LINK or HOUSE_RULES_REVISION, not both" | 1 |
 | broken link | `house-rules: a linked checkout is not the root of a Git working tree; house-rules cache list shows the link, then run house-rules unlink with its checkout path: <layer> <url> -> <path>` | 2 |
 | cache not writable | [`house-rules: cannot write the cache <folder> (<system error>); free space, make it writable or set HOUSE_RULES_CACHE`](194-repository-checks.md#runner-environment-variables) | 2 |
 | old command | `house-rules: <file> has version <n>; this house-rules command knows version 2; install the newer command: python3 <House Rules checkout>/scripts/house_rules.py install` | 2 |
-| hook deadline | `warning: the remote did not answer within 8 s; using <layer> <ref> as last answered <time>, <commit>` | 0 |
+| hook deadline | `warning: the server did not answer within 8 s; using <layer> <ref> as last answered <time>, <commit>` | 0 |
 | source not allowed | `Warden: layer <name> at <url> is not an allowed source; ask the Warden operator to allow it` | review stops |
 
 The refused-URL `<reason>` is one of these texts:
@@ -1536,6 +1546,12 @@ The refused-URL `<reason>` is one of these texts:
 - `contains a NUL character`
 - `carries credentials; use a Git credential helper`
 - `uses Git's <transport>:: form, which this command does not accept; use a plain URL and a Git credential helper`
+
+In a download failure, `<version>` is the ref as the configuration writes it, with its kind: `branch <branch>`, `release tag <tag>` or `commit <commit>`. `<requirer>` is `this repository`, or `the default sources` without a repository configuration. For a [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) override, the version is that commit and the requirer is the variable. Each cause has its own repair:
+
+- The server cannot be reached and no earlier answer is cached. The cause is Git's first error line, or `the server did not answer within 8 s`. The repair is `run again when online`.
+- The cause is `the server has no branch <branch>`, `the server has no release tag <tag>` or `the server has no commit <commit> (<git error>)`. The repair is `check the ref in house-rules.json`. For an override, it says to set [`HOUSE_RULES_REVISION`](194-repository-checks.md#runner-environment-variables) to a commit of that source, or to unset it.
+- `the server names <commit> for it but does not send it (<git error>)`: `run again, or check the server`.
 
 For `link`, the message names `the --url value` or `remote.origin.url of <checkout>` in place of `<file>: sources[<i>]: the URL of <layer>`, and the exit status is 1.
 

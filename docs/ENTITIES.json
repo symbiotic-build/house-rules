@@ -480,7 +480,8 @@
         "anchor": "ruleset"
       },
       "scope": [
-        "layered-configuration"
+        "layered-configuration",
+        "repository-checks"
       ],
       "forms": [
         "ruleset",
@@ -496,7 +497,8 @@
         "anchor": "profile"
       },
       "scope": [
-        "layered-configuration"
+        "layered-configuration",
+        "repository-checks"
       ],
       "forms": [
         "repository profile",
@@ -528,7 +530,8 @@
         "anchor": "effective-configuration"
       },
       "scope": [
-        "layered-configuration"
+        "layered-configuration",
+        "repository-checks"
       ],
       "forms": [
         "effective configuration"
@@ -543,7 +546,8 @@
         "anchor": "version-resolution"
       },
       "scope": [
-        "layered-configuration"
+        "layered-configuration",
+        "repository-checks"
       ],
       "forms": [
         "version resolution"
@@ -558,7 +562,8 @@
         "anchor": "version-cache"
       },
       "scope": [
-        "layered-configuration"
+        "layered-configuration",
+        "repository-checks"
       ],
       "forms": [
         "version cache"
@@ -686,7 +691,8 @@
         "anchor": "run-placeholder-layer"
       },
       "scope": [
-        "layered-configuration"
+        "layered-configuration",
+        "repository-checks"
       ],
       "forms": [
         "run placeholder for layers"
