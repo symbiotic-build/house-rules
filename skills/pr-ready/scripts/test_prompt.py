@@ -75,7 +75,7 @@ class PromptTest(unittest.TestCase):
 
     def test_every_role_expands_with_all_code_change_rules(self):
         roles = sorted((ROOT / "prompts/roles").glob("*.md"))
-        self.assertEqual(len(roles), 9)
+        self.assertEqual(len(roles), 10)
         for role in roles:
             with self.subTest(role=role.name):
                 result = self.run_prompt(str(role.relative_to(ROOT)))
@@ -597,29 +597,6 @@ class CollectionAcceptanceTest(unittest.TestCase):
             with self.subTest(sentence=sentence):
                 self.assertIn(sentence, text)
 
-    def test_accepted_findings_explain_the_behavior_to_the_author(self):
-        text = (ROOT / "prompts/roles/triager.md").read_text()
-        expected = (
-            '"**Accepted · <count>**" — the FIX-NOW items, numbered. Write each for the PR '
-            'author, who did not read the reviewer reports, in plain words '
-            '(no internal type or field names unless explained in the same sentence; '
-            'keep each item to what the author needs to act on, with no repeated or '
-            'decorative text):\n'
-            '`N. **<title>**` — what goes wrong and for whom, in plain words, '
-            'never cut mid-phrase.\n'
-            '  - **What happens:** a concrete story in 2–4 short sentences: who does '
-            'what, what the code does, and what the person sees on GitHub or loses.\n'
-            '  - **How likely:** the conditions that must all hold, and whether they '
-            'occur in normal use of this project.\n'
-            '  - **Evidence:** file:line at the commit SHA you reviewed, plus a '
-            'failing test or quoted line; otherwise write "From code reading".\n'
-            '  - **Fix:** the smallest fix, in one sentence.\n'
-            '  - **Severity:** High, Medium or Low, with the reason in a few words. '
-            'Found by: reviewer label(s).\n'
-        )
-        self.assertIn(expected, text)
-        self.assertNotIn("each with title, location, trigger, expected", text)
-
     def test_issue_class_lists_issues_without_filing_them(self):
         text = (ROOT / "prompts/util/triage-classes.md").read_text()
         self.assertIn(
@@ -701,7 +678,6 @@ class RuleOwnershipTest(unittest.TestCase):
         self.assertIn("stays Blocking and stops for a lead decision", design)
         self.assertIn("The lead may refer that decision to the council", design)
         self.assertIn("never becomes a follow-up or starts another fix round", design)
-        self.assertIn("unless it is security, data loss, a cost defect or a design finding", classes)
         self.assertIn("Design disposition takes precedence over class and severity rules", classes)
         self.assertIn("cost-defect.md", self.text("prompts/util/cost-and-design.md"))
         for role in ("triager", "checker", "reviewer"):

@@ -180,6 +180,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/roles/advisor.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/roles/audit-gap-check.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."

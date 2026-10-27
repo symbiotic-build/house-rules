@@ -32,7 +32,8 @@ Out of scope (owning lens):
    behavior, including those the pull request defers or assigns elsewhere. Columns: requirement location,
    implementation location or "absent", proving test or "none", supported modes, effective command with wrappers and
    defaults expanded, and finding label. An absent or partial requirement has a finding label even when its
-   disposition is deferred or tracked. For selection by optional inputs, one row per reachable subset, compared with
+   disposition is deferred or tracked; one an earlier triage of this pull request decided gets "decided" instead
+   ([Finding rules](../util/finding-rules.md)). For selection by optional inputs, one row per reachable subset, compared with
    the subsets validated in advance.
 2. **Statement table.** Search the unchanged and changed documents for every promise and prohibition governing the
    changed behavior, including sentences with must, never, only, every, until or required. Read each whole paragraph.
