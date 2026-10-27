@@ -2246,8 +2246,6 @@ def _write_outputs(corpus, outputs, *, repair=False):
         errors = [d for d in errors if d not in existing and d.code != 'D17']
     if errors:
         raise SpecDocsError(Diagnostics(errors))
-    if corpus.source.root is None:
-        fail("D27", "cannot write output: snapshot has no working-tree destination", exit_code=2)
     for path, data in sorted(outputs.items()):
         target = corpus.source.root / path
         try:
@@ -2289,7 +2287,6 @@ def main(argv=None):
                         help="with link, convert repeated accepted home links to plain labels")
     args = parser.parse_args(argv)
     try:
-        validate_runtime()
         if args.prune_repeats and args.command != 'link':
             fail('D02', 'malformed invocation: --prune-repeats requires link', exit_code=2)
         if args.command == 'link' and (args.staged or args.rev or args.base or args.assignment):

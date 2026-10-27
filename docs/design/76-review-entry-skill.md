@@ -275,7 +275,9 @@ Updated tests:
   [#148](https://github.com/symbiotic-build/house-rules/pull/148) removed it, because it asserted rule wording.
   The rule-change review protects the core writing pointer and the writing-rule pointer to operator-writing.
 - Change `test_each_invariant_sentence_fits_twenty_words` to read the writing-rule §Communication rules.
-- Extend `test_moved_sections_have_one_rule_owner` to require each moved sentence only in the writing-rule owner.
+- Add no replacement for `test_moved_sections_have_one_rule_owner`.
+  [#267](https://github.com/symbiotic-build/house-rules/pull/267) removed it, because it asserted rule wording.
+  The rule-change review protects which rule owns each moved sentence.
 
 New tests:
 
