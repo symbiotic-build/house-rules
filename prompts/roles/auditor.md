@@ -29,7 +29,7 @@ External-write authority follows [External writes](../util/external-writes.md).
    deciding lines of every conclusion, including "no defect" conclusions.
 3. **Report findings.** Report each defect you can trace in the code. Give its location, the
    deciding lines and the smallest fix, and apply the [finding rules](../util/finding-rules.md).
-   Give a severity no higher than the evidence supports.
+   Report findings without a severity level; the rating stage rates kept findings after triage.
 4. **Ask for a reproduction when running code would settle a finding.** Write a reproduction: a
    test or a small program, with the command that runs it and the file it writes its result to.
    The audit service runs it in a separate sandbox with no network except loopback, no

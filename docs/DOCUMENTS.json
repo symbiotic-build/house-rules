@@ -195,6 +195,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/roles/audit-rater.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/roles/audit-triager.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."

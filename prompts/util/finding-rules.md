@@ -54,3 +54,35 @@ test and disposition above; the repository alone cannot refute the outside fact.
 
 A finding about a hard-coded credential cites the file, line and symbol, never the line's
 text.
+
+## Severity
+
+The audit rating stage runs after triage and returns one rating per kept finding.
+Auditors and audit triage do not assign severity levels.
+
+For security findings, the rating stage writes a Common Vulnerability Scoring System
+(CVSS) v4.0 base vector with a reason.
+The audit host validates the vector and computes its score and level.
+The model never writes a security finding's level.
+The host uses these score bands:
+
+| Score | Level |
+|---|---|
+| 9.0–10.0 | critical |
+| 7.0–8.9 | high |
+| 4.0–6.9 | medium |
+| 0.1–3.9 | low |
+| 0.0 | note |
+
+For design and correctness findings, the rating stage chooses a level from this rubric.
+Apply the real-use test above before choosing a level from the consequence and who meets it.
+
+- **critical:** The defect loses or corrupts data, or stops the product, for all users in
+  real use. No workaround exists.
+- **high:** The defect loses or corrupts data for some users or operations, or blocks a
+  main workflow. Wrong results qualify unless a less common path has a usable workaround.
+- **medium:** The defect gives wrong results on a less common path, or makes a main
+  workflow unreliable. A usable workaround exists.
+- **low:** The defect has a small effect users can see on an edge case in real use.
+- **note:** The finding has no effect users can see in real use today, such as a missing
+  test, missing documentation or a structural concern.
