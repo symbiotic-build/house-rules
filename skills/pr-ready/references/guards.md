@@ -11,9 +11,11 @@ fit, root causes and spec intent. Test logging, pruning and testing constraints:
 [prompts/skills/test-discipline.md §Test discipline](../../../prompts/skills/test-discipline.md). Review-round reassessment:
 [pr-ready §3](../SKILL.md#3-review-rounds).
 
-There are no fixed caps on blocking findings or filed issues. The triager decides by
-severity and deduplication under [Finding rules](../../../prompts/util/finding-rules.md);
-all critical findings that qualify block. Capacity never skips or degrades
+There are no fixed caps on blocking findings or filed issues. For pull-request review,
+the triager decides by severity and deduplication under
+[Finding rules](../../../prompts/util/finding-rules.md); all critical findings that qualify block.
+Audit triage keeps every real defect under those rules; rating follows triage.
+Capacity never skips or degrades
 a guard. Only token exhaustion stops guard work, and it goes to the operator with the
 unfinished work identified. This does not waive safety controls or operator stop requests.
 One exception: an audit unit that makes no progress in two consecutive waves is deferred
@@ -47,8 +49,11 @@ audited repository.
    and the next run audits deferred units again after planned and stale ones. The audit
    report shows each deferred unit with what its auditors tried and what blocked them (job
    failures, unreadable files, the gap check's reasons), so someone can repair the cause.
-5. **Triage and publish:** the [audit triager](../../../prompts/roles/audit-triager.md)
-   merges and verifies findings; the service publishes them.
+5. **Triage:** the [audit triager](../../../prompts/roles/audit-triager.md) merges and
+   verifies findings under the finding rules, keeping every real defect without rating or ranking findings.
+6. **Rate and publish:** the [audit rater](../../../prompts/roles/audit-rater.md) rates
+   every kept finding under [Finding rules](../../../prompts/util/finding-rules.md#severity).
+   The service publishes the rated findings.
 
 Later runs continue the coverage list. A checked unit becomes stale when a file in its
 paths or dependencies, its focus instructions, or a threat-model entry of its boundaries
