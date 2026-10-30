@@ -325,6 +325,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/util/triage-rules.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "rules/core.md",
       "kind": "other",
       "reason": "Shared operating rule owner, not a specification or design document."

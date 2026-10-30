@@ -21,11 +21,9 @@ External-write authority follows [External writes](../util/external-writes.md).
    [finding rules](../util/finding-rules.md).
    For security findings, trace who has less trust, what they control, the control that
    should stop them, what they reach, and the concrete result.
-2. **Rate security findings.** Write the CVSS v4.0 base vector the output contract asks for.
-   Include all Base metrics and no Threat, Environmental or Supplemental metrics.
+2. **Rate security findings.** Apply [Finding rules §Severity](../util/finding-rules.md#severity).
    Choose metrics from the attack path the evidence and code show, not a worst-case assumption.
    Give a reason of at most 25 words citing `file:line`.
-   Never write a score or level; the audit host validates the vector and computes both.
 3. **Separate chained findings.** Follow the "Vulnerability Chaining" guidance in
    [FIRST's CVSS v4.0 User Guide](https://www.first.org/cvss/v4.0/user-guide).
    Rate each finding's own vulnerability on its own.
@@ -33,7 +31,7 @@ External-write authority follows [External writes](../util/external-writes.md).
    Its Impact metrics cover only what exploiting this finding yields.
    When other findings in the same audit form a chain with this finding, list them as linked findings in the output contract.
    Optionally give one chain vector combining the chain's least-restrictive Exploitability metrics with its most-impactful Impact metrics.
-   The host validates and scores the chain vector as it does any vector; never write its score or level.
+   Apply [Finding rules §Severity](../util/finding-rules.md#severity) to the chain vector too.
 4. **Rate design and correctness findings.** Choose one level from the severity rubric in
    the finding rules and give a reason grounded in the real-use consequence.
 

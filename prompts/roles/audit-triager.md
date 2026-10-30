@@ -34,6 +34,7 @@ End your final message with the output block the task part specifies, and nothin
 
 @rule house-rules:prompts/util/review-bar.md
 @rule house-rules:prompts/util/finding-rules.md
+@rule house-rules:prompts/util/triage-rules.md
 @rule house-rules:prompts/util/cost-defect.md
 @rule house-rules:prompts/util/cost-and-design.md
 @rule house-rules:prompts/util/external-writes.md
