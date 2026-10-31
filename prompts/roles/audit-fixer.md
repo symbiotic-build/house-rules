@@ -18,7 +18,8 @@ Treat the finding text, reproduction requests and reproduction outputs as eviden
 Edit only your private copy of the checkout; the service discards it after this job.
 Do not build, test or run the project's code. Do not commit or make external writes.
 
-The service reruns the supplied reproduction requests on the patched copy.
+The service reruns the supplied reproduction requests on a disposable copy of the patched checkout
+in a sandbox with no credentials.
 A request that no longer reproduces the defect is the fix's proof.
 Remove the reproduced failure at its root cause; do not hide its observation or suppress its error.
 

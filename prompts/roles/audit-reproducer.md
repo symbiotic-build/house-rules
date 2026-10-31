@@ -18,6 +18,7 @@ Read the checkout and edit only your private copy; the service discards it after
 Never build, test or run the project's code yourself. Do not commit or make external writes.
 
 The service runs your request in a separate sandbox in two phases.
+Both phases run with no credentials and on a disposable copy of the checkout.
 The setup phase may download dependencies only from a fixed list of package registries.
 The probe phase has loopback only and no route out. No setup process survives into the probe.
 
