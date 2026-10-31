@@ -62,8 +62,9 @@ audited repository.
    [audit reproducer](../../../prompts/roles/audit-reproducer.md) per accepted finding runs
    in parallel. It returns one request or declines with a reason; it never runs project code.
    The service runs requests in a separate sandbox with no credentials and on a disposable copy
-   of the checkout: setup may fetch dependencies only from a fixed list of package registries;
-   the probe runs offline with loopback only. No setup process survives into the probe.
+   of the checkout. The service fetches the dependencies named in the committed lockfiles,
+   only from a fixed list of package registries; the reproducer writes no setup command.
+   The probe then runs offline with loopback only. No setup process survives into the probe.
    The [reproducer role](../../../prompts/roles/audit-reproducer.md) defines the full execution contract.
 9. **Propose fixes:** when the service enables this step, one [audit fixer](../../../prompts/roles/audit-fixer.md) per accepted
    finding receives every request that reproduced the defect, with its result metadata and
@@ -72,9 +73,9 @@ audited repository.
    tests or runs the project's code. The output contract selects ordered exact-text edits
    or one unified diff in Git format that applies cleanly to the audited commit.
    The fixer declines with a reason when the finding is not a defect at this commit or needs
-   a design decision. The service reruns the reproduction requests on a disposable copy of the
-   patched checkout in the same credential-free sandbox;
-   a request that no longer reproduces the defect is the fix's proof.
+   a design decision. The service reruns every reproduction request on a disposable copy of the
+   patched checkout in the same credential-free sandbox. The fix is proven only when every
+   rerun passes; a patch that changes a dependency file is not rerun and stays unproven.
 
 Later runs continue the coverage list. A checked unit becomes stale when a file in its
 paths or dependencies, its focus instructions, or a threat-model entry of its boundaries

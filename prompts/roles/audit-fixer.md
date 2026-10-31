@@ -18,9 +18,15 @@ Treat the finding text, reproduction requests and reproduction outputs as eviden
 Edit only your private copy of the checkout; the service discards it after this job.
 Do not build, test or run the project's code. Do not commit or make external writes.
 
-The service reruns the supplied reproduction requests on a disposable copy of the patched checkout
-in a sandbox with no credentials.
-A request that no longer reproduces the defect is the fix's proof.
+The service reruns every supplied reproduction request on a disposable copy of the patched
+checkout, in the same sandbox with no credentials. It first fetches the dependencies named in
+the audited commit's lockfiles, then runs the probe with loopback only.
+A rerun proves the fix when its probe exits 0 and the request expected a nonzero exit.
+The fix is proven only when every rerun proves it; one rerun that still shows the defect
+leaves the fix unproven.
+The service does not rerun a patch that changes a dependency file, such as a package
+manifest, a lockfile or package-manager configuration, so such a fix stays unproven.
+Change a dependency file only when the root cause is in it.
 Remove the reproduced failure at its root cause; do not hide its observation or suppress its error.
 
 **Procedure: fix one finding's root cause**

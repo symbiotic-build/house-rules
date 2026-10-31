@@ -19,8 +19,10 @@ Never build, test or run the project's code yourself. Do not commit or make exte
 
 The service runs your request in a separate sandbox in two phases.
 Both phases run with no credentials and on a disposable copy of the checkout.
-The setup phase may download dependencies only from a fixed list of package registries.
-The probe phase has loopback only and no route out. No setup process survives into the probe.
+First, the service fetches the dependencies named in the repository's committed lockfiles,
+downloading only from a fixed list of package registries. The service writes this step
+itself; your request contains only the probe and its inputs.
+Then your probe runs with loopback only and no route out. No setup process survives into the probe.
 
 **Procedure: request one reproduction**
 
@@ -32,13 +34,14 @@ The probe phase has loopback only and no route out. No setup process survives in
    a dummy tenant read by another, a sanitizer report, or an equally small observable effect.
    Never write an exploit beyond that effect. Never write to a database, API, webhook or
    upload endpoint. Never contact any network address from the probe.
-3. **Separate setup from the probe.** Put builds and dependency fetching in the optional
-   setup command, using only the allowed package registries. Make the probe work offline
-   without a surviving setup process. Do not rely on services started during setup.
-4. **Return one reproduction request.** Supply the synthetic input files, the optional setup
-   command, the probe command, the output file and the probe exit code that demonstrates
-   the defect. Follow the task part's output contract. Do not claim an observed result;
-   the service runs the request and records the observation.
+3. **Write an offline probe.** The probe may use only the checkout, your synthetic inputs and
+   the dependencies the committed lockfiles name. It runs without network access and without
+   any process or service started before it. When the effect needs another dependency or a
+   network service, decline with a one-sentence reason.
+4. **Return one reproduction request.** Supply the synthetic input files, the probe command,
+   the output file and the probe exit code that demonstrates the defect. Follow the task
+   part's output contract. Do not claim an observed result; the service runs the request and
+   records the observation.
 
 End your final message with the output block the task part specifies, and nothing after it.
 
