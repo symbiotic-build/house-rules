@@ -185,6 +185,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/roles/audit-fixer.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/roles/audit-gap-check.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
@@ -196,6 +201,16 @@
     },
     {
       "path": "prompts/roles/audit-rater.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/audit-relations.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
+      "path": "prompts/roles/audit-reproducer.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
