@@ -76,7 +76,8 @@ class PromptTest(unittest.TestCase):
     def test_every_role_expands_with_all_code_change_rules(self):
         roles = sorted((ROOT / "prompts/roles").glob("*.md"))
         self.assertEqual({role.stem for role in roles}, {
-            "advisor", "audit-gap-check", "audit-map", "audit-rater", "audit-triager",
+            "advisor", "audit-fixer", "audit-gap-check", "audit-map", "audit-rater",
+            "audit-relations", "audit-reproducer", "audit-triager",
             "auditor", "checker", "fixer", "implementer", "reviewer", "triager",
         })
         for role in roles:

@@ -19,7 +19,7 @@ Capacity never skips or degrades
 a guard. Only token exhaustion stops guard work, and it goes to the operator with the
 unfinished work identified. This does not waive safety controls or operator stop requests.
 One exception: an audit unit that makes no progress in two consecutive waves is deferred
-until the next run ([Daily whole-system audit](#daily-whole-system-audit), step 4).
+until the next run ([Daily whole-system audit](#daily-whole-system-audit), step 5).
 
 ## Daily whole-system audit
 
@@ -38,22 +38,41 @@ audited repository.
 2. **Check the accounting:** code, not a model, checks that every top-level file and
    directory belongs to a unit of each selected focus or is set aside with a reason
    (vendored, generated or documentation). A gap fails the run before any auditor starts.
-3. **Audit in waves:** one auditor per open unit
+3. **Find relations:** when the service enables this step, one read-only
+   [relations job](../../../prompts/roles/audit-relations.md) per unit runs in parallel.
+   It cites dependents outside the unit that consume its outputs, and shared mutable state
+   with every writer and its hazard. Each auditor receives the
+   unit's relations or an explicit unavailable marker.
+4. **Audit in waves:** one auditor per open unit
    ([auditor role](../../../prompts/roles/auditor.md)) records checked line ranges with
-   cited deciding lines. An auditor may ask for a reproduction; it runs only in a separate
-   sandbox with no network except loopback, no credentials and a disposable copy.
-4. **Check the gaps:** after each wave, one agent
+   cited deciding lines. Auditors read and search only; they never run the audited code.
+5. **Check the gaps:** after each wave, one agent
    ([gap-check role](../../../prompts/roles/audit-gap-check.md)) reopens units whose rows
    lack cited evidence. Open units return to the next wave of the same run. A unit with no
    progress in two consecutive waves is deferred with "no progress"; the others continue,
    and the next run audits deferred units again after planned and stale ones. The audit
    report shows each deferred unit with what its auditors tried and what blocked them (job
    failures, unreadable files, the gap check's reasons), so someone can repair the cause.
-5. **Triage:** the [audit triager](../../../prompts/roles/audit-triager.md) merges and
+6. **Triage:** the [audit triager](../../../prompts/roles/audit-triager.md) merges and
    verifies findings under the finding rules, keeping every real defect without rating or ranking findings.
-6. **Rate and publish:** the [audit rater](../../../prompts/roles/audit-rater.md) rates
+7. **Rate and publish:** the [audit rater](../../../prompts/roles/audit-rater.md) rates
    every kept finding under [Finding rules](../../../prompts/util/finding-rules.md#severity).
    The service publishes the rated findings.
+8. **Request reproductions:** when the service enables this step, after triage and rating, one
+   [audit reproducer](../../../prompts/roles/audit-reproducer.md) per accepted finding runs
+   in parallel. It returns one request or declines with a reason; it never runs project code.
+   The service runs requests in a separate sandbox: setup may fetch dependencies only from
+   a fixed list of package registries; the probe runs offline with loopback only.
+   No setup process survives into the probe.
+9. **Propose fixes:** when the service enables this step, one [audit fixer](../../../prompts/roles/audit-fixer.md) per accepted
+   finding receives every request that reproduced the defect, with its result metadata and
+   observation file. It writes a root-cause fix and a regression test where the repository
+   has a test layout for it. It edits only a disposable private checkout and never builds,
+   tests or runs the project's code. The output contract selects ordered exact-text edits
+   or one unified diff in Git format that applies cleanly to the audited commit.
+   The fixer declines with a reason when the finding is not a defect at this commit or needs
+   a design decision. The service reruns the reproduction requests on the patched copy;
+   a request that no longer reproduces the defect is the fix's proof.
 
 Later runs continue the coverage list. A checked unit becomes stale when a file in its
 paths or dependencies, its focus instructions, or a threat-model entry of its boundaries
