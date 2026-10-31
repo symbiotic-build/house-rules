@@ -52,6 +52,7 @@ End your final message with the output block the task part specifies, and nothin
 @rule house-rules:prompts/skills/native-first.md
 @rule house-rules:prompts/skills/no-fortification.md
 @rule house-rules:prompts/skills/test-discipline.md
+@rule house-rules:prompts/skills/local-builds.md
 @rule house-rules:prompts/skills/naming-defaults.md
 
 @rule house-rules:rules/writing.md

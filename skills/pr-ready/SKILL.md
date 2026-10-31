@@ -7,8 +7,8 @@ license: MIT
 # PR Ready
 
 One loop per change: local gate → push → CI → review round → fix → … → merge → cleanup.
-Verification invariant: rules/delivery.md §Verification. Local work follows
-[`prompts/roles/implementer.md`](../../prompts/roles/implementer.md); reviewer test scope is in
+Verification invariant: rules/delivery.md §Verification. Local build and test scope follows
+[Local builds](../../prompts/skills/local-builds.md); reviewer test scope is in
 [`prompts/roles/reviewer.md`](../../prompts/roles/reviewer.md).
 
 ## 1. Local gate (implementer or fixer)
@@ -63,7 +63,7 @@ Verification invariant: rules/delivery.md §Verification. Local work follows
   on owned repositories or with `--update`. Git and gh run non-interactively.
 - Use the repository's declared gates (its `AGENTS.md` and the rules file it points to,
   or the CI workflow when none are declared) in CI's build profile. Rust: skill `rust-canon` §Gates.
-- Apply the local test scope in [`prompts/roles/implementer.md`](../../prompts/roles/implementer.md).
+- Apply the local test scope in [Local builds](../../prompts/skills/local-builds.md).
   Widen targeted checks to dependents when a shared type, trait, schema or public contract
   changes; toolchain, lockfile and build-script matrices belong to CI.
 - Report the exact commands, filters and pass/fail counts.
@@ -188,7 +188,7 @@ Specialist dispatch follows
   an earlier approved head whose later commits only fix those reviewers' own blockers
   and pass a quick check-back may merge. CI must be green on the final head, and the
   closeout checklist must hold (`design-flow` §6).
-  The no-PR-CI exception follows the [worker pack](../../prompts/roles/implementer.md).
+  The no-PR-CI exception follows [Local builds](../../prompts/skills/local-builds.md).
   When a required reviewer model family is unavailable, the operator decides how to
   proceed; the missed review runs after that family returns. Pin the head
   (`gh pr merge <n> --match-head-commit <sha>`) in the repository's merge style. No

@@ -18,13 +18,6 @@ How to work:
   before the fix and passes after. Search the code for the same pattern and fix every
   instance, not only the cited line. Repeat-defect repair order follows
   [No fortification](../skills/no-fortification.md).
-- Local gate only: formatting, lint/compile checks and targeted tests for the code you
-  changed plus your new regressions. Never run the full test suite or workspace-wide tests,
-  except for the no-PR-CI merge gate.
-  In a repository without PR CI, the full declared local gate on the pinned toolchain
-  stands in for CI; every failure must be shown to fail on the base under the same
-  conditions.
-  CI runs the full suite on every push. Report each command with pass/fail counts.
 - Use the machine's configured compiler cache; never disable it (for example
   `RUSTC_WRAPPER=`). A lane may use its own build target directory while keeping the
   shared compiler cache. If the cache is unreachable, report that instead of working
@@ -53,6 +46,7 @@ How to work:
 @rule house-rules:prompts/skills/native-first.md
 @rule house-rules:prompts/skills/no-fortification.md
 @rule house-rules:prompts/skills/test-discipline.md
+@rule house-rules:prompts/skills/local-builds.md
 @rule house-rules:prompts/skills/naming-defaults.md
 
 Final message: what changed per task item (fixed, already fixed, or does not hold, with

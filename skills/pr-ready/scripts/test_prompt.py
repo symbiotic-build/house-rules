@@ -382,7 +382,7 @@ class CollectionAcceptanceTest(unittest.TestCase):
     def test_code_change_rules_are_skills_without_common_folder(self):
         rules = ROOT / "prompts/skills"
         self.assertEqual({p.stem for p in rules.glob("*.md")},
-                         {"code-canon", "naming-defaults", "native-first", "no-fortification", "test-discipline"})
+                         {"code-canon", "local-builds", "naming-defaults", "native-first", "no-fortification", "test-discipline"})
         self.assertFalse((ROOT / "prompts/common").exists())
         self.assertTrue((ROOT / "prompts/util").is_dir())
         self.assertFalse((ROOT / "prompts/utils").exists())
@@ -409,15 +409,7 @@ class CollectionAcceptanceTest(unittest.TestCase):
         self.assertNotIn("heading-anchor", text)
         self.assertNotIn("missing file or heading", text)
 
-    def test_roles_receive_verbatim_gate_and_guard_instructions(self):
-        worker = (ROOT / "prompts/roles/implementer.md").read_text()
-        start = worker.index("In a repository without PR CI,")
-        end = worker.index("  CI runs", start)
-        gate = " ".join(worker[start:end].split())
-        for role in ("implementer", "fixer"):
-            prompt = PromptTest().run_prompt(f"prompts/roles/{role}.md")
-            self.assertEqual(prompt.returncode, 0, prompt.stderr)
-            self.assertEqual(" ".join(prompt.stdout.split()).count(gate), 1)
+    def test_roles_receive_verbatim_guard_instructions(self):
         rules = (ROOT / "prompts/skills/test-discipline.md").read_text()
         start = rules.index("Every guard and every test logs")
         end = rules.index("Scale tests move", start)
@@ -922,11 +914,11 @@ class RuleOwnershipTest(unittest.TestCase):
 
     def test_no_pr_ci_exception_has_one_collection_owner(self):
         skill = self.text("skills/pr-ready/SKILL.md")
-        self.assertIn("../../prompts/roles/implementer.md", skill)
+        self.assertIn("../../prompts/skills/local-builds.md", skill)
         marker = "In a repository without PR CI,"
         owners = [p.relative_to(ROOT).as_posix() for p in repository_markdown()
                   if marker in p.read_text()]
-        self.assertEqual(owners, ["prompts/roles/implementer.md"])
+        self.assertEqual(owners, ["prompts/skills/local-builds.md"])
 
     def test_lane_cache_policy_references_worker_owner(self):
         lanes = self.text("skills/agent-lanes/SKILL.md")
@@ -967,16 +959,6 @@ class RuleOwnershipTest(unittest.TestCase):
         self.assertIn(
             "next review names that commit", self.text("skills/pr-ready/SKILL.md")
         )
-
-    def test_worker_full_suite_prohibition_preserves_no_pr_ci_exception(self):
-        worker = self.text("prompts/roles/implementer.md")
-        gate = worker.split("- Local gate only:", 1)[1].split(
-            "- Use the machine's", 1
-        )[0]
-        self.assertIn("targeted tests", gate)
-        self.assertIn("Never run the full test suite or workspace-wide tests", gate)
-        self.assertRegex(gate, r"except.*no-PR-CI")
-        self.assertNotIn("Merge eligibility follows pr-ready §4.", gate)
 
     def test_test_discipline_heading_and_references_do_not_collide(self):
         canon = (self.root / "prompts/skills/test-discipline.md").read_text()

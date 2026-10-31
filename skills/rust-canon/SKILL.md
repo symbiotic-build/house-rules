@@ -26,10 +26,7 @@ Rules.
 - Never `unwrap()` in library code (tests only); errors bubble to the caller/operator —
   no fail-open.
 - Async on tokio; non-blocking, multi-threaded by default.
-- `--release` by default for everything built, executed or measured, including CI checks,
-  Clippy, tests and smoke artifacts. Use the development profile only for active debugging
-  (assertions, symbols, tight edit-compile loops) or a named debug-only invariant. Reusing
-  compiled outputs across gates: skill `ci-build-optimization`.
+- Follow [Local builds](../../prompts/skills/local-builds.md) for build profiles. Reusing compiled outputs across gates: skill `ci-build-optimization`.
 - `///` docs on public items.
 - Property and sequence tests use `proptest`; fuzzing uses `cargo-fuzz`. When each applies:
   [Test discipline](../../prompts/skills/test-discipline.md#systems-that-keep-durable-state).
@@ -38,13 +35,14 @@ Rules.
 
 Where a repo ships build/test scripts (smoke gates, guard scripts), use them instead of
 raw commands — they encode repo law (scope checks, pinned flags) that raw cargo silently
-violates. Local test scope: `prompts/roles/implementer.md`. Git itself is used directly;
+violates. Local test scope: [Local builds](../../prompts/skills/local-builds.md). Git itself is used directly;
 repo commit/push wrappers are retired.
 
 ## Gates
 
-Full CI gate below; local worker and reviewer scope: `prompts/roles/implementer.md` and
-`prompts/roles/reviewer.md`. Build profiles follow §Code rules. The no-PR-CI exception
+Full CI gate below; local worker scope: [Local builds](../../prompts/skills/local-builds.md).
+Reviewer scope: [reviewer role](../../prompts/roles/reviewer.md).
+Build profiles follow [Local builds](../../prompts/skills/local-builds.md). The no-PR-CI exception
 lives in `pr-ready` §4.
 
 ```

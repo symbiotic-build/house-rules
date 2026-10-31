@@ -10,12 +10,11 @@
 - Include test output with results.
 - Reserve end-to-end claims for the real stack.
 - Classify mocked-stack tests as integration tests.
-- During iteration, run the smallest gate that proves the current change.
 - Run the complete required gate on the resulting candidate or whenever changes invalidate prior full-gate evidence.
 - Where CI owns the full suite, use CI’s run on the pushed head.
 - Do not repeat the full matrix after changes that cannot affect it.
 - Let CI own the full suite.
-- Follow `../prompts/roles/implementer.md` and `../prompts/roles/reviewer.md` for local scopes.
+- Follow [Local builds](../prompts/skills/local-builds.md) and the [reviewer role](../prompts/roles/reviewer.md) for local scope during iteration.
 - Follow `pr-ready` §4 for the no-PR-CI exception.
 - Fail long-running checks on lack of progress, rather than elapsed time.
 - Allow generous overall test ceilings only as runaway guards.
@@ -83,12 +82,9 @@
   Also send it as a notification when the tool has one.
 - Start the run when the load falls below the core count, or when the operator says to start.
 - Build and test commands do not check the load. The build queue limits them.
-- On a shared machine, every build and test command goes through the machine's one build queue, shared by cargo and every other build tool: one such command at a time.
-  A shared machine runs several agents at once, or a person uses it while agents work.
-  The queue covers cargo, cmake builds, make, ninja, ctest, benchmarks, and test binaries or scripts run on their own.
+- Follow [Local builds](../prompts/skills/local-builds.md) for the queue every build and test command uses on a shared machine.
 - The queue gives each command the build budget as its thread limit: total cores minus efficiency cores minus 2, unless the operator sets another budget.
 - Builds and agents run at normal priority. Never use nice, renice or background quality-of-service classes.
-- Queue one command at a time. Never hold the queue while you edit, read output or wait for CI, a review or the operator.
 - Review panels and other read-only agents do not take the build queue.
 - Start reviewer command-line tools without the user's own tool configuration, so a reviewer starts no MCP server, plugin or hook. Reviewers need only read access.
 - Point reviewers at a checkout without build output. A reviewer that searches a build tree loads the machine and finds nothing.
