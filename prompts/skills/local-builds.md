@@ -28,4 +28,5 @@
   Never hold the queue while you edit, read output or wait for CI, a review or the operator.
 - Stop waiting when the machine's configured queue wait limit expires, or after 10 minutes where none is set.
   Then report the change as not tested locally, with the exact command you would have run.
-  Let CI test it.
+  Where the repository has PR CI, let CI test it.
+  Without PR CI, report verification as blocked; the full local gate still runs before merge.

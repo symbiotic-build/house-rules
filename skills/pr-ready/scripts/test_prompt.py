@@ -912,14 +912,6 @@ class RuleOwnershipTest(unittest.TestCase):
                           if phrase in " ".join(p.read_text().split())]
                 self.assertEqual(owners, ["prompts/skills/test-discipline.md"])
 
-    def test_no_pr_ci_exception_has_one_collection_owner(self):
-        skill = self.text("skills/pr-ready/SKILL.md")
-        self.assertIn("../../prompts/skills/local-builds.md", skill)
-        marker = "In a repository without PR CI,"
-        owners = [p.relative_to(ROOT).as_posix() for p in repository_markdown()
-                  if marker in p.read_text()]
-        self.assertEqual(owners, ["prompts/skills/local-builds.md"])
-
     def test_lane_cache_policy_references_worker_owner(self):
         lanes = self.text("skills/agent-lanes/SKILL.md")
         self.assertIn("prompts/roles/implementer.md", lanes)

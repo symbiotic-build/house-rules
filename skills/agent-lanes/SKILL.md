@@ -56,7 +56,7 @@ them share one lock and one budget, with hold limits for hung commands. Record t
 machine's capability index (`custom/INDEX.md`, from [CUSTOM-INDEX.example.md](../../CUSTOM-INDEX.example.md)).
 
 ```bash
-cargo test -p intake                      # queued automatically
+cargo test --release -p intake <test>     # queued automatically; <test> names the targeted test
 cmake --build build --target all          # queued; --parallel above the budget is lowered
 build-queue ./build/bin/collection_test   # a test binary or script: queue it by name
 command -v cmake                          # check: the wrapper, not the real tool
