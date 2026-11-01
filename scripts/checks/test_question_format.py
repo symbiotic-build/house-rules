@@ -142,12 +142,12 @@ class CommandLineTest(unittest.TestCase):
 
     def test_unreadable_path_exits_one(self):
         result = subprocess.run([sys.executable, "-B", str(HERE / "question_format.py"), str(HERE / "missing.md")],
-                                capture_output=True, text=True)
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True)
         self.assertEqual(result.returncode, 1)
 
     def test_unknown_argument_exits_one(self):
         result = subprocess.run([sys.executable, "-B", str(HERE / "question_format.py"), "--nope"],
-                                capture_output=True, text=True)
+                                stdin=subprocess.DEVNULL, capture_output=True, text=True)
         self.assertEqual(result.returncode, 1)
 
 
