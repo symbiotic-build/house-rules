@@ -113,13 +113,18 @@ class StopTest(HookTest):
 
 
 class UserPromptSubmitTest(HookTest):
-    def test_a_balance_or_credential_blocker_adds_its_class_as_context(self):
-        for prompt, name in (("The provider balance is empty; I will top up tonight.", "balance"),
-                             ("Reauthenticate the review account first.", "credential")):
+    def test_a_balance_or_credential_blocker_adds_its_class_and_action_as_context(self):
+        for prompt, name, matched, action in (
+                ("The provider balance is empty; I will top up tonight.", "balance", "balance is empty",
+                 "Top up the provider account balance, then tell the agent the balance is restored."),
+                ("Reauthenticate the review account first.", "credential", "Reauthenticate",
+                 "Sign in to the provider again or replace its credential, then tell the agent the credential is "
+                 "ready.")):
             status, out, err = self.run_hook("UserPromptSubmit", codex_input("UserPromptSubmit", prompt=prompt))
-            self.assertEqual(status, 0, err)
-            self.assertIn(f"operator-only blocker, class `{name}`", out)
-            self.assertIn("Action: ", out)
+            self.assertEqual((status, err), (0, ""))
+            self.assertEqual(out, f"House Rules blocker check: the operator's message names an operator-only blocker, "
+                                  f"class `{name}` (matched \"{matched}\"). Only the operator can clear it. "
+                                  f"Action: {action}\n")
 
     def test_an_ordinary_message_adds_nothing(self):
         status, out, err = self.run_hook("UserPromptSubmit", claude_input("UserPromptSubmit",

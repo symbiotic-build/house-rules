@@ -72,6 +72,21 @@ class ProviderRecordTest(unittest.TestCase):
     def test_unmatched_record_is_unknown(self):
         self.assertEqual(classify(status=200, code="other"), ("unknown", False))
 
+    def test_action_without_a_provider_name_reads_the_provider_once(self):
+        actions = {name: blocker_classify.classify({"text": text})["action"] for name, text in (
+            ("balance", "the balance is empty"), ("account", "the account is suspended"),
+            ("permission", "permission denied"), ("quota", "weekly limit reached"),
+            ("credential", "login expired"))}
+        self.assertEqual(actions, {
+            "balance": "Top up the provider account balance, then tell the agent the balance is restored.",
+            "account": "Resolve the provider account state in its console, then tell the agent the account is usable.",
+            "permission": "Grant the missing permission or scope to the agent's provider identity, then tell the "
+                          "agent it is granted.",
+            "quota": "Buy more provider usage or upgrade the plan, or tell the agent to wait until the quota window "
+                     "resets.",
+            "credential": "Sign in to the provider again or replace its credential, then tell the agent the "
+                          "credential is ready."})
+
     def test_action_names_the_route(self):
         result = blocker_classify.classify({"status": 402, "route": "alpha_chat"})
         self.assertEqual(result["action"], "Top up the alpha_chat account balance, then tell the agent the "

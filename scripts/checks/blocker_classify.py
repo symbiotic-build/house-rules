@@ -181,11 +181,14 @@ def classify(record):
         only_text = values["text"] is not None and all(
             values[key] is None for key in ("category", "reason", "status", "code", "provider_message"))
         name = "none" if only_text else "unknown"
-    provider = values["provider"] or "the provider"
+    template = action or ACTIONS[name]
+    if not values["provider"]:
+        # Without a name the provider is "the provider", and a word before it already reads "the provider".
+        template = re.sub(r"(the |agent's |more )\{provider\}", r"\1provider", template)
     return {
         "class": name,
         "operator_only": name in OPERATOR_ONLY,
-        "action": (action or ACTIONS[name]).replace("{provider}", provider),
+        "action": template.replace("{provider}", values["provider"] or "the provider"),
         "field": field,
         "matched": matched,
     }

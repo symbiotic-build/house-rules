@@ -479,6 +479,17 @@ class CommandTests(Fixture):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertEqual(proc.stdout.decode().splitlines(), [revision, hook_input])
 
+    def test_a_hook_script_missing_from_the_pinned_version_is_a_nonblocking_error(self):
+        house = self.source("house-rules", {"scripts/show.py": "print('shown')\n"})
+        repo = self.repository({"version": 2, "sources": [{"name": "house-rules", "url": house}]})
+        for hook, status in ((["--hook"], 1), ([], 2)):  # exit 2 would block an agent's tool call or stop
+            proc = subprocess.run([sys.executable, "-I", str(SCRIPT), "exec", *hook, "--repo", repo,
+                                   "scripts/checks/agent_hook.py", "PreToolUse"], input=json.dumps({"cwd": repo}).encode(),
+                                  stdin=None, capture_output=True, cwd=str(self.root), env=os.environ)
+            self.assertEqual(proc.returncode, status, proc.stderr)
+            self.assertIn(b"has no scripts/checks/agent_hook.py; check the path or the house-rules ref", proc.stderr)
+            self.assertEqual(proc.stdout, b"")
+
     def test_failed_resolution_in_a_hook_falls_back_to_the_default_tree(self):
         house = self.source("house-rules", {"scripts/show.py": "print('rules from', __file__)\n"})
         (self.root / "config" / "house-rules").mkdir(parents=True)
