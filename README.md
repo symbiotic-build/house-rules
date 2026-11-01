@@ -99,7 +99,8 @@ A question is a numbered level-3 heading under a level-2 topic, with its number 
 (`### 1\.`) and unique across the message. Each context sentence starts with `FACT` or
 `ASSESSMENT`, on one source line. A choice has one flat numbered option list with exactly one
 whole-bold line ending in "(recommended)". The list ends with **Answer like so:** and a
-three-line `text` example, after the last question. A question about the team's own tests,
+three-line `text` example after the last question, showing an option number, a request for
+more context and `ok`. A question about the team's own tests,
 replays or verification fails, and so does a question asked in prose outside a question
 heading. A message without questions passes.
 
@@ -133,7 +134,9 @@ rule of [rust-canon](skills/rust-canon/SKILL.md). It refuses `cargo test` or `ca
 run` without a package and a test-name filter (a harness option value such as `--test-threads 4`
 is not a filter), `cargo clippy` without a package and exactly one target, a cargo build without
 `--release`, and any profile other than a release profile or the debugging profile
-(`--profile debugging`, renamed with `--debug-profile`). It also refuses `ctest` without a test
+(`--profile debugging`, renamed with `--debug-profile`). The default name needs a
+`[profile.debugging]` in the repository's Cargo manifest; a repository that debugs on the
+development profile passes `--debug-profile dev`. It also refuses `ctest` without a test
 selection and the `test` and `check` targets of `make`, `ninja` and `cmake --build`. It splits
 the text at unquoted separators, joins backslash line continuations and ignores redirections.
 Help, version, listing and dry-run calls pass. A repository

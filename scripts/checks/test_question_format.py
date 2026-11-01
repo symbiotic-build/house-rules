@@ -116,6 +116,27 @@ class QuestionFormatTest(unittest.TestCase):
         text = GOOD.replace("Send the error text from the failed upload?", "Should I rerun the upload tests?")
         self.assertIn("team_work", rules(text))
 
+    def test_test_as_a_modifier_is_not_team_work(self):
+        text = GOOD.replace("Send the error text from the failed upload?", "Unlock the test account?")
+        self.assertEqual(rules(text), [])
+
+    def test_bullet_choices_fail(self):
+        text = GOOD.replace("1. **The archive store, with one copy per day (recommended).**\n2. The staging store, "
+                            "cleared by hand each week.",
+                            "- **The archive store, with one copy per day (recommended).**\n- The staging store.")
+        self.assertIn("options_not_numbered", rules(text))
+
+    def test_reply_line_inside_a_question_fails(self):
+        for line in ("Reply: ______", "[ ] yes"):
+            with self.subTest(line=line):
+                text = GOOD.replace("2. The staging store, cleared by hand each week.",
+                                    "2. The staging store, cleared by hand each week.\n\n" + line)
+                self.assertIn("question_extra", rules(text))
+
+    def test_answer_example_without_the_three_answer_forms_fails(self):
+        text = GOOD.replace(" 1. 1\n 2. explain where the log is written\n 3. ok", " alpha\n beta\n gamma")
+        self.assertEqual(rules(text), ["answer_block_format"])
+
     def test_recommended_options_outside_a_question_heading_fail(self):
         text = "**Should the import stop now?**\n1. **Stop it (recommended):** the batch is lost.\n2. Let it run.\n"
         self.assertEqual(sorted(rules(text)), ["options_without_question", "question_outside_heading"])

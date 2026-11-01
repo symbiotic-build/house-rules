@@ -42,12 +42,17 @@ class FactSourceTest(unittest.TestCase):
         self.assertEqual(rules('`FACT` The service log says "limit reached" at 10:12 UTC.\n'), [])
 
     def test_each_fact_sentence_needs_its_own_source(self):
-        text = "`FACT` `uptime` shows a load of 3. `FACT` The queue is empty.\n"
+        text = "`FACT` `uptime -p` shows the host up for 3 days. `FACT` The queue is empty.\n"
         self.assertEqual(rules(text), ["fact_source"])
 
     def test_sentence_covered_by_an_earlier_fact_label_needs_a_source(self):
-        text = "`FACT` `uptime` shows a load of 3. The queue is empty.\n"
+        text = "`FACT` `uptime -p` shows the host up for 3 days. The queue is empty.\n"
         self.assertEqual(rules(text), ["fact_source"])
+
+    def test_formatted_value_is_not_a_source(self):
+        for text in ("`FACT` The queue contains `12` jobs.\n", "`FACT` All jobs are `done`.\n"):
+            with self.subTest(text=text):
+                self.assertEqual(rules(text), ["fact_source"])
 
     def test_code_block_is_not_checked(self):
         self.assertEqual(rules("Example:\n\n```text\n`FACT` no source here\n```\n"), [])
@@ -76,6 +81,10 @@ class RequiredFieldTest(unittest.TestCase):
     def test_field_given_as_bold_label_passes(self):
         self.assertEqual(rules("- **Thinking levels:** high for every model.\n", ["Thinking levels"]), [])
 
+    def test_field_only_in_a_plain_table_cell_fails(self):
+        text = "| Thinking levels | high |\n|---|---|\n"
+        self.assertEqual(rules(text, ["Thinking levels"]), ["required_field"])
+
     def test_field_given_as_numbered_heading_passes(self):
         self.assertEqual(rules("## 2. Thinking levels\nHigh.\n", ["thinking levels"]), [])
 
@@ -92,7 +101,8 @@ class RequiredFieldTest(unittest.TestCase):
 class ReferenceTest(unittest.TestCase):
     def test_reference_to_text_elsewhere_fails(self):
         for text in ("The details are as discussed earlier.\n", "See above for the numbers.\n",
-                     "My last message had the plan.\n", "The report also asks about the top-up.\n"):
+                     "My last message had the plan.\n", "The report also asks about the top-up.\n",
+                     "See [the PR](https://example.com/pr) for the details.\n"):
             with self.subTest(text=text):
                 self.assertIn("reference_elsewhere", rules(text))
 

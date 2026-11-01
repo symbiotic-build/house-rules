@@ -95,6 +95,10 @@ class TextTest(unittest.TestCase):
     def test_request_to_sign_in_again_is_a_credential_blocker(self):
         self.assertEqual(classify(text="please reauthenticate the beta account"), ("credential", True))
 
+    def test_creating_a_credential_is_a_protected_asset_action(self):
+        self.assertEqual(classify(text="Create a new API key for alpha to unblock the job."),
+                         ("protected_asset", True))
+
     def test_bare_number_402_in_text_is_not_a_balance_blocker(self):
         self.assertEqual(classify(text="the run used 402 jobs"), ("none", False))
 

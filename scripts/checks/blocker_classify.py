@@ -66,7 +66,8 @@ TEXT_RULES = [
          "Grant the missing permission or scope to the agent's {provider} identity, then tell the agent it is "
          "granted."),
     rule("protected_asset", r"\bvouchers?\b|banked reset|one-time credit|subscription (change|upgrade)|"
-         r"(rotate|revoke) (the |a |an )?([\w-]+ )?(key|credential|token)",
+         r"(rotate|revoke) (the |a |an )?([\w-]+ )?(key|credential|token)|"
+         r"\b(create|generate|issue|mint) (a |an |the )?(new )?([\w-]+ ){0,2}(keys?|tokens?|credentials?|secrets?)\b",
          "Confirm or perform this protected-asset action yourself; the agent does not consume or change it "
          "without your confirmation."),
     rule("rate_limit", r"too many requests|rate[- _]limit\w*|slow down|overloaded|concurrency limit",

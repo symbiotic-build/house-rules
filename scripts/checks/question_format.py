@@ -23,8 +23,12 @@ RECOMMENDED = re.compile(r"\(recommended\)[.:]?$")
 ANSWER = "**Answer like so:**"
 CONTEXT_FLAGS = ("FACT", "ASSESSMENT")
 # Work the agent's own team does: the rule lists tests, replays and verification as examples.
-TEAM_WORK = re.compile(r"\b(tests?|testing|replays?|re-?run\w*|verif\w*|reproduc\w*|benchmarks?|spot[- ]checks?)\b",
-                       re.IGNORECASE)
+TEAM_WORK = re.compile(
+    r"\b(verify|verification|replay|reproduce|re-?run|re-?test|benchmark)\b|"
+    r"\b(run|start|do|perform|execute|repeat|redo|write|add)\b.{0,40}\b(tests?|testing|replays?|verification|"
+    r"benchmarks?|reproductions?|spot[- ]checks?)\b", re.IGNORECASE)
+REPLY_LINE = re.compile(r"^(reply|answer|your answer|response|choice)\s*:|_{3,}|\[ \]", re.IGNORECASE)
+TOP_BULLET = re.compile(r"^[-*+]\s+(.*)$")
 
 
 class Question:
@@ -168,6 +172,15 @@ def check_body(question):
             result.append(findings.finding(CHECK, "question_extra",
                                            "a question holds a quote or a table; give the context in sentences",
                                            line.number))
+        elif REPLY_LINE.search(stripped):
+            result.append(findings.finding(CHECK, "question_extra",
+                                           "a question holds a reply line or an answer box; the answer example "
+                                           "at the end shows how to answer", line.number))
+        bullet = TOP_BULLET.match(line.text)
+        if bullet and ("(recommended)" in bullet.group(1) or BOLD_LINE.match(bullet.group(1).strip())):
+            result.append(findings.finding(CHECK, "options_not_numbered",
+                                           "a choice is written as a bullet; write the options as a numbered list "
+                                           "so the operator can answer with a number", line.number))
     # The context: the first paragraph under the heading, before any list.
     context = []
     for line in prose:
@@ -275,6 +288,16 @@ def check_answer_block(lines, answer_index):
         result.append(findings.finding(CHECK, "answer_block_format",
                                        "the answer example has three lines, each indented by one space",
                                        opening.number))
+        return result
+    answers = [re.sub(r"^\d+\\?\.\s*", "", line.text.strip()) for line in body]
+    numbered = all(re.match(r"^\d+\\?\.\s+\S", line.text.strip()) for line in body)
+    choice = any(re.fullmatch(r"\d+", answer) for answer in answers)
+    agreed = any(answer.lower() == "ok" for answer in answers)
+    text = any(not re.fullmatch(r"\d+", answer) and answer.lower() != "ok" for answer in answers)
+    if not (numbered and choice and agreed and text):
+        result.append(findings.finding(CHECK, "answer_block_format",
+                                       "the answer example shows, by question number, an option number, a request "
+                                       "for more context and `ok`", opening.number))
     return result
 
 

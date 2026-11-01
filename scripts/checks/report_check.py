@@ -52,11 +52,17 @@ BOLD_START = re.compile(r"^\*\*[^*]+\*\*")
 
 
 def has_source(claim):
-    """True when a claim names its evidence: a link, a path, a code span other than a label, or a quote."""
+    """True when a claim names its evidence: a link, a quote, a path, or a command in a code span.
+
+    A code span counts only when it holds a path or a command with arguments; a formatted value
+    such as `12` or `done` is not evidence.
+    """
     if LINK.search(claim) or QUOTE.search(claim):
         return True
-    if any(match.group(1) not in md.LABELS for match in CODE.finditer(claim)):
-        return True
+    for match in CODE.finditer(claim):
+        span = match.group(1).strip()
+        if span not in md.LABELS and (" " in span or PATH.search(span)):
+            return True
     return bool(PATH.search(CODE.sub(" ", claim)))
 
 
@@ -81,12 +87,14 @@ def check_claims(lines):
                 result.append(findings.finding(
                     CHECK, "relay_label", f"a claim from another agent's report is {got}; label it `ASSUMPTION` "
                     f"and name its source, or verify it first: {sentence[:100]}", number))
+            # Match the words a reader sees: a link counts by its text, so "see [the PR](…)" is caught.
+            visible = md.mask(md.LINK.sub(r"\1", sentence))
             for pattern in ELSEWHERE:
-                match = pattern.search(masked)
+                match = pattern.search(visible)
                 if match:
                     result.append(findings.finding(
-                        CHECK, "reference_elsewhere", f"\"{sentence[match.start():match.end()]}\" sends the reader "
-                        "to text elsewhere; restate what it refers to", number))
+                        CHECK, "reference_elsewhere", f"\"{match.group(0)}\" sends the reader to text elsewhere; "
+                        "restate what it refers to", number))
                     break
     return result
 
@@ -112,10 +120,6 @@ def labels(lines):
         bold = BOLD_START.match(body)
         if bold:
             result.add(normalize(bold.group(0)))
-        if body.startswith("|"):
-            cells = [cell for cell in body.strip("|").split("|")]
-            if cells:
-                result.add(normalize(cells[0]))
     return result
 
 

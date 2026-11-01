@@ -12,6 +12,7 @@ FENCE = re.compile(r"^\s*(```+|~~~+)")
 LIST_ITEM = re.compile(r"^(\s*)(?:[-*+]|(\d+)[.)])\s+(.*)$")
 CODE_SPAN = re.compile(r"(`+)(.+?)\1")
 LINK_TARGET = re.compile(r"\]\(([^)\s]*)\)")
+LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
 SENTENCE_END = re.compile(r"[.?!][\"”’')\]*_]*(?=\s|$)")
 
