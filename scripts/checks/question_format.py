@@ -29,10 +29,11 @@ TEAM_WORK = re.compile(
     r"benchmarks?|reproductions?|spot[- ]checks?)\b|"
     # "test" as a verb ("Should I test the upload?"), not as a modifier ("the test account").
     r"\b(i|we|you|please) (re-?)?test\b|\btest (it|this|that|them|these|those|the|a|an)\b", re.IGNORECASE)
-# A request for more context: a question, or an imperative such as "explain …" or "please elaborate".
-CONTEXT_REQUEST = re.compile(r"\?$|^(please |could you |can you |would you )?(explain|elaborate|expand|clarify|"
-                             r"describe|show|tell|give|compare|list|detail|say|send)\b|^(why|how|what|which|where|"
-                             r"when|who)\b", re.IGNORECASE)
+# A request for more context starts with a request word, after an optional "please" or "could you"
+# (lead decision). Known limit: a statement that opens with a question word ("what we need is clear") passes.
+CONTEXT_REQUEST = re.compile(r"^(please |could you |can you |would you )?(explain|elaborate|expand|clarify|describe|"
+                             r"show|tell|give|provide|send|compare|list|detail|more|why|how|what|which|where|when|"
+                             r"who)\b", re.IGNORECASE)
 REPLY_LINE = re.compile(r"^(reply|answer|your answer|response|choice)\s*:|_{3,}|\[ \]", re.IGNORECASE)
 
 

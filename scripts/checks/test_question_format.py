@@ -117,7 +117,8 @@ class QuestionFormatTest(unittest.TestCase):
         self.assertIn("team_work", rules(text))
 
     def test_requests_for_context_pass_as_the_answer_example(self):
-        for request in ("please elaborate", "could you expand on the tradeoffs?", "why is the store full"):
+        for request in ("please elaborate", "could you expand on the tradeoffs?", "why is the store full",
+                        "More context, please.", "Please provide more context", "show the log"):
             with self.subTest(request=request):
                 text = GOOD.replace("explain where the log is written", request)
                 self.assertEqual(rules(text), [])
@@ -153,7 +154,8 @@ class QuestionFormatTest(unittest.TestCase):
 
     def test_answer_example_without_the_three_answer_forms_fails(self):
         for example in (" alpha\n beta\n gamma", " 1. 1\n 2. banana\n 3. ok", " 1. 1\n 2. the cost is high\n 3. ok",
-                        " 1. 1\n 2. no more context is needed\n 3. ok"):
+                        " 1. 1\n 2. no more context is needed\n 3. ok", " 1. 1\n 2. Merge it?\n 3. ok",
+                        " 1. 1\n 2. Please merge?\n 3. ok"):
             with self.subTest(example=example):
                 text = GOOD.replace(" 1. 1\n 2. explain where the log is written\n 3. ok", example)
                 self.assertEqual(rules(text), ["answer_block_format"])

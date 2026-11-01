@@ -35,8 +35,14 @@ class FactSourceTest(unittest.TestCase):
         text = "`FACT` In the service log, the login expiry moved to 10:12 UTC.\n"
         self.assertEqual(rules(text), ["fact_source"])
 
+    def test_documented_limits_of_the_code_span_rule(self):
+        # Lead decision: a one-word command is rejected, a multi-word value passes.
+        self.assertEqual(rules("`FACT` `uptime` shows a load of 3.\n"), ["fact_source"])
+        self.assertEqual(rules("`FACT` All jobs are `in progress`.\n"), [])
+
     def test_command_in_a_code_span_is_a_source(self):
-        for text in ("`FACT` `uptime` shows a load of 3.\n", "`FACT` I ran `make check` at 10:00 UTC; it passed.\n",
+        for text in ("`FACT` `uptime -p` shows the host up for 3 days.\n",
+                     "`FACT` I ran `make check` at 10:00 UTC; it passed.\n",
                      "`FACT` `cargo test --release -p core parse` completed successfully.\n",
                      "`FACT` The whitespace check passed with `git diff --check`.\n"):
             with self.subTest(text=text):
@@ -49,16 +55,16 @@ class FactSourceTest(unittest.TestCase):
         self.assertEqual(rules('`FACT` The service log says "limit reached" at 10:12 UTC.\n'), [])
 
     def test_each_fact_sentence_needs_its_own_source(self):
-        text = "`FACT` `uptime` shows a load of 3. `FACT` The queue is empty.\n"
+        text = "`FACT` `uptime -p` shows the host up for 3 days. `FACT` The queue is empty.\n"
         self.assertEqual(rules(text), ["fact_source"])
 
     def test_sentence_covered_by_an_earlier_fact_label_needs_a_source(self):
-        text = "`FACT` `uptime` shows a load of 3. The queue is empty.\n"
+        text = "`FACT` `uptime -p` shows the host up for 3 days. The queue is empty.\n"
         self.assertEqual(rules(text), ["fact_source"])
 
     def test_formatted_value_is_not_a_source(self):
-        for text in ("`FACT` The queue contains `12` jobs.\n", "`FACT` All `12` jobs failed.\n",
-                     "`FACT` The run ended at `03:12`.\n", "`FACT` The job used `984 MiB`.\n"):
+        for text in ("`FACT` The queue contains `12` jobs.\n", "`FACT` All jobs are `done`.\n",
+                     "`FACT` The run ended at `03:12`.\n"):
             with self.subTest(text=text):
                 self.assertEqual(rules(text), ["fact_source"])
 
