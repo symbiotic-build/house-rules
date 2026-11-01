@@ -19,9 +19,12 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   `[A-Za-z0-9][A-Za-z0-9._-]*` and the panel directory must resolve strictly beneath the
   configured output root, including through symlinks. Reviewer names must match
   `[a-z0-9-]+` and an existing file stem in `prompts/lenses/`, with no duplicates.
-  Structured prompt order: shared review rules, PR/issue context and requirements, then
-  the change and lens instructions last. Different lenses
-  share the prefix before those final instructions when one task is prepared once and compiled per lens, as the panel does.
+  Structured prompt order: part 1 holds the rules every panel agent shares, byte-identical
+  for reviewers and the triager. PR/issue context, requirements and the change follow.
+  Part 7 holds the role's own instructions, then the reviewer's lens instructions.
+  `--role triager` prepares the triager without a lens; `--lens` and `--reviewers` are refused.
+  Different lenses share the prefix before those final instructions when one task is
+  prepared once and compiled per lens, as the panel does.
   Separate standalone calls share the layout, but live inputs such as new comments can differ between calls.
   Pack and diff retain their existing order, including specification rules after target rules unless an earlier include owns them.
   Structured assembly expands explicit shared includes and mandatory specification rules before lenses, preserving duplicate suppression.
@@ -107,7 +110,8 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   keeps only the maintainer comments and the PR description (commit messages of the fix
   without a PR). Linked issues, specifications and test IDs stay in the checkout and are not
   read. Full preparation appends [the check-round rules](../../../prompts/util/check-round.md)
-  to every lens's instructions. An unknown `REV` fails preparation.
+  to every reviewer's instructions. The triager gets no check-round rules.
+  An unknown `REV` fails preparation.
 
 ## Registered specifications
 

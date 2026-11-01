@@ -295,6 +295,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/util/panel-rules.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/util/premise-check.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."

@@ -12,8 +12,10 @@ Include one whole file per line:
 @rule house-rules:prompts/skills/code-canon.md
 ```
 
-Skill and utility files never include other files. Includes are repository-relative
-whole files, recursively expanded without heading parsing or title stripping.
+Skill and utility files never include other files, except
+[panel-rules.md](util/panel-rules.md), which collects shared panel rules.
+Includes are repository-relative whole files, recursively expanded without heading
+parsing or title stripping.
 A missing file fails the build, including a shared owner omitted with `--session`.
 
 From a pinned checkout, run `/usr/bin/python3 skills/pr-ready/scripts/prompt.py`

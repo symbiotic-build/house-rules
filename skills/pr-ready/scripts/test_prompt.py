@@ -109,6 +109,47 @@ class PromptTest(unittest.TestCase):
                     self.assertEqual(expanded.returncode, 0, expanded.stderr)
                     self.assertEqual(expanded.stdout.count((ROOT / owner).read_text()), 1)
 
+    def test_panel_role_sections_and_stdin_keep_complete_expansion(self):
+        shared = ["prompts/util/panel-rules.md", "prompts/util/finding-rules.md",
+                  "prompts/util/cost-defect.md", "prompts/util/cost-and-design.md",
+                  "prompts/util/external-writes.md", "prompts/skills/code-canon.md",
+                  "prompts/skills/native-first.md", "prompts/skills/no-fortification.md",
+                  "prompts/skills/test-discipline.md", "prompts/skills/local-builds.md",
+                  "prompts/skills/naming-defaults.md", "rules/writing.md", "rules/git.md",
+                  "rules/priority-labels.md"]
+        own = {"reviewer": ["prompts/util/review-bar.md", "prompts/util/review-report.md"],
+               "triager": ["prompts/util/triage-classes.md", "prompts/util/triage-rules.md",
+                           "prompts/util/issue-report.md", "prompts/util/issue-form.md"]}
+        for role in own:
+            with self.subTest(role=role):
+                path = f"prompts/roles/{role}.md"
+                whole, used = prompt.expand(file=path)
+                self.assertEqual(used, [path, *shared, *own[role]])
+                common, instructions, split_used = prompt.expand_role(path)
+                self.assertEqual(common + instructions, whole)
+                self.assertEqual(split_used, used)
+                result = self.run_prompt(text=f"@rule house-rules:{path}\n")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, whole)
+
+    def test_role_split_preserves_newlines_and_suppresses_repeated_includes(self):
+        root, _ = self.fixture()
+        (root / "shared.md").write_bytes(b"Shared\r\n")
+        role = "prompts/roles/reviewer.md"
+        (root / role).parent.mkdir(parents=True)
+        for text in (b"@rule house-rules:shared.md\r\n\r\nOwn\r\n@rule house-rules:shared.md\n",
+                     b"Own\n@rule house-rules:shared.md", b"@rule house-rules:shared.md", b""):
+            with self.subTest(text=text):
+                (root / role).write_bytes(text)
+                common, instructions, used = prompt.expand_role(role, root=root)
+                whole, expected_used = prompt.expand(file=role, root=root)
+                self.assertEqual(common + instructions, whole)
+                self.assertEqual(used, expected_used)
+
+    def test_preparer_context_refuses_unknown_role(self):
+        with self.assertRaisesRegex(prompt.PromptError, "role.*unknown"):
+            prompt.preparer_context({"role": "unknown", "full": False, "documentation": False})
+
     def test_stdin_preserves_whole_files_titles_and_newlines(self):
         root, script = self.fixture()
         (root / "child.md").write_bytes(b"Title\r\n\r\nBody")
@@ -195,9 +236,11 @@ class PromptTest(unittest.TestCase):
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertEqual(first.stdout, second.stdout)
 
-    def test_skills_and_util_are_leaf_files(self):
+    def test_skills_and_util_are_leaves_except_panel_aggregator(self):
         for folder in ("skills", "util"):
             for path in (ROOT / "prompts" / folder).glob("*.md"):
+                if path.relative_to(ROOT).as_posix() == "prompts/util/panel-rules.md":
+                    continue
                 self.assertNotRegex(path.read_text(), r"(?m)^@rule ")
 
 
@@ -236,7 +279,9 @@ class CompleteWorkerPackTest(unittest.TestCase):
                     used = self.run_prompt(*args, "--list", entry)
                     self.assertIn("Loading path: session" if session else
                                   "Loading path: compiled shared rules", result.stdout)
-                    self.assertIn(role.read_text().splitlines()[0], result.stdout)
+                    first_text = next(line for line in role.read_text().splitlines()
+                                      if line and not line.startswith("@rule "))
+                    self.assertIn(first_text, result.stdout)
                     for owner in self.shared:
                         self.assertEqual(used.stdout.splitlines().count(owner), 0 if session else 1)
                         self.assertEqual(result.stdout.count((ROOT / owner).read_text()),

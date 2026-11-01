@@ -227,6 +227,24 @@ def expand(text=None, *, file=None, root=ROOT, source=None, session=False):
         raise PromptError(str(exc)) from exc
 
 
+def expand_role(file, *, root=ROOT):
+    """Split leading includes from role text with one duplicate-suppression scope."""
+    expansion = Expansion(WorkingTree(root))
+    file = relative_path(file)
+    data, entry = expansion.source.read(file)
+    expansion.seen.add(file)
+    expansion.files.append(entry)
+    lines = data.decode("utf-8").splitlines(keepends=True)
+    boundary = 0
+    for line in lines:
+        if not INCLUDE.fullmatch(line.removesuffix("\n").removesuffix("\r")):
+            break
+        boundary += 1
+    head = expansion.render("".join(lines[:boundary]), (file,))
+    own = expansion.render("".join(lines[boundary:]), (file,))
+    return expansion.loading() + head, own, [entry["path"] for entry in expansion.files]
+
+
 def target_rules(source):
     """Include both target rule files unchanged, with the bible before AGENTS.md."""
     parts = []
@@ -509,21 +527,27 @@ def preparer_context(request):
     """Keep legacy preparer compilation here while reporting remains standalone."""
     common, instructions, context, sections = "", "", None, None
     reservation = 0
+    role = request.get("role", "reviewer")
+    if role not in ("reviewer", "triager"):
+        raise PromptError("invalid preparer role: " + str(role))
     if request["full"]:
-        common, _ = expand(file="prompts/roles/reviewer.md")
-        instructions, _ = expand(file="prompts/lenses/" + request["lens"] + ".md")
-        for reviewer in request.get("reservation_reviewers", []):
-            selected, _ = expand(file="prompts/lenses/" + reviewer + ".md")
-            reservation = max(reservation, len(selected) - len(instructions))
-        if request.get("check"):
-            # Every lens of a check round ends with the same check-round rules.
-            check_round, _ = expand(file="prompts/util/check-round.md")
-            instructions = instructions.rstrip("\n") + "\n\n" + check_round
+        common, instructions, _ = expand_role(f"prompts/roles/{role}.md", root=ROOT)
+        if role == "reviewer":
+            lens, _ = expand(file="prompts/lenses/" + request["lens"] + ".md")
+            for reviewer in request.get("reservation_reviewers", []):
+                selected, _ = expand(file="prompts/lenses/" + reviewer + ".md")
+                reservation = max(reservation, len(selected) - len(lens))
+            instructions = instructions.rstrip("\n") + "\n\n" + lens
+            if request.get("check"):
+                # Every lens of a check round ends with the same check-round rules.
+                check_round, _ = expand(file="prompts/util/check-round.md")
+                instructions = instructions.rstrip("\n") + "\n\n" + check_round
     if request["documentation"]:
         assignment = Path(request["assignment"]).read_bytes() if request["assignment"] else None
         with Commit(request["repo"], request["head"]) as target:
             selected = documentation_context(WorkingTree(ROOT), target, assignment, base=request["base"],
-                                             plan=review_plan(request.get("reviewers") or [request["lens"]]),
+                                             plan=(review_plan(request.get("reviewers") or [request["lens"]])
+                                                   if role == "reviewer" else None),
                                              derive_assignment=request.get("derive", False))
         if selected is not None:
             context = documentation_part(selected).decode("utf-8")
