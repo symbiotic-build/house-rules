@@ -79,3 +79,4 @@ Agents on this machine use the rules from their next session; Warden and the lan
 - Treat an answer that asks for more context as a new question: explain, then ask again.
 - Never ask the operator about work the agent's own team must do (tests, replays,
   verification). List it as an internal task.
+- `scripts/checks/question_format.py` checks a message against these rules before it is sent.

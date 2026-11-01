@@ -79,17 +79,43 @@ content and appends a rollback record, which can itself be rolled back.
 per commit and file; [pr-ready](skills/pr-ready/SKILL.md) §4 runs it after each merge.
 The tests run in a temporary home: `python3 -B -m unittest scripts/test_rules_ledger.py`.
 
-## Check failures and commands
+## Check messages and commands
 
-Two scripts in [scripts/checks/](scripts/checks) check a rule mechanically: whether a failure
-needs the operator, and whether a command keeps to the local build scope. Each reads a path, or
-standard input when the path is absent or `-`, and prints one JSON object per finding. Each exits 0 on pass, 2 on fail and
+Four scripts in [scripts/checks/](scripts/checks) check a rule mechanically before an agent
+sends a message or runs a command. Each reads a path, or standard input when the path is
+absent or `-`, and prints one JSON object per finding. Each exits 0 on pass, 2 on fail and
 1 when the input cannot be read. They need only a Python interpreter.
 
 ```sh
+python3 scripts/checks/question_format.py message.md
+python3 scripts/checks/report_check.py --plan campaign.json message.md
 python3 scripts/checks/blocker_classify.py failures.jsonl
 echo 'cargo test --workspace' | python3 scripts/checks/build_command.py
 ```
+
+[question_format.py](scripts/checks/question_format.py) checks the questions of an operator
+message against [rules/session-writing.md §Questions to the operator](rules/session-writing.md#questions-to-the-operator).
+A question is a numbered level-3 heading under a level-2 topic, with its number escaped
+(`### 1\.`) and unique across the message. Each context sentence starts with `FACT` or
+`ASSESSMENT`, on one source line. A choice has one flat numbered option list with exactly one
+whole-bold line ending in "(recommended)". The list ends with **Answer like so:** and a
+three-line `text` example after the last question, showing an option number, a request for
+more context (a question, or a request such as "explain …" or "please elaborate") and `ok`. A question about the team's own tests,
+replays or verification fails, and so does a question asked in prose outside a question
+heading. A message without questions passes.
+
+[report_check.py](scripts/checks/report_check.py) checks a report against
+[rules/writing.md §Claim labels](rules/writing.md#claim-labels) and §Checks before sending. Every
+`FACT` sentence names its source: a link, a path, a quote, or a command in a code span. A code
+span that holds only a number, a time or a size (`` `12` ``, `` `984 MiB` ``) is not a source.
+The check cannot tell a command (`` `uptime` ``) from a formatted word (`` `done` ``), so any
+other code span counts; keep values out of code spans in `FACT` sentences. A label
+covers the later sentences of its paragraph or list item, and each of them needs a source too. A claim
+taken from another agent's report ("the import lane found …") is labelled `ASSUMPTION`. No
+sentence sends the reader elsewhere ("see above", "my last message"). When the report names an
+operator-only blocker, the bold opening span of its first line names each class it names; a
+level-1 title above it is skipped. Two blockers of one class, such as two empty balances, count
+as one. With `--plan`, every field the plan requires appears as a heading or a bold label.
 
 [blocker_classify.py](scripts/checks/blocker_classify.py) classifies failure records or a
 text. The input is a JSON object, a JSON array, JSON lines or plain text. It reads `category`
@@ -119,6 +145,11 @@ the text at unquoted separators, joins backslash line continuations and ignores 
 Help, version, listing and dry-run calls pass. A repository
 without pull-request CI runs its full local gate under `pr-ready` §4 without this check.
 
+The checks read Markdown and JSON text and import no shared types. Their names match the
+shared decision and campaign schemas where those define the same thing: the context labels
+`FACT` and `ASSESSMENT` are the schema's `fact` and `assessment`; a level-2 topic is a
+question's `topic`; the line after the backslash is its `afterAnswer`; `--plan` reads a
+campaign record's `constraints` whose `rule` has `kind` `required_report_field` and a `field`.
 The tests use synthetic examples only:
 `python3 -B -m unittest discover -s scripts/checks -p 'test_*.py'`.
 
@@ -128,7 +159,7 @@ CI runs two workflows on every push and pull request. Both install the pinned do
 tooling first.
 
 - [Checks](.github/workflows/checks.yml) checks the report linter's JavaScript syntax. It
-  runs the installation sync tests, the change ledger tests, the failure and command check
+  runs the installation sync tests, the change ledger tests, the message and command check
   tests and the transcript extraction tests. It prepares every
   role and lens as the review service does, and tests that staging check.
 - [Specification documents](.github/workflows/spec-docs.yml) checks the supported runtime
