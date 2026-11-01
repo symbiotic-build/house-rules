@@ -201,7 +201,8 @@ and the argument after each flag named like `token`, `key`, `secret` or `passwor
 `<redacted>`. Redaction reads whole shell words, with quotes and escapes, and the scripts
 quoted inside them, such as a `bash -c` script. An unclosed quote redacts the rest of the
 command. A command holding a substitution (`$(`, backticks, `${`, `<(` or `>(`) is logged as
-`<redacted>` as a whole; its line still has the decision and rule. A log that cannot be written changes no decision; the hook says so on standard error.
+`<redacted>` as a whole; its line still has the decision and rule. A log that cannot be written
+changes no decision; the hook says so on standard error.
 
 To count false refusals, list the refusals and judge each command:
 
