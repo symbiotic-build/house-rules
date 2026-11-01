@@ -1298,7 +1298,8 @@ class BuildHookTests(SyncFixture, unittest.TestCase):
             for text, status in (("cargo test", 2), ("cargo test --release -p parser parse_header", 0)):
                 with self.subTest(path=path, text=text):
                     data = json.dumps({"tool_name": "Bash", "tool_input": {"command": text}})
-                    result = subprocess.run(["/bin/sh", "-c", command], input=data, capture_output=True, text=True,
+                    result = subprocess.run(["/bin/sh", "-c", command], input=data, stdin=None, capture_output=True,
+                                            text=True,
                                             env=environment)
                     self.assertEqual(result.returncode, status, result.stderr)
         records = [json.loads(line) for line in

@@ -44,7 +44,7 @@ class WorksAloneTest(HookTest):
         environment = {"PATH": os.environ.get("PATH", ""), "HOME": str(self.folder / "home"),
                        "XDG_STATE_HOME": str(self.folder / "state-home")}
         result = subprocess.run([sys.executable, "-I", str(HERE / "build_hook.py"), harness],
-                                input=json.dumps(hook_input(command)), capture_output=True, text=True,
+                                input=json.dumps(hook_input(command)), stdin=None, capture_output=True, text=True,
                                 env=environment, cwd=self.folder)
         return result.returncode, result.stderr
 
@@ -70,7 +70,7 @@ class WorksAloneTest(HookTest):
     def test_without_xdg_state_home_the_log_is_in_the_home_state_folder(self):
         environment = {"PATH": os.environ.get("PATH", ""), "HOME": str(self.folder / "home")}
         result = subprocess.run([sys.executable, "-I", str(HERE / "build_hook.py"), "claude"],
-                                input=json.dumps(hook_input("cargo clippy --workspace")), capture_output=True,
+                                input=json.dumps(hook_input("cargo clippy --workspace")), stdin=None, capture_output=True,
                                 text=True, env=environment)
         self.assertEqual(result.returncode, 2, result.stderr)
         log = self.folder / "home/.local/state/house-rules/build-hook.jsonl"
