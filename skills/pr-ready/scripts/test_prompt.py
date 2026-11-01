@@ -109,14 +109,22 @@ class PromptTest(unittest.TestCase):
                     self.assertEqual(expanded.returncode, 0, expanded.stderr)
                     self.assertEqual(expanded.stdout.count((ROOT / owner).read_text()), 1)
 
+    def test_panel_roles_have_identical_leading_include_graphs(self):
+        heads = [(ROOT / f"prompts/roles/{role}.md").read_text().split("\n\n", 1)[0].splitlines()
+                 for role in ("reviewer", "triager")]
+        self.assertEqual(heads[0], heads[1])
+        self.assertEqual(len(heads[0]), 14)
+        for line in heads[0]:
+            self.assertIsNotNone(prompt.INCLUDE.fullmatch(line))
+
     def test_panel_role_sections_and_stdin_keep_complete_expansion(self):
-        shared = ["prompts/util/panel-rules.md", "prompts/util/finding-rules.md",
+        shared = ["prompts/util/panel-loading.md", "rules/writing.md", "rules/git.md",
+                  "rules/priority-labels.md", "prompts/util/finding-rules.md",
                   "prompts/util/cost-defect.md", "prompts/util/cost-and-design.md",
                   "prompts/util/external-writes.md", "prompts/skills/code-canon.md",
                   "prompts/skills/native-first.md", "prompts/skills/no-fortification.md",
                   "prompts/skills/test-discipline.md", "prompts/skills/local-builds.md",
-                  "prompts/skills/naming-defaults.md", "rules/writing.md", "rules/git.md",
-                  "rules/priority-labels.md"]
+                  "prompts/skills/naming-defaults.md"]
         own = {"reviewer": ["prompts/util/review-bar.md", "prompts/util/review-report.md"],
                "triager": ["prompts/util/triage-classes.md", "prompts/util/triage-rules.md",
                            "prompts/util/issue-report.md", "prompts/util/issue-form.md"]}
@@ -236,11 +244,9 @@ class PromptTest(unittest.TestCase):
         self.assertEqual(first.returncode, 0, first.stderr)
         self.assertEqual(first.stdout, second.stdout)
 
-    def test_skills_and_util_are_leaves_except_panel_aggregator(self):
+    def test_skills_and_util_are_leaf_files(self):
         for folder in ("skills", "util"):
             for path in (ROOT / "prompts" / folder).glob("*.md"):
-                if path.relative_to(ROOT).as_posix() == "prompts/util/panel-rules.md":
-                    continue
                 self.assertNotRegex(path.read_text(), r"(?m)^@rule ")
 
 

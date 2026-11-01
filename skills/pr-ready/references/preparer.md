@@ -20,7 +20,11 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   configured output root, including through symlinks. Reviewer names must match
   `[a-z0-9-]+` and an existing file stem in `prompts/lenses/`, with no duplicates.
   Structured prompt order: part 1 holds the rules every panel agent shares, byte-identical
-  for reviewers and the triager. PR/issue context, requirements and the change follow.
+  for reviewers and the triager. Both roles list the same leading includes, starting with
+  the leaf [loading paragraph](../../../prompts/util/panel-loading.md).
+  A dispatcher that deletes include lines from one role's staged copy, as a check-round
+  focus does, changes that role's part 1 and so its shared prefix.
+  PR/issue context, requirements and the change follow.
   Part 7 holds the role's own instructions, then the reviewer's lens instructions.
   `--role triager` prepares the triager without a lens; `--lens` and `--reviewers` are refused.
   Different lenses share the prefix before those final instructions when one task is

@@ -106,8 +106,10 @@ Specialist dispatch follows
 - Give the reviewer the spec sections, previous review and round task as needed
   ([review template](references/review-prompt.md)). `scripts/review-panel.sh` builds each
   reviewer's prompt with `scripts/prepare.py review`. The structured format places shared
-  panel rules in part 1, byte-identical for reviewers and the triager. PR and issue context
-  and requirements precede the change, which shows each changed text file whole with
+  panel rules in part 1, byte-identical for reviewers and the triager. Both roles start
+  with the same includes, beginning with the [loading paragraph](../../prompts/util/panel-loading.md).
+  PR and issue context and requirements precede the change, which shows each changed
+  text file whole with
   numbered lines up to a size cap. Part 7 holds the role's own instructions, then the lens.
   `--role triager` prepares the triager without a lens.
   Pack and diff retain their existing layouts. A reviewer without a verdict, a preparation

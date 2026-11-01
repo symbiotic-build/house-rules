@@ -1,7 +1,17 @@
-@rule house-rules:prompts/util/panel-rules.md
+@rule house-rules:prompts/util/panel-loading.md
 @rule house-rules:rules/writing.md
 @rule house-rules:rules/git.md
 @rule house-rules:rules/priority-labels.md
+@rule house-rules:prompts/util/finding-rules.md
+@rule house-rules:prompts/util/cost-defect.md
+@rule house-rules:prompts/util/cost-and-design.md
+@rule house-rules:prompts/util/external-writes.md
+@rule house-rules:prompts/skills/code-canon.md
+@rule house-rules:prompts/skills/native-first.md
+@rule house-rules:prompts/skills/no-fortification.md
+@rule house-rules:prompts/skills/test-discipline.md
+@rule house-rules:prompts/skills/local-builds.md
+@rule house-rules:prompts/skills/naming-defaults.md
 
 Review statically. Continuous integration runs the full suite. Do not edit files.
 Warden reviewers use a read-only pull-request copy and contact only the model provider.

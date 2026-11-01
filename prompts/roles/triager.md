@@ -1,7 +1,17 @@
-@rule house-rules:prompts/util/panel-rules.md
+@rule house-rules:prompts/util/panel-loading.md
 @rule house-rules:rules/writing.md
 @rule house-rules:rules/git.md
 @rule house-rules:rules/priority-labels.md
+@rule house-rules:prompts/util/finding-rules.md
+@rule house-rules:prompts/util/cost-defect.md
+@rule house-rules:prompts/util/cost-and-design.md
+@rule house-rules:prompts/util/external-writes.md
+@rule house-rules:prompts/skills/code-canon.md
+@rule house-rules:prompts/skills/native-first.md
+@rule house-rules:prompts/skills/no-fortification.md
+@rule house-rules:prompts/skills/test-discipline.md
+@rule house-rules:prompts/skills/local-builds.md
+@rule house-rules:prompts/skills/naming-defaults.md
 
 You are the TRIAGER for a code review of the current checkout (diff the merge-base against the head named in the review context). Independent adversarial reviewers reported findings; the dispatcher lists their report files at the end.
 

@@ -1617,6 +1617,10 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
                     self.assertEqual(result.count(rule.read_text()), 1)
 
     def test_panel_roles_share_part_one_across_lenses_and_check_rounds(self):
+        from prompt import expand_role
+
+        expected_shared = expand_role("prompts/roles/reviewer.md")[0]
+        self.assertEqual(expected_shared, expand_role("prompts/roles/triager.md")[0])
         self.add_review_change()
         since = self.git(self.repo, "rev-parse", "HEAD")
         self.write(self.repo, "src/core.py", "def action():\n    return 3\n")
@@ -1632,9 +1636,7 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
                     if kwargs.get("role") == "triager":
                         triager_instructions.append(result.split("# 7. Lens instructions\n", 1)[1])
         self.assertEqual(triager_instructions[0], triager_instructions[1])
-        self.assertEqual(shared, [shared[0]] * len(shared))
-        self.assertNotIn("Review statically.", shared[0])
-        self.assertNotIn("You are the TRIAGER", shared[0])
+        self.assertEqual(shared, [expected_shared + "\n\n"] * len(shared))
 
     def test_triager_refuses_lens_reviewers_and_unknown_roles(self):
         for options, message in ((["--role", "triager", "--lens", "generic"], "--lens"),
@@ -1649,6 +1651,8 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
                 self.assertIn(message, result.stderr)
 
     def test_triager_needs_no_lens_files_or_settings_in_any_format(self):
+        from prompt import expand_role
+
         tool = self.root / "tool"
         scripts = tool / "skills/pr-ready/scripts"
         scripts.mkdir(parents=True)
@@ -1656,16 +1660,25 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
         for folder in ("prompts", "rules"):
             shutil.copytree(SCRIPT.parents[3] / folder, tool / folder)
         shutil.rmtree(tool / "prompts/lenses")
+        own = expand_role("prompts/roles/triager.md", root=tool)[1]
         with mock.patch.object(prepare, "HERE", scripts):
             for mode in ("structured", "pack", "diff"):
                 with self.subTest(mode=mode):
                     code, out, err = self.invoke("review", str(self.repo), "--base", "origin/trunk",
                                                  "--no-fetch", "--role", "triager", "--format", mode)
                     self.assertEqual(code, 0, err)
-                    self.assertIn("You are the TRIAGER", out)
+                    if mode == "structured":
+                        instructions = out.split("# 7. Lens instructions\n", 1)[1]
+                        self.assertEqual(instructions, own + "\n")
+                    else:
+                        instructions = out.split("# 2. Instructions\n", 1)[1].split(
+                            "# 3. Pull request and issue\n", 1)[0]
+                        self.assertEqual(instructions, own + "\n\n")
                     self.assertNotRegex(out, r"(?m)^@rule ")
 
     def test_service_check_round_rule_removal_preserves_role_instructions(self):
+        from prompt import expand_role
+
         tool = self.root / "tool"
         scripts = tool / "skills/pr-ready/scripts"
         scripts.mkdir(parents=True)
@@ -1681,8 +1694,8 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
         with mock.patch.object(prepare, "HERE", scripts):
             result = self.review(since=since)
         common = result.split("# 1. Review pack\n", 1)[1].split("# 3. Pull request and issue\n", 1)[0]
-        for path in ("writing", "git", "priority-labels"):
-            self.assertNotIn((tool / f"rules/{path}.md").read_text(), common)
+        expected_shared = expand_role("prompts/roles/reviewer.md", root=tool)[0]
+        self.assertEqual(common, expected_shared + "\n\n")
         self.assertEqual(result.split("# 7. Lens instructions\n", 1)[1],
                          baseline.split("# 7. Lens instructions\n", 1)[1])
 

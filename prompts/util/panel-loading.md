@@ -6,14 +6,3 @@ The repository rules part supplies the repository's rule files, gates and conven
 A part saying the repository has no rules of its own is complete.
 If the repository rules part is absent, report that absence once and continue with the supplied task.
 Do not search the repository or parent directories for rule files.
-
-@rule house-rules:prompts/util/finding-rules.md
-@rule house-rules:prompts/util/cost-defect.md
-@rule house-rules:prompts/util/cost-and-design.md
-@rule house-rules:prompts/util/external-writes.md
-@rule house-rules:prompts/skills/code-canon.md
-@rule house-rules:prompts/skills/native-first.md
-@rule house-rules:prompts/skills/no-fortification.md
-@rule house-rules:prompts/skills/test-discipline.md
-@rule house-rules:prompts/skills/local-builds.md
-@rule house-rules:prompts/skills/naming-defaults.md
