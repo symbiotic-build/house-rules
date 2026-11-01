@@ -216,6 +216,7 @@
 - Do not add scope, destructive steps, or protected-asset actions.
 - Stop for the operator before credential steps.
 - Stop for the operator before logins.
+- [scripts/checks/blocker_classify.py](../scripts/checks/blocker_classify.py) tells whether a failure needs such an operator step and names the step.
 - Stop for the operator before destructive steps beyond a routine deploy.
 - Report host safety controls that block launch.
 - Do not work around those controls.
