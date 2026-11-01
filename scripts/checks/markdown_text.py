@@ -1,20 +1,16 @@
-"""Markdown reading shared by the message checks: lines outside code, headings, blocks, sentences.
+"""Markdown reading for the message checks: lines outside code, headings, sentences.
 
 The checks read the source text a message is written in. A line inside a fenced code block
 or an HTML comment is code, not prose; the helpers mark it so the checks can skip it.
 """
 import re
 
-LABELS = ("FACT", "ASSUMPTION", "ESTIMATE", "ASSESSMENT", "DECISION")
-LABEL = re.compile(r"`(" + "|".join(LABELS) + r")`")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 FENCE = re.compile(r"^\s*(```+|~~~+)")
 LIST_ITEM = re.compile(r"^(\s*)(?:[-*+]|(\d+)[.)])\s+(.*)$")
 CODE_SPAN = re.compile(r"(`+)(.+?)\1")
 LINK_TARGET = re.compile(r"\]\(([^)\s]*)\)")
-LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
-BOLD_START = re.compile(r"^\*\*[^*]+\*\*")
 SENTENCE_END = re.compile(r"[.?!][\"”’')\]*_]*(?=\s|$)")
 
 
@@ -106,59 +102,3 @@ def sentences(text):
     if tail:
         result.append(tail)
     return result
-
-
-def bold_start(text):
-    """The bold span a line opens with (`**…**`), found outside code spans, or ""."""
-    match = BOLD_START.match(mask(text))
-    return text[:match.end()] if match else ""
-
-
-def first_label(sentence):
-    """The first claim label in a sentence, or None."""
-    match = LABEL.search(sentence)
-    return match.group(1) if match else None
-
-
-def blocks(lines):
-    """Prose blocks outside code: headings, list items with their continuation lines, paragraphs.
-
-    Each block is (first line number, joined text, kind), where kind is `heading`, `item` or
-    `paragraph`. A blank line, a heading, a code line or a new list item ends a block.
-    """
-    result = []
-    current = None
-
-    def close():
-        nonlocal current
-        if current is not None:
-            result.append((current[0], " ".join(current[1]), current[2]))
-            current = None
-
-    for line in lines:
-        if line.code or not line.text.strip():
-            close()
-            continue
-        if heading(line):
-            close()
-            result.append((line.number, heading(line)[1], "heading"))
-            continue
-        item = LIST_ITEM.match(line.text)
-        if item:
-            close()
-            current = (line.number, [item.group(3).strip()], "item")
-            continue
-        if current is None:
-            current = (line.number, [line.text.strip()], "paragraph")
-        else:
-            current[1].append(line.text.strip())
-    close()
-    return result
-
-
-def first_prose_line(lines):
-    """The first line that is neither blank nor code, or None."""
-    for line in lines:
-        if not line.code and line.text.strip():
-            return line
-    return None

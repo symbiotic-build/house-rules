@@ -81,15 +81,13 @@ The tests run in a temporary home: `python3 -B -m unittest scripts/test_rules_le
 
 ## Check messages and commands
 
-Four scripts in [scripts/checks/](scripts/checks) check a rule mechanically before an agent
+Two scripts in [scripts/checks/](scripts/checks) check a rule mechanically before an agent
 sends a message or runs a command. Each reads a path, or standard input when the path is
 absent or `-`, and prints one JSON object per finding. Each exits 0 on pass, 2 on fail and
 1 when the input cannot be read. They need only a Python interpreter.
 
 ```sh
 python3 scripts/checks/question_format.py message.md
-python3 scripts/checks/report_check.py --plan campaign.json message.md
-python3 scripts/checks/blocker_classify.py failures.jsonl
 echo 'cargo test --workspace' | python3 scripts/checks/build_command.py
 ```
 
@@ -111,34 +109,6 @@ Whether a question asks the operator to do the team's own work (tests, replays, 
 left to the writer and to review: the check does not judge it, because who does the work cannot
 be told from the words of a title.
 
-[report_check.py](scripts/checks/report_check.py) checks a report against
-[rules/writing.md §Claim labels](rules/writing.md#claim-labels) and §Checks before sending. Every
-`FACT` sentence names its source: a link, a path, a quote, or a code span that holds a path or
-two or more words, such as a command with its arguments. The check cannot tell a command from a
-formatted value, so it has two known limits: a one-word command (`` `uptime` ``) is not a
-source, and a multi-word value (`` `in progress` ``) is. Cite a one-word command with an
-argument, its output path or a link. A label
-covers the later sentences of its paragraph or list item, and each of them needs a source too. A claim
-taken from another agent's report ("the import lane found …") is labelled `ASSUMPTION`. No
-sentence sends the reader elsewhere ("see above", "my last message"). When the report names an
-operator-only blocker, the bold opening span of its first line names each class it names; a
-level-1 title above it is skipped. Two blockers of one class, such as two empty balances, count
-as one. With `--plan`, every field the plan requires appears as a heading or a bold label.
-
-[blocker_classify.py](scripts/checks/blocker_classify.py) classifies failure records or a
-text. The input is a JSON object, a JSON array, JSON lines or plain text. It reads `category`
-and `reason` (also nested in `failure`, or wrapped in `record`, as a job record holds them),
-`status`, `code`, `provider_message`, `text`, and `provider`, `route` or `family` for the name
-in the action text; other fields are ignored. Text wins over the code and the status, because
-a provider can wrap an empty balance in a throttle or an account gate in a policy refusal.
-Operator-only text rules come first across all text fields, so an ordinary failure in one field
-cannot hide a blocker in another. A status counts only from the `status` field, never as a number inside text.
-Each result gives `class`, `operator_only` and `action`, the exact step to take. The
-operator-only classes are `credential`, `account`, `balance`, `quota`, `permission` and
-`protected_asset`; the others are `rate_limit`, `timeout`, `policy_refusal`, `provider_error`,
-`network`, `job_failure`, `unknown` (a record no rule matches) and `none` (a text that names no
-failure). The exit status is 2 when any input is operator-only.
-
 [build_command.py](scripts/checks/build_command.py) checks a shell command against the local
 build scope and the release-profile rule of
 [Local builds](prompts/skills/local-builds.md). It refuses `cargo test` or `cargo nextest
@@ -153,11 +123,10 @@ the text at unquoted separators, joins backslash line continuations and ignores 
 Help, version, listing and dry-run calls pass. A repository
 without pull-request CI runs its full local gate under `pr-ready` §4 without this check.
 
-The checks read Markdown and JSON text and import no shared types. Their names match the
-shared decision and campaign schemas where those define the same thing: the context labels
-`FACT` and `ASSESSMENT` are the schema's `fact` and `assessment`; a level-2 topic is a
-question's `topic`; the line after the backslash is its `afterAnswer`; `--plan` reads a
-campaign record's `constraints` whose `rule` has `kind` `required_report_field` and a `field`.
+The checks import no shared types. Their names match the shared decision schema where it
+defines the same thing: the context labels `FACT` and `ASSESSMENT` are the schema's `fact`
+and `assessment`; a level-2 topic is a question's `topic`; the line after the backslash is
+its `afterAnswer`.
 The tests use synthetic examples only:
 `python3 -B -m unittest discover -s scripts/checks -p 'test_*.py'`.
 
