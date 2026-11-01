@@ -69,7 +69,8 @@ class RulesChangelogTests(unittest.TestCase):
         rerun = self.run_script("--ledger", "--repo", str(self.repo), env=env)
         self.assertEqual((rerun.returncode, rerun.stdout), (0, ""), rerun.stderr)
         rollback = subprocess.run([sys.executable, "-B", str(SCRIPT.parents[3] / "scripts/rules_ledger.py"),
-                                   "rollback", merged["id"]], env=env, capture_output=True, text=True)
+                                   "rollback", merged["id"]], env=env, capture_output=True, text=True,
+                                   stdin=subprocess.DEVNULL)
         self.assertEqual(rollback.returncode, 0, rollback.stderr)
         self.assertEqual((self.repo / "rules/core.md").read_text(), "- Keep records.\n")
 

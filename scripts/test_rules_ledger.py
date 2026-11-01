@@ -25,7 +25,7 @@ class RulesLedgerTests(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_script(self, *args, stdin=b""):
-        return subprocess.run([sys.executable, "-B", str(SCRIPT), *args], input=stdin, env=self.env,
+        return subprocess.run([sys.executable, "-B", str(SCRIPT), *args], input=stdin, stdin=None, env=self.env,
                               capture_output=True)
 
     def records(self):
