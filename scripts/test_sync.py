@@ -65,6 +65,9 @@ class SyncFixture:
         self.write(self.origin / "skills/operator-writing/SKILL.md", "# Operator writing\n")
         (self.origin / "scripts").mkdir()
         shutil.copyfile(REPO / "scripts/session_context.py", self.origin / "scripts/session_context.py")
+        shutil.copytree(REPO / "scripts/checks", self.origin / "scripts/checks",
+                        ignore=shutil.ignore_patterns("test_*", "__pycache__"))
+        checks = sorted(f"scripts/checks/{path.name}" for path in (self.origin / "scripts/checks").iterdir())
         self.write(self.origin / "INDEX.md", "# Index\n\n## Always load\n\n" + "".join(
             f"- [{name}](rules/{name}.md)\n" for name in RULES) + "\n## Load when needed\n")
         self.write(self.origin / "ruleset.json", json.dumps({"version": 1, "context": [
@@ -72,7 +75,7 @@ class SyncFixture:
         for name in RULES:
             self.write(self.origin / f"rules/{name}.md", f"# {name} rules\n")
         self.commit(self.origin, [".gitignore", "INSTALL-AGENTS.md", "INDEX.md", "ruleset.json", "skills/sample/SKILL.md",
-                                  "skills/operator-writing/SKILL.md", "scripts/session_context.py",
+                                  "skills/operator-writing/SKILL.md", "scripts/session_context.py", *checks,
                                   *(f"rules/{name}.md" for name in RULES)])
         self.root = self.base / "House Rules checkout"
         self.git(self.base, "clone", str(self.origin), str(self.root))
@@ -189,9 +192,11 @@ class SyncFixture:
     def register_hook(self, path, product, python=sys.executable, root=None, extra=()):
         """Write the hook file INSTALL-AGENTS.md §3 describes, beside unrelated hooks."""
         entry = context.hooks(product, python, root or self.root)
+        checks = context.check_hooks(python, root or self.root)
         other = {"matcher": "*", "hooks": [{"type": "command", "command": "/bin/echo unrelated"}]}
         self.write(path, json.dumps({"model": "fixture", "hooks": {
-            "SessionStart": [other, entry, *extra], "Stop": [other]}}, indent=2))
+            "SessionStart": [other, entry, *extra], "Stop": [other, checks["Stop"]],
+            "PreToolUse": [checks["PreToolUse"]], "UserPromptSubmit": [checks["UserPromptSubmit"]]}}, indent=2))
 
 
 class SyncTests(SyncFixture, unittest.TestCase):
@@ -794,16 +799,24 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.codex_hooks.unlink()
         code, out, err = self.invoke("--install-hooks")
         self.assertEqual(code, 0, out + err)
-        self.assertIn(f"REGISTERED: session context hook in {self.settings}", out)
+        self.assertIn(f"REGISTERED: House Rules hooks in {self.settings}", out)
         self.assertIn("3 homes checked; 0 findings", out)
         settings = self.read(self.settings)
+        checks = context.check_hooks(sys.executable, self.root)
         self.assertEqual(settings["model"], "fixture")
-        self.assertEqual(settings["hooks"]["Stop"], [{"hooks": [self.unrelated]}])
+        self.assertEqual(settings["hooks"]["Stop"], [{"hooks": [self.unrelated]}, checks["Stop"]])
         self.assertEqual(settings["hooks"]["SessionStart"],
                          [{"hooks": [self.unrelated]}, context.hooks("claude", sys.executable, self.root)])
+        self.assertEqual(settings["hooks"]["PreToolUse"], [checks["PreToolUse"]])
+        self.assertEqual(settings["hooks"]["UserPromptSubmit"], [checks["UserPromptSubmit"]])
         self.assertEqual([path.read_text() for path in self.backups(self.settings)], [original])
-        self.assertEqual(self.read(self.codex_hooks)["hooks"]["SessionStart"],
-                         [context.hooks("codex", sys.executable, self.root)])
+        self.assertEqual(self.read(self.codex_hooks)["hooks"], {
+            "SessionStart": [context.hooks("codex", sys.executable, self.root)],
+            **{event: [entry] for event, entry in checks.items()}})
+        # Codex skips every new handler until the operator trusts it; Claude Code needs no trust.
+        trust = [line.split(": ")[-1] for line in out.splitlines() if line.startswith("TRUST:")]
+        self.assertEqual(trust, [f"{self.codex_hooks.resolve()}:{key}" for key in (
+            "session_start:0:0", "session_start:0:1", "pre_tool_use:0:0", "stop:0:0", "user_prompt_submit:0:0")])
         self.assertEqual(self.backups(self.codex_hooks), [])
         self.assertFalse((self.kimi / "settings.json").exists() or (self.kimi / "hooks.json").exists())
 
@@ -918,7 +931,7 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         environment = {**os.environ, "HOME": str(self.home)}
         installed = subprocess.run([*run, "--install-hooks"], env=environment, stdin=subprocess.DEVNULL,
                                    capture_output=True, text=True)
-        self.assertIn(f"REGISTERED: session context hook in {self.claude.resolve() / 'settings.json'}",
+        self.assertIn(f"REGISTERED: House Rules hooks in {self.claude.resolve() / 'settings.json'}",
                       installed.stdout, installed.stdout + installed.stderr)
         command = self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"][0]["command"]
         self.assertEqual(shlex.split(command)[2], str(alias / "scripts/session_context.py"))
@@ -968,7 +981,7 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         alias = self.base / "stable root"
         alias.symlink_to(self.root, target_is_directory=True)
         code, out, err = self.invoke("--install-hooks", root=alias)
-        self.assertIn(f"REGISTERED: session context hook in {self.settings}", out)
+        self.assertIn(f"REGISTERED: House Rules hooks in {self.settings}", out)
         commands = [handler["command"] for handler in self.read(self.settings)["hooks"]["SessionStart"][-1]["hooks"]]
         self.assertIn(shlex.quote(str(alias / "scripts/session_context.py")), commands[0])
         self.assertEqual(len(self.read(self.settings)["hooks"]["SessionStart"]), 2)
@@ -986,7 +999,7 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.write(self.codex_hooks, "[]")
         code, out, err = self.invoke("--install-hooks")
         self.assertEqual(code, 2, out + err)
-        self.assertIn(f"REGISTERED: session context hook in {self.settings}", out)
+        self.assertIn(f"REGISTERED: House Rules hooks in {self.settings}", out)
         self.assertIn(f"hook file is not a JSON object: {self.codex_hooks}", err)
         self.assertEqual(self.codex_hooks.read_text(), "[]")
 
@@ -1179,6 +1192,104 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         code, out, err = self.invoke()
         self.assertEqual(code, 1, out + err)
         self.assertFalse(self.settings.exists())
+
+
+class CheckHookTests(SyncFixture, unittest.TestCase):
+    """The PreToolUse, Stop and UserPromptSubmit check hooks sync.py installs beside SessionStart."""
+
+    def setUp(self):
+        super().setUp()
+        self.install_fixture()
+        self.settings, self.codex_hooks = self.claude / "settings.json", self.codex / "hooks.json"
+        self.checks = context.check_hooks(sys.executable, self.root)
+
+    def read(self, path):
+        return json.loads(path.read_text())
+
+    def turn_off(self, value):
+        self.write(self.root / "custom/sync.env", f"CHECK_HOOKS_OFF={value}\n")
+
+    def test_missing_and_stale_check_hooks_are_reported_and_installation_repairs_them(self):
+        self.receipt({"source_root": str(self.root), "previous_roots": [str(self.base / "old root")]})
+        settings = self.read(self.settings)
+        del settings["hooks"]["PreToolUse"]
+        settings["hooks"]["Stop"][-1] = context.check_hooks(sys.executable, self.base / "old root")["Stop"]
+        settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["timeout"] = 60
+        self.write(self.settings, json.dumps(settings))
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: missing PreToolUse check hook: {self.settings}", out)
+        self.assertIn(f"REPORT: stale Stop check hook: {self.settings}", out)
+        self.assertIn(f"REPORT: stale UserPromptSubmit check hook: {self.settings}", out)
+        self.assertNotIn(str(self.codex_hooks), out)
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        hooks = self.read(self.settings)["hooks"]
+        self.assertEqual(hooks["PreToolUse"], [self.checks["PreToolUse"]])
+        self.assertEqual(hooks["Stop"], [{"matcher": "*", "hooks": [{"type": "command", "command": "/bin/echo unrelated"}]},
+                                         self.checks["Stop"]])
+        self.assertNotIn("TRUST:", out)  # the Codex file was already current
+
+    def test_the_off_switch_removes_a_check_hook_and_verification_expects_it_absent(self):
+        self.turn_off("Stop,PreToolUse")
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        for path in (self.settings, self.codex_hooks):
+            for event in ("Stop", "PreToolUse"):
+                self.assertIn(f"REPORT: turned-off {event} check hook still registered: {path}", out)
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        for path in (self.settings, self.codex_hooks):
+            hooks = self.read(path)["hooks"]
+            self.assertNotIn("PreToolUse", hooks)
+            self.assertEqual(len(hooks["Stop"]), 1)  # the unrelated Stop entry stays
+            self.assertEqual(hooks["UserPromptSubmit"], [self.checks["UserPromptSubmit"]])
+        self.assertEqual(self.invoke()[0], 0)
+        (self.root / "custom/sync.env").unlink()
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: missing Stop check hook: {self.codex_hooks}", out)
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertIn(f"TRUST: Codex runs this hook only after the operator trusts it in /hooks: "
+                      f"{self.codex_hooks.resolve()}:pre_tool_use:0:0", out)
+        self.assertIn(f"{self.codex_hooks.resolve()}:stop:1:0", out)
+
+    def test_an_unknown_name_in_the_off_switch_is_an_error_and_writes_nothing(self):
+        self.turn_off("Stop,PostToolUse")
+        before = self.settings.read_text()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("CHECK_HOOKS_OFF names no check hook: PostToolUse", err)
+        self.assertEqual(self.settings.read_text(), before)
+
+    def test_check_hooks_through_the_house_rules_command_are_current(self):
+        command = self.base / "bin" / "house-rules"
+        self.write(command, "#!/bin/sh\n")
+        command.chmod(0o755)
+        code, out, err = self.invoke("--install-hooks", "--command", str(command))
+        self.assertEqual(code, 0, out + err)
+        hooks = self.read(self.settings)["hooks"]
+        self.assertEqual(hooks["PreToolUse"], [context.check_hooks(house_rules=str(command))["PreToolUse"]])
+        self.assertEqual(hooks["PreToolUse"][0]["hooks"][0]["command"],
+                         f"{command} exec --hook scripts/checks/agent_hook.py PreToolUse")
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["PreToolUse"], [self.checks["PreToolUse"]])
+
+    def test_a_check_hook_whose_script_is_missing_is_reported(self):
+        (self.root / "scripts/checks/agent_hook.py").unlink()
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: Stop check hook runs a missing script: {self.settings}", out)
+
+    def test_the_registered_pre_tool_use_command_refuses_a_crate_wide_test(self):
+        command = self.read(self.settings)["hooks"]["PreToolUse"][0]["hooks"][0]["command"]
+        for text, status in (("cargo test --workspace", 2), ("cargo test --release -p parser parse_header", 0)):
+            data = json.dumps({"tool_name": "Bash", "tool_input": {"command": text}})
+            result = subprocess.run(["/bin/sh", "-c", command], input=data, stdin=None, capture_output=True,
+                                    text=True)
+            self.assertEqual(result.returncode, status, result.stderr)
 
 
 class DriftTests(SyncFixture, unittest.TestCase):

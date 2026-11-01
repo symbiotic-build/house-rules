@@ -153,6 +153,33 @@ the text at unquoted separators, joins backslash line continuations and ignores 
 Help, version, listing and dry-run calls pass. A repository
 without pull-request CI runs its full local gate under `pr-ready` §4 without this check.
 
+[agent_hook.py](scripts/checks/agent_hook.py) runs these checks as Claude Code and Codex hooks,
+which `scripts/sync.py --install-hooks` registers ([INSTALL-AGENTS.md §3 step
+10](INSTALL-AGENTS.md#3-install-house-rules-instructions-and-skills)). The hook input arrives on
+standard input, and the event name is the only argument:
+
+```sh
+echo '{"tool_name": "Bash", "tool_input": {"command": "cargo test --workspace"}}' |
+  python3 -I scripts/checks/agent_hook.py PreToolUse   # exit 2: refused before it runs
+```
+
+- `PreToolUse` runs `build_command.py` on each shell command (`Bash`) and blocks a refused one
+  before it runs, with each refusal as the reason. Other tools pass.
+- `Stop` runs `report_check.py` on the final message, and `question_format.py` when the message
+  has a numbered question heading. A finding blocks the stop once: the agent gets the findings
+  and rewrites the message. When the harness says a stop hook already continued the turn
+  (`stop_hook_active`), the stop goes through, the operator sees a warning, and one JSON line
+  with the session id and the broken rules goes to `check-hooks.jsonl` in
+  `$XDG_STATE_HOME/house-rules` (default `~/.local/state/house-rules`).
+- `UserPromptSubmit` runs `blocker_classify.py` on the operator's message and never blocks.
+  When the message names an operator-only blocker, the class and the action reach the agent
+  as context.
+
+A hook input that cannot be read exits 1 with the reason; both harnesses show it and continue.
+`CHECK_HOOKS_OFF` in `custom/sync.env` turns hooks off, for example `CHECK_HOOKS_OFF=Stop`
+([INSTALL-AGENTS.md §6](INSTALL-AGENTS.md#6-update-and-remove)). Codex runs a new hook only after
+the operator trusts it in `/hooks`; the installer prints a `TRUST:` line for each one.
+
 The checks read Markdown and JSON text and import no shared types. Their names match the
 shared decision and campaign schemas where those define the same thing: the context labels
 `FACT` and `ASSESSMENT` are the schema's `fact` and `assessment`; a level-2 topic is a
