@@ -1190,6 +1190,7 @@ class DriftTests(SyncFixture, unittest.TestCase):
         self.write(self.imports / "sample/notes.md", "added by the host\n")
         self.write(self.imports / "sample/__pycache__/x.pyc", "byproduct")
         self.write(self.imports / "operator-writing/SKILL.md", "# Operator writing\n")
+        self.write(self.imports / "nested/sample/SKILL.md", "# Sample")
         self.write(self.imports / ".archive/sample/SKILL.md", "archived\n")
         self.link(self.claude / "skills/sample", self.root / "skills/sample")
 
@@ -1206,13 +1207,16 @@ class DriftTests(SyncFixture, unittest.TestCase):
         self.assertIn(f"DRIFT: {self.imports / 'sample'} (skills/sample at {head[:12]}): 2 files differ, +2 -0 lines",
                       out)
         self.assertIn("  changed: SKILL.md +1 -0\n  only in copy: notes.md +1 -0\n", out)
+        self.assertIn(f"DRIFT: {self.imports / 'nested/sample'} (skills/sample at {head[:12]}): 1 file differs, "
+                      "+1 -1 lines\n  changed: SKILL.md +1 -1\n", out)
         self.assertNotIn("operator-writing", out)
         self.assertNotIn(".archive", out)
-        self.assertIn(f"2 copies checked against {head[:12]}; 1 drifted", out)
+        self.assertIn(f"3 copies checked against {head[:12]}; 2 drifted", out)
         self.assertEqual((self.git(self.root, "rev-parse", "HEAD"), self.snapshot()), (head, before))
 
     def test_check_drift_in_a_named_folder_with_only_unchanged_copies_reports_none(self):
         (self.imports / "sample").rename(self.base / "moved")
+        (self.imports / "nested").rename(self.base / "moved-nested")
         code, out, err = self.invoke("--check-drift", str(self.imports))
         head = self.git(self.root, "rev-parse", "HEAD")
         self.assertEqual((code, out), (0, f"1 copies checked against {head[:12]}; 0 drifted\n"), err)

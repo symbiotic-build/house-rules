@@ -493,8 +493,8 @@ A report shows that a copy differs, not who changed it. A copy taken from an old
 also differs. Repair a drifted copy by following §3.
 
 The operator stops further edits in the hosting agent's own configuration. In Hermes Agent,
-`skills.write_approval: true` in `~/.hermes/config.yaml` stages every Skill change for
-approval (`/skills pending`, then `/skills approve <id>` or `/skills reject <id>`). It covers
+the line `write_approval: true` under the `skills:` key of `~/.hermes/config.yaml` stages
+every Skill change for approval (`/skills pending`, then `/skills approve <id>` or `/skills reject <id>`). It covers
 every Skill in that home. A pin (`hermes curator pin <skill>`) blocks only deletion.
 `skills.external_dirs` keeps the curator's lifecycle away from a folder, but the review that
 runs after a turn can still edit its content. A local copy also wins over an external Skill
