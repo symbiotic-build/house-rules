@@ -17,8 +17,8 @@ The input is shell command text. Each simple command in it (split at unquoted `;
   settings; `cargo bench` defaults to its release profile;
 - `ctest` needs `-R`, `-L`, `-I` or `--tests-from-file`; `make`, `ninja` and
   `cmake --build` refuse the whole-suite targets `test`, `tests`, `check` and `check-all`.
-Help, version, listing and dry-run calls are read-only and always allowed, as is any other
-program.
+Help, version, listing and dry-run calls are read-only and always allowed, as are the lookups
+`command -v` and `command -V`, and any other program.
 
 A `crate_wide_test` or `crate_wide_clippy` refusal says `"workspace": true` when the command
 names no package or names `--workspace` or `--all`, so it runs across every crate.
@@ -165,6 +165,8 @@ def unwrap(tokens):
             values = WRAPPER_VALUE_FLAGS.get(name, set())
             while index < len(tokens) and (tokens[index].startswith("-") or
                                            re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[index])):
+                if name == "command" and re.match(r"^-[a-zA-Z]*[vV]", tokens[index]):
+                    return []  # `command -v` and `command -V` only look the program up
                 index += 2 if tokens[index] in values else 1
             if name == "timeout" and index < len(tokens) and re.match(r"^\d+(\.\d+)?[smhd]?$", tokens[index]):
                 index += 1

@@ -1245,6 +1245,23 @@ class BuildHookTests(SyncFixture, unittest.TestCase):
         self.assertEqual(code, 0, out + err)
         self.assertIn(f"{self.codex_hooks.resolve()}:pre_tool_use:0:0", out)
 
+    def test_a_receipt_listed_pre_tool_use_hook_is_reported_and_removed_even_when_the_hook_is_off(self):
+        old = "/usr/bin/env python3 /opt/hand-made/build-guard.py"
+        self.receipt({"source_root": str(self.root), "replaced_hooks": [old]})
+        unrelated = {"type": "command", "command": "/bin/echo unrelated"}
+        settings = self.read(self.settings)
+        settings["hooks"]["PreToolUse"].append({"matcher": "Bash", "hooks": [{"type": "command", "command": old},
+                                                                            unrelated]})
+        self.write(self.settings, json.dumps(settings))
+        self.write(self.root / "custom/sync.env", "BUILD_HOOK=off\n")
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"REPORT: replaced House Rules hook still registered in PreToolUse: {self.settings}", out)
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["PreToolUse"], [{"matcher": "Bash", "hooks": [unrelated]}])
+        self.assertEqual(self.invoke()[0], 0)
+
     def test_the_log_setting_installs_and_verifies_a_hook_with_that_log(self):
         log = self.base / "logs/build hook.jsonl"
         self.write(self.root / "custom/sync.env", f"BUILD_HOOK_LOG='{log}'\n")

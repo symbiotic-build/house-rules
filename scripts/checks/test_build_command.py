@@ -71,6 +71,14 @@ class CargoClippyTest(unittest.TestCase):
                 self.assertEqual(rules(command), ["crate_wide_clippy"])
 
 
+class LookupTest(unittest.TestCase):
+    def test_command_lookups_run_nothing_and_pass(self):
+        for command in ("command -v cargo test", "command -V cargo test", "command -pv cargo test"):
+            with self.subTest(command=command):
+                self.assertEqual(rules(command), [])
+        self.assertEqual(rules("command cargo test --release parse"), ["crate_wide_test"])
+
+
 class WorkspaceTest(unittest.TestCase):
     def test_only_a_run_across_every_crate_is_marked_workspace(self):
         for command, workspace in (("cargo test --release parse", True), ("cargo test --release --all -p core x", True),

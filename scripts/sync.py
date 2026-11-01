@@ -449,7 +449,7 @@ def verify(root, home, findings, selected, hook_root=None, generator=None):
             check_hook(hook_root or root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], findings,
                        replaced_hooks(root), generator)
             check_build_hook(hook_root or root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], build,
-                             findings, generator)
+                             findings, generator, replaced_hooks(root))
         elif key in KIMI_HOOK_FILES:
             check_kimi_hook(hook_root or root, roots, product_home / KIMI_HOOK_FILES[key], findings, generator)
     _, packed, too_long = generator.parts(root)
@@ -508,12 +508,19 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset(), gener
         findings.append(f"session context hook runs a missing script: {path}")
 
 
-def check_build_hook(root, roots, path, product, settings, findings, generator):
-    """Exactly the build_hook() entry, with the configured log, when the hook is on; no entry when it is off."""
+def check_build_hook(root, roots, path, product, settings, findings, generator, replaced=frozenset()):
+    """Exactly the build_hook() entry, with the configured log, when the hook is on; no entry when it is off.
+
+    A receipt-listed replaced hook among the PreToolUse handlers is reported, whether the hook is on or off.
+    """
     on, log = settings
     event = generator.BUILD_EVENT
     hooks, _ = read_hooks(path)
     scripts = {str(Path(other) / generator.BUILD_HOOK) for other in roots}
+    if any(isinstance(handler, dict) and handler.get("command") in replaced
+           for entry in event_entries(hooks, event, path) if isinstance(entry, dict) and
+           isinstance(entry.get("hooks"), list) for handler in entry["hooks"]):
+        findings.append(f"replaced House Rules hook still registered in {event}: {path}")
     owned = [(entry, handler_commands(entry)) for entry in event_entries(hooks, event, path)
              if isinstance(entry, dict) and isinstance(entry.get("hooks"), list) and any(
                  build_owner(handler, scripts, generator) for handler in entry["hooks"])]
@@ -685,7 +692,8 @@ def install_hooks(root, hook_root, home, python, report, generator=None, command
     replaced = replaced_hooks(root)
     on, log = build_hook_settings(root)
     owners = {"SessionStart": lambda handler: owner(handler, scripts, replaced, python) is not None,
-              generator.BUILD_EVENT: lambda handler: build_owner(handler, build_scripts, generator, python)}
+              generator.BUILD_EVENT: lambda handler: build_owner(handler, build_scripts, generator, python) or (
+                  isinstance(handler, dict) and handler.get("command") in replaced)}
     selected = homes(root, home)
     folders = []
     try:

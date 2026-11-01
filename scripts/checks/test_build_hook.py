@@ -123,6 +123,10 @@ class UnsureTest(HookTest):
                 # A here-document whose punctuation could hide a later command is still only unsure.
                 ("cat <<'EOF'\n'\nEOF\ncargo test --workspace", "here_document"),
                 ("bash <<< 'cargo test --workspace'", "here_document"),
+                # The parser cannot see what an expansion holds, so it never refuses one.
+                ("ARGS='--release -p core parse'; cargo test $ARGS", "parameter_expansion"),
+                ("cargo test ${ARGS}", "parameter_expansion"),
+                ("cargo test \"$@\"", "parameter_expansion"),
                 ("cargo test $(echo --workspace)", "command_substitution"),
                 ("cargo test `echo --workspace`", "backticks"),
                 ("diff <(cargo tree) expected.txt", "process_substitution"),
@@ -145,7 +149,8 @@ class UnsureTest(HookTest):
 class AllowedTest(HookTest):
     def test_commands_that_match_no_rule_run_and_are_not_logged(self):
         for command in ("cargo test --release -p core --lib parse", "cargo clippy --release -p core --lib",
-                        "git commit -m 'avoid cargo test --workspace'", "ls -la"):
+                        "git commit -m 'avoid cargo test --workspace'", "ls -la",
+                        "command -v cargo test", "command -V cargo test"):
             with self.subTest(command=command):
                 self.assertEqual(self.run_hook(command), (0, ""))
         self.assertEqual(self.logged(), [])
@@ -181,6 +186,19 @@ class RedactionTest(HookTest):
                 self.assertEqual(self.logged()[-1]["command"], logged)
         text = self.log.read_text()
         for secret in ("abc123", "postgres://", "xyz", "s e", " p\""):
+            self.assertNotIn(secret, text)
+
+    def test_redaction_reads_whole_shell_words(self):
+        for command, logged in (
+                ("API_TOKEN='prefix'\"suffix\"tail cargo test", "API_TOKEN=<redacted> cargo test"),
+                ("API_TOKEN=first\\ second cargo test", "API_TOKEN=<redacted> cargo test"),
+                ("cargo test \"--api-key\" 'quoted value' '--token'=x", "cargo test \"--api-key\" <redacted> --token=<redacted>"),
+                ("cargo test --token 'unclosed value; more", "cargo test --token <redacted>")):
+            with self.subTest(command=command):
+                self.run_hook(command)
+                self.assertEqual(self.logged()[-1]["command"], logged)
+        text = self.log.read_text()
+        for secret in ("prefix", "suffix", "tail", "second", "quoted value", "unclosed", "more"):
             self.assertNotIn(secret, text)
 
     def test_a_session_id_is_logged_only_when_the_input_has_one(self):

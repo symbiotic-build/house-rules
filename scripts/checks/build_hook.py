@@ -14,15 +14,16 @@ The hook takes one decision per command, from build_command.py's findings:
 - warned: every other build_command.py finding, such as a missing test-name filter, no single clippy
   target, a debug build, `make test` or `ctest` without a selector. The call runs.
 - unsure: text the parser cannot read exactly, because the shell expands it or feeds it in: a
-  here-document or here-string, command or process substitution, backticks, `eval`, `xargs`, or a
-  command that does not parse. The call runs, even when it would otherwise be refused.
+  here-document or here-string, a parameter expansion (`$NAME`, `${NAME}`, `$@`), command or
+  process substitution, backticks, `eval`, `xargs`, or a command that does not parse. The call runs, even when it would otherwise be refused.
 Every other command runs and is not logged; an unsure command is logged only when its text names a
 checked program (cargo, ctest, make, ninja, cmake), since no other command could be refused.
 
 Each refused, warned or unsure decision appends one JSON line per rule to the log: time, harness,
 session id when the input has one, working folder, decision, rule and the command, with the value of
 each NAME=value assignment and the argument after each flag named like token, key, secret or password
-replaced by <redacted>. The log is PATH, else $XDG_STATE_HOME/house-rules/build-hook.jsonl, else
+replaced by <redacted>. Redaction reads whole shell words, quotes and escapes included; an unclosed
+quote runs to the end of the command, so all of it is redacted. The log is PATH, else $XDG_STATE_HOME/house-rules/build-hook.jsonl, else
 ~/.local/state/house-rules/build-hook.jsonl. A log that cannot be written changes no decision; the
 hook says so on standard error.
 
@@ -49,25 +50,74 @@ LOG_FILE = "build-hook.jsonl"
 CLEAR_RULES = {"crate_wide_test", "crate_wide_clippy"}  # refused when build_command.py marks them workspace-wide
 # Text the shell expands or feeds in, so the parser cannot tell what runs: (rule, pattern).
 UNSURE = (("here_document", re.compile(r"<<")),
+          ("parameter_expansion", re.compile(r"\$(?:[A-Za-z_{@*#?$!0-9-])")),
           ("command_substitution", re.compile(r"\$\(")),
           ("backticks", re.compile(r"`")),
           ("process_substitution", re.compile(r"[<>]\(")),
           ("eval", re.compile(r"(?<![\w./-])eval(?![\w.-])")),
           ("xargs", re.compile(r"(?<![\w.-])(?:[\w./-]*/)?xargs(?![\w.-])")))
 CHECKED = re.compile(r"(?<![\w.-])(?:[\w./-]*/)?(?:cargo|ctest|g?make|ninja|cmake)(?![\w.-])")
-VALUE = r"""'[^']*'?|"(?:\\.|[^"\\])*"?|[^\s;&|()]+"""
-SECRET_FLAG = re.compile(r"(-{1,2}[\w-]*(?:token|key|secret|password)[\w-]*)(=|\s+)(?:" + VALUE + ")", re.IGNORECASE)
-ASSIGNMENT = re.compile(r"(?<![\w$-])([A-Za-z_][A-Za-z0-9_]*)=(?:" + VALUE + ")")
+WORD_END = set(";&|()<>")  # unquoted characters that end a shell word, beside whitespace
+SECRET_FLAG = re.compile(r"(-{1,2}[\w-]*(?:token|key|secret|password)[\w-]*)(=.*)?", re.IGNORECASE | re.DOTALL)
+ASSIGNMENT = re.compile(r"([A-Za-z_][A-Za-z0-9_]*)=", re.DOTALL)
 
 
 def default_log():
     return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "house-rules" / LOG_FILE
 
 
+def shell_words(text):
+    """(start, end, unquoted text) for each shell word; quotes and backslashes join a word, as the shell does.
+
+    An unclosed quote runs to the end of the text.
+    """
+    result, index = [], 0
+    while index < len(text):
+        if text[index].isspace() or text[index] in WORD_END:
+            index += 1
+            continue
+        start, value = index, []
+        while index < len(text) and not (text[index].isspace() or text[index] in WORD_END):
+            char = text[index]
+            if char == "\\":
+                value.append(text[index + 1:index + 2])
+                index += 2
+            elif char == "'":
+                close = text.find("'", index + 1)
+                close = len(text) if close < 0 else close
+                value.append(text[index + 1:close])
+                index = close + 1
+            elif char == '"':
+                index += 1
+                while index < len(text) and text[index] != '"':
+                    if text[index] == "\\":
+                        index += 1
+                    value.append(text[index:index + 1])
+                    index += 1
+                index += 1
+            else:
+                value.append(char)
+                index += 1
+        result.append((start, min(index, len(text)), "".join(value)))
+    return result
+
+
 def redact(command):
     """The command with assignment values and the values of secret-named flags replaced by <redacted>."""
-    command = SECRET_FLAG.sub(lambda match: f"{match[1]}{match[2]}<redacted>", command)
-    return ASSIGNMENT.sub(lambda match: f"{match[1]}=<redacted>", command)
+    replacements, secret_next = [], False
+    for start, end, word in shell_words(command):
+        flag = SECRET_FLAG.fullmatch(word)
+        assignment = ASSIGNMENT.match(word)
+        if secret_next:
+            replacements.append((start, end, "<redacted>"))
+        elif flag and flag[2]:
+            replacements.append((start, end, f"{flag[1]}=<redacted>"))
+        elif assignment and not word.startswith("-"):
+            replacements.append((start, end, f"{assignment[1]}=<redacted>"))
+        secret_next = bool(flag) and not flag[2] and not secret_next
+    for start, end, text in reversed(replacements):
+        command = command[:start] + text + command[end:]
+    return command
 
 
 def decide(command):
