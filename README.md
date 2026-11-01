@@ -106,7 +106,9 @@ heading. A message without questions passes.
 
 [report_check.py](scripts/checks/report_check.py) checks a report against
 [rules/writing.md §Claim labels](rules/writing.md#claim-labels) and §Checks before sending. Every
-`FACT` sentence names its source: a link, a path, an inline-code command or a quote. A label
+`FACT` sentence names its source: a link, a path, a quote, or a command in a code span that
+the sentence says ran or printed ("`uptime` shows …", "ran `make check`"); a formatted value
+such as `` `12` `` is not a source. A label
 covers the later sentences of its paragraph or list item, and each of them needs a source too. A claim
 taken from another agent's report ("the import lane found …") is labelled `ASSUMPTION`. No
 sentence sends the reader elsewhere ("see above", "my last message"). When the report names an

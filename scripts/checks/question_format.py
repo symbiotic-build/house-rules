@@ -26,9 +26,12 @@ CONTEXT_FLAGS = ("FACT", "ASSESSMENT")
 TEAM_WORK = re.compile(
     r"\b(verify|verification|replay|reproduce|re-?run|re-?test|benchmark)\b|"
     r"\b(run|start|do|perform|execute|repeat|redo|write|add)\b.{0,40}\b(tests?|testing|replays?|verification|"
-    r"benchmarks?|reproductions?|spot[- ]checks?)\b", re.IGNORECASE)
+    r"benchmarks?|reproductions?|spot[- ]checks?)\b|"
+    # "test" as a verb ("Should I test the upload?"), not as a modifier ("the test account").
+    r"\b(i|we|you|to|please) (re-?)?test\b|\btest (it|this|that|them|these|those|the|a|an)\b", re.IGNORECASE)
+CONTEXT_REQUEST = re.compile(r"\b(explain|why|how|what|which|more|context|detail\w*|clarify|example|evidence|"
+                             r"cost|show|tell|describe|compare)\b", re.IGNORECASE)
 REPLY_LINE = re.compile(r"^(reply|answer|your answer|response|choice)\s*:|_{3,}|\[ \]", re.IGNORECASE)
-TOP_BULLET = re.compile(r"^[-*+]\s+(.*)$")
 
 
 class Question:
@@ -176,8 +179,9 @@ def check_body(question):
             result.append(findings.finding(CHECK, "question_extra",
                                            "a question holds a reply line or an answer box; the answer example "
                                            "at the end shows how to answer", line.number))
-        bullet = TOP_BULLET.match(line.text)
-        if bullet and ("(recommended)" in bullet.group(1) or BOLD_LINE.match(bullet.group(1).strip())):
+        bullet = md.LIST_ITEM.match(line.text)
+        if bullet and bullet.group(2) is None and ("(recommended)" in bullet.group(3)
+                                                   or BOLD_LINE.match(bullet.group(3).strip())):
             result.append(findings.finding(CHECK, "options_not_numbered",
                                            "a choice is written as a bullet; write the options as a numbered list "
                                            "so the operator can answer with a number", line.number))
@@ -293,7 +297,7 @@ def check_answer_block(lines, answer_index):
     numbered = all(re.match(r"^\d+\\?\.\s+\S", line.text.strip()) for line in body)
     choice = any(re.fullmatch(r"\d+", answer) for answer in answers)
     agreed = any(answer.lower() == "ok" for answer in answers)
-    text = any(not re.fullmatch(r"\d+", answer) and answer.lower() != "ok" for answer in answers)
+    text = any(CONTEXT_REQUEST.search(answer) for answer in answers)
     if not (numbered and choice and agreed and text):
         result.append(findings.finding(CHECK, "answer_block_format",
                                        "the answer example shows, by question number, an option number, a request "

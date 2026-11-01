@@ -35,6 +35,13 @@ class FactSourceTest(unittest.TestCase):
         text = "`FACT` In the service log, the login expiry moved to 10:12 UTC.\n"
         self.assertEqual(rules(text), ["fact_source"])
 
+    def test_command_the_sentence_says_ran_is_a_source(self):
+        for text in ("`FACT` `uptime` shows a load of 3.\n", "`FACT` I ran `make check` at 10:00 UTC; it passed.\n",
+                     "`FACT` `cargo test --release -p core parse` exited 0.\n",
+                     "`FACT` `gh pr view` at 10:00 UTC showed the change open.\n"):
+            with self.subTest(text=text):
+                self.assertEqual(rules(text), [])
+
     def test_fact_with_a_path_passes(self):
         self.assertEqual(rules("`FACT` The limit is 3600 s in config/limits.toml.\n"), [])
 
@@ -42,15 +49,16 @@ class FactSourceTest(unittest.TestCase):
         self.assertEqual(rules('`FACT` The service log says "limit reached" at 10:12 UTC.\n'), [])
 
     def test_each_fact_sentence_needs_its_own_source(self):
-        text = "`FACT` `uptime -p` shows the host up for 3 days. `FACT` The queue is empty.\n"
+        text = "`FACT` `uptime` shows a load of 3. `FACT` The queue is empty.\n"
         self.assertEqual(rules(text), ["fact_source"])
 
     def test_sentence_covered_by_an_earlier_fact_label_needs_a_source(self):
-        text = "`FACT` `uptime -p` shows the host up for 3 days. The queue is empty.\n"
+        text = "`FACT` `uptime` shows a load of 3. The queue is empty.\n"
         self.assertEqual(rules(text), ["fact_source"])
 
     def test_formatted_value_is_not_a_source(self):
-        for text in ("`FACT` The queue contains `12` jobs.\n", "`FACT` All jobs are `done`.\n"):
+        for text in ("`FACT` The queue contains `12` jobs.\n", "`FACT` All jobs are `done`.\n",
+                     "`FACT` All jobs are `in progress`.\n", "`FACT` The queue holds `12 pending jobs`.\n"):
             with self.subTest(text=text):
                 self.assertEqual(rules(text), ["fact_source"])
 
