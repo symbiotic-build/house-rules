@@ -45,6 +45,10 @@ class FactSourceTest(unittest.TestCase):
         text = "`FACT` `uptime` shows a load of 3. `FACT` The queue is empty.\n"
         self.assertEqual(rules(text), ["fact_source"])
 
+    def test_sentence_covered_by_an_earlier_fact_label_needs_a_source(self):
+        text = "`FACT` `uptime` shows a load of 3. The queue is empty.\n"
+        self.assertEqual(rules(text), ["fact_source"])
+
     def test_code_block_is_not_checked(self):
         self.assertEqual(rules("Example:\n\n```text\n`FACT` no source here\n```\n"), [])
 
@@ -107,6 +111,9 @@ class BlockerLineTest(unittest.TestCase):
         found = report_check.check(text)
         self.assertEqual([item["rule"] for item in found], ["blocker_first"])
         self.assertIn("credential", found[0]["message"])
+
+    def test_blocker_outside_the_bold_span_of_the_first_line_fails(self):
+        self.assertEqual(rules("**Done.** The alpha account needs a top-up.\n"), ["blocker_first"])
 
     def test_blocker_line_after_the_first_line_fails(self):
         text = "Status at 10:00 UTC.\n\n**Blocker: none named here.**\n"

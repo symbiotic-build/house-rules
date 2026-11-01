@@ -62,6 +62,7 @@ def check(text):
     current = None
     answer_index = None
     loose = []  # option lines that sit outside any question section
+    asked_in_prose = []  # prose lines outside any question section that ask a question
     for index, line in enumerate(lines):
         if not line.code and line.text.strip() == ANSWER:
             answer_index = index
@@ -73,7 +74,7 @@ def check(text):
             if level <= 2:
                 topic = title if level == 2 else None
             asked = question_heading(level, title)
-            if asked and answer_index is None:
+            if asked:
                 number, suffix, escaped, rest = asked
                 current = Question(line.number, level, number, suffix, escaped, rest)
                 current.topic = topic
@@ -85,11 +86,19 @@ def check(text):
             current.body.append(line)
         elif not line.code and OPTION.match(line.text) and "(recommended)" in line.text:
             loose.append(line)
+        elif not line.code and any(md.mask(sentence).rstrip("*_ ").endswith("?")
+                                   for _, sentence in md.sentences(line.text.strip())):
+            asked_in_prose.append(line)
 
     for line in loose:
         found.append(findings.finding(
             CHECK, "options_without_question", "a recommended option list sits outside a numbered level-3 "
             "question heading; write the question as `### N\\. …?` above its options", line.number))
+
+    for line in asked_in_prose:
+        found.append(findings.finding(
+            CHECK, "question_outside_heading", "the text asks the operator a question outside a question heading; "
+            "write it as `### N\\. …?` under a level-2 topic, or state it without a question", line.number))
 
     expected = 1
     seen = {}
@@ -101,6 +110,10 @@ def check(text):
 
     if questions:
         found.extend(check_answer_block(lines, answer_index))
+        if answer_index is not None and questions[-1].line > lines[answer_index].number:
+            found.append(findings.finding(CHECK, "answer_block_order", "a question follows the answer prompt; put "
+                                          "\"Answer like so:\" after the complete question list",
+                                          lines[answer_index].number))
     elif answer_index is not None:
         found.append(findings.finding(CHECK, "answer_block_without_questions",
                                       "the answer prompt appears without a fully written question list",

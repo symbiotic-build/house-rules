@@ -3,15 +3,18 @@
 
 Usage: build_command.py [--debug-profile NAME] [command-file]   (standard input when absent or -)
 
-The input is shell command text. Each simple command in it (split at `;`, `&&`, `||`, `|`,
-`&` and line ends, and inside `sh -c`, `bash -c` and `zsh -c` strings) is checked:
-- `cargo test` and `cargo nextest run` need a package (`-p`) and a test-name filter;
+The input is shell command text. Each simple command in it (split at unquoted `;`, `&`,
+`|`, parentheses and line ends, with backslash line continuations joined, and inside
+`sh -c`, `bash -c` and `zsh -c` strings) is checked:
+- `cargo test` and `cargo nextest run` need a package (`-p`) and a test-name filter; an
+  option value after `--` (such as `--test-threads 4` or `--skip x`) is not a filter;
   `--workspace` and `--all` are refused;
-- `cargo clippy` needs a package and a target (`--lib`, `--bin`, `--test`, `--example`,
-  `--bench`); `--workspace`, `--all` and `--all-targets` are refused;
-- a cargo build, run, test, check, clippy or doc needs `--release` or a profile other than
-  the debug one; a debug build needs the debugging profile (`--profile debugging`, or the
-  name `--debug-profile` gives);
+- `cargo clippy` needs a package and exactly one target (`--lib`, or one `--bin`, `--test`,
+  `--example` or `--bench`); `--workspace`, `--all` and the plural target flags are refused;
+- a cargo build, run, test, check, clippy or doc needs `--release`, `--profile release` or
+  the debugging profile (`--profile debugging`, or the name `--debug-profile` gives); any
+  other profile is refused, because the check cannot tell whether it builds with debug
+  settings; `cargo bench` defaults to its release profile;
 - `ctest` needs `-R`, `-L`, `-I` or `--tests-from-file`; `make`, `ninja` and
   `cmake --build` refuse the whole-suite targets `test`, `tests`, `check` and `check-all`.
 Help, version, listing and dry-run calls are read-only and always allowed, as is any other
@@ -29,7 +32,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import findings  # noqa: E402
 
 CHECK = "build_command"
-SEPARATORS = {";", "&&", "||", "|", "&", "|&", ";;", "(", ")"}
+SEPARATORS = ";&|()\n"
 WRAPPERS = {"env", "time", "command", "exec", "nice", "nohup", "timeout", "caffeinate", "sudo"}
 WRAPPER_VALUE_FLAGS = {"nice": {"-n"}, "timeout": {"-s", "--signal", "-k", "--kill-after"},
                        "sudo": {"-u", "-g"}, "env": {"-u", "-C", "--unset", "--chdir"}}
@@ -47,33 +50,101 @@ VALUE_FLAGS = {"-p", "--package", "--exclude", "--test", "--bench", "--bin", "--
                "--cargo-profile", "--run-ignored", "--archive-file", "--workspace-remap", "--tool-config-file",
                "--failure-output", "--success-output", "--status-level", "--final-status-level", "--max-fail",
                "--threads", "--build-jobs"}
+# Options of the libtest harness (after `--`) that take a value.
+HARNESS_VALUE_FLAGS = {"--test-threads", "--skip", "--logfile", "--format", "--color", "-Z", "--shuffle-seed",
+                       "--report-time"}
+SINGLE_TARGETS = ("--lib", "--bin", "--test", "--example", "--bench")
+PLURAL_TARGETS = ("--all-targets", "--bins", "--tests", "--examples", "--benches")
+RELEASE_PROFILES = ("release", "bench")
+REDIRECTION = re.compile(r"^\d*(?:&>>?|>>?&?|<<?<?|<&|>\|)")
 WHOLE_SUITE_TARGETS = {"test", "tests", "check", "check-all", "test-all", "all-tests"}
 
 
 def split_commands(text):
-    """Every simple command as a token list, with its input line number."""
+    """Every simple command as a token list, with the input line it starts on.
+
+    The text is split at unquoted separators; each piece is then split into words by
+    `shlex`. A backslash before a line end joins the two lines, as the shell does.
+    """
     result = []
-    for number, line in enumerate(text.splitlines(), 1):
-        if not line.strip() or line.lstrip().startswith("#"):
+    piece = []
+    start = None
+    line = 1
+    quote = None
+    index = 0
+
+    def flush():
+        nonlocal piece, start
+        words = "".join(piece).strip()
+        if words:
+            try:
+                tokens = strip_redirections(shlex.split(words))
+            except ValueError as error:
+                print(f"line {start}: cannot parse the command: {error}", file=sys.stderr)
+                raise SystemExit(findings.INPUT_ERROR)
+            if tokens:
+                result.append((start, tokens))
+        piece, start = [], None
+
+    while index < len(text):
+        char = text[index]
+        if quote:
+            piece.append(char)
+            if char == "\\" and quote == '"' and index + 1 < len(text):
+                piece.append(text[index + 1])
+                line += text[index + 1] == "\n"
+                index += 2
+                continue
+            if char == quote:
+                quote = None
+            line += char == "\n"
+            index += 1
             continue
-        lexer = shlex.shlex(line, posix=True, punctuation_chars=";&|()")
-        lexer.whitespace_split = True
-        lexer.commenters = "#"
-        try:
-            tokens = list(lexer)
-        except ValueError as error:
-            print(f"line {number}: cannot parse the command: {error}", file=sys.stderr)
-            raise SystemExit(findings.INPUT_ERROR)
-        current = []
-        for token in tokens:
-            if token in SEPARATORS:
-                if current:
-                    result.append((number, current))
-                current = []
+        if char == "\\" and index + 1 < len(text):
+            if text[index + 1] == "\n":
+                piece.append(" ")
+                line += 1
             else:
-                current.append(token)
-        if current:
-            result.append((number, current))
+                piece.extend((char, text[index + 1]))
+                start = start or line
+            index += 2
+            continue
+        if char == "#" and (not piece or piece[-1].isspace()):
+            while index < len(text) and text[index] != "\n":
+                index += 1
+            continue
+        redirection = char == "&" and ((piece and piece[-1] in "<>") or text[index + 1:index + 2] == ">")
+        if char in SEPARATORS and not redirection:
+            flush()
+            line += char == "\n"
+            index += 1
+            continue
+        if char in "'\"":
+            quote = char
+        if not char.isspace() and start is None:
+            start = line
+        piece.append(char)
+        index += 1
+    if quote:
+        print(f"line {start}: cannot parse the command: no closing quotation", file=sys.stderr)
+        raise SystemExit(findings.INPUT_ERROR)
+    flush()
+    return result
+
+
+def strip_redirections(tokens):
+    """The words of a command without its redirections (`2>&1`, `> out.log`, `<input`)."""
+    result = []
+    skip = False
+    for token in tokens:
+        if skip:
+            skip = False
+            continue
+        operator = REDIRECTION.match(token)
+        if operator:
+            skip = operator.end() == len(token)
+            continue
+        result.append(token)
     return result
 
 
@@ -152,8 +223,8 @@ def check_cargo(number, tokens, arguments, debug_profile):
     package = "-p" in flags or "--package" in flags
     whole = "--workspace" in flags or "--all" in flags
     if subcommand in ("test", "nextest"):
-        filtered = bool(positional) or any(not item.startswith("-") for item in trailing) or \
-            "-E" in flags or "--filterset" in flags or "--filter-expr" in flags
+        filtered = any(positional) or bool(harness_filters(trailing)) or \
+            any(any(flags.get(flag, [])) for flag in ("-E", "--filterset", "--filter-expr"))
         if whole or not package:
             result.append(refusal("crate_wide_test", f"cargo {subcommand} without a package runs every crate's "
                                   "tests; name one with -p and add a test-name filter", number, tokens))
@@ -162,22 +233,39 @@ def check_cargo(number, tokens, arguments, debug_profile):
                                   "crate's whole suite; add the filter, for example --test <file> <test_name>",
                                   number, tokens))
     if subcommand == "clippy":
-        targets = any(flag in flags for flag in ("--lib", "--bin", "--test", "--example", "--bench"))
-        if whole or not package or "--all-targets" in flags or not targets:
-            result.append(refusal("crate_wide_clippy", "cargo clippy needs a package (-p) and one target "
-                                  "(--lib, --bin, --test, --example or --bench); crate-wide clippy runs in CI",
+        selected = sum(len(flags.get(flag, [])) for flag in SINGLE_TARGETS)
+        plural = any(flag in flags for flag in PLURAL_TARGETS)
+        if whole or not package or plural or selected != 1:
+            result.append(refusal("crate_wide_clippy", "cargo clippy needs a package (-p) and exactly one target "
+                                  "(--lib, or one --bin, --test, --example or --bench); crate-wide clippy runs in CI",
                                   number, tokens))
-    if subcommand != "bench":
-        profile_flag = "--cargo-profile" if subcommand == "nextest" else "--profile"
-        profiles = flags.get(profile_flag, [])
-        release = "--release" in flags or "-r" in flags or any(p not in ("dev", "test", "") for p in profiles)
-        if not release:
-            result.append(refusal("debug_build", f"cargo {subcommand} without --release builds the debug profile; "
-                                  f"add --release, or use {profile_flag} {debug_profile} while actively debugging",
-                                  number, tokens))
-    elif any(p in ("dev", "test") for p in flags.get("--profile", [])):
-        result.append(refusal("debug_build", f"cargo bench on the debug profile; use --profile {debug_profile} "
-                              "while actively debugging", number, tokens))
+    profile_flag = "--cargo-profile" if subcommand == "nextest" else "--profile"
+    allowed = RELEASE_PROFILES + (debug_profile,)
+    profiles = flags.get(profile_flag, [])
+    other = [profile for profile in profiles if profile not in allowed]
+    if other:
+        result.append(refusal("debug_build", f"profile {other[0]!r} is neither a release profile nor the debugging "
+                              f"profile {debug_profile!r}; use --release, or {profile_flag} {debug_profile} while "
+                              "actively debugging", number, tokens))
+    elif subcommand != "bench" and not profiles and "--release" not in flags and "-r" not in flags:
+        result.append(refusal("debug_build", f"cargo {subcommand} without --release builds the debug profile; "
+                              f"add --release, or use {profile_flag} {debug_profile} while actively debugging",
+                              number, tokens))
+    return result
+
+
+def harness_filters(arguments):
+    """The test-name filters among the test harness arguments after `--`, without option values."""
+    result = []
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument in HARNESS_VALUE_FLAGS:
+            index += 2
+            continue
+        if argument and not argument.startswith("-"):
+            result.append(argument)
+        index += 1
     return result
 
 
@@ -211,11 +299,19 @@ def check_cmake(number, tokens, arguments):
     if "--build" not in arguments:
         return []
     targets = []
-    for index, arg in enumerate(arguments):
-        if arg in ("--target", "-t") and index + 1 < len(arguments):
-            targets.extend(arguments[index + 1].split(","))
+    collecting = False
+    for arg in arguments:
+        if arg == "--":
+            break
+        if arg in ("--target", "-t"):
+            collecting = True
         elif arg.startswith("--target="):
             targets.extend(arg.split("=", 1)[1].split(","))
+            collecting = True
+        elif arg.startswith("-"):
+            collecting = False
+        elif collecting:
+            targets.extend(arg.split(","))
     hits = [target for target in targets if target in WHOLE_SUITE_TARGETS]
     if not hits:
         return []

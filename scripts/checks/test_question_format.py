@@ -118,7 +118,20 @@ class QuestionFormatTest(unittest.TestCase):
 
     def test_recommended_options_outside_a_question_heading_fail(self):
         text = "**Should the import stop now?**\n1. **Stop it (recommended):** the batch is lost.\n2. Let it run.\n"
-        self.assertEqual(rules(text), ["options_without_question"])
+        self.assertEqual(sorted(rules(text)), ["options_without_question", "question_outside_heading"])
+
+    def test_prose_question_outside_a_heading_fails(self):
+        self.assertEqual(rules("The change is ready. Can you merge it?\n"), ["question_outside_heading"])
+
+    def test_question_mark_inside_code_is_not_a_question(self):
+        self.assertEqual(rules("The pattern `a?` matches an optional a.\n"), [])
+
+    def test_question_after_the_answer_prompt_is_checked(self):
+        text = GOOD + "\n## More\n\n### 1. Merge this?\nNo flag here.\n"
+        found = rules(text)
+        for rule in ("answer_block_order", "question_number_unescaped", "question_number_duplicate", "context_flag"):
+            with self.subTest(rule=rule):
+                self.assertIn(rule, found)
 
     def test_quote_inside_a_question_fails(self):
         text = GOOD.replace("`FACT` The upload log", "> the log said nothing\n\n`FACT` The upload log")

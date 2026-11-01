@@ -99,24 +99,28 @@ A question is a numbered level-3 heading under a level-2 topic, with its number 
 (`### 1\.`) and unique across the message. Each context sentence starts with `FACT` or
 `ASSESSMENT`, on one source line. A choice has one flat numbered option list with exactly one
 whole-bold line ending in "(recommended)". The list ends with **Answer like so:** and a
-three-line `text` example. A question about the team's own tests, replays or verification
-fails. A message without questions passes.
+three-line `text` example, after the last question. A question about the team's own tests,
+replays or verification fails, and so does a question asked in prose outside a question
+heading. A message without questions passes.
 
 [report_check.py](scripts/checks/report_check.py) checks a report against
 [rules/writing.md §Claim labels](rules/writing.md#claim-labels) and §Checks before sending. Every
-`FACT` sentence names its source: a link, a path, an inline-code command or a quote. A claim
+`FACT` sentence names its source: a link, a path, an inline-code command or a quote. A label
+covers the later sentences of its paragraph or list item, and each of them needs a source too. A claim
 taken from another agent's report ("the import lane found …") is labelled `ASSUMPTION`. No
 sentence sends the reader elsewhere ("see above", "my last message"). When the report names an
-operator-only blocker, its first line is bold and names each one; a level-1 title above it is
-skipped. With `--plan`, every field the plan requires appears as a heading or a bold label.
+operator-only blocker, the bold opening span of its first line names each class it names; a
+level-1 title above it is skipped. Two blockers of one class, such as two empty balances, count
+as one. With `--plan`, every field the plan requires appears as a heading or a bold label.
 
 [blocker_classify.py](scripts/checks/blocker_classify.py) classifies failure records or a
 text. The input is a JSON object, a JSON array, JSON lines or plain text. It reads `category`
 and `reason` (also nested in `failure`, or wrapped in `record`, as a job record holds them),
 `status`, `code`, `provider_message`, `text`, and `provider`, `route` or `family` for the name
-in the action text; other fields are ignored. The provider message wins over the code and the
-status, because a provider can wrap an empty balance in a throttle or an account gate in a
-policy refusal. A status counts only from the `status` field, never as a number inside text.
+in the action text; other fields are ignored. Text wins over the code and the status, because
+a provider can wrap an empty balance in a throttle or an account gate in a policy refusal.
+Operator-only text rules come first across all text fields, so an ordinary failure in one field
+cannot hide a blocker in another. A status counts only from the `status` field, never as a number inside text.
 Each result gives `class`, `operator_only` and `action`, the exact step to take. The
 operator-only classes are `credential`, `account`, `balance`, `quota`, `permission` and
 `protected_asset`; the others are `rate_limit`, `timeout`, `policy_refusal`, `provider_error`,
@@ -126,10 +130,13 @@ failure). The exit status is 2 when any input is operator-only.
 [build_command.py](scripts/checks/build_command.py) checks a shell command against the local
 build scope of [rules/delivery.md §Verification](rules/delivery.md#verification) and the profile
 rule of [rust-canon](skills/rust-canon/SKILL.md). It refuses `cargo test` or `cargo nextest
-run` without a package and a test-name filter, `cargo clippy` without a package and one target,
-a cargo build without `--release` or the debugging profile (`--profile debugging`, renamed with
-`--debug-profile`), `ctest` without a test selection, and the `test` and `check` targets of
-`make`, `ninja` and `cmake --build`. Help, version, listing and dry-run calls pass. A repository
+run` without a package and a test-name filter (a harness option value such as `--test-threads 4`
+is not a filter), `cargo clippy` without a package and exactly one target, a cargo build without
+`--release`, and any profile other than a release profile or the debugging profile
+(`--profile debugging`, renamed with `--debug-profile`). It also refuses `ctest` without a test
+selection and the `test` and `check` targets of `make`, `ninja` and `cmake --build`. It splits
+the text at unquoted separators, joins backslash line continuations and ignores redirections.
+Help, version, listing and dry-run calls pass. A repository
 without pull-request CI runs its full local gate under `pr-ready` §4 without this check.
 
 The checks read Markdown and JSON text and import no shared types. Their names match the

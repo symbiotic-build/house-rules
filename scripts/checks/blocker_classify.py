@@ -148,12 +148,17 @@ def fields(record):
     }
 
 
-def text_class(text):
-    """(class, matched text, action) for the first text rule that matches, else None."""
+def text_class(texts):
+    """(class, matched text, action, field) for the first text rule that matches any text, else None.
+
+    `texts` is a list of (field, text). Rule order decides first and field order breaks a tie,
+    so an ordinary failure in one field cannot hide an operator-only blocker in another.
+    """
     for name, pattern, action in TEXT_RULES:
-        match = pattern.search(text)
-        if match:
-            return name, match.group(0), action
+        for field, text in texts:
+            match = pattern.search(text)
+            if match:
+                return name, match.group(0), action, field
     return None
 
 
@@ -172,12 +177,10 @@ def classify(record):
     """The classification of one record: class, operator_only, action, field and matched."""
     values = fields(record)
     name = matched = field = action = None
-    for key in ("provider_message", "text", "reason"):
-        if isinstance(values[key], str) and values[key]:
-            hit = text_class(values[key])
-            if hit:
-                (name, matched, action), field = hit, key
-                break
+    hit = text_class([(key, values[key]) for key in ("provider_message", "text", "reason")
+                      if isinstance(values[key], str) and values[key]])
+    if hit:
+        name, matched, action, field = hit
     if name is None and isinstance(values["code"], str) and values["code"] in CODES:
         name, matched, field = CODES[values["code"]], values["code"], "code"
     if name is None and values["status"] is not None and status_class(values["status"]):

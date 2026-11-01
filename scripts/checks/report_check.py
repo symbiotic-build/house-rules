@@ -69,8 +69,9 @@ def check_claims(lines):
             if own:
                 label = own
             masked = md.mask(sentence)
-            if own == "FACT":
-                claim = sentence[sentence.index("`FACT`") + len("`FACT`"):]
+            if label == "FACT":
+                # A label can cover a paragraph; every sentence it covers still names its evidence.
+                claim = sentence[sentence.index("`FACT`") + len("`FACT`"):] if own == "FACT" else sentence
                 if not has_source(claim):
                     result.append(findings.finding(
                         CHECK, "fact_source", "a `FACT` sentence names no source; add the path, command, link "
@@ -153,20 +154,22 @@ def check_blocker_line(lines):
         first = md.first_prose_line(lines[lines.index(first) + 1:])
     if first is None:
         return []
-    rest = "\n".join(line.text for line in lines if not line.code and line is not first)
+    bold = BOLD_START.match(first.text.strip())
+    bold_text = bold.group(0) if bold else ""
+    # The unbold rest of the first line counts with the body: the bold span must name each blocker.
+    rest = "\n".join([first.text.strip()[len(bold_text):]] +
+                     [line.text for line in lines if not line.code and line is not first])
     named = {}
     for name, matched, _ in blocker_classify.operator_only_mentions(rest):
         named.setdefault(name, matched)
-    first_named = {name for name, _, _ in blocker_classify.operator_only_mentions(first.text)}
+    first_named = {name for name, _, _ in blocker_classify.operator_only_mentions(bold_text)}
     result = []
-    bold_first = bool(BOLD_START.match(first.text.strip()))
-    if (named or first_named) and not bold_first:
+    if named and not first_named:
         result.append(findings.finding(
             CHECK, "blocker_first", "the report names an operator-only blocker ("
-            + ", ".join(sorted(set(named) | first_named)) + "); make the first line bold and name it there",
-            first.number))
+            + ", ".join(sorted(named)) + "); open it with a bold line that names it", first.number))
     missing = sorted(set(named) - first_named)
-    if missing and bold_first:
+    if missing and first_named:
         result.append(findings.finding(
             CHECK, "blocker_first", "the bold first line does not name every operator-only blocker the report "
             "names; missing: " + ", ".join(f"{name} (\"{named[name]}\")" for name in missing), first.number))

@@ -48,6 +48,11 @@ class ProviderRecordTest(unittest.TestCase):
         self.assertEqual(result["action"], "Sign in to beta_responses again with an authorized hardware key, "
                                            "then tell the agent the session is authenticated.")
 
+    def test_operator_only_text_in_a_later_field_wins_over_an_ordinary_one(self):
+        record = {"provider_message": "Too many requests", "failure": {"reason": "Please top up your balance"}}
+        result = blocker_classify.classify(record)
+        self.assertEqual((result["class"], result["field"]), ("balance", "reason"))
+
     def test_policy_code_alone_is_a_refusal(self):
         self.assertEqual(classify(status=200, code="cyber_policy"), ("policy_refusal", False))
 
