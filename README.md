@@ -150,6 +150,8 @@ is not a filter), `cargo clippy` without a package and exactly one target, a car
 development profile passes `--debug-profile dev`. It also refuses `ctest` without a test
 selection and the `test` and `check` targets of `make`, `ninja` and `cmake --build`. It splits
 the text at unquoted separators, joins backslash line continuations and ignores redirections.
+The body of a here-document with a quoted delimiter (`<<'EOF'`) is text and is skipped; an
+unquoted one (`<<EOF`) can run command substitutions, so its body is checked.
 Help, version, listing and dry-run calls pass. A repository
 without pull-request CI runs its full local gate under `pr-ready` §4 without this check.
 
@@ -168,9 +170,10 @@ echo '{"tool_name": "Bash", "tool_input": {"command": "cargo test --workspace"}}
 - `Stop` runs `report_check.py` on the final message, and `question_format.py` when the message
   has a numbered question heading. A finding blocks the stop once: the agent gets the findings
   and rewrites the message. When the harness says a stop hook already continued the turn
-  (`stop_hook_active`), the stop goes through, the operator sees a warning, and one JSON line
-  with the session id and the broken rules goes to `check-hooks.jsonl` in
-  `$XDG_STATE_HOME/house-rules` (default `~/.local/state/house-rules`).
+  (`stop_hook_active`), the stop goes through, the operator sees a warning naming the broken
+  rules, and one JSON line with the session id and those rules goes to `check-hooks.jsonl` in
+  `$XDG_STATE_HOME/house-rules` (default `~/.local/state/house-rules`). When that line cannot be
+  written, the warning says so.
 - `UserPromptSubmit` runs `blocker_classify.py` on the operator's message and never blocks.
   When the message names an operator-only blocker, the class and the action reach the agent
   as context.

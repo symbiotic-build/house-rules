@@ -17,6 +17,7 @@ context for the model.
   says a stop hook already continued this turn (`stop_hook_active`), the stop goes through and
   one line is appended to check-hooks.jsonl in the state folder ($XDG_STATE_HOME/house-rules, by
   default ~/.local/state/house-rules), with the session id and the rules the message still breaks.
+  A warning names those rules; when the line cannot be written, the warning says so too.
 - UserPromptSubmit: runs blocker_classify.py on the operator's message (`prompt`). It never
   blocks. When the message names an operator-only blocker, it prints the class and the action.
 
@@ -91,17 +92,18 @@ def stop(data, stdout, stderr):
               "session_id": data.get("session_id"), "released": True,
               "rules": sorted({f"{item['check']}.{item['rule']}" for item in found})}
     path = state_folder() / STATE_FILE
+    warning = (f"House Rules report check: the rewritten final message still breaks {len(found)} rule(s) "
+               f"({', '.join(record['rules'])}); the stop went through")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as stream:
             stream.write(json.dumps(record) + "\n")
     except OSError as error:
-        stderr.write(f"House Rules report check let the stop through after one rewrite, but could not record it "
-                     f"in {path}: {error}\n")
-        return findings.INPUT_ERROR
-    stdout.write(json.dumps({"systemMessage": f"House Rules report check: the rewritten final message still breaks "
-                                              f"{len(found)} rule(s); the stop went through and is recorded in "
-                                              f"{path}."}) + "\n")
+        # The warning stays the hook's only output: a nonzero exit would replace it with a bare exit-status error.
+        warning += f", but it could not be recorded in {path}: {error}"
+    else:
+        warning += f" and is recorded in {path}"
+    stdout.write(json.dumps({"systemMessage": warning + "."}) + "\n")
     return 0
 
 

@@ -158,6 +158,17 @@ class ShellTest(unittest.TestCase):
     def test_separator_inside_quotes_is_kept(self):
         self.assertEqual(rules('cargo test --release -p core "a;b"'), [])
 
+    def test_quoted_here_document_body_is_text_and_later_commands_are_checked(self):
+        self.assertEqual(rules("cat <<'EOF' > notes.md\ncargo test --workspace\nEOF\n"), [])
+        self.assertEqual(rules('cat <<-"END"\n\tmake test\n\tEND\nmake build\n'), [])
+        refused = build_command.check("cat <<\\EOF\ncargo test\nEOF\ncargo test --workspace --release\n")
+        self.assertEqual([(item["rule"], item["line"]) for item in refused], [("crate_wide_test", 4)])
+        self.assertEqual(rules("cat <<'EOF' && make test\nmake check\nEOF\n"), ["whole_suite"])
+
+    def test_unquoted_here_document_body_is_still_checked(self):
+        # Its body can run command substitutions, so the check does not treat it as text.
+        self.assertEqual(rules("cat <<EOF\n$(cargo test --workspace --release)\nEOF\n"), ["crate_wide_test"])
+
     def test_toolchain_selector_is_skipped(self):
         self.assertEqual(rules("cargo +nightly test --release -p core parse"), [])
 

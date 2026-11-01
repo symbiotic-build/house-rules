@@ -29,8 +29,8 @@ class HookTest(unittest.TestCase):
         self.state = tempfile.TemporaryDirectory(prefix="agent-hook-state-")
         self.addCleanup(self.state.cleanup)
 
-    def run_hook(self, event, data):
-        environment = {**os.environ, "XDG_STATE_HOME": self.state.name}
+    def run_hook(self, event, data, state=None):
+        environment = {**os.environ, "XDG_STATE_HOME": state or self.state.name}
         result = subprocess.run([sys.executable, "-I", str(HERE / "agent_hook.py"), event], input=json.dumps(data),
                                 stdin=None, capture_output=True, text=True, env=environment)
         return result.returncode, result.stdout, result.stderr
@@ -48,6 +48,11 @@ class PreToolUseTest(HookTest):
             self.assertEqual(status, 2, err)
             self.assertIn("crate_wide_test", err)
             self.assertIn("refused this command before it ran", err)
+
+    def test_a_quoted_here_document_that_only_holds_build_examples_passes(self):
+        status, out, err = self.run_hook("PreToolUse", claude_input("PreToolUse", tool_name="Bash", tool_input={
+            "command": "cat <<'EOF' > notes.md\nRun cargo test --workspace in CI only.\nEOF"}))
+        self.assertEqual((status, err), (0, ""))
 
     def test_targeted_and_read_only_commands_pass(self):
         for command in ("cargo test --release -p parser parse_header", "cargo test --help", "git status"):
@@ -81,6 +86,16 @@ class StopTest(HookTest):
         [record] = self.records()
         self.assertEqual((record["event"], record["session_id"], record["released"], record["rules"]),
                          ("Stop", "session-1", True, ["report_check.fact_source"]))
+
+    def test_a_release_that_cannot_be_recorded_still_warns_and_lets_the_stop_through(self):
+        blocked = Path(self.state.name) / "a file"
+        blocked.write_text("")
+        status, out, err = self.run_hook("Stop", codex_input("Stop", stop_hook_active=True,
+                                                             last_assistant_message=FAILING_REPORT), state=str(blocked))
+        self.assertEqual((status, err), (0, ""))
+        warning = json.loads(out)["systemMessage"]
+        self.assertIn("still breaks 1 rule(s) (report_check.fact_source)", warning)
+        self.assertIn("could not be recorded in", warning)
 
     def test_numbered_questions_are_checked_for_their_format(self):
         message = "## Release\n\n### 1\\. Ship the parser?\nIt is ready.\n"
