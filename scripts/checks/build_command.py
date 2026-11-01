@@ -17,8 +17,11 @@ The input is shell command text. Each simple command in it (split at unquoted `;
   settings; `cargo bench` defaults to its release profile;
 - `ctest` needs `-R`, `-L`, `-I` or `--tests-from-file`; `make`, `ninja` and
   `cmake --build` refuse the whole-suite targets `test`, `tests`, `check` and `check-all`.
-Help, version, listing and dry-run calls are read-only and always allowed, as is any other
-program.
+Help, version, listing and dry-run calls are read-only and always allowed, as are the lookups
+`command -v` and `command -V`, and any other program.
+
+A `crate_wide_test` or `crate_wide_clippy` refusal says `"workspace": true` when the command
+names no package or names `--workspace` or `--all`, so it runs across every crate.
 
 Prints one JSON line per refusal and exits 0 when the command is allowed, 2 when it is
 refused and 1 when the input cannot be read or parsed.
@@ -162,6 +165,8 @@ def unwrap(tokens):
             values = WRAPPER_VALUE_FLAGS.get(name, set())
             while index < len(tokens) and (tokens[index].startswith("-") or
                                            re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", tokens[index])):
+                if name == "command" and re.match(r"^-[a-zA-Z]*[vV]", tokens[index]):
+                    return []  # `command -v` and `command -V` only look the program up
                 index += 2 if tokens[index] in values else 1
             if name == "timeout" and index < len(tokens) and re.match(r"^\d+(\.\d+)?[smhd]?$", tokens[index]):
                 index += 1
@@ -196,8 +201,8 @@ def options(arguments):
     return flags, positional, []
 
 
-def refusal(rule, message, number, tokens):
-    return findings.finding(CHECK, rule, message, number, command=shlex.join(tokens))
+def refusal(rule, message, number, tokens, **detail):
+    return findings.finding(CHECK, rule, message, number, command=shlex.join(tokens), **detail)
 
 
 def check_cargo(number, tokens, arguments, debug_profile):
@@ -225,20 +230,25 @@ def check_cargo(number, tokens, arguments, debug_profile):
     if subcommand in ("test", "nextest"):
         filtered = any(positional) or bool(harness_filters(trailing)) or \
             any(any(flags.get(flag, [])) for flag in ("-E", "--filterset", "--filter-expr"))
-        if whole or not package:
+        if whole:
+            result.append(refusal("crate_wide_test", f"cargo {subcommand} with --workspace or --all runs every "
+                                  "crate's tests; drop it, name one crate with -p and add a test-name filter",
+                                  number, tokens, workspace=True))
+        elif not package:
             result.append(refusal("crate_wide_test", f"cargo {subcommand} without a package runs every crate's "
-                                  "tests; name one with -p and add a test-name filter", number, tokens))
+                                  "tests; name one with -p and add a test-name filter", number, tokens,
+                                  workspace=True))
         elif not filtered and "--no-run" not in flags:
             result.append(refusal("crate_wide_test", f"cargo {subcommand} without a test-name filter runs the "
                                   "crate's whole suite; add the filter, for example --test <file> <test_name>",
-                                  number, tokens))
+                                  number, tokens, workspace=False))
     if subcommand == "clippy":
         selected = sum(len(flags.get(flag, [])) for flag in SINGLE_TARGETS)
         plural = any(flag in flags for flag in PLURAL_TARGETS)
         if whole or not package or plural or selected != 1:
             result.append(refusal("crate_wide_clippy", "cargo clippy needs a package (-p) and exactly one target "
                                   "(--lib, or one --bin, --test, --example or --bench); crate-wide clippy runs in CI",
-                                  number, tokens))
+                                  number, tokens, workspace=whole or not package))
     profile_flag = "--cargo-profile" if subcommand == "nextest" else "--profile"
     allowed = RELEASE_PROFILES + (debug_profile,)
     profiles = flags.get(profile_flag, [])
@@ -319,6 +329,14 @@ def check_cmake(number, tokens, arguments):
                     "targeted test instead", number, tokens)]
 
 
+def shell_script(arguments):
+    """The script a shell runs from `-c` (or a short-flag group holding c), or None."""
+    for index, arg in enumerate(arguments):
+        if arg == "-c" or (arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:]):
+            return arguments[index + 1] if index + 1 < len(arguments) else None
+    return None
+
+
 def check_command(number, tokens, debug_profile):
     command = unwrap(tokens)
     if not command:
@@ -326,11 +344,8 @@ def check_command(number, tokens, debug_profile):
     name = Path(command[0]).name
     arguments = command[1:]
     if name in SHELLS:
-        for index, arg in enumerate(arguments):
-            if arg == "-c" or (arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:]):
-                if index + 1 < len(arguments):
-                    return check(arguments[index + 1], debug_profile, number)
-        return []
+        script = shell_script(arguments)
+        return [] if script is None else check(script, debug_profile, number)
     if name == "cargo":
         return check_cargo(number, tokens, arguments, debug_profile)
     if name == "ctest":

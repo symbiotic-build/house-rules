@@ -1393,10 +1393,14 @@ def cmd_exec(args):
         sys.stdout.flush()
         if not known:
             return 0
+    # A hook that cannot run its script exits 1: agent products show it and go on, while 2 would block the
+    # session's tool call, prompt or stop, for example in a repository pinned to a version before the script.
+    status = 1 if args.hook else 2
     script = script_in(tree, args.path)
     if not script.is_file():
         layer = record["layers"][0]["revision"] if record else tree.name
-        raise Failure(f"house-rules: House Rules {layer} has no {args.path}; check the path or the house-rules ref")
+        raise Failure(f"house-rules: House Rules {layer} has no {args.path}; check the path or the house-rules ref",
+                      status=status)
     if record is not None:
         for warning in record["warnings"]:
             print(warning, file=sys.stderr)  # a linked, overridden or offline run says so, whatever the script prints
@@ -1410,7 +1414,7 @@ def cmd_exec(args):
         else:  # any other script reads this command's own standard input, as a Git hook's references
             proc = subprocess.run(command, stdin=sys.stdin, env=environ, cwd=repository or None)
     except OSError as exc:
-        raise Failure(f"house-rules: cannot start {script} ({exc.strerror or exc})")
+        raise Failure(f"house-rules: cannot start {script} ({exc.strerror or exc})", status=status)
     return proc.returncode
 
 

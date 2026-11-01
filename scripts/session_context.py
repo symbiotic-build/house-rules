@@ -21,6 +21,9 @@ checkout, as an install from before the House Rules command has it.
   session_context.py hooks <product> --command <house-rules>
                                      the same entry run through the House Rules command, which
                                      resolves the repository's House Rules version first
+  session_context.py build-hook <claude|codex> [<root> | --command <house-rules>]
+                                     the PreToolUse entry that runs scripts/checks/build_hook.py
+                                     on each shell tool call
 
 Kimi Code passes no session-start hook output to the model, so for Kimi a UserPromptSubmit
 hook prints the rules once per session id. Kimi 2.2.0 and later keep that output through
@@ -53,6 +56,8 @@ FALLBACK_LINE = 601  # exec's fallback line before each part: house_rules.HOOK_L
 RESOLUTION_LIMIT = 8_800  # Room in part 1 for the resolution lines, in UTF-16 code units.
 TIMEOUT = 10      # Seconds each product waits for one hook.
 ERROR = "HOUSE RULES HOOK ERROR:"
+BUILD_HOOK = "scripts/checks/build_hook.py"  # the PreToolUse hook registered beside SessionStart
+BUILD_EVENT = "PreToolUse"
 RULESET = "ruleset.json"  # House Rules' own defaults; its context lists the files every session receives
 LOCAL_INDEX = "custom/INDEX.md"
 RESOLUTION_HEAD = "\n===== House Rules resolution =====\n"
@@ -585,10 +590,10 @@ def kimi_prompt(stdin, stdout):
     record.touch()
 
 
-def command(python, base, *args):
+def command(python, base, *args, script="scripts/session_context.py"):
     if isinstance(python, HouseRulesCommand):
-        return shlex.join([python.path, "exec", "--hook", "scripts/session_context.py", *args])
-    return shlex.join([python, "-I", str(base / "scripts/session_context.py"), *args])
+        return shlex.join([python.path, "exec", "--hook", script, *args])
+    return shlex.join([python, "-I", str(base / script), *args])
 
 
 class HouseRulesCommand:
@@ -626,6 +631,23 @@ def hooks(product, python=None, base=None, house_rules=None):
     return {"hooks": handlers}
 
 
+def build_hook(product, python=None, base=None, house_rules=None, log=None):
+    """The hooks.PreToolUse entry INSTALL-AGENTS.md §3 registers beside SessionStart.
+
+    It runs scripts/checks/build_hook.py on each shell tool call, which both products name `Bash`.
+    The product is passed on, so the hook's log names the harness. log, an absolute path, replaces
+    the hook's default log file.
+    """
+    if product not in ("claude", "codex"):
+        raise ValueError(f"no build-command hook for {product}")
+    python, base = python or sys.executable, base or root()
+    if house_rules:
+        python = HouseRulesCommand(house_rules)
+    arguments = [product, *(["--log", str(log)] if log else [])]
+    return {"matcher": "Bash", "hooks": [
+        {"type": "command", "command": command(python, base, *arguments, script=BUILD_HOOK), "timeout": TIMEOUT}]}
+
+
 def kimi_toml(python=None, base=None, house_rules=None):
     """The [[hooks]] table INSTALL-AGENTS.md §3 appends to Kimi's config.toml."""
     # A JSON string with non-ASCII kept as is is a valid TOML basic string once DEL, which JSON
@@ -653,6 +675,10 @@ def main(argv):
         elif argv == ["kimi", "prompt"]:
             kimi_prompt(sys.stdin, sys.stdout)
             output = ""
+        elif argv[:1] == ["build-hook"] and len(argv) == 4 and argv[2] == "--command":
+            output = json.dumps(build_hook(argv[1], house_rules=argv[3]), indent=2)
+        elif argv[:1] == ["build-hook"] and len(argv) in (2, 3):
+            output = json.dumps(build_hook(argv[1], base=Path(argv[2]) if len(argv) == 3 else None), indent=2)
         elif len(argv) == 4 and argv[0] == "hooks" and argv[2] == "--command":
             output = (kimi_toml(house_rules=argv[3]).rstrip("\n") if argv[1] == "kimi" else
                       json.dumps(hooks(argv[1], house_rules=argv[3]), indent=2))
@@ -662,7 +688,8 @@ def main(argv):
             output = json.dumps(hooks(argv[1], base=Path(argv[2]) if len(argv) == 3 else None), indent=2)
         else:
             sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | approved [codex] | kimi prompt | "
-                     "hooks <claude|codex|kimi> [<root> | --command <house-rules>]")
+                     "hooks <claude|codex|kimi> [<root> | --command <house-rules>] | "
+                     "build-hook <claude|codex> [<root> | --command <house-rules>]")
     except (OSError, ValueError, UnicodeDecodeError) as error:
         # The hook's output is the only channel the model sees; print the failure there.
         output = f"{ERROR} {error}"
