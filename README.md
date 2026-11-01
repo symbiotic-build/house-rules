@@ -184,7 +184,9 @@ The hook takes one of four decisions for each command:
   runs, and the hook logs the finding's rule name.
 - **Unsure:** text the parser cannot read exactly, because the shell expands it or feeds it in:
   a here-document or here-string, a parameter expansion (`$NAME`, `${NAME}`, `$@`), command or
-  process substitution, backticks, `eval`, `xargs`, or a command that does not parse. The command runs, even when it would otherwise be refused.
+  process substitution, backticks, a command run by `eval` or `xargs`, or a command that does not
+  parse. `eval` and `xargs` count only as the program a command runs, so `cargo test --workspace
+  eval`, with `eval` as a test filter, is still refused. The command runs, even when it would otherwise be refused.
   The hook logs it when the text names a checked program (`cargo`, `ctest`, `make`, `ninja`,
   `cmake`).
 - **Allowed:** every other command runs and is not logged.
@@ -195,8 +197,9 @@ it ([INSTALL-AGENTS.md §6](INSTALL-AGENTS.md#6-update-and-remove)). Each decisi
 line per rule, with `time`, `harness`, `session_id` (when the input has one), `cwd`, `decision`,
 `rule` and `command`. Before the command is written, the value of each `NAME=value` assignment
 and the argument after each flag named like `token`, `key`, `secret` or `password` become
-`<redacted>`. Redaction reads whole shell words, quotes and escapes included, and an unclosed
-quote redacts the rest of the command. A log that cannot be written changes no decision; the hook says so on standard error.
+`<redacted>`. Redaction reads whole shell words, with quotes, escapes and substitutions, and
+the scripts quoted inside them, such as a `bash -c` script. An unclosed quote or substitution
+redacts the rest of the command. A log that cannot be written changes no decision; the hook says so on standard error.
 
 To count false refusals, list the refusals and judge each command:
 

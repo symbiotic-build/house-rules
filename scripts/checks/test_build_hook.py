@@ -82,9 +82,17 @@ class RefusalTest(HookTest):
         for command in ("cargo test --release parse", "cargo test --release --workspace -p core parse",
                         "cargo test --release --all parse", "cargo nextest run --release parse",
                         "cargo clippy --release --lib", "cargo clippy --release -p core --lib --all",
-                        "git status && cargo t --release parse", "bash -c 'cargo test --release parse'"):
+                        "git status && cargo t --release parse", "bash -c 'cargo test --release parse'",
+                        # eval and xargs as arguments, here a test filter, run nothing indirectly.
+                        "cargo test --release --workspace eval", "cargo test --release --workspace -- xargs"):
             with self.subTest(command=command):
                 self.assertEqual(self.run_hook(command)[0], 2)
+
+    def test_the_reason_names_the_workspace_flag_when_a_package_is_given(self):
+        status, stderr = self.run_hook("cargo test --release --workspace -p core parse")
+        self.assertEqual(status, 2)
+        self.assertIn("with --workspace or --all runs every crate's tests", stderr)
+        self.assertNotIn("without a package", stderr)
 
     def test_a_refusal_logs_only_the_workspace_rule(self):
         self.assertEqual(self.run_hook("cargo test")[0], 2)
@@ -132,6 +140,8 @@ class UnsureTest(HookTest):
                 ("diff <(cargo tree) expected.txt", "process_substitution"),
                 ("eval 'cargo test --workspace'", "eval"),
                 ("echo -p core | xargs cargo test", "xargs"),
+                ("env FLAGS=x xargs cargo test < packages.txt", "xargs"),
+                ("bash -c 'cd app && eval cargo test --workspace'", "eval"),
                 ("cargo test 'unterminated", "parse_error")):
             with self.subTest(command=command):
                 before = len(self.logged())
@@ -193,12 +203,17 @@ class RedactionTest(HookTest):
                 ("API_TOKEN='prefix'\"suffix\"tail cargo test", "API_TOKEN=<redacted> cargo test"),
                 ("API_TOKEN=first\\ second cargo test", "API_TOKEN=<redacted> cargo test"),
                 ("cargo test \"--api-key\" 'quoted value' '--token'=x", "cargo test \"--api-key\" <redacted> --token=<redacted>"),
-                ("cargo test --token 'unclosed value; more", "cargo test --token <redacted>")):
+                ("cargo test --token 'unclosed value; more", "cargo test --token <redacted>"),
+                ("API_TOKEN=$(cat secret file) cargo test", "API_TOKEN=<redacted> cargo test"),
+                ("API_TOKEN=`cat secret file` cargo test", "API_TOKEN=<redacted> cargo test"),
+                ("bash -c 'cd app && API_TOKEN=nested cargo test --workspace --password pw2'",
+                 "bash -c 'cd app && API_TOKEN=<redacted> cargo test --workspace --password <redacted>'")):
             with self.subTest(command=command):
                 self.run_hook(command)
                 self.assertEqual(self.logged()[-1]["command"], logged)
         text = self.log.read_text()
-        for secret in ("prefix", "suffix", "tail", "second", "quoted value", "unclosed", "more"):
+        for secret in ("prefix", "suffix", "tail", "second", "quoted value", "unclosed", "more", "secret file",
+                       "nested", "pw2"):
             self.assertNotIn(secret, text)
 
     def test_a_session_id_is_logged_only_when_the_input_has_one(self):

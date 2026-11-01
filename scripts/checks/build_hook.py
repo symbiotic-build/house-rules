@@ -15,15 +15,17 @@ The hook takes one decision per command, from build_command.py's findings:
   target, a debug build, `make test` or `ctest` without a selector. The call runs.
 - unsure: text the parser cannot read exactly, because the shell expands it or feeds it in: a
   here-document or here-string, a parameter expansion (`$NAME`, `${NAME}`, `$@`), command or
-  process substitution, backticks, `eval`, `xargs`, or a command that does not parse. The call runs, even when it would otherwise be refused.
+  process substitution, backticks, a command run by `eval` or `xargs`, or a command that does not
+  parse. `eval` and `xargs` count only as the program a command runs, not as an argument. The call runs, even when it would otherwise be refused.
 Every other command runs and is not logged; an unsure command is logged only when its text names a
 checked program (cargo, ctest, make, ninja, cmake), since no other command could be refused.
 
 Each refused, warned or unsure decision appends one JSON line per rule to the log: time, harness,
 session id when the input has one, working folder, decision, rule and the command, with the value of
 each NAME=value assignment and the argument after each flag named like token, key, secret or password
-replaced by <redacted>. Redaction reads whole shell words, quotes and escapes included; an unclosed
-quote runs to the end of the command, so all of it is redacted. The log is PATH, else $XDG_STATE_HOME/house-rules/build-hook.jsonl, else
+replaced by <redacted>. Redaction reads whole shell words, with quotes, escapes and substitutions,
+and the scripts quoted inside them, such as a `bash -c` script; an unclosed quote or substitution
+runs to the end of the command, so all of it is redacted. The log is PATH, else $XDG_STATE_HOME/house-rules/build-hook.jsonl, else
 ~/.local/state/house-rules/build-hook.jsonl. A log that cannot be written changes no decision; the
 hook says so on standard error.
 
@@ -35,6 +37,7 @@ import io
 import json
 import os
 import re
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -53,9 +56,8 @@ UNSURE = (("here_document", re.compile(r"<<")),
           ("parameter_expansion", re.compile(r"\$(?:[A-Za-z_{@*#?$!0-9-])")),
           ("command_substitution", re.compile(r"\$\(")),
           ("backticks", re.compile(r"`")),
-          ("process_substitution", re.compile(r"[<>]\(")),
-          ("eval", re.compile(r"(?<![\w./-])eval(?![\w.-])")),
-          ("xargs", re.compile(r"(?<![\w.-])(?:[\w./-]*/)?xargs(?![\w.-])")))
+          ("process_substitution", re.compile(r"[<>]\(")))
+INDIRECT = ("eval", "xargs")  # programs that run their arguments as a command the parser does not read
 CHECKED = re.compile(r"(?<![\w.-])(?:[\w./-]*/)?(?:cargo|ctest|g?make|ninja|cmake)(?![\w.-])")
 WORD_END = set(";&|()<>")  # unquoted characters that end a shell word, beside whitespace
 SECRET_FLAG = re.compile(r"(-{1,2}[\w-]*(?:token|key|secret|password)[\w-]*)(=.*)?", re.IGNORECASE | re.DOTALL)
@@ -66,10 +68,25 @@ def default_log():
     return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "house-rules" / LOG_FILE
 
 
-def shell_words(text):
-    """(start, end, unquoted text) for each shell word; quotes and backslashes join a word, as the shell does.
+def closing(text, index, opening, close):
+    """The index just past the `close` that matches the `opening` at index, or the text's end."""
+    depth = 0
+    while index < len(text):
+        if text[index] == "\\":
+            index += 2
+            continue
+        depth += text[index] == opening
+        depth -= text[index] == close
+        index += 1
+        if depth == 0:
+            return index
+    return len(text)
 
-    An unclosed quote runs to the end of the text.
+
+def shell_words(text):
+    """(start, end, unquoted text) for each shell word; quotes, backslashes and substitutions join a word.
+
+    An unclosed quote or substitution runs to the end of the text.
     """
     result, index = [], 0
     while index < len(text):
@@ -82,6 +99,12 @@ def shell_words(text):
             if char == "\\":
                 value.append(text[index + 1:index + 2])
                 index += 2
+            elif text.startswith(("$(", "${"), index) or char == "`":
+                end = text.find("`", index + 1) + 1 if char == "`" else \
+                    closing(text, index + 1, text[index + 1], ")" if text[index + 1] == "(" else "}")
+                end = len(text) if end <= 0 else end
+                value.append(text[index:end])
+                index = end
             elif char == "'":
                 close = text.find("'", index + 1)
                 close = len(text) if close < 0 else close
@@ -114,22 +137,41 @@ def redact(command):
             replacements.append((start, end, f"{flag[1]}=<redacted>"))
         elif assignment and not word.startswith("-"):
             replacements.append((start, end, f"{assignment[1]}=<redacted>"))
+        elif command[start:end] != word and redact(word) != word:  # a quoted script, such as bash -c's
+            replacements.append((start, end, shlex.quote(redact(word))))
         secret_next = bool(flag) and not flag[2] and not secret_next
     for start, end, text in reversed(replacements):
         command = command[:start] + text + command[end:]
     return command
 
 
+def indirect(text):
+    """The programs among INDIRECT that a command of the text runs, inside `sh -c` scripts too."""
+    result = []
+    for _, tokens in build_command.split_commands(text):
+        command = build_command.unwrap(tokens)
+        name = Path(command[0]).name if command else None
+        if name in INDIRECT:
+            result.append(name)
+        elif name in build_command.SHELLS:
+            script = build_command.shell_script(command[1:])
+            result.extend(indirect(script) if script is not None else [])
+    return result
+
+
 def decide(command):
     """(decision, [(rule, message)]): decision is refused, warned, unsure, or None for a command that matched no rule."""
     unsure = [rule for rule, pattern in UNSURE if pattern.search(command)]
+    found = []
+    if not unsure:
+        try:
+            with contextlib.redirect_stderr(io.StringIO()):
+                unsure = list(dict.fromkeys(indirect(command)))
+                found = [] if unsure else build_command.check(command)
+        except SystemExit:
+            unsure = ["parse_error"]
     if unsure:
         return ("unsure", [(rule, None) for rule in unsure]) if CHECKED.search(command) else (None, [])
-    try:
-        with contextlib.redirect_stderr(io.StringIO()):
-            found = build_command.check(command)
-    except SystemExit:
-        return ("unsure", [("parse_error", None)]) if CHECKED.search(command) else (None, [])
     if not found:
         return None, []
     clear = [item for item in found if item["rule"] in CLEAR_RULES and item.get("workspace")]

@@ -230,7 +230,11 @@ def check_cargo(number, tokens, arguments, debug_profile):
     if subcommand in ("test", "nextest"):
         filtered = any(positional) or bool(harness_filters(trailing)) or \
             any(any(flags.get(flag, [])) for flag in ("-E", "--filterset", "--filter-expr"))
-        if whole or not package:
+        if whole:
+            result.append(refusal("crate_wide_test", f"cargo {subcommand} with --workspace or --all runs every "
+                                  "crate's tests; drop it, name one crate with -p and add a test-name filter",
+                                  number, tokens, workspace=True))
+        elif not package:
             result.append(refusal("crate_wide_test", f"cargo {subcommand} without a package runs every crate's "
                                   "tests; name one with -p and add a test-name filter", number, tokens,
                                   workspace=True))
@@ -325,6 +329,14 @@ def check_cmake(number, tokens, arguments):
                     "targeted test instead", number, tokens)]
 
 
+def shell_script(arguments):
+    """The script a shell runs from `-c` (or a short-flag group holding c), or None."""
+    for index, arg in enumerate(arguments):
+        if arg == "-c" or (arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:]):
+            return arguments[index + 1] if index + 1 < len(arguments) else None
+    return None
+
+
 def check_command(number, tokens, debug_profile):
     command = unwrap(tokens)
     if not command:
@@ -332,11 +344,8 @@ def check_command(number, tokens, debug_profile):
     name = Path(command[0]).name
     arguments = command[1:]
     if name in SHELLS:
-        for index, arg in enumerate(arguments):
-            if arg == "-c" or (arg.startswith("-") and not arg.startswith("--") and "c" in arg[1:]):
-                if index + 1 < len(arguments):
-                    return check(arguments[index + 1], debug_profile, number)
-        return []
+        script = shell_script(arguments)
+        return [] if script is None else check(script, debug_profile, number)
     if name == "cargo":
         return check_cargo(number, tokens, arguments, debug_profile)
     if name == "ctest":

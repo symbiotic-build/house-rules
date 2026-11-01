@@ -65,9 +65,10 @@ class SyncFixture:
         self.write(self.origin / "skills/operator-writing/SKILL.md", "# Operator writing\n")
         (self.origin / "scripts").mkdir()
         shutil.copyfile(REPO / "scripts/session_context.py", self.origin / "scripts/session_context.py")
-        shutil.copytree(REPO / "scripts/checks", self.origin / "scripts/checks",
-                        ignore=shutil.ignore_patterns("test_*", "__pycache__"))
-        checks = sorted(f"scripts/checks/{path.name}" for path in (self.origin / "scripts/checks").iterdir())
+        (self.origin / "scripts/checks").mkdir()
+        checks = [f"scripts/checks/{name}" for name in ("build_hook.py", "build_command.py", "findings.py")]
+        for path in checks:  # the build-command hook and the modules it imports
+            shutil.copyfile(REPO / path, self.origin / path)
         self.write(self.origin / "INDEX.md", "# Index\n\n## Always load\n\n" + "".join(
             f"- [{name}](rules/{name}.md)\n" for name in RULES) + "\n## Load when needed\n")
         self.write(self.origin / "ruleset.json", json.dumps({"version": 1, "context": [
