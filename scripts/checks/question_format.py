@@ -23,13 +23,14 @@ RECOMMENDED = re.compile(r"\(recommended\)[.:]?$")
 ANSWER = "**Answer like so:**"
 CONTEXT_FLAGS = ("FACT", "ASSESSMENT")
 # Work the agent's own team does: the rule lists tests, replays and verification as examples.
-TEAM_WORK = re.compile(
-    # The agent offers to do the work: "Should I rerun …", "Do you want me to test …".
-    r"\b(i|we|me|us)\b.{0,20}\b(verify|re-?test|test|replay|reproduce|re-?run|benchmark)\b|"
-    # The operator is asked to run it: "Can you run the tests?", "Can you test the upload?".
-    r"\b(run|start|do|perform|execute|repeat|redo|write|add)\b.{0,40}\b(tests?|testing|replays?|verification|"
-    r"benchmarks?|reproductions?|spot[- ]checks?)\b|"
-    r"\btest (it|this|that|them|these|those|the|a|an)\b", re.IGNORECASE)
+# Work the agent's own team does: any testing word counts, except in the listed phrases where
+# the operator acts on their own account ("the test account", "verify your account").
+# "Reproduce" counts only as a verb, so a rule named for reproduction is not testing work.
+TEAM_WORK = re.compile(r"\b(tests?|testing|re-?test\w*|replay\w*|re-?run\w*|reproduc(e|es|ed|ing)|verif\w*|"
+                       r"benchmark\w*|spot[- ]checks?)\b", re.IGNORECASE)
+OPERATOR_PHRASES = re.compile(r"\btest (accounts?|users?|environments?|tenants?|keys?|cards?|data)\b|"
+                              r"\bverify (your|their|the operator's) (accounts?|identity|email|organi[sz]ation|"
+                              r"phone|domain)\b", re.IGNORECASE)
 # A request for more context starts with a request word, after an optional "please" or "could you"
 # (lead decision). Known limit: a statement that opens with a question word ("what we need is clear") passes.
 CONTEXT_REQUEST = re.compile(r"^(please |could you |can you |would you )?(explain|elaborate|expand|clarify|describe|"
@@ -162,7 +163,7 @@ def check_heading(question, expected, seen):
                                        f"question number {question.number} follows {expected - 1}; number "
                                        f"questions 1, 2, 3 across topics", line))
     seen.setdefault(question.number, line)
-    if TEAM_WORK.search(question.title):
+    if TEAM_WORK.search(OPERATOR_PHRASES.sub(" ", question.title)):
         result.append(findings.finding(CHECK, "team_work",
                                        "the question asks about work the agent's own team does (tests, replays, "
                                        "verification); list it as an internal task instead", line))
@@ -184,11 +185,24 @@ def check_body(question):
             result.append(findings.finding(CHECK, "question_extra",
                                            "a question holds a reply line or an answer box; the answer example "
                                            "at the end shows how to answer", line.number))
-    bullets = [line for line in prose if (item := md.LIST_ITEM.match(line.text)) and item.group(2) is None]
-    if bullets and not any(OPTION.match(line.text) for line in prose):
-        result.append(findings.finding(CHECK, "options_not_numbered",
-                                       "the question lists items as bullets and has no numbered options; write a "
-                                       "choice as a numbered list", bullets[0].number))
+    # A bullet is a choice when it is bold or recommended, when it follows the first numbered
+    # option, or when the question has no numbered options at all.
+    seen_option = False
+    has_options = any(OPTION.match(line.text) for line in prose)
+    for line in prose:
+        item = md.LIST_ITEM.match(line.text)
+        if OPTION.match(line.text) and not OPTION.match(line.text).group(1):
+            seen_option = True
+        if not item or item.group(2) is not None:
+            continue
+        body = item.group(3).strip()
+        # An indented bullet after an option is nested under it; the options check reports that.
+        after_option = seen_option and not item.group(1)
+        if "(recommended)" in body or BOLD_LINE.match(body) or after_option or not has_options:
+            result.append(findings.finding(CHECK, "options_not_numbered",
+                                           "a choice is written as a bullet; write every option in the numbered "
+                                           "list", line.number))
+            break
     # The context: every prose line under the heading before the first list, blank lines included.
     context = []
     for line in prose:

@@ -94,18 +94,22 @@ echo 'cargo test --workspace' | python3 scripts/checks/build_command.py
 ```
 
 [question_format.py](scripts/checks/question_format.py) checks the questions of an operator
-message against [rules/session-writing.md §Questions to the operator](rules/session-writing.md#questions-to-the-operator).
-A question is a numbered level-3 heading under a level-2 topic, with its number escaped
-(`### 1\.`) and unique across the message; numbers count on from the first question, so a
-follow-up keeps its question's number. Each context sentence starts with `FACT` or
-`ASSESSMENT`, on one source line. Every prose line before the first list is context. A choice
-has one flat numbered option list with exactly one whole-bold line ending in "(recommended)". The list ends with **Answer like so:** and a
-three-line `text` example after the last question, showing an option number, a request for
-more context and `ok`. The request line starts with a request word ("explain", "show", "more",
-"why"), after an optional "please" or "could you"; a statement that opens with a question word
-("what we need is clear") is a known pass. A question about the team's own tests, replays or
-verification fails, and so does a question asked in prose outside a question
-heading. A message without questions passes.
+message against [rules/session-writing.md §Questions to the
+operator](rules/session-writing.md#questions-to-the-operator). A question is a numbered level-3
+heading under a level-2 topic, with its number escaped (`### 1\.`) and unique across the
+message; numbers count on from the first question, so a follow-up keeps its question's number.
+Each context sentence starts with `FACT` or `ASSESSMENT`, on one source line; when that line
+ends with a backslash, the next line may say what happens after the answer. Any other prose
+line before the first list counts as context too, so it fails. A choice has one flat numbered
+option list with exactly one whole-bold line ending in "(recommended)". The list ends with
+**Answer like so:** and a three-line `text` example after the last question, showing an option
+number, a request for more context and `ok`. The request line starts with a request word
+("explain", "show", "more", "why"), after an optional "please" or "could you"; a statement that
+opens with a question word ("what we need is clear") is a known pass. A question that names
+testing work (test, rerun, replay, reproduce, verify, benchmark) fails as the team's own work,
+except in a listed phrase where the operator acts on their own account ("the test account",
+"verify your account"); a bullet choice fails, and so does a question asked in prose outside a
+question heading. A message without questions passes.
 
 [report_check.py](scripts/checks/report_check.py) checks a report against
 [rules/writing.md §Claim labels](rules/writing.md#claim-labels) and §Checks before sending. Every

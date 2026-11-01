@@ -137,12 +137,17 @@ class QuestionFormatTest(unittest.TestCase):
         text = GOOD.replace("Send the error text from the failed upload?", "Should I test the upload?")
         self.assertIn("team_work", rules(text))
 
-    def test_operator_verification_is_not_team_work(self):
-        text = GOOD.replace("Send the error text from the failed upload?", "Can you verify your account?")
-        self.assertEqual(rules(text), [])
+    def test_operator_phrases_are_not_team_work(self):
+        for title in ("Can you verify your account?", "Grant me access to the test account?",
+                      "Grant us access to test accounts?", "Approve the reproduction setup rule?"):
+            with self.subTest(title=title):
+                text = GOOD.replace("Send the error text from the failed upload?", title)
+                self.assertEqual(rules(text), [])
 
-    def test_asking_the_operator_to_run_tests_is_team_work(self):
-        for title in ("Can you test the upload?", "Do you want me to test uploads?", "Can you run the tests?"):
+    def test_asking_the_operator_about_testing_work_is_team_work(self):
+        for title in ("Can you test the upload?", "Do you want me to test uploads?", "Can you run the tests?",
+                      "Can you rerun the upload tests?", "Should the team rerun the upload tests?",
+                      "Can you replay the failed upload?", "Should I reproduce the failure?"):
             with self.subTest(title=title):
                 text = GOOD.replace("Send the error text from the failed upload?", title)
                 self.assertIn("team_work", rules(text))
@@ -158,6 +163,18 @@ class QuestionFormatTest(unittest.TestCase):
                             "cleared by hand each week.",
                             "- **The archive store, with one copy per day (recommended).**\n- The staging store.")
         self.assertIn("options_not_numbered", rules(text))
+
+    def test_bullet_choice_beside_numbered_choices_fails(self):
+        for extra in ("3. The cold store.\n- **Delete the store (recommended).**", "- Leave it as it is."):
+            with self.subTest(extra=extra):
+                text = GOOD.replace("2. The staging store, cleared by hand each week.",
+                                    "2. The staging store, cleared by hand each week.\n" + extra)
+                self.assertIn("options_not_numbered", rules(text))
+
+    def test_bullet_list_in_context_beside_numbered_choices_passes(self):
+        text = GOOD.replace("Either answer also applies to later imports.\n",
+                            "Either answer also applies to later imports.\n\n- alpha, 12 records;\n- beta, 4 records.\n")
+        self.assertEqual(rules(text), [])
 
     def test_plain_bullet_choices_fail(self):
         text = GOOD.replace("1. **The archive store, with one copy per day (recommended).**\n2. The staging store, "
