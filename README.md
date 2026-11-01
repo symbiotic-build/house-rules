@@ -140,8 +140,8 @@ operator-only classes are `credential`, `account`, `balance`, `quota`, `permissi
 failure). The exit status is 2 when any input is operator-only.
 
 [build_command.py](scripts/checks/build_command.py) checks a shell command against the local
-build scope of [rules/delivery.md §Verification](rules/delivery.md#verification) and the profile
-rule of [rust-canon](skills/rust-canon/SKILL.md). It refuses `cargo test` or `cargo nextest
+build scope and the release-profile rule of
+[Local builds](prompts/skills/local-builds.md). It refuses `cargo test` or `cargo nextest
 run` without a package and a test-name filter (a harness option value such as `--test-threads 4`
 is not a filter), `cargo clippy` without a package and exactly one target, a cargo build without
 `--release`, and any profile other than a release profile or the debugging profile

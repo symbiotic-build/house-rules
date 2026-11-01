@@ -77,6 +77,7 @@ heading levels. Omit empty section bodies and summarize their names in one short
 @rule house-rules:prompts/skills/native-first.md
 @rule house-rules:prompts/skills/no-fortification.md
 @rule house-rules:prompts/skills/test-discipline.md
+@rule house-rules:prompts/skills/local-builds.md
 @rule house-rules:prompts/skills/naming-defaults.md
 @rule house-rules:prompts/util/issue-form.md
 

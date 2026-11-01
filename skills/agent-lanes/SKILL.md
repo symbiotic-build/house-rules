@@ -43,20 +43,20 @@ explicit goals.
   ⚒ Make one lane the budget owner when several hit the same provider.
 - Record the intended concurrency and measurement conditions before launch (bounds and
   measured-run concurrency: [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work)).
-- Builds and targeted tests follow `rust-canon` §Code rules and use the lane's own target
+- Builds and targeted tests follow [Local builds](../../prompts/skills/local-builds.md) and use the lane's own target
   directory, never a shared tree where a paused run may depend on the existing binary.
 
 ## Shared machine
 
 Commands for the build-queue rules in
-[rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work). The queue is
+[Local builds](../../prompts/skills/local-builds.md#shared-build-queue). The queue is
 machine-local: the machine's build kit installs wrappers named `cargo`, `cmake`, `make`, `ninja`
 and `ctest` ahead of the real tools on `PATH`, plus `build-queue` for anything else. All of
 them share one lock and one budget, with hold limits for hung commands. Record the kit in the
 machine's capability index (`custom/INDEX.md`, from [CUSTOM-INDEX.example.md](../../CUSTOM-INDEX.example.md)).
 
 ```bash
-cargo test -p intake                      # queued automatically
+cargo test --release -p intake <test>     # queued automatically; <test> names the targeted test
 cmake --build build --target all          # queued; --parallel above the budget is lowered
 build-queue ./build/bin/collection_test   # a test binary or script: queue it by name
 command -v cmake                          # check: the wrapper, not the real tool
