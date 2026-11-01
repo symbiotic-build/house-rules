@@ -98,8 +98,8 @@ message against [rules/session-writing.md §Questions to the operator](rules/ses
 A question is a numbered level-3 heading under a level-2 topic, with its number escaped
 (`### 1\.`) and unique across the message; numbers count on from the first question, so a
 follow-up keeps its question's number. Each context sentence starts with `FACT` or
-`ASSESSMENT`, on one source line. Every prose line before the first list is context. A choice has one flat numbered option list with exactly one
-whole-bold line ending in "(recommended)". The list ends with **Answer like so:** and a
+`ASSESSMENT`, on one source line. Every prose line before the first list is context. A choice
+has one flat numbered option list with exactly one whole-bold line ending in "(recommended)". The list ends with **Answer like so:** and a
 three-line `text` example after the last question, showing an option number, a request for
 more context and `ok`. The request line starts with a request word ("explain", "show", "more",
 "why"), after an optional "please" or "could you"; a statement that opens with a question word
