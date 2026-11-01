@@ -234,6 +234,6 @@ After:
   Use the same or the next sentence.
   Include what is changed or unchanged, who acts, and what happens next.
   Cut only what the reader does not need.
-- [scripts/checks/report_check.py](../scripts/checks/report_check.py) checks the mechanical part before
-  sending: a source in every `FACT`, relayed claims labelled, the plan's required fields, no
-  reference to text elsewhere and an operator-only blocker on the bold first line.
+- `scripts/checks/report_check.py` checks the mechanical part before sending: a source in every
+  `FACT`, relayed claims labelled, the plan's required fields, no reference to text elsewhere
+  and an operator-only blocker on the bold first line.
