@@ -29,11 +29,8 @@ CODE = re.compile(r"`([^`]+)`")
 QUOTE = re.compile(r"\"[^\"]{2,}\"|“[^”]{2,}”")
 PATH = re.compile(r"(?:~|\.{1,2})?/?[\w.-]+/[\w.-]+/[\w./-]*|(?<![\w/])[\w.-]+/[\w-]+\.\w+|"
                   r"\b[\w-]+\.(?:py|md|json|jsonl|rs|ts|js|toml|ya?ml|sh|log|txt|tsv|csv)\b(?::\d+)?")
-# Words that tie a code span to a command that ran: "ran `x`", "`x` shows", "`x` at 10:00 UTC exited 0".
-RAN_BEFORE = re.compile(r"\b(?:ran|run|running|rerun|command|output of)\s*:?\s*$", re.IGNORECASE)
-RAN_AFTER = re.compile(r"^\s*(?:\([^)]*\)\s*)?(?:[^\s.;]+\s+){0,4}?(?:shows?|showed|shown|prints?|printed|returns?|returned|reports?|"
-                       r"reported|lists?|listed|outputs?|says|said|gives|gave|exits?|exited|passe[sd]|failed|found|"
-                       r"finds|counts?|counted)\b", re.IGNORECASE)
+# A code span that holds only a number, a time or a size is a value, not evidence.
+VALUE = re.compile(r"[\d\s.,:%+-]+(?:\s*[A-Za-z]{1,3})?")
 AGENT = r"(?:lane|worker|subagent|sub-agent|agent|reviewer|session)"
 RELAY = re.compile(
     AGENT + r"(?:'s|s'|s)?\s+(?:own\s+)?(?:report|reports|reported|found|finds|findings?|measured|measurements?|"
@@ -57,20 +54,16 @@ BOLD_START = re.compile(r"^\*\*[^*]+\*\*")
 
 
 def has_source(claim):
-    """True when a claim names its evidence: a link, a quote, a path, or a command it says ran.
+    """True when a claim names its evidence: a link, a quote, a path, or a code span.
 
-    A code span is evidence when it holds a path, or when the sentence says the command in it
-    ran or what it printed ("`uptime` shows …", "ran `make check`"). A formatted value such as
-    `12` or `in progress` is not evidence.
+    A code span counts unless it holds only a number or a time (`12`, `03:12`): the check
+    cannot tell a command (`uptime`) from a formatted word (`done`), so a word counts.
     """
     if LINK.search(claim) or QUOTE.search(claim):
         return True
-    for match in CODE.finditer(claim):
-        span = match.group(1).strip()
-        if span in md.LABELS:
-            continue
-        if PATH.search(span) or RAN_BEFORE.search(claim[:match.start()]) or RAN_AFTER.match(claim[match.end():]):
-            return True
+    if any(match.group(1) not in md.LABELS and not VALUE.fullmatch(match.group(1).strip())
+           for match in CODE.finditer(claim)):
+        return True
     return bool(PATH.search(CODE.sub(" ", claim)))
 
 

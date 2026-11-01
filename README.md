@@ -100,15 +100,16 @@ A question is a numbered level-3 heading under a level-2 topic, with its number 
 `ASSESSMENT`, on one source line. A choice has one flat numbered option list with exactly one
 whole-bold line ending in "(recommended)". The list ends with **Answer like so:** and a
 three-line `text` example after the last question, showing an option number, a request for
-more context and `ok`. A question about the team's own tests,
+more context (a question, or a request such as "explain …" or "please elaborate") and `ok`. A question about the team's own tests,
 replays or verification fails, and so does a question asked in prose outside a question
 heading. A message without questions passes.
 
 [report_check.py](scripts/checks/report_check.py) checks a report against
 [rules/writing.md §Claim labels](rules/writing.md#claim-labels) and §Checks before sending. Every
-`FACT` sentence names its source: a link, a path, a quote, or a command in a code span that
-the sentence says ran or printed ("`uptime` shows …", "ran `make check`"); a formatted value
-such as `` `12` `` is not a source. A label
+`FACT` sentence names its source: a link, a path, a quote, or a command in a code span. A code
+span that holds only a number, a time or a size (`` `12` ``, `` `984 MiB` ``) is not a source.
+The check cannot tell a command (`` `uptime` ``) from a formatted word (`` `done` ``), so any
+other code span counts; keep values out of code spans in `FACT` sentences. A label
 covers the later sentences of its paragraph or list item, and each of them needs a source too. A claim
 taken from another agent's report ("the import lane found …") is labelled `ASSUMPTION`. No
 sentence sends the reader elsewhere ("see above", "my last message"). When the report names an

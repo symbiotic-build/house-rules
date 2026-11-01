@@ -116,13 +116,21 @@ class QuestionFormatTest(unittest.TestCase):
         text = GOOD.replace("Send the error text from the failed upload?", "Should I rerun the upload tests?")
         self.assertIn("team_work", rules(text))
 
+    def test_requests_for_context_pass_as_the_answer_example(self):
+        for request in ("please elaborate", "could you expand on the tradeoffs?", "why is the store full"):
+            with self.subTest(request=request):
+                text = GOOD.replace("explain where the log is written", request)
+                self.assertEqual(rules(text), [])
+
     def test_test_as_a_verb_is_team_work(self):
         text = GOOD.replace("Send the error text from the failed upload?", "Should I test the upload?")
         self.assertIn("team_work", rules(text))
 
     def test_test_as_a_modifier_is_not_team_work(self):
-        text = GOOD.replace("Send the error text from the failed upload?", "Unlock the test account?")
-        self.assertEqual(rules(text), [])
+        for title in ("Unlock the test account?", "Grant the importer access to test accounts?"):
+            with self.subTest(title=title):
+                text = GOOD.replace("Send the error text from the failed upload?", title)
+                self.assertEqual(rules(text), [])
 
     def test_bullet_choices_fail(self):
         text = GOOD.replace("1. **The archive store, with one copy per day (recommended).**\n2. The staging store, "
@@ -144,7 +152,8 @@ class QuestionFormatTest(unittest.TestCase):
                 self.assertIn("question_extra", rules(text))
 
     def test_answer_example_without_the_three_answer_forms_fails(self):
-        for example in (" alpha\n beta\n gamma", " 1. 1\n 2. banana\n 3. ok"):
+        for example in (" alpha\n beta\n gamma", " 1. 1\n 2. banana\n 3. ok", " 1. 1\n 2. the cost is high\n 3. ok",
+                        " 1. 1\n 2. no more context is needed\n 3. ok"):
             with self.subTest(example=example):
                 text = GOOD.replace(" 1. 1\n 2. explain where the log is written\n 3. ok", example)
                 self.assertEqual(rules(text), ["answer_block_format"])

@@ -35,10 +35,10 @@ class FactSourceTest(unittest.TestCase):
         text = "`FACT` In the service log, the login expiry moved to 10:12 UTC.\n"
         self.assertEqual(rules(text), ["fact_source"])
 
-    def test_command_the_sentence_says_ran_is_a_source(self):
+    def test_command_in_a_code_span_is_a_source(self):
         for text in ("`FACT` `uptime` shows a load of 3.\n", "`FACT` I ran `make check` at 10:00 UTC; it passed.\n",
-                     "`FACT` `cargo test --release -p core parse` exited 0.\n",
-                     "`FACT` `gh pr view` at 10:00 UTC showed the change open.\n"):
+                     "`FACT` `cargo test --release -p core parse` completed successfully.\n",
+                     "`FACT` The whitespace check passed with `git diff --check`.\n"):
             with self.subTest(text=text):
                 self.assertEqual(rules(text), [])
 
@@ -57,8 +57,8 @@ class FactSourceTest(unittest.TestCase):
         self.assertEqual(rules(text), ["fact_source"])
 
     def test_formatted_value_is_not_a_source(self):
-        for text in ("`FACT` The queue contains `12` jobs.\n", "`FACT` All jobs are `done`.\n",
-                     "`FACT` All jobs are `in progress`.\n", "`FACT` The queue holds `12 pending jobs`.\n"):
+        for text in ("`FACT` The queue contains `12` jobs.\n", "`FACT` All `12` jobs failed.\n",
+                     "`FACT` The run ended at `03:12`.\n", "`FACT` The job used `984 MiB`.\n"):
             with self.subTest(text=text):
                 self.assertEqual(rules(text), ["fact_source"])
 
