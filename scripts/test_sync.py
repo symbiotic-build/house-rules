@@ -1181,6 +1181,47 @@ class InstallHookTests(SyncFixture, unittest.TestCase):
         self.assertFalse(self.settings.exists())
 
 
+class DriftTests(SyncFixture, unittest.TestCase):
+    def setUp(self):
+        super().setUp()
+        os.environ.pop("HERMES_HOME", None)
+        self.imports = self.home / ".hermes/skills/imports"
+        self.write(self.imports / "sample/SKILL.md", "# Sample\nA local edit.\n")
+        self.write(self.imports / "sample/notes.md", "added by the host\n")
+        self.write(self.imports / "sample/__pycache__/x.pyc", "byproduct")
+        self.write(self.imports / "operator-writing/SKILL.md", "# Operator writing\n")
+        self.write(self.imports / "nested/sample/SKILL.md", "# Sample")
+        self.write(self.imports / ".archive/sample/SKILL.md", "archived\n")
+        self.link(self.claude / "skills/sample", self.root / "skills/sample")
+
+    def snapshot(self):
+        return {path: (path.read_bytes(), path.stat().st_mtime_ns)
+                for path in sorted(self.base.rglob("*")) if path.is_file() and not path.is_symlink()}
+
+    def test_check_drift_reports_each_drifted_copy_with_its_diff_size_and_changes_nothing(self):
+        self.write(self.origin / "later", "fixture")
+        self.commit(self.origin, ["later"])
+        head, before = self.git(self.root, "rev-parse", "HEAD"), self.snapshot()
+        code, out, err = self.invoke("--check-drift")
+        self.assertEqual(code, 1, out + err)
+        self.assertIn(f"DRIFT: {self.imports / 'sample'} (skills/sample at {head[:12]}): 2 files differ, +2 -0 lines",
+                      out)
+        self.assertIn("  changed: SKILL.md +1 -0\n  only in copy: notes.md +1 -0\n", out)
+        self.assertIn(f"DRIFT: {self.imports / 'nested/sample'} (skills/sample at {head[:12]}): 1 file differs, "
+                      "+1 -1 lines\n  changed: SKILL.md +1 -1\n", out)
+        self.assertNotIn("operator-writing", out)
+        self.assertNotIn(".archive", out)
+        self.assertIn(f"3 copies checked against {head[:12]}; 2 drifted", out)
+        self.assertEqual((self.git(self.root, "rev-parse", "HEAD"), self.snapshot()), (head, before))
+
+    def test_check_drift_in_a_named_folder_with_only_unchanged_copies_reports_none(self):
+        (self.imports / "sample").rename(self.base / "moved")
+        (self.imports / "nested").rename(self.base / "moved-nested")
+        code, out, err = self.invoke("--check-drift", str(self.imports))
+        head = self.git(self.root, "rev-parse", "HEAD")
+        self.assertEqual((code, out), (0, f"1 copies checked against {head[:12]}; 0 drifted\n"), err)
+
+
 class SyncSourceTests(SyncFixture, unittest.TestCase):
     def test_update_preserves_ignored_files_colliding_with_incoming_paths(self):
         path = "custom/INDEX.md"

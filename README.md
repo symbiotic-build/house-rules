@@ -39,6 +39,11 @@ To update, run `python3 ~/house-rules/scripts/sync.py`. [scripts/sync.py](script
 fast-forwards a clean default-branch checkout. It then reports installation drift in each
 agent home. It changes no agent home itself.
 
+Some agents keep their own copies of the skills, and their maintenance can edit them.
+`python3 ~/house-rules/scripts/sync.py --check-drift` only reads: it reports each copy that
+differs from the checkout's revision, with its diff size. [INSTALL-AGENTS.md](INSTALL-AGENTS.md) §6 lists the
+folders it scans and the setting that stops a hosting agent from editing its copies.
+
 Do not copy the shared base into every project. In managed repositories, `AGENTS.md`
 is the [loader](STRUCTURE.md#managed-repository-loader); `.agents/rules.md` and `CONTEXT.md`
 hold local decisions. The `project-bootstrap` skill applies defaults automatically and
@@ -54,13 +59,77 @@ reachable, they are mirrored to issues on its project board. The
 sync, branches, and pull requests; on GitHub, agents use `gh` with the `project` token
 scope.
 
+## Record and undo rule changes
+
+[rules_ledger.py](scripts/rules_ledger.py) keeps one installation's change ledger:
+`ledger.jsonl` in `$XDG_STATE_HOME/house-rules`, by default `~/.local/state/house-rules`.
+Each record names the time, the actor kind (`human`, `agent` or `service`), the file, the
+content hashes before and after, the reason and the source pull request. The contents are
+stored by hash beside the ledger, so any record can be undone.
+
+```sh
+python3 scripts/rules_ledger.py write rules/core.md --actor agent --reason "why" --pr "#52" < new-core.md
+python3 scripts/rules_ledger.py list
+python3 scripts/rules_ledger.py rollback <id>
+```
+
+`write` replaces the file and appends its record. `rollback` restores the record's before
+content and appends a rollback record, which can itself be rolled back.
+`rules_changelog.py --ledger` records each rule file that a merged pull request changed, once
+per commit and file; [pr-ready](skills/pr-ready/SKILL.md) §4 runs it after each merge.
+The tests run in a temporary home: `python3 -B -m unittest scripts/test_rules_ledger.py`.
+
+## Check failures and commands
+
+Two scripts in [scripts/checks/](scripts/checks) check a rule mechanically: whether a failure
+needs the operator, and whether a command keeps to the local build scope. Each reads a path, or
+standard input when the path is absent or `-`, and prints one JSON object per finding. Each exits 0 on pass, 2 on fail and
+1 when the input cannot be read. They need only a Python interpreter.
+
+```sh
+python3 scripts/checks/blocker_classify.py failures.jsonl
+echo 'cargo test --workspace' | python3 scripts/checks/build_command.py
+```
+
+[blocker_classify.py](scripts/checks/blocker_classify.py) classifies failure records or a
+text. The input is a JSON object, a JSON array, JSON lines or plain text. It reads `category`
+and `reason` (also nested in `failure`, or wrapped in `record`, as a job record holds them),
+`status`, `code`, `provider_message`, `text`, and `provider`, `route` or `family` for the name
+in the action text; other fields are ignored. Text wins over the code and the status, because
+a provider can wrap an empty balance in a throttle or an account gate in a policy refusal.
+Operator-only text rules come first across all text fields, so an ordinary failure in one field
+cannot hide a blocker in another. A status counts only from the `status` field, never as a number inside text.
+Each result gives `class`, `operator_only` and `action`, the exact step to take. The
+operator-only classes are `credential`, `account`, `balance`, `quota`, `permission` and
+`protected_asset`; the others are `rate_limit`, `timeout`, `policy_refusal`, `provider_error`,
+`network`, `job_failure`, `unknown` (a record no rule matches) and `none` (a text that names no
+failure). The exit status is 2 when any input is operator-only.
+
+[build_command.py](scripts/checks/build_command.py) checks a shell command against the local
+build scope and the release-profile rule of
+[Local builds](prompts/skills/local-builds.md). It refuses `cargo test` or `cargo nextest
+run` without a package and a test-name filter (a harness option value such as `--test-threads 4`
+is not a filter), `cargo clippy` without a package and exactly one target, a cargo build without
+`--release`, and any profile other than a release profile or the debugging profile
+(`--profile debugging`, renamed with `--debug-profile`). The default name needs a
+`[profile.debugging]` in the repository's Cargo manifest; a repository that debugs on the
+development profile passes `--debug-profile dev`. It also refuses `ctest` without a test
+selection and the `test` and `check` targets of `make`, `ninja` and `cmake --build`. It splits
+the text at unquoted separators, joins backslash line continuations and ignores redirections.
+Help, version, listing and dry-run calls pass. A repository
+without pull-request CI runs its full local gate under `pr-ready` §4 without this check.
+
+The tests use synthetic examples only:
+`python3 -B -m unittest discover -s scripts/checks -p 'test_*.py'`.
+
 ## Verify
 
 CI runs two workflows on every push and pull request. Both install the pinned documentation
 tooling first.
 
 - [Checks](.github/workflows/checks.yml) checks the report linter's JavaScript syntax. It
-  runs the installation sync tests and the transcript extraction tests. It prepares every
+  runs the installation sync tests, the change ledger tests, the failure and command check
+  tests and the transcript extraction tests. It prepares every
   role and lens as the review service does, and tests that staging check.
 - [Specification documents](.github/workflows/spec-docs.yml) checks the supported runtime
   and pins. It runs the documentation checker tests and the pr-ready script tests. It

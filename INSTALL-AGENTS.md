@@ -470,6 +470,36 @@ script checks for links; it does not replace it. Symlinked Skills pick up source
 immediately. No ownership is inferred from a matching name or from following an
 unrelated link.
 
+Some agents keep their own copies of Skills in their home, and their own maintenance can
+edit those copies. `--check-drift` compares each copy with the checkout's HEAD revision.
+It neither updates the checkout nor writes any file:
+
+```sh
+python3 "<HOUSE_RULES_ROOT>/scripts/sync.py" --check-drift            # the default folders
+python3 "<HOUSE_RULES_ROOT>/scripts/sync.py" --check-drift "<FOLDER>" # only the named folders
+```
+
+- A copy is a real directory, not a link, named like a House Rules Skill and holding a
+  `SKILL.md`, anywhere below a scanned folder and outside the checkout.
+- Hidden folders are not searched; hosts keep archives and backups there.
+- The default folders are §1's Skill folders of the selected homes and the `skills` folder
+  of each agent home that keeps copies: `$HERMES_HOME/skills`, by default `~/.hermes/skills`.
+- Each drifted copy is reported with its number of differing files and its added and
+  removed lines, then one line per file: changed, only in copy, or missing from copy.
+  `__pycache__` and `.DS_Store` entries are not compared.
+- Exit codes are 0 when no copy drifted, 1 when one did, and 2 for an error.
+
+A report shows that a copy differs, not who changed it. A copy taken from an older revision
+also differs. Repair a drifted copy by following §3.
+
+The operator stops further edits in the hosting agent's own configuration. In Hermes Agent,
+the line `write_approval: true` under the `skills:` key of `~/.hermes/config.yaml` stages
+every Skill change for approval (`/skills pending`, then `/skills approve <id>` or `/skills reject <id>`). It covers
+every Skill in that home. A pin (`hermes curator pin <skill>`) blocks only deletion.
+`skills.external_dirs` keeps the curator's lifecycle away from a folder, but the review that
+runs after a turn can still edit its content. A local copy also wins over an external Skill
+of the same name.
+
 For a daily schedule, adapt one of these examples locally. Replace every placeholder
 with an absolute path, XML-escape plist values, and keep the installed schedule and
 logs outside tracked files. These examples are documentation, not installed jobs.

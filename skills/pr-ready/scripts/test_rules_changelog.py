@@ -1,4 +1,6 @@
 """rules_changelog.py builds the rules changelog from merge commits and flags merges without a Rule changes section."""
+import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -38,9 +40,48 @@ class RulesChangelogTests(unittest.TestCase):
         self.git("checkout", "-q", "main")
         self.git("merge", "-q", "--no-ff", branch, "-m", f"Merge {branch}", "-m", body)
 
-    def run_script(self, *args, stdin=""):
+    def run_script(self, *args, stdin="", env=None):
         return subprocess.run([sys.executable, "-B", str(SCRIPT), *args], input=stdin, stdin=None,
-                              capture_output=True, text=True)
+                              capture_output=True, text=True, env=env)
+
+    def test_section_mode_runs_where_the_unix_file_lock_is_missing(self):
+        # Native Windows has no fcntl; only --ledger needs the ledger's lock.
+        blocker = pathlib.Path(self.tmp.name) / "no-fcntl"
+        blocker.mkdir()
+        (blocker / "fcntl.py").write_text("raise ImportError('no fcntl')\n")
+        out = self.run_script("--section", stdin="## Rule changes\n- RC1 Change.\n",
+                              env={**os.environ, "PYTHONPATH": str(blocker)})
+        self.assertEqual((out.returncode, out.stdout), (0, "## Rule changes\n\n- RC1 Change.\n"), out.stderr)
+
+    def test_ledger_records_each_merged_rule_change_once_and_rollback_restores_it(self):
+        self.merge("declared", "rules/core.md", "- Keep all records.\n",
+                   "## Rule changes\n- RC1 Change rules/core.md line 1: stronger.\n\n## Tests\nnone")
+        self.git("checkout", "-q", "-b", "squashed")
+        self.write("skills/new/SKILL.md", "new\n")
+        self.write("src/app.py", "x = 1\n")
+        self.commit("add a skill (#12)")
+        self.git("checkout", "-q", "main")
+        self.git("merge", "-q", "--ff-only", "squashed")
+        home = pathlib.Path(self.tmp.name) / "home"
+        env = {**os.environ, "HOME": str(home)}
+        env.pop("XDG_STATE_HOME", None)
+        out = self.run_script("--ledger", "--repo", str(self.repo), env=env)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        ledger = home / ".local/state/house-rules/ledger.jsonl"
+        merged, added = [json.loads(line) for line in ledger.read_text().splitlines()]
+        root = self.repo.resolve()
+        self.assertEqual((merged["file"], merged["actor"], merged["reason"], merged["source_pr"]),
+                         (str(root / "rules/core.md"), "service",
+                          "- RC1 Change rules/core.md line 1: stronger.", None))
+        self.assertEqual((added["file"], added["before"], added["reason"], added["source_pr"]),
+                         (str(root / "skills/new/SKILL.md"), None, "add a skill (#12)", "#12"))
+        rerun = self.run_script("--ledger", "--repo", str(self.repo), env=env)
+        self.assertEqual((rerun.returncode, rerun.stdout), (0, ""), rerun.stderr)
+        rollback = subprocess.run([sys.executable, "-B", str(SCRIPT.parents[3] / "scripts/rules_ledger.py"),
+                                   "rollback", merged["id"]], env=env, capture_output=True, text=True,
+                                   stdin=subprocess.DEVNULL)
+        self.assertEqual(rollback.returncode, 0, rollback.stderr)
+        self.assertEqual((self.repo / "rules/core.md").read_text(), "- Keep records.\n")
 
     def test_changelog_lists_declared_merges_and_check_flags_undeclared_rule_merges(self):
         self.merge("declared", "rules/core.md", "- Keep all records.\n",

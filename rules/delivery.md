@@ -14,6 +14,7 @@
 - Where CI owns the full suite, use CI’s run on the pushed head.
 - Do not repeat the full matrix after changes that cannot affect it.
 - Let CI own the full suite.
+- `scripts/checks/build_command.py` refuses a local whole-suite or crate-wide run and a debug build outside the debugging profile.
 - Follow [Local builds](../prompts/skills/local-builds.md) and the [reviewer role](../prompts/roles/reviewer.md) for local scope during iteration.
 - Follow `pr-ready` §4 for the no-PR-CI exception.
 - Fail long-running checks on lack of progress, rather than elapsed time.
