@@ -163,17 +163,6 @@ def text_class(texts):
     return None
 
 
-def operator_only_mentions(text):
-    """Every (class, matched text, offset) of an operator-only class named anywhere in a text."""
-    result = []
-    for name, pattern, _ in TEXT_RULES:
-        if name not in OPERATOR_ONLY:
-            continue
-        for match in pattern.finditer(text):
-            result.append((name, match.group(0), match.start()))
-    return sorted(result, key=lambda item: item[2])
-
-
 def classify(record):
     """The classification of one record: class, operator_only, action, field and matched."""
     values = fields(record)

@@ -105,11 +105,6 @@ class TextTest(unittest.TestCase):
     def test_text_naming_no_blocker_is_none(self):
         self.assertEqual(classify(text="keep the import running overnight"), ("none", False))
 
-    def test_mentions_lists_every_operator_only_class_in_order(self):
-        names = [name for name, _, _ in blocker_classify.operator_only_mentions(
-            "Top up alpha. Beta's login expired. Gamma throttles.")]
-        self.assertEqual(names, ["balance", "credential"])
-
 
 class InputTest(unittest.TestCase):
     def run_check(self, text):
