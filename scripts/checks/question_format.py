@@ -22,15 +22,6 @@ BOLD_LINE = re.compile(r"^\*\*(.+)\*\*$")
 RECOMMENDED = re.compile(r"\(recommended\)[.:]?$")
 ANSWER = "**Answer like so:**"
 CONTEXT_FLAGS = ("FACT", "ASSESSMENT")
-# Work the agent's own team does: the rule lists tests, replays and verification as examples.
-# Work the agent's own team does: any testing word counts, except in the listed phrases where
-# the operator acts on their own account ("the test account", "verify your account").
-# "Reproduce" counts only as a verb, so a rule named for reproduction is not testing work.
-TEAM_WORK = re.compile(r"\b(tests?|testing|re-?test\w*|replay\w*|re-?run\w*|reproduc(e|es|ed|ing)|verif\w*|"
-                       r"benchmark\w*|spot[- ]checks?)\b", re.IGNORECASE)
-OPERATOR_PHRASES = re.compile(r"\btest (accounts?|users?|environments?|tenants?|keys?|cards?|data)\b|"
-                              r"\bverify (your|their|the operator's) (accounts?|identity|email|organi[sz]ation|"
-                              r"phone|domain)\b", re.IGNORECASE)
 # A request for more context starts with a request word, after an optional "please" or "could you"
 # (lead decision). Known limit: a statement that opens with a question word ("what we need is clear") passes.
 CONTEXT_REQUEST = re.compile(r"^(please |could you |can you |would you )?(explain|elaborate|expand|clarify|describe|"
@@ -163,10 +154,6 @@ def check_heading(question, expected, seen):
                                        f"question number {question.number} follows {expected - 1}; number "
                                        f"questions 1, 2, 3 across topics", line))
     seen.setdefault(question.number, line)
-    if TEAM_WORK.search(OPERATOR_PHRASES.sub(" ", question.title)):
-        result.append(findings.finding(CHECK, "team_work",
-                                       "the question asks about work the agent's own team does (tests, replays, "
-                                       "verification); list it as an internal task instead", line))
     return result
 
 

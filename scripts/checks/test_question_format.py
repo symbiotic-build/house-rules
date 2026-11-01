@@ -122,40 +122,16 @@ class QuestionFormatTest(unittest.TestCase):
     def test_answer_block_with_two_lines_fails(self):
         self.assertIn("answer_block_format", rules(GOOD.replace(" 3. ok\n", "")))
 
-    def test_question_about_own_team_work_fails(self):
+    def test_team_work_is_left_to_review(self):
+        # Lead decision: who does the testing is semantic, so this check does not judge it.
         text = GOOD.replace("Send the error text from the failed upload?", "Should I rerun the upload tests?")
-        self.assertIn("team_work", rules(text))
+        self.assertEqual(rules(text), [])
 
     def test_requests_for_context_pass_as_the_answer_example(self):
         for request in ("please elaborate", "could you expand on the tradeoffs?", "why is the store full",
                         "More context, please.", "Please provide more context", "show the log"):
             with self.subTest(request=request):
                 text = GOOD.replace("explain where the log is written", request)
-                self.assertEqual(rules(text), [])
-
-    def test_test_as_a_verb_is_team_work(self):
-        text = GOOD.replace("Send the error text from the failed upload?", "Should I test the upload?")
-        self.assertIn("team_work", rules(text))
-
-    def test_operator_phrases_are_not_team_work(self):
-        for title in ("Can you verify your account?", "Grant me access to the test account?",
-                      "Grant us access to test accounts?", "Approve the reproduction setup rule?"):
-            with self.subTest(title=title):
-                text = GOOD.replace("Send the error text from the failed upload?", title)
-                self.assertEqual(rules(text), [])
-
-    def test_asking_the_operator_about_testing_work_is_team_work(self):
-        for title in ("Can you test the upload?", "Do you want me to test uploads?", "Can you run the tests?",
-                      "Can you rerun the upload tests?", "Should the team rerun the upload tests?",
-                      "Can you replay the failed upload?", "Should I reproduce the failure?"):
-            with self.subTest(title=title):
-                text = GOOD.replace("Send the error text from the failed upload?", title)
-                self.assertIn("team_work", rules(text))
-
-    def test_test_as_a_modifier_is_not_team_work(self):
-        for title in ("Unlock the test account?", "Grant the importer access to test accounts?"):
-            with self.subTest(title=title):
-                text = GOOD.replace("Send the error text from the failed upload?", title)
                 self.assertEqual(rules(text), [])
 
     def test_bullet_choices_fail(self):

@@ -105,11 +105,11 @@ option list with exactly one whole-bold line ending in "(recommended)". The list
 **Answer like so:** and a three-line `text` example after the last question, showing an option
 number, a request for more context and `ok`. The request line starts with a request word
 ("explain", "show", "more", "why"), after an optional "please" or "could you"; a statement that
-opens with a question word ("what we need is clear") is a known pass. A question that names
-testing work (test, rerun, replay, reproduce, verify, benchmark) fails as the team's own work,
-except in a listed phrase where the operator acts on their own account ("the test account",
-"verify your account"); a bullet choice fails, and so does a question asked in prose outside a
-question heading. A message without questions passes.
+opens with a question word ("what we need is clear") is a known pass. A bullet choice fails, and
+so does a question asked in prose outside a question heading. A message without questions passes.
+Whether a question asks the operator to do the team's own work (tests, replays, verification) is
+left to the writer and to review: the check does not judge it, because who does the work cannot
+be told from the words of a title.
 
 [report_check.py](scripts/checks/report_check.py) checks a report against
 [rules/writing.md §Claim labels](rules/writing.md#claim-labels) and §Checks before sending. Every
