@@ -959,9 +959,15 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     log = git(repo, "log", "--reverse", "--format=%H%x00%B%x00", change_rng).split("\0")
     commits = [(log[n].strip(), log[n + 1].strip()) for n in range(0, len(log) - 1, 2)]
     summary = Path(args.summary).read_text() if args.summary else pr.get("title") or "\n".join(body.splitlines()[0] for _, body in commits if body)
-    lens = args.lens or {"codex": "generalist-a", "grok": "generalist-b", "kimi": "generalist-c"}[args.cli]
-    if not re.fullmatch(r"[a-zA-Z0-9_-]+", lens):
-        raise PrepareError("invalid lens name")
+    role = getattr(args, "role", "reviewer")
+    lens = None
+    if role == "triager":
+        if args.lens is not None or getattr(args, "reviewers", None) is not None:
+            raise PrepareError("--role triager refuses --lens and --reviewers")
+    else:
+        lens = args.lens or {"codex": "generalist-a", "grok": "generalist-b", "kimi": "generalist-c"}[args.cli]
+        if not re.fullmatch(r"[a-zA-Z0-9_-]+", lens):
+            raise PrepareError("invalid lens name")
     changes, policy, rule_base = rule_changes(repo, change_base, head)
     declaration_text = (pr.get("body") or "") if args.pr else summary if args.summary else ""
     declaration_source = "PR description" if args.pr else "--summary text"
@@ -978,7 +984,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     context, sections, common, instructions, reservation = None, None, "", "", 0
     if not context_only or needs_documentation:
         reservation_reviewers = []
-        if not context_only:
+        if not context_only and role == "reviewer":
             family = lens_settings(lens)[0]
             if getattr(args, "reviewers", None):
                 reservation_reviewers = [reviewer for reviewer in set([lens, *args.reviewers])
@@ -986,7 +992,8 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
         # Compilation stays with its owner. The standalone reporting path never
         # imports a sibling, and context-only legacy preparation needs none.
         # Without an explicit assignment, review derives one from changes since the merge base.
-        request = dict(repo=str(repo), head=head, base=change_base, lens=lens, full=not context_only, check=bool(since),
+        request = dict(repo=str(repo), head=head, base=change_base, role=role, lens=lens,
+                       full=not context_only, check=bool(since),
                        reviewers=getattr(args, "reviewers", None),
                        reservation_reviewers=reservation_reviewers,
                        documentation=bool(needs_documentation), derive=not assignment_path,
@@ -1101,7 +1108,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
                 f"Size guard: limit {CODEX_LIMIT:,} characters; final size {len(result) + compiled_chars:,} characters after trimming. "
                 "Retained indexes, rules, task and author claims require a smaller input.\n"
                 "Already trimmed: change part uses pack (hunk headers).\n" + history)
-    if lens in STRUCTURED_ONLY and not context_only and not isinstance(change, ChangePart):
+    if role == "reviewer" and lens in STRUCTURED_ONLY and not context_only and not isinstance(change, ChangePart):
         raise PrepareError(f"the {lens} reviewer runs no commands and needs the structured change part; "
                            "this change is shown as hunk headers only")
     return result
@@ -1154,6 +1161,7 @@ def main(argv=None, *, documentation_prepared=False):
         p.add_argument("--base")
         p.add_argument("--no-fetch", action="store_true", help="use an already resolved --base without fetching")
         if command == "review":
+            p.add_argument("--role", choices=("reviewer", "triager"), default="reviewer")
             p.add_argument("--rev", default="HEAD", help="commit to review; resolved before base preparation")
             p.add_argument("--context-only", action="store_true", help="emit task context for the commit-built pack compiler")
             p.add_argument("--compiled-chars", type=int, default=0, help="characters reserved for compiled parts and task separator")

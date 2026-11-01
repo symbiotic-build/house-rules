@@ -2,6 +2,7 @@
 """Local integration tests: no network, GitHub writes or model calls."""
 import argparse
 import contextlib
+from collections import Counter
 import hashlib
 import importlib.util
 import io
@@ -1589,16 +1590,114 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
             self.assertIn("review-panel.lenses", err)
 
     def test_review_preserves_whole_role_and_lens_files(self):
-        from prompt import expand
+        from prompt import Expansion, WorkingTree, expand
 
-        prompt = self.review()
-        role, _ = expand(file="prompts/roles/reviewer.md")
-        lens = (SCRIPT.parents[3] / "prompts/lenses/generalist-a.md").read_text()
-        self.assertIn("# 1. Review pack\n" + role, prompt)
-        self.assertIn("# 7. Lens instructions\n" + lens, prompt)
-        self.assertNotRegex(prompt, r"(?m)^@rule ")
-        for rule in (SCRIPT.parents[3] / "prompts/skills").glob("*.md"):
-            self.assertEqual(prompt.count(rule.read_text()), 1)
+        root = SCRIPT.parents[3]
+        for role in ("reviewer", "triager"):
+            with self.subTest(role=role):
+                result = self.review(role=role, lens=None)
+                common = result.split("# 1. Review pack\n", 1)[1].split("# 3. Pull request and issue\n", 1)[0]
+                instructions = result.split("# 7. Lens instructions\n", 1)[1]
+                path = f"prompts/roles/{role}.md"
+                whole, _ = expand(file=path)
+                # Expand the body independently to check its exact position, not
+                # merely that all role paragraphs occur somewhere in the pack.
+                body = "\n" + (root / path).read_text().split("\n\n", 1)[1]
+                own = Expansion(WorkingTree(root)).render(body)
+                expected = own
+                if role == "reviewer":
+                    lens, _ = expand(file="prompts/lenses/generalist-a.md")
+                    expected = own.rstrip("\n") + "\n\n" + lens
+                # The preparer appends one framing newline after its last part.
+                self.assertEqual(instructions, expected + "\n")
+                blocks = lambda text: Counter(part.strip() for part in re.split(r"\n\s*\n", text) if part.strip())
+                self.assertEqual(blocks(common + own), blocks(whole))
+                self.assertNotRegex(result, r"(?m)^@rule ")
+                for rule in (root / "prompts/skills").glob("*.md"):
+                    self.assertEqual(result.count(rule.read_text()), 1)
+
+    def test_panel_roles_share_part_one_across_lenses_and_check_rounds(self):
+        from prompt import expand_role
+
+        expected_shared = expand_role("prompts/roles/reviewer.md")[0]
+        self.assertEqual(expected_shared, expand_role("prompts/roles/triager.md")[0])
+        self.add_review_change()
+        since = self.git(self.repo, "rev-parse", "HEAD")
+        self.write(self.repo, "src/core.py", "def action():\n    return 3\n")
+        self.commit(self.repo, "Fix behavior")
+        shared, triager_instructions = [], []
+        for check in (None, since):
+            for kwargs in ({"lens": "generalist-a"}, {"lens": "correctness-security"},
+                           {"role": "triager", "lens": None}):
+                with self.subTest(since=check, **kwargs):
+                    result = self.review(since=check, **kwargs)
+                    shared.append(result.split("# 1. Review pack\n", 1)[1].split(
+                        "# 3. Pull request and issue\n", 1)[0])
+                    if kwargs.get("role") == "triager":
+                        triager_instructions.append(result.split("# 7. Lens instructions\n", 1)[1])
+        self.assertEqual(triager_instructions[0], triager_instructions[1])
+        self.assertEqual(shared, [expected_shared + "\n\n"] * len(shared))
+
+    def test_triager_refuses_lens_reviewers_and_unknown_roles(self):
+        for options, message in ((["--role", "triager", "--lens", "generic"], "--lens"),
+                                 (["--role", "triager", "--reviewers", "generalist-a"], "--reviewers"),
+                                 (["--role", "unknown"], "invalid choice")):
+            with self.subTest(options=options):
+                result = subprocess.run([sys.executable, "-B", str(SCRIPT), "review", str(self.repo),
+                                         "--base", "origin/trunk", "--no-fetch", *options],
+                                        capture_output=True, text=True, stdin=subprocess.DEVNULL)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertIn(message, result.stderr)
+
+    def test_triager_needs_no_lens_files_or_settings_in_any_format(self):
+        from prompt import expand_role
+
+        tool = self.root / "tool"
+        scripts = tool / "skills/pr-ready/scripts"
+        scripts.mkdir(parents=True)
+        shutil.copyfile(SCRIPT.with_name("prompt.py"), scripts / "prompt.py")
+        for folder in ("prompts", "rules"):
+            shutil.copytree(SCRIPT.parents[3] / folder, tool / folder)
+        shutil.rmtree(tool / "prompts/lenses")
+        own = expand_role("prompts/roles/triager.md", root=tool)[1]
+        with mock.patch.object(prepare, "HERE", scripts):
+            for mode in ("structured", "pack", "diff"):
+                with self.subTest(mode=mode):
+                    code, out, err = self.invoke("review", str(self.repo), "--base", "origin/trunk",
+                                                 "--no-fetch", "--role", "triager", "--format", mode)
+                    self.assertEqual(code, 0, err)
+                    if mode == "structured":
+                        instructions = out.split("# 7. Lens instructions\n", 1)[1]
+                        self.assertEqual(instructions, own + "\n")
+                    else:
+                        instructions = out.split("# 2. Instructions\n", 1)[1].split(
+                            "# 3. Pull request and issue\n", 1)[0]
+                        self.assertEqual(instructions, own + "\n\n")
+                    self.assertNotRegex(out, r"(?m)^@rule ")
+
+    def test_service_check_round_rule_removal_preserves_role_instructions(self):
+        from prompt import expand_role
+
+        tool = self.root / "tool"
+        scripts = tool / "skills/pr-ready/scripts"
+        scripts.mkdir(parents=True)
+        for name in ("prompt.py", "review-panel.lenses"):
+            shutil.copyfile(SCRIPT.with_name(name), scripts / name)
+        for folder in ("prompts", "rules"):
+            shutil.copytree(SCRIPT.parents[3] / folder, tool / folder)
+        since = self.git(self.repo, "rev-parse", "HEAD")
+        baseline = self.review(since=since)
+        role = tool / "prompts/roles/reviewer.md"
+        role.write_text("".join(line for line in role.read_text().splitlines(keepends=True)
+                                if not line.startswith("@rule house-rules:rules/")))
+        with mock.patch.object(prepare, "HERE", scripts):
+            result = self.review(since=since)
+        common = result.split("# 1. Review pack\n", 1)[1].split("# 3. Pull request and issue\n", 1)[0]
+        expected_shared = expand_role("prompts/roles/reviewer.md", root=tool)[0]
+        self.assertEqual(common, expected_shared + "\n\n")
+        self.assertEqual(result.split("# 7. Lens instructions\n", 1)[1],
+                         baseline.split("# 7. Lens instructions\n", 1)[1])
 
     def test_missing_prompt_include_fails_without_emitting_review(self):
         # Exercise the actual compiler boundary rather than an in-process mock.
