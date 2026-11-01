@@ -132,7 +132,7 @@ class QuestionFormatTest(unittest.TestCase):
 class CommandLineTest(unittest.TestCase):
     def run_check(self, text):
         return subprocess.run([sys.executable, "-B", str(HERE / "question_format.py")], input=text,
-                              capture_output=True, text=True)
+                              stdin=None, capture_output=True, text=True)
 
     def test_exit_status_is_zero_on_pass_and_two_on_fail(self):
         self.assertEqual(self.run_check(GOOD).returncode, 0)

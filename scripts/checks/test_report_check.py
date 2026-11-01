@@ -126,7 +126,7 @@ class BlockerLineTest(unittest.TestCase):
 class CommandLineTest(unittest.TestCase):
     def run_check(self, *args, text=""):
         return subprocess.run([sys.executable, "-B", str(HERE / "report_check.py"), *args], input=text,
-                              capture_output=True, text=True)
+                              stdin=None, capture_output=True, text=True)
 
     def test_exit_status_is_zero_on_pass_and_two_on_fail(self):
         self.assertEqual(self.run_check(text=GOOD).returncode, 0)

@@ -133,7 +133,7 @@ class ShellTest(unittest.TestCase):
 class CommandLineTest(unittest.TestCase):
     def run_check(self, text):
         return subprocess.run([sys.executable, "-B", str(HERE / "build_command.py")], input=text,
-                              capture_output=True, text=True)
+                              stdin=None, capture_output=True, text=True)
 
     def test_exit_status_is_zero_when_allowed_and_two_when_refused(self):
         self.assertEqual(self.run_check("cargo test --release -p core parse\n").returncode, 0)

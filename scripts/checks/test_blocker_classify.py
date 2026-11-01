@@ -105,7 +105,7 @@ class TextTest(unittest.TestCase):
 class InputTest(unittest.TestCase):
     def run_check(self, text):
         result = subprocess.run([sys.executable, "-B", str(HERE / "blocker_classify.py")], input=text,
-                                capture_output=True, text=True)
+                                stdin=None, capture_output=True, text=True)
         return result.returncode, [json.loads(line) for line in result.stdout.splitlines()]
 
     def test_json_lines_exit_two_when_any_record_is_operator_only(self):
