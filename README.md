@@ -39,6 +39,11 @@ To update, run `python3 ~/house-rules/scripts/sync.py`. [scripts/sync.py](script
 fast-forwards a clean default-branch checkout. It then reports installation drift in each
 agent home. It changes no agent home itself.
 
+Some agents keep their own copies of the skills, and their maintenance can edit them.
+`python3 ~/house-rules/scripts/sync.py --check-drift` only reads: it reports each copy that
+differs from the checkout's revision, with its diff size. [INSTALL-AGENTS.md](INSTALL-AGENTS.md) §6 lists the
+folders it scans and the setting that stops a hosting agent from editing its copies.
+
 Do not copy the shared base into every project. In managed repositories, `AGENTS.md`
 is the [loader](STRUCTURE.md#managed-repository-loader); `.agents/rules.md` and `CONTEXT.md`
 hold local decisions. The `project-bootstrap` skill applies defaults automatically and

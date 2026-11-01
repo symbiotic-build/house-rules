@@ -5,9 +5,15 @@ With --install-hooks it also writes the session-context hook into each Claude Co
 hook file (INSTALL-AGENTS.md §3 step 10). It writes no other file. With --command PATH the hook runs
 through the House Rules command at PATH (`house-rules exec --hook scripts/session_context.py ...`),
 which resolves each session's repository's House Rules version first.
+
+With --check-drift [FOLDER ...] it only compares each copy of a House Rules skill in the folders
+with the checkout's HEAD revision and reports the copies that differ (INSTALL-AGENTS.md §6). It
+neither updates the checkout nor writes any file.
 """
 
 import argparse
+import difflib
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -242,6 +248,115 @@ def skill_folders(selected, home):
         else:
             folders.update(((home / ".agents/skills", True), (product_home / "skills", False)))
     return sorted(folders)
+
+
+# Homes of agents that keep their own copies of skills; --check-drift reads each one's skills folder.
+COPY_HOMES = {"HERMES_HOME": ".hermes"}
+# Byproducts a host or a script run leaves inside a copy; they are not skill content.
+COPY_BYPRODUCTS = {"__pycache__", ".DS_Store"}
+
+
+def raise_error(error):
+    raise error
+
+
+def source_skills(root, revision):
+    """{skill name: {relative path: Git blob id}} for each skill with a SKILL.md at revision."""
+    skills = {}
+    for line in git(root, "ls-tree", "-r", "-z", revision, "--", "skills/").split("\0"):
+        if line:
+            meta, path = line.split("\t", 1)
+            _, name, relative = path.split("/", 2)
+            skills.setdefault(name, {})[relative] = meta.split()[2]
+    return {name: files for name, files in skills.items() if "SKILL.md" in files}
+
+
+def blob_id(data):
+    return hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+
+
+def copies(folders, names, root):
+    """Real directories named like a House Rules skill with a SKILL.md, outside the checkout.
+
+    Links are installations, not copies; hidden folders hold a host's archives and backups."""
+    found = {}
+    for folder in folders:
+        if not is_dir(folder):
+            continue
+        for current, directories, _ in os.walk(folder, onerror=raise_error):
+            keep = []
+            for name in sorted(directories):
+                path = Path(current) / name
+                if name.startswith(".") or is_link(path):
+                    continue
+                if name in names and is_file(path / "SKILL.md"):
+                    resolved = path.resolve()
+                    if resolved != root and root not in resolved.parents:
+                        found.setdefault(resolved, path)
+                else:
+                    keep.append(name)
+            directories[:] = keep
+    return sorted(found.values())
+
+
+def copy_files(path):
+    files = {}
+    for current, directories, names in os.walk(path, onerror=raise_error):
+        directories[:] = sorted(name for name in directories if name not in COPY_BYPRODUCTS)
+        for name in names:
+            if name not in COPY_BYPRODUCTS:
+                file = Path(current) / name
+                files[file.relative_to(path).as_posix()] = file.read_bytes()
+    return files
+
+
+def line_changes(before, after):
+    """(added, removed) lines between two contents."""
+    old, new = (data.decode("utf-8", "replace").splitlines() for data in (before, after))
+    added = removed = 0
+    for tag, start, end, new_start, new_end in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        if tag != "equal":
+            removed += end - start
+            added += new_end - new_start
+    return added, removed
+
+
+def drift(root, source, path):
+    """(state, relative path, added lines, removed lines) for each file where the copy differs."""
+    copied = copy_files(path)
+    differences = []
+    for relative in sorted(set(source) | set(copied)):
+        if relative in copied and blob_id(copied[relative]) == source.get(relative):
+            continue
+        original = (subprocess.run(["git", "--no-optional-locks", "-C", str(root), "cat-file", "blob",
+                                    source[relative]], stdin=subprocess.DEVNULL, capture_output=True,
+                                   check=True).stdout if relative in source else b"")
+        state = "changed" if relative in source and relative in copied else (
+            "only in copy" if relative in copied else "missing from copy")
+        differences.append((state, relative, *line_changes(original, copied.get(relative, b""))))
+    return differences
+
+
+def check_drift(root, home, folders):
+    """Print each drifted copy with its diff size; return the number of drifted copies."""
+    revision = git(root, "rev-parse", "HEAD")
+    if not folders:
+        folders = [folder for folder, _ in skill_folders(homes(root, home), home)] + [
+            Path(os.environ.get(key) or home / name) / "skills" for key, name in COPY_HOMES.items()]
+    skills = source_skills(root, revision)
+    found = copies(folders, skills, root)
+    drifted = 0
+    for path in found:
+        differences = drift(root, skills[path.name], path)
+        if differences:
+            drifted += 1
+            print(f"DRIFT: {path} (skills/{path.name} at {revision[:12]}): {len(differences)} "
+                  f"{'file differs' if len(differences) == 1 else 'files differ'}, "
+                  f"+{sum(d[2] for d in differences)} -{sum(d[3] for d in differences)} lines")
+            for state, relative, added, removed in differences:
+                print(f"  {state}: {relative} +{added} -{removed}")
+    print(f"{len(found)} copies checked against {revision[:12]}; {drifted} drifted")
+    return drifted
 
 
 def verify(root, home, findings, selected, hook_root=None, generator=None):
@@ -635,7 +750,18 @@ def main(argv=None):
                         help="write the session-context hook into each Claude Code and Codex hook file")
     parser.add_argument("--command", type=Path,
                         help="register hooks that run through the House Rules command at this absolute path")
+    parser.add_argument("--check-drift", nargs="*", type=Path, metavar="FOLDER",
+                        help="only report copies of House Rules skills in these folders (default: the "
+                             "homes' skill folders and other agents' skills folders) that differ from HEAD")
     args = parser.parse_args(argv)
+    if args.check_drift is not None:
+        if args.install_hooks or args.command:
+            parser.error("--check-drift only reads; it takes no --install-hooks or --command")
+        try:
+            return 1 if check_drift(args.root.resolve(), Path.home(), args.check_drift) else 0
+        except (OSError, ValueError, subprocess.CalledProcessError) as error:
+            print(f"ERROR: {error}", file=sys.stderr)
+            return 2
     if args.command is not None and (not args.command.is_absolute() or args.command.name != "house-rules"):
         parser.error("--command needs the absolute path of the installed house-rules command")
     root, started = args.root.resolve(), time.monotonic()
