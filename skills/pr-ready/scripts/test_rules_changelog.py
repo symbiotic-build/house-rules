@@ -44,6 +44,15 @@ class RulesChangelogTests(unittest.TestCase):
         return subprocess.run([sys.executable, "-B", str(SCRIPT), *args], input=stdin, stdin=None,
                               capture_output=True, text=True, env=env)
 
+    def test_section_mode_runs_where_the_unix_file_lock_is_missing(self):
+        # Native Windows has no fcntl; only --ledger needs the ledger's lock.
+        blocker = pathlib.Path(self.tmp.name) / "no-fcntl"
+        blocker.mkdir()
+        (blocker / "fcntl.py").write_text("raise ImportError('no fcntl')\n")
+        out = self.run_script("--section", stdin="## Rule changes\n- RC1 Change.\n",
+                              env={**os.environ, "PYTHONPATH": str(blocker)})
+        self.assertEqual((out.returncode, out.stdout), (0, "## Rule changes\n\n- RC1 Change.\n"), out.stderr)
+
     def test_ledger_records_each_merged_rule_change_once_and_rollback_restores_it(self):
         self.merge("declared", "rules/core.md", "- Keep all records.\n",
                    "## Rule changes\n- RC1 Change rules/core.md line 1: stronger.\n\n## Tests\nnone")

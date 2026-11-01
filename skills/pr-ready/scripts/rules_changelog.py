@@ -37,9 +37,8 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "scripts"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "scripts"))  # rules_ledger
 import prepare  # noqa: E402
-import rules_ledger  # noqa: E402
 
 
 def section(body):
@@ -105,10 +104,11 @@ def content(repo, rev, path):
 def record(repo, rev):
     """Append a ledger record for each rule file each first-parent commit in rev changed, unless
     the ledger already holds that commit and file. Returns the new records, oldest first."""
+    import rules_ledger  # only this mode needs the ledger and its file lock
     root = pathlib.Path(repo).resolve()
     out = git(repo, "log", "--first-parent", "--reverse", "--format=%H%x1f%cI%x1f%s%x1f%b%x1e", rev)
-    with rules_ledger.locked() as existing:
-        seen = {(entry.get("commit"), entry["file"]) for entry in existing}
+    with rules_ledger.locked():
+        seen = {(entry.get("commit"), entry["file"]) for entry in rules_ledger.entries()}
         records = []
         for line in out.split("\x1e"):
             if not line.strip():

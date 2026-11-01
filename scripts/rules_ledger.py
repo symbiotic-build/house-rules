@@ -27,7 +27,11 @@ rollback record whose before is the content it replaced, so a rollback can be ro
 import argparse
 import contextlib
 import datetime
-import fcntl
+try:
+    import fcntl
+except ImportError:  # native Windows
+    fcntl = None
+    import msvcrt
 import hashlib
 import json
 import os
@@ -54,6 +58,13 @@ def now():
     return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
 
 
+def create(path, data):
+    """Write a new file readable only by its owner, so private content never shows on the way."""
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(data)
+
+
 def store(data):
     """Store data under its sha256 and return the hash; None stands for an absent file."""
     if data is None:
@@ -63,7 +74,7 @@ def store(data):
     if not path.exists():
         path.parent.mkdir(parents=True, exist_ok=True)
         temporary = path.with_name(f".{digest}.{secrets.token_hex(4)}")
-        temporary.write_bytes(data)
+        create(temporary, data)
         os.replace(temporary, path)
     return digest
 
@@ -92,21 +103,35 @@ def put(path, data):
             path.unlink()
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
-    temporary.write_bytes(data)
     if path.exists():
-        os.chmod(temporary, path.stat().st_mode & 0o7777)
+        mode = path.stat().st_mode & 0o7777
+    else:  # a new file gets the mode any new file gets
+        mask = os.umask(0)
+        os.umask(mask)
+        mode = 0o666 & ~mask
+    temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}")
+    create(temporary, data)
+    os.chmod(temporary, mode)
     os.replace(temporary, path)
 
 
 @contextlib.contextmanager
 def locked():
-    """Hold the ledger lock; yield the records already in the ledger."""
+    """Hold the ledger lock, which serializes every reader-then-writer of the ledger."""
     path = ledger_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path.with_name("ledger.lock"), "a") as lock:
-        fcntl.flock(lock, fcntl.LOCK_EX)
-        yield entries()
+    with open(path.with_name("ledger.lock"), "a+b") as lock:
+        if fcntl:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            yield
+            return
+        lock.seek(0)
+        msvcrt.locking(lock.fileno(), msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            lock.seek(0)
+            msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
 
 
 def entries():
@@ -160,8 +185,8 @@ def write(file, data, actor, reason, source_pr=None):
 
 def rollback(entry_id, actor="human", reason=None):
     """Restore the before content of one record and append a rollback record."""
-    with locked() as records:
-        target = next((record for record in records if record["id"] == entry_id), None)
+    with locked():
+        target = next((record for record in entries() if record["id"] == entry_id), None)
         if target is None:
             raise ValueError(f"no ledger record {entry_id}")
         restored = load(target["before"])

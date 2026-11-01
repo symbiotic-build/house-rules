@@ -62,6 +62,15 @@ class RulesLedgerTests(unittest.TestCase):
         self.assertEqual(self.run_script("rollback", change["id"]).returncode, 0)
         self.assertFalse(skill.exists())
 
+    def test_stored_contents_are_private_and_a_write_keeps_the_file_mode(self):
+        self.rule.chmod(0o600)
+        out = self.run_script("write", str(self.rule), "--actor", "agent", "--reason", "private", stdin=b"secret\n")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(self.rule.stat().st_mode & 0o777, 0o600)
+        blobs = list((self.home / ".local/state/house-rules/ledger-blobs").iterdir())
+        self.assertEqual(len(blobs), 2)
+        self.assertEqual({blob.stat().st_mode & 0o777 for blob in blobs}, {0o600})
+
     def test_unchanged_content_and_unknown_ids_add_no_record(self):
         out = self.run_script("write", str(self.rule), "--actor", "human", "--reason", "same",
                               stdin=b"- Keep records.\n")
