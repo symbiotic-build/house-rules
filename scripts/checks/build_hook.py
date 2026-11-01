@@ -15,17 +15,19 @@ The hook takes one decision per command, from build_command.py's findings:
   target, a debug build, `make test` or `ctest` without a selector. The call runs.
 - unsure: text the parser cannot read exactly, because the shell expands it or feeds it in: a
   here-document or here-string, a parameter expansion (`$NAME`, `${NAME}`, `$@`), command or
-  process substitution, backticks, a command run by `eval` or `xargs`, or a command that does not
-  parse. `eval` and `xargs` count only as the program a command runs, not as an argument. The call runs, even when it would otherwise be refused.
+  process substitution, backticks, a command run by `eval` or `xargs`, a compound command (one that
+  starts with a reserved word such as `if`, `then`, `do` or `{`), or a command that does not parse.
+  `eval` and `xargs` count only as the program a command runs, not as an argument. The call runs, even when it would otherwise be refused.
 Every other command runs and is not logged; an unsure command is logged only when its text names a
 checked program (cargo, ctest, make, ninja, cmake), since no other command could be refused.
 
 Each refused, warned or unsure decision appends one JSON line per rule to the log: time, harness,
 session id when the input has one, working folder, decision, rule and the command, with the value of
 each NAME=value assignment and the argument after each flag named like token, key, secret or password
-replaced by <redacted>. Redaction reads whole shell words, with quotes, escapes and substitutions,
-and the scripts quoted inside them, such as a `bash -c` script; an unclosed quote or substitution
-runs to the end of the command, so all of it is redacted. The log is PATH, else $XDG_STATE_HOME/house-rules/build-hook.jsonl, else
+replaced by <redacted>. Redaction reads whole shell words, with quotes and escapes, and the scripts
+quoted inside them, such as a `bash -c` script; an unclosed quote runs to the end of the command, so
+all of it is redacted. A command holding a substitution (`$(`, backticks, `${`, `<(` or `>(`) is
+logged as <redacted> as a whole, because the word that holds a secret cannot be told apart reliably. The log is PATH, else $XDG_STATE_HOME/house-rules/build-hook.jsonl, else
 ~/.local/state/house-rules/build-hook.jsonl. A log that cannot be written changes no decision; the
 hook says so on standard error.
 
@@ -58,6 +60,10 @@ UNSURE = (("here_document", re.compile(r"<<")),
           ("backticks", re.compile(r"`")),
           ("process_substitution", re.compile(r"[<>]\(")))
 INDIRECT = ("eval", "xargs")  # programs that run their arguments as a command the parser does not read
+# Words that start a compound command, whose parts the parser reads as separate simple commands.
+RESERVED = {"if", "then", "else", "elif", "fi", "do", "done", "while", "until", "for", "select", "case", "esac",
+            "function", "{", "}", "!", "[[", "]]", "coproc"}
+SUBSTITUTION = re.compile(r"\$\(|`|\$\{|[<>]\(")  # text whose word boundaries the redaction cannot trust
 CHECKED = re.compile(r"(?<![\w.-])(?:[\w./-]*/)?(?:cargo|ctest|g?make|ninja|cmake)(?![\w.-])")
 WORD_END = set(";&|()<>")  # unquoted characters that end a shell word, beside whitespace
 SECRET_FLAG = re.compile(r"(-{1,2}[\w-]*(?:token|key|secret|password)[\w-]*)(=.*)?", re.IGNORECASE | re.DOTALL)
@@ -68,25 +74,10 @@ def default_log():
     return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local/state") / "house-rules" / LOG_FILE
 
 
-def closing(text, index, opening, close):
-    """The index just past the `close` that matches the `opening` at index, or the text's end."""
-    depth = 0
-    while index < len(text):
-        if text[index] == "\\":
-            index += 2
-            continue
-        depth += text[index] == opening
-        depth -= text[index] == close
-        index += 1
-        if depth == 0:
-            return index
-    return len(text)
-
-
 def shell_words(text):
-    """(start, end, unquoted text) for each shell word; quotes, backslashes and substitutions join a word.
+    """(start, end, unquoted text) for each shell word; quotes and backslashes join a word, as the shell does.
 
-    An unclosed quote or substitution runs to the end of the text.
+    An unclosed quote runs to the end of the text.
     """
     result, index = [], 0
     while index < len(text):
@@ -99,12 +90,6 @@ def shell_words(text):
             if char == "\\":
                 value.append(text[index + 1:index + 2])
                 index += 2
-            elif text.startswith(("$(", "${"), index) or char == "`":
-                end = text.find("`", index + 1) + 1 if char == "`" else \
-                    closing(text, index + 1, text[index + 1], ")" if text[index + 1] == "(" else "}")
-                end = len(text) if end <= 0 else end
-                value.append(text[index:end])
-                index = end
             elif char == "'":
                 close = text.find("'", index + 1)
                 close = len(text) if close < 0 else close
@@ -126,7 +111,12 @@ def shell_words(text):
 
 
 def redact(command):
-    """The command with assignment values and the values of secret-named flags replaced by <redacted>."""
+    """The command with assignment values and the values of secret-named flags replaced by <redacted>.
+
+    A command holding a substitution is <redacted> as a whole.
+    """
+    if SUBSTITUTION.search(command):
+        return "<redacted>"
     replacements, secret_next = [], False
     for start, end, word in shell_words(command):
         flag = SECRET_FLAG.fullmatch(word)
@@ -146,12 +136,17 @@ def redact(command):
 
 
 def indirect(text):
-    """The programs among INDIRECT that a command of the text runs, inside `sh -c` scripts too."""
+    """The unsure rules for the simple commands of the text, inside `sh -c` scripts too.
+
+    A command run by eval or xargs gives its program's name; a compound command gives compound_command.
+    """
     result = []
     for _, tokens in build_command.split_commands(text):
         command = build_command.unwrap(tokens)
         name = Path(command[0]).name if command else None
-        if name in INDIRECT:
+        if command and command[0] in RESERVED:
+            result.append("compound_command")
+        elif name in INDIRECT:
             result.append(name)
         elif name in build_command.SHELLS:
             script = build_command.shell_script(command[1:])

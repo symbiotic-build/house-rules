@@ -142,6 +142,10 @@ class UnsureTest(HookTest):
                 ("echo -p core | xargs cargo test", "xargs"),
                 ("env FLAGS=x xargs cargo test < packages.txt", "xargs"),
                 ("bash -c 'cd app && eval cargo test --workspace'", "eval"),
+                ("if eval 'cargo test --workspace'; then :; fi", "compound_command"),
+                ("if true; then eval cargo test; fi; cargo test --workspace", "compound_command"),
+                ("for crate in a b; do cargo test --workspace; done", "compound_command"),
+                ("{ cargo test --workspace; }", "compound_command"),
                 ("cargo test 'unterminated", "parse_error")):
             with self.subTest(command=command):
                 before = len(self.logged())
@@ -204,8 +208,11 @@ class RedactionTest(HookTest):
                 ("API_TOKEN=first\\ second cargo test", "API_TOKEN=<redacted> cargo test"),
                 ("cargo test \"--api-key\" 'quoted value' '--token'=x", "cargo test \"--api-key\" <redacted> --token=<redacted>"),
                 ("cargo test --token 'unclosed value; more", "cargo test --token <redacted>"),
-                ("API_TOKEN=$(cat secret file) cargo test", "API_TOKEN=<redacted> cargo test"),
-                ("API_TOKEN=`cat secret file` cargo test", "API_TOKEN=<redacted> cargo test"),
+                # A command with a substitution is redacted whole, inner assignments and flags included.
+                ("API_TOKEN=$(cat secret file) cargo test", "<redacted>"),
+                ("API_TOKEN=`cat secret file` cargo test", "<redacted>"),
+                ("cargo test $(API_TOKEN=inner echo --password pw3)", "<redacted>"),
+                ("bash -c 'API_TOKEN=$(printf \")\"; echo q1) cargo test'", "<redacted>"),
                 ("bash -c 'cd app && API_TOKEN=nested cargo test --workspace --password pw2'",
                  "bash -c 'cd app && API_TOKEN=<redacted> cargo test --workspace --password <redacted>'")):
             with self.subTest(command=command):
@@ -213,7 +220,7 @@ class RedactionTest(HookTest):
                 self.assertEqual(self.logged()[-1]["command"], logged)
         text = self.log.read_text()
         for secret in ("prefix", "suffix", "tail", "second", "quoted value", "unclosed", "more", "secret file",
-                       "nested", "pw2"):
+                       "nested", "pw2", "inner", "pw3", "q1"):
             self.assertNotIn(secret, text)
 
     def test_a_session_id_is_logged_only_when_the_input_has_one(self):
