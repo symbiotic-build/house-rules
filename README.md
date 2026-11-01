@@ -161,6 +161,53 @@ campaign record's `constraints` whose `rule` has `kind` `required_report_field` 
 The tests use synthetic examples only:
 `python3 -B -m unittest discover -s scripts/checks -p 'test_*.py'`.
 
+
+### Build-command hook
+
+[build_hook.py](scripts/checks/build_hook.py) runs `build_command.py` on each shell call of
+Claude Code and Codex, as their `PreToolUse` hook. `scripts/sync.py --install-hooks` registers it
+([INSTALL-AGENTS.md §3 step 10](INSTALL-AGENTS.md#3-install-house-rules-instructions-and-skills)).
+The hook input arrives on standard input, and the product is the only argument:
+
+```sh
+echo '{"tool_name": "Bash", "tool_input": {"command": "cargo test --workspace"}}' |
+  python3 -I scripts/checks/build_hook.py claude   # exit 2: refused before it runs
+```
+
+The hook takes one of four decisions for each command:
+
+- **Refused:** `cargo test`, `cargo nextest run` or `cargo clippy` with no `-p`/`--package`, or
+  with `--workspace` or `--all`. The command does not run. The agent gets the reason and a
+  targeted command to run instead.
+- **Warned:** every other `build_command.py` finding, such as a missing test-name filter, no
+  single clippy target, a debug build, `make test` or `ctest` without a selector. The command
+  runs, and the hook logs the finding's rule name.
+- **Unsure:** text the parser cannot read exactly, because the shell expands it or feeds it in:
+  a here-document or here-string, command or process substitution, backticks, `eval`, `xargs`,
+  or a command that does not parse. The command runs, even when it would otherwise be refused.
+  The hook logs it when the text names a checked program (`cargo`, `ctest`, `make`, `ninja`,
+  `cmake`).
+- **Allowed:** every other command runs and is not logged.
+
+The log is `build-hook.jsonl` in `$XDG_STATE_HOME/house-rules/`, or in
+`~/.local/state/house-rules/` without that variable. `BUILD_HOOK_LOG` in `custom/sync.env` moves
+it ([INSTALL-AGENTS.md §6](INSTALL-AGENTS.md#6-update-and-remove)). Each decision writes one JSON
+line per rule, with `time`, `harness`, `session_id` (when the input has one), `cwd`, `decision`,
+`rule` and `command`. Before the command is written, the value of each `NAME=value` assignment
+and the argument after each flag named like `token`, `key`, `secret` or `password` become
+`<redacted>`. A log that cannot be written changes no decision; the hook says so on standard error.
+
+To count false refusals, list the refusals and judge each command:
+
+```sh
+jq -c 'select(.decision == "refused") | {time, harness, rule, command}' ~/.local/state/house-rules/build-hook.jsonl
+```
+
+A refusal is false when its command would not have run tests or clippy across every crate,
+for example when the parser misread an argument. `BUILD_HOOK=off`
+in `custom/sync.env` turns the hook off. Codex runs a new hook only after the operator trusts
+it in `/hooks`; the installer prints a `TRUST:` line for each one.
+
 ## Verify
 
 CI runs two workflows on every push and pull request. Both install the pinned documentation

@@ -67,6 +67,11 @@ Verified 2026-10-19 with Claude Code 2.1.291, Codex CLI 0.159 and Kimi Code 2.1.
 the hook, a session holds only the managed block's instruction to read the rules, and a
 session can skip that instruction.
 
+The same Claude Code and Codex hook files hold the build-command hook (§3 step 10), a
+`PreToolUse` entry for the shell tool `Bash`. Both products send the command as
+`tool_input.command`, and both block the call when the hook exits 2. Codex runs `PreToolUse`
+for shell calls only. Kimi Code and Hermes get no build-command hook.
+
 Kimi Code runs `SessionStart` hooks but discards their output, so Kimi gets the rules with
 the first prompt of each session. Kimi 2.2.0 and later keep that prompt's hook output
 through compaction; older versions drop it, so House Rules needs Kimi 2.2.0 or later.
@@ -213,17 +218,28 @@ For each selected product and configuration home:
       entry to `hooks.SessionStart`, keep every other entry and setting, and never write under
       `$CODEX_HOME/skills/.system/`.
 
+    The installer also registers the build-command hook (§1) in each Claude Code and Codex
+    hook file: one `hooks.PreToolUse` entry that runs `scripts/checks/build_hook.py` with the
+    product name. README.md §Build-command hook describes what it refuses, what it only logs
+    and where the log is. `scripts/session_context.py build-hook <product> "<HOUSE_RULES_ROOT>"`
+    prints the entry for registration by hand. In `custom/sync.env` (§6), `BUILD_HOOK=off`
+    turns it off: the installer removes the entry and verification expects none.
+    `BUILD_HOOK_LOG` moves its log; the entry then passes `--log <path>`.
+
     Then run the installer with a Python 3.9 or later interpreter that agent sessions can run:
 
     ```sh
     "<PYTHON3>" "<HOUSE_RULES_ROOT>/scripts/sync.py" --root "<HOUSE_RULES_ROOT>" --install-hooks
     ```
 
-    For each hook file it removes every earlier House Rules entry, adds the current one and
-    keeps every other entry and setting. An earlier entry is a handler in exactly a form the
-    installer prints, `<python> -I <root>/scripts/session_context.py` followed by `claude <n>`,
-    `codex`, `approved` or `approved codex`, for the current or a previous root, or a command a
-    JSON receipt lists under `replaced_hooks`. Nothing else is inferred from a command. The
+    For each hook file and event it removes every earlier House Rules entry, adds the current
+    one and keeps every other entry and setting. An earlier entry is a handler in exactly a
+    form the installer prints, for the current or a previous root:
+    `<python> -I <root>/scripts/session_context.py` followed by `claude <n>`, `codex`,
+    `approved` or `approved codex`; `<python> -I <root>/scripts/checks/build_hook.py` followed
+    by `claude` or `codex` and an optional `--log <path>`; the same scripts run through
+    `house-rules exec --hook`; or a command a JSON receipt lists under `replaced_hooks`.
+    Nothing else is inferred from a command. The
     installer backs up a changed file beside it under a new name, readable only by its owner,
     replaces it atomically, and prints each backup and each file it writes as soon as it
     exists. A file whose only House Rules entry is already the current one stays unchanged.
@@ -234,9 +250,19 @@ For each selected product and configuration home:
     runs the installer's interpreter by its absolute path and names the root as passed to
     `--root`, so a stable link to a moving checkout stays valid. Claude Code gets one hook per
     part, because it caps each hook's output at 10 000 characters; Codex gets one hook; Kimi
-    Code gets one, registered by hand. Codex skips a new hook until the operator trusts it in
-    `/hooks`; record that as a pending operator action in `custom/INDEX.md`. Record each hook
-    file and its backup in the receipt.
+    Code gets one, registered by hand. Codex skips a new or changed hook until the operator
+    trusts it in `/hooks`. For each Codex handler whose position or content changed, the
+    installer prints a `TRUST:` line with the key Codex trusts it by,
+    `<hooks.json path>:<event>:<entry>:<handler>`. Give the operator one list of those keys,
+    grouped by Codex home, and record it as a pending operator action in `custom/INDEX.md`.
+    For a first install of the build-command hook the list holds, per Codex home:
+
+    - `<CODEX_HOME>/hooks.json:pre_tool_use:<entry>:0`, the build-command hook, where
+      `<entry>` is the number the `TRUST:` line prints;
+    - each `session_start` key the installer printed, when the session-context entry moved
+      or changed too.
+
+    Record each hook file and its backup in the receipt.
 
     Register Kimi Code 2.2.0 or later by hand: print `hooks kimi`. It prints one `[[hooks]]`
     table in TOML for the `UserPromptSubmit` event; use Python 3.11 or later, because
@@ -338,7 +364,8 @@ Filesystem verification:
 - every instruction file contains exactly one House Rules block (counting old `forge:`
   and `groundwork:` markers too) and retains its surrounding operator content;
 - every Claude Code, Codex and Kimi Code hook file holds exactly the §3 step 10 entry and
-  retains its other entries;
+  retains its other entries; every Claude Code and Codex hook file holds exactly one
+  build-command entry, with the `BUILD_HOOK_LOG` log, or none when `BUILD_HOOK=off`;
 - no other scanned Skill folder or parent-folder instruction file holds a stale House
   Rules, Forge or Groundwork entry, or an entry for a removed House Rules Skill;
 - no owned link or alias to a removed helper remains;
@@ -372,7 +399,7 @@ instruction files such as `AGENTS.md` or `CLAUDE.md`.
    Skill once, and contain no Forge or Groundwork text. For Claude Code, check `/memory`
    in a fresh session. Claude Code drops HTML comments from loaded instructions, so check
    the heading rather than the markers. For Codex, check that `/hooks` lists the House
-   Rules hook as trusted.
+   Rules hooks as trusted, the build-command hook among them.
 2. Where no such view exists, or the operator asks for it, start a fresh session with a
    read-only prompt, for example: “Identify the loaded House Rules base path and available
    skills, then explain which rules apply to this simple question without creating a
@@ -412,7 +439,9 @@ It then checks that every rule file the index lists under "Always load" exists,
 then every configured home's managed block, missing or stale Skill links, owned links to
 removed Skills, and same-name entries in the other scanned Skill folders. It checks that
 every Claude Code, Codex and Kimi Code home holds exactly the §3 step 10 hook entry, run by an
-existing interpreter, and that the injected rules fit the hook's parts. Reading Kimi's
+existing interpreter, and that the injected rules fit the hook's parts. It checks each
+Claude Code and Codex build-command entry the same way, against `BUILD_HOOK` and
+`BUILD_HOOK_LOG`. Reading Kimi's
 `config.toml` needs Python 3.11 or later; an older interpreter reports the Kimi hook as not
 checked. Git and
 filesystem errors reach the caller. Findings collected before a verification error are
@@ -438,6 +467,18 @@ and UNC paths; unquoted or double-quoted backslashes can be consumed as escapes.
 The script parses these assignments as data; it never executes shell code or expands
 variables. Extra homes must exist, and extra Codex homes must meet §1's identification
 rule. Without this file, only the baseline homes are checked.
+
+The same file holds the build-command hook settings (§3 step 10). Run `--install-hooks` after
+changing one.
+
+- `BUILD_HOOK` is `on` (the default) or `off`. Any other value is an error.
+- `BUILD_HOOK_LOG` is the absolute path of the hook's log. Without it, the log is
+  `build-hook.jsonl` in `$XDG_STATE_HOME/house-rules/`, else in `~/.local/state/house-rules/`.
+
+```sh
+BUILD_HOOK=off  # turns the hook off
+BUILD_HOOK_LOG='/var/log/agents/build-hook.jsonl'  # moves the log while the hook is on
+```
 
 ```sh
 CODEX_HOME="<EXTRA_CODEX_HOME>"
@@ -567,7 +608,7 @@ To remove House Rules:
 2. Delete only owned links (ownership rule in §2, including broken links) and copies
    proven to match a receipt.
 3. Remove only the managed House Rules blocks from global instruction files, and only the
-   House Rules session-context entry from hook files. Restore a backup only after
+   House Rules session-context and build-command entries from hook files. Restore a backup only after
    comparing newer operator changes.
 4. Copy `custom/` elsewhere if the operator wants its backups and receipts, then delete
    the source folder.

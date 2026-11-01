@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Update the checkout and report House Rules installation drift; see INSTALL-AGENTS.md §6.
 
-With --install-hooks it also writes the session-context hook into each Claude Code and Codex
-hook file (INSTALL-AGENTS.md §3 step 10). It writes no other file. With --command PATH the hook runs
-through the House Rules command at PATH (`house-rules exec --hook scripts/session_context.py ...`),
-which resolves each session's repository's House Rules version first.
+With --install-hooks it also writes the session-context hook and the build-command hook into each
+Claude Code and Codex hook file (INSTALL-AGENTS.md §3 step 10). It writes no other file. With --command
+PATH the hooks run through the House Rules command at PATH (`house-rules exec --hook <script> ...`),
+which resolves each session's repository's House Rules version first. BUILD_HOOK=off in custom/sync.env
+turns the build-command hook off, and BUILD_HOOK_LOG=<absolute path> moves its log (INSTALL-AGENTS.md §6).
 
 With --check-drift [FOLDER ...] it only compares each copy of a House Rules skill in the folders
 with the checkout's HEAD revision and reports the copies that differ (INSTALL-AGENTS.md §6). It
@@ -145,21 +146,15 @@ def homes(root, home):
             raise ValueError(f"{key} default home is not a directory: {path}")
         if is_dir(path):
             selected.append((key, path.absolute()))
-    config = root / "custom/sync.env"
-    if present(config):
-        for number, line in enumerate(config.read_text(encoding="utf-8").splitlines(), 1):
-            tokens = shlex.split(line, comments=True)
-            if not tokens:
-                continue
-            if len(tokens) != 1 or "=" not in tokens[0]:
-                raise ValueError(f"{config}:{number}: expected KEY=path")
-            key, value = tokens[0].split("=", 1)
-            if key not in defaults or not value:
-                raise ValueError(f"{config}:{number}: unknown key or empty home")
-            path = Path(value).expanduser()
-            if not path.is_absolute() or not is_dir(path):
-                raise ValueError(f"{config}:{number}: home must be an existing absolute directory")
-            selected.append((key, path))
+    for where, key, value in sync_env(root):
+        if key in BUILD_HOOK_KEYS:
+            continue
+        if key not in defaults or not value:
+            raise ValueError(f"{where}: unknown key or empty home")
+        path = Path(value).expanduser()
+        if not path.is_absolute() or not is_dir(path):
+            raise ValueError(f"{where}: home must be an existing absolute directory")
+        selected.append((key, path))
     for key, path in selected:
         if not path.is_absolute():
             raise ValueError(f"{key} must be an absolute directory")
@@ -167,6 +162,42 @@ def homes(root, home):
                                            for name in ("config.toml", "auth.json")):
             raise ValueError(f"not a Codex home (no config.toml or auth.json): {path}")
     return list(dict.fromkeys(selected))
+
+
+def sync_env(root):
+    """(file:line, key, value) for each assignment in custom/sync.env, parsed as data, never run."""
+    config = root / "custom/sync.env"
+    result = []
+    if present(config):
+        for number, line in enumerate(config.read_text(encoding="utf-8").splitlines(), 1):
+            tokens = shlex.split(line, comments=True)
+            if not tokens:
+                continue
+            if len(tokens) != 1 or "=" not in tokens[0]:
+                raise ValueError(f"{config}:{number}: expected KEY=path")
+            result.append((f"{config}:{number}", *tokens[0].split("=", 1)))
+    return result
+
+
+BUILD_HOOK_KEYS = ("BUILD_HOOK", "BUILD_HOOK_LOG")
+
+
+def build_hook_settings(root):
+    """(on, log) for the build-command hook from custom/sync.env: BUILD_HOOK=on|off and BUILD_HOOK_LOG=<path>.
+
+    The hook is on, with its default log, unless the file says otherwise.
+    """
+    on, log = True, None
+    for where, key, value in sync_env(root):
+        if key == "BUILD_HOOK":
+            if value not in ("on", "off"):
+                raise ValueError(f"{where}: BUILD_HOOK must be on or off, not {value!r}")
+            on = value == "on"
+        elif key == "BUILD_HOOK_LOG":
+            if not Path(value).expanduser().is_absolute():
+                raise ValueError(f"{where}: BUILD_HOOK_LOG must be an absolute path, not {value!r}")
+            log = str(Path(value).expanduser())
+    return on, log
 
 
 def children(path):
@@ -412,10 +443,13 @@ def verify(root, home, findings, selected, hook_root=None, generator=None):
     for path in always_load(root, findings):
         if not is_file(path):
             findings.append(f"missing rule file: {path}")
+    build = build_hook_settings(root)
     for key, product_home in selected:
         if key in HOOK_FILES:
             check_hook(hook_root or root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], findings,
                        replaced_hooks(root), generator)
+            check_build_hook(hook_root or root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], build,
+                             findings, generator)
         elif key in KIMI_HOOK_FILES:
             check_kimi_hook(hook_root or root, roots, product_home / KIMI_HOOK_FILES[key], findings, generator)
     _, packed, too_long = generator.parts(root)
@@ -438,11 +472,16 @@ def read_hooks(path, data=None):
         raise ValueError(f"hook file is not valid JSON: {path}: {error}") from error
     if not isinstance(settings, dict):
         raise ValueError(f"hook file is not a JSON object: {path}")
+    return settings, event_entries(settings, "SessionStart", path)
+
+
+def event_entries(settings, event, path):
+    """The hook file's list for one event; an absent event is an empty list, any other value an error."""
     hooks = settings.get("hooks", {})
-    entries = hooks.get("SessionStart", []) if isinstance(hooks, dict) else None
+    entries = hooks.get(event, []) if isinstance(hooks, dict) else None
     if not isinstance(entries, list):
-        raise ValueError(f"hook file has no SessionStart list: {path}")
-    return settings, entries
+        raise ValueError(f"hook file has no {event} list: {path}")
+    return entries
 
 
 def check_hook(root, roots, path, product, findings, replaced=frozenset(), generator=None):
@@ -467,6 +506,33 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset(), gener
         findings.append(f"stale session context hook: {path}")
     elif not through and any(len(tokens) > 2 and not is_file(Path(tokens[2])) for tokens in commands):
         findings.append(f"session context hook runs a missing script: {path}")
+
+
+def check_build_hook(root, roots, path, product, settings, findings, generator):
+    """Exactly the build_hook() entry, with the configured log, when the hook is on; no entry when it is off."""
+    on, log = settings
+    event = generator.BUILD_EVENT
+    hooks, _ = read_hooks(path)
+    scripts = {str(Path(other) / generator.BUILD_HOOK) for other in roots}
+    owned = [(entry, handler_commands(entry)) for entry in event_entries(hooks, event, path)
+             if isinstance(entry, dict) and isinstance(entry.get("hooks"), list) and any(
+                 build_owner(handler, scripts, generator) for handler in entry["hooks"])]
+    if not on:
+        if owned:
+            findings.append(f"turned-off build-command hook still registered: {path}")
+        return
+    if not owned:
+        findings.append(f"missing build-command hook: {path}")
+        return
+    entry, commands = owned[0]
+    python = commands[0][0] if commands[0] else ""
+    through = exec_form(commands[0], generator.BUILD_HOOK) if commands[0] else False
+    expected = generator.build_hook(product, python, root, *((python,) if through else ()), log=log)
+    if len(owned) != 1 or not Path(python).is_absolute() or not is_file(Path(python)) or entry != expected or \
+            (through and not os.access(python, os.X_OK)):
+        findings.append(f"stale build-command hook: {path}")
+    elif not through and not is_file(Path(commands[0][2])):
+        findings.append(f"build-command hook runs a missing script: {path}")
 
 
 PYTHON = re.compile(r"python([0-9]+(\.[0-9]+)*t?)?(\.exe)?")
@@ -496,16 +562,38 @@ def owner(handler, scripts, replaced=frozenset(), python=None):
     return "replaced" if command in replaced else None
 
 
+def build_owner(handler, scripts, generator, python=None):
+    """True for a build-command hook handler in exactly a form build_hook() prints.
+
+    <python> -I <root>/scripts/checks/build_hook.py <product> [--log <path>], with one of our scripts and
+    a Python interpreter, or <house-rules> exec --hook scripts/checks/build_hook.py <product> [--log <path>].
+    """
+    command = handler.get("command") if isinstance(handler, dict) else None
+    try:
+        tokens = shlex.split(command) if isinstance(command, str) else []
+    except ValueError:
+        tokens = []
+    if len(tokens) >= 4 and tokens[1] == "-I" and tokens[2] in scripts and build_arguments(tokens[3:]):
+        return bool(PYTHON.fullmatch(Path(tokens[0]).name) or same_file(tokens[0], python or sys.executable))
+    return exec_form(tokens, generator.BUILD_HOOK) and build_arguments(tokens[4:])
+
+
+def build_arguments(arguments):
+    """The arguments of one build-command hook handler: a product, optionally followed by `--log <path>`."""
+    return arguments[:1] in (["claude"], ["codex"]) and (len(arguments) == 1 or (
+        len(arguments) == 3 and arguments[1] == "--log"))
+
+
 def session_arguments(arguments):
     """The arguments of one Claude Code or Codex session-context handler: claude <n>, codex, approved, approved codex."""
     return arguments in (["codex"], ["approved"], ["approved", "codex"]) or (
         len(arguments) == 2 and arguments[0] == "claude" and arguments[1].isdigit())
 
 
-def exec_form(tokens):
-    """<house-rules> exec --hook scripts/session_context.py ...: a handler run through the House Rules command."""
+def exec_form(tokens, script="scripts/session_context.py"):
+    """<house-rules> exec --hook <script> ...: a handler run through the House Rules command."""
     return (len(tokens) >= 5 and Path(tokens[0]).name == "house-rules" and Path(tokens[0]).is_absolute()
-            and tokens[1:4] == ["exec", "--hook", "scripts/session_context.py"])
+            and tokens[1:4] == ["exec", "--hook", script])
 
 
 def same_file(first, second):
@@ -564,10 +652,15 @@ def handler_commands(entry):
 
 
 def install_hooks(root, hook_root, home, python, report, generator=None, command=None):
-    """Write the current hook entry into each Claude Code and Codex hook file.
+    """Write the current session-context entry and build-command entry into each Claude Code and Codex hook file.
 
-    report(event, path, backup) runs at once after each backup ("backup") and each replacement
-    ("registered"), so a later failure cannot hide a backup or a file already changed.
+    report(event, path, detail) runs at once after each backup ("backup", the backup's path) and each
+    replacement ("registered", the backup's path or None), so a later failure cannot hide a backup or a
+    file already changed. After a Codex file is replaced, "trust" reports each handler whose position or
+    content changed as the key Codex trusts it by (<file>:<event>:<entry>:<handler>), because Codex
+    skips such a handler until the operator trusts it in /hooks.
+
+    BUILD_HOOK=off removes the build-command entry and adds none; BUILD_HOOK_LOG sets the log it passes.
 
     Removes House Rules handlers of any recorded root and receipt-listed replaced hooks, keeps every
     other entry and setting, backs up an existing file beside it and replaces the file atomically.
@@ -588,7 +681,11 @@ def install_hooks(root, hook_root, home, python, report, generator=None, command
         raise ValueError("--install-hooks needs directory handles (os.fchdir), which this platform lacks")
     roots = ownership_roots(root) | {str(hook_root)}
     scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
+    build_scripts = {str(Path(other) / generator.BUILD_HOOK) for other in roots}
     replaced = replaced_hooks(root)
+    on, log = build_hook_settings(root)
+    owners = {"SessionStart": lambda handler: owner(handler, scripts, replaced, python) is not None,
+              generator.BUILD_EVENT: lambda handler: build_owner(handler, build_scripts, generator, python)}
     selected = homes(root, home)
     folders = []
     try:
@@ -607,10 +704,15 @@ def install_hooks(root, hook_root, home, python, report, generator=None, command
                 raise ValueError(f"hook folder changed while it was checked: {real}")
             check_protected(real / name, selected)
             check_protected(real, selected)
+        through = (command,) if command else ()
         for handle, real, name, product in folders:
+            expected = {"SessionStart": generator.hooks(product, python, hook_root, *through),
+                        generator.BUILD_EVENT: generator.build_hook(product, python, hook_root, *through, log=log)
+                        if on else None}
             with inside(handle):
-                install_one(real, name, generator.hooks(product, python, hook_root, *((command,) if command else ())),
-                            scripts, replaced, python, report)
+                changed = install_one(real, name, expected, owners, report)
+            for event, index, handler in changed if product == "codex" else ():
+                report("trust", real / name, f"{real / name}:{snake(event)}:{index}:{handler}")
     except BaseException as error:
         close_all([handle for handle, *_ in folders], error)
         raise
@@ -665,25 +767,45 @@ def read_relative(name):
         return None
 
 
-def install_one(real, name, expected, scripts, replaced, python, report):
-    """Install one hook file; the working directory is its checked folder, so every path is `name`."""
+def install_one(real, name, expected, owners, report):
+    """Install one hook file; the working directory is its checked folder, so every path is `name`.
+
+    expected: {event: entry, or None for an event that holds no House Rules entry}; owners: {event:
+    a test that a handler is House Rules'}. Returns (event, entry index, handler index) for each
+    handler whose position or content changed, empty when the file is already current.
+    """
     path = real / name  # for messages only
     data = read_relative(name)
-    settings, entries = read_hooks(path, data) if data is not None else ({}, [])
-    kept, owned = [], []
-    for entry in entries:
-        handlers = entry.get("hooks") if isinstance(entry, dict) else None
-        if isinstance(handlers, list):
-            remaining = [handler for handler in handlers if owner(handler, scripts, replaced, python) is None]
-            if len(remaining) != len(handlers):
-                owned.append(entry)
-                if not remaining:
-                    continue  # an entry that held only House Rules handlers; other empty entries stay
-                entry = {**entry, "hooks": remaining}
-        kept.append(entry)
-    if owned == [expected]:
-        return
-    settings.setdefault("hooks", {})["SessionStart"] = kept + [expected]
+    settings, _ = read_hooks(path, data) if data is not None else ({}, [])
+    changed, modified = [], False
+    for event, current in expected.items():
+        entries = event_entries(settings, event, path)
+        kept, owned = [], []
+        for entry in entries:
+            handlers = entry.get("hooks") if isinstance(entry, dict) else None
+            if isinstance(handlers, list):
+                remaining = [handler for handler in handlers if not owners[event](handler)]
+                if len(remaining) != len(handlers):
+                    owned.append(entry)
+                    if not remaining:
+                        continue  # an entry that held only House Rules handlers; other empty entries stay
+                    entry = {**entry, "hooks": remaining}
+            kept.append(entry)
+        wanted = [current] if current is not None else []
+        if owned == wanted:
+            continue
+        modified, result = True, kept + wanted
+        for index, entry in enumerate(result):
+            handlers = entry.get("hooks") if isinstance(entry, dict) else None
+            if (index >= len(entries) or entries[index] != entry) and isinstance(handlers, list):
+                changed.extend((event, index, number) for number in range(len(handlers)))
+        hooks = settings.setdefault("hooks", {})
+        if result:
+            hooks[event] = result
+        else:
+            hooks.pop(event, None)
+    if not modified:
+        return []
     mode = stat.S_IMODE(os.stat(name).st_mode) if data is not None else 0o600
     backup = backup_copy(Path(name), data, mode) if data is not None else None
     if backup is not None:
@@ -702,6 +824,12 @@ def install_one(real, name, expected, scripts, replaced, python, report):
             discard(temporary, error)
         raise
     report("registered", path, real / backup.name if backup else None)
+    return changed
+
+
+def snake(event):
+    """Codex's name for a hook event in its trust keys: PreToolUse is pre_tool_use."""
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", event).lower()
 
 
 def discard(path, error):
@@ -748,7 +876,7 @@ def main(argv=None):
     # The default keeps the path this script was run by, so a stable link stays in hook entries.
     parser.add_argument("--root", type=Path, default=Path(os.path.abspath(__file__)).parents[1])
     parser.add_argument("--install-hooks", action="store_true",
-                        help="write the session-context hook into each Claude Code and Codex hook file")
+                        help="write the session-context and build-command hooks into each Claude Code and Codex hook file")
     parser.add_argument("--command", type=Path,
                         help="register hooks that run through the House Rules command at this absolute path")
     parser.add_argument("--check-drift", nargs="*", type=Path, metavar="FOLDER",
@@ -785,9 +913,10 @@ def main(argv=None):
     def install():
         if not generator:
             raise ValueError("hook generator was not loaded; no hook file written")
-        install_hooks(root, hook_root, Path.home(), sys.executable, lambda event, path, backup: print(
-            f"BACKUP: {backup} (copy of {path})" if event == "backup" else
-            f"REGISTERED: session context hook in {path}"), generator[0],
+        install_hooks(root, hook_root, Path.home(), sys.executable, lambda event, path, detail: print(
+            f"BACKUP: {detail} (copy of {path})" if event == "backup" else
+            f"TRUST: Codex runs this hook only after the operator trusts it in /hooks: {detail}" if event == "trust"
+            else f"REGISTERED: House Rules hooks in {path}"), generator[0],
             str(args.command) if args.command else None)
 
     for name, operation in (
