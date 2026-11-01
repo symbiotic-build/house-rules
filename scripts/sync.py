@@ -312,7 +312,8 @@ def copy_files(path):
 
 def line_changes(before, after):
     """(added, removed) lines between two contents."""
-    old, new = (data.decode("utf-8", "replace").splitlines() for data in (before, after))
+    # Lines keep their endings, so a changed line ending or final newline counts as a changed line.
+    old, new = (data.decode("utf-8", "replace").splitlines(keepends=True) for data in (before, after))
     added = removed = 0
     for tag, start, end, new_start, new_end in difflib.SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
         if tag != "equal":
