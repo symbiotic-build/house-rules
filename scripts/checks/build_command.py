@@ -5,8 +5,7 @@ Usage: build_command.py [--debug-profile NAME] [command-file]   (standard input 
 
 The input is shell command text. Each simple command in it (split at unquoted `;`, `&`,
 `|`, parentheses and line ends, with backslash line continuations joined, and inside
-`sh -c`, `bash -c` and `zsh -c` strings, and skipping the literal body of a here-document whose
-delimiter is quoted, such as `<<'EOF'`) is checked:
+`sh -c`, `bash -c` and `zsh -c` strings) is checked:
 - `cargo test` and `cargo nextest run` need a package (`-p`) and a test-name filter; an
   option value after `--` (such as `--test-threads 4` or `--skip x`) is not a filter;
   `--workspace` and `--all` are refused;
@@ -57,8 +56,6 @@ HARNESS_VALUE_FLAGS = {"--test-threads", "--skip", "--logfile", "--format", "--c
 SINGLE_TARGETS = ("--lib", "--bin", "--test", "--example", "--bench")
 PLURAL_TARGETS = ("--all-targets", "--bins", "--tests", "--examples", "--benches")
 RELEASE_PROFILES = ("release", "bench")
-# A here-document operator and its delimiter word: `<<EOF`, `<<-'EOF'`, `<< "EOF"`; never a `<<<` here-string.
-HEREDOC = re.compile(r"<<(?!<)(?P<dash>-)?[ \t]*(?P<word>(?:'[^'\n]*'|\"[^\"\n]*\"|\\.|[^\s;&|()<>'\"\\])+)")
 REDIRECTION = re.compile(r"^\d*(?:&>>?|>>?&?|<<?<?|<&|>\|)")
 WHOLE_SUITE_TARGETS = {"test", "tests", "check", "check-all", "test-all", "all-tests"}
 
@@ -67,9 +64,7 @@ def split_commands(text):
     """Every simple command as a token list, with the input line it starts on.
 
     The text is split at unquoted separators; each piece is then split into words by
-    `shlex`. A backslash before a line end joins the two lines, as the shell does. The body
-    of a here-document whose delimiter is quoted (`<<'EOF'`) is literal text, so it is
-    skipped; the body of an unquoted one can run command substitutions, so it is checked.
+    `shlex`. A backslash before a line end joins the two lines, as the shell does.
     """
     result = []
     piece = []
@@ -77,7 +72,6 @@ def split_commands(text):
     line = 1
     quote = None
     index = 0
-    literal = []  # (delimiter, strip leading tabs) of each quoted here-document whose body starts at the next line
 
     def flush():
         nonlocal piece, start
@@ -119,31 +113,11 @@ def split_commands(text):
             while index < len(text) and text[index] != "\n":
                 index += 1
             continue
-        heredoc = HEREDOC.match(text, index) if char == "<" else None
-        if heredoc:
-            word = heredoc.group("word")
-            if any(mark in word for mark in "'\"\\"):
-                literal.append((re.sub(r"\\(.)", r"\1", word.replace("'", "").replace('"', "")),
-                                bool(heredoc.group("dash"))))
-            piece.append(heredoc.group(0))
-            start = start or line
-            index = heredoc.end()
-            continue
         redirection = char == "&" and ((piece and piece[-1] in "<>") or text[index + 1:index + 2] == ">")
         if char in SEPARATORS and not redirection:
             flush()
             line += char == "\n"
             index += 1
-            if char == "\n":
-                for delimiter, tabs in literal:
-                    while index < len(text):
-                        end = text.find("\n", index)
-                        end = len(text) if end < 0 else end
-                        body = text[index:end]
-                        index, line = end + 1, line + 1
-                        if (body.lstrip("\t") if tabs else body) == delimiter:
-                            break
-                literal = []
             continue
         if char in "'\"":
             quote = char

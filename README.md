@@ -150,8 +150,11 @@ is not a filter), `cargo clippy` without a package and exactly one target, a car
 development profile passes `--debug-profile dev`. It also refuses `ctest` without a test
 selection and the `test` and `check` targets of `make`, `ninja` and `cmake --build`. It splits
 the text at unquoted separators, joins backslash line continuations and ignores redirections.
-The body of a here-document with a quoted delimiter (`<<'EOF'`) is text and is skipped; an
-unquoted one (`<<EOF`) can run command substitutions, so its body is checked.
+Every line of a here-document body is checked as a command, because the check cannot tell
+whether the program reading it (`bash <<'EOF'`, or `cat <<'EOF'`) runs it; text that only
+mentions a refused command is refused too
+([#290](https://github.com/symbiotic-build/house-rules/issues/290)). Write such a file with the
+agent's file tool.
 Help, version, listing and dry-run calls pass. A repository
 without pull-request CI runs its full local gate under `pr-ready` §4 without this check.
 

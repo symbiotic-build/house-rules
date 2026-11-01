@@ -49,10 +49,13 @@ class PreToolUseTest(HookTest):
             self.assertIn("crate_wide_test", err)
             self.assertIn("refused this command before it ran", err)
 
-    def test_a_quoted_here_document_that_only_holds_build_examples_passes(self):
-        status, out, err = self.run_hook("PreToolUse", claude_input("PreToolUse", tool_name="Bash", tool_input={
-            "command": "cat <<'EOF' > notes.md\nRun cargo test --workspace in CI only.\nEOF"}))
-        self.assertEqual((status, err), (0, ""))
+    def test_a_here_document_body_is_checked_whatever_program_reads_it(self):
+        # bash runs its body and cat does not; the check cannot tell them apart, so both are refused (#290).
+        for program in ("bash", "cat > notes.md"):
+            status, out, err = self.run_hook("PreToolUse", claude_input("PreToolUse", tool_name="Bash", tool_input={
+                "command": f"{program} <<'EOF'\ncargo test --workspace --release\nEOF"}))
+            self.assertEqual(status, 2, program)
+            self.assertIn("crate_wide_test", err)
 
     def test_targeted_and_read_only_commands_pass(self):
         for command in ("cargo test --release -p parser parse_header", "cargo test --help", "git status"):
