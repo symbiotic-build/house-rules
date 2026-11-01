@@ -5,7 +5,8 @@ With --install-hooks it also writes the session-context hook and the check hooks
 Code and Codex hook file (INSTALL-AGENTS.md §3 step 10). It writes no other file. With --command PATH
 the hooks run through the House Rules command at PATH (`house-rules exec --hook <script> ...`), which
 resolves each session's repository's House Rules version first. CHECK_HOOKS_OFF in custom/sync.env
-turns check hooks off (INSTALL-AGENTS.md §6).
+turns check hooks off, and CHECK_HOOKS_STOP=block makes the Stop hook block once instead of warning
+(INSTALL-AGENTS.md §6).
 
 With --check-drift [FOLDER ...] it only compares each copy of a House Rules skill in the folders
 with the checkout's HEAD revision and reports the copies that differ (INSTALL-AGENTS.md §6). It
@@ -147,7 +148,7 @@ def homes(root, home):
         if is_dir(path):
             selected.append((key, path.absolute()))
     for where, key, value in sync_env(root):
-        if key == "CHECK_HOOKS_OFF":
+        if key in ("CHECK_HOOKS_OFF", "CHECK_HOOKS_STOP"):
             continue
         if key not in defaults or not value:
             raise ValueError(f"{where}: unknown key or empty home")
@@ -179,18 +180,25 @@ def sync_env(root):
     return result
 
 
-def hooks_off(root, events):
-    """The check-hook events CHECK_HOOKS_OFF in custom/sync.env turns off, for example CHECK_HOOKS_OFF=Stop,PreToolUse."""
-    off = set()
+def check_hook_settings(root, events, modes):
+    """(events turned off, Stop mode) from custom/sync.env: CHECK_HOOKS_OFF=Stop,PreToolUse and CHECK_HOOKS_STOP=block.
+
+    Without CHECK_HOOKS_STOP the Stop hook warns (modes[0]).
+    """
+    off, stop = set(), modes[0]
     for where, key, value in sync_env(root):
-        if key == "CHECK_HOOKS_OFF":
+        if key == "CHECK_HOOKS_STOP":
+            if value not in modes:
+                raise ValueError(f"{where}: CHECK_HOOKS_STOP must be one of {', '.join(modes)}, not {value!r}")
+            stop = value
+        elif key == "CHECK_HOOKS_OFF":
             names = [name.strip() for name in value.split(",") if name.strip()]
             unknown = [name for name in names if name not in events]
             if unknown:
                 raise ValueError(f"{where}: CHECK_HOOKS_OFF names no check hook: {', '.join(unknown)}; "
                                  f"the check hooks are {', '.join(events)}")
             off.update(names)
-    return off
+    return off, stop
 
 
 def children(path):
@@ -436,12 +444,13 @@ def verify(root, home, findings, selected, hook_root=None, generator=None):
     for path in always_load(root, findings):
         if not is_file(path):
             findings.append(f"missing rule file: {path}")
-    off = hooks_off(root, generator.CHECK_EVENTS)
+    off, stop = check_hook_settings(root, generator.CHECK_EVENTS, generator.STOP_MODES)
     for key, product_home in selected:
         if key in HOOK_FILES:
             check_hook(hook_root or root, roots, product_home / HOOK_FILES[key][0], HOOK_FILES[key][1], findings,
                        replaced_hooks(root), generator)
-            check_check_hooks(hook_root or root, roots, product_home / HOOK_FILES[key][0], off, findings, generator)
+            check_check_hooks(hook_root or root, roots, product_home / HOOK_FILES[key][0], off, stop, findings,
+                              generator)
         elif key in KIMI_HOOK_FILES:
             check_kimi_hook(hook_root or root, roots, product_home / KIMI_HOOK_FILES[key], findings, generator)
     _, packed, too_long = generator.parts(root)
@@ -500,8 +509,8 @@ def check_hook(root, roots, path, product, findings, replaced=frozenset(), gener
         findings.append(f"session context hook runs a missing script: {path}")
 
 
-def check_check_hooks(root, roots, path, off, findings, generator):
-    """Exactly the check_hooks() entry for each check event that is on; no House Rules entry for one that is off."""
+def check_check_hooks(root, roots, path, off, stop, findings, generator):
+    """Exactly the check_hooks() entry, in the Stop mode, for each check event that is on; none for one that is off."""
     settings, _ = read_hooks(path)
     scripts = {str(Path(other) / generator.CHECK_HOOK) for other in roots}
     for event in generator.CHECK_EVENTS:
@@ -518,7 +527,7 @@ def check_check_hooks(root, roots, path, off, findings, generator):
         entry, commands = owned[0]
         python = commands[0][0] if commands[0] else ""
         through = exec_form(commands[0], generator.CHECK_HOOK) if commands[0] else False
-        expected = generator.check_hooks(python, root, *((python,) if through else ()))[event]
+        expected = generator.check_hooks(python, root, *((python,) if through else ()), stop=stop)[event]
         if len(owned) != 1 or not Path(python).is_absolute() or not is_file(Path(python)) or entry != expected or \
                 (through and not os.access(python, os.X_OK)):
             findings.append(f"stale {event} check hook: {path}")
@@ -557,16 +566,21 @@ def check_owner(handler, scripts, generator, python=None):
     """True for a check-hook handler in exactly a form check_hooks() prints, for any of its events.
 
     <python> -I <root>/scripts/checks/agent_hook.py <event>, with one of our scripts and a Python
-    interpreter, or <house-rules> exec --hook scripts/checks/agent_hook.py <event>.
+    interpreter, or <house-rules> exec --hook scripts/checks/agent_hook.py <event>; Stop may add --block.
     """
     command = handler.get("command") if isinstance(handler, dict) else None
     try:
         tokens = shlex.split(command) if isinstance(command, str) else []
     except ValueError:
         tokens = []
-    if len(tokens) == 4 and tokens[1] == "-I" and tokens[2] in scripts and tokens[3] in generator.CHECK_EVENTS:
+    if len(tokens) in (4, 5) and tokens[1] == "-I" and tokens[2] in scripts and check_arguments(tokens[3:], generator):
         return bool(PYTHON.fullmatch(Path(tokens[0]).name) or same_file(tokens[0], python or sys.executable))
-    return exec_form(tokens, generator.CHECK_HOOK) and len(tokens) == 5 and tokens[4] in generator.CHECK_EVENTS
+    return exec_form(tokens, generator.CHECK_HOOK) and check_arguments(tokens[4:], generator)
+
+
+def check_arguments(arguments, generator):
+    """The arguments of one check-hook handler: an event, or `Stop --block`."""
+    return arguments in ([event] for event in generator.CHECK_EVENTS) or arguments == ["Stop", "--block"]
 
 
 def session_arguments(arguments):
@@ -645,7 +659,7 @@ def install_hooks(root, hook_root, home, python, report, generator=None, command
     content changed as the key Codex trusts it by (<file>:<event>:<entry>:<handler>), because Codex
     skips such a handler until the operator trusts it in /hooks.
 
-    A check hook CHECK_HOOKS_OFF names is removed and not added.
+    A check hook CHECK_HOOKS_OFF names is removed and not added; CHECK_HOOKS_STOP picks the Stop entry's mode.
 
     Removes House Rules handlers of any recorded root and receipt-listed replaced hooks, keeps every
     other entry and setting, backs up an existing file beside it and replaces the file atomically.
@@ -668,7 +682,7 @@ def install_hooks(root, hook_root, home, python, report, generator=None, command
     scripts = {str(Path(other) / "scripts/session_context.py") for other in roots}
     check_scripts = {str(Path(other) / generator.CHECK_HOOK) for other in roots}
     replaced = replaced_hooks(root)
-    off = hooks_off(root, generator.CHECK_EVENTS)
+    off, stop = check_hook_settings(root, generator.CHECK_EVENTS, generator.STOP_MODES)
     owners = {"SessionStart": lambda handler: owner(handler, scripts, replaced, python) is not None,
               **{event: lambda handler: check_owner(handler, check_scripts, generator, python)
                  for event in generator.CHECK_EVENTS}}
@@ -694,7 +708,7 @@ def install_hooks(root, hook_root, home, python, report, generator=None, command
         for handle, real, name, product in folders:
             expected = {"SessionStart": generator.hooks(product, python, hook_root, *through),
                         **{event: None if event in off else entry
-                           for event, entry in generator.check_hooks(python, hook_root, *through).items()}}
+                           for event, entry in generator.check_hooks(python, hook_root, *through, stop=stop).items()}}
             with inside(handle):
                 changed = install_one(real, name, expected, owners, report)
             for event, index, handler in changed if product == "codex" else ():

@@ -1255,6 +1255,37 @@ class CheckHookTests(SyncFixture, unittest.TestCase):
                       f"{self.codex_hooks.resolve()}:pre_tool_use:0:0", out)
         self.assertIn(f"{self.codex_hooks.resolve()}:stop:1:0", out)
 
+    def test_the_stop_mode_setting_installs_and_verifies_the_blocking_stop_hook(self):
+        self.assertEqual(shlex.split(self.checks["Stop"]["hooks"][0]["command"])[3:], ["Stop"])  # warns by default
+        self.write(self.root / "custom/sync.env", "CHECK_HOOKS_STOP=block\n")
+        code, out, err = self.invoke()
+        self.assertEqual(code, 1, out + err)
+        for path in (self.settings, self.codex_hooks):
+            self.assertIn(f"REPORT: stale Stop check hook: {path}", out)
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        blocking = context.check_hooks(sys.executable, self.root, stop="block")
+        self.assertEqual(shlex.split(blocking["Stop"]["hooks"][0]["command"])[3:], ["Stop", "--block"])
+        for path in (self.settings, self.codex_hooks):
+            hooks = self.read(path)["hooks"]
+            self.assertEqual(hooks["Stop"][-1], blocking["Stop"])
+            self.assertEqual(len(hooks["Stop"]), 2)  # the warning entry was replaced, not kept beside it
+            self.assertEqual(hooks["PreToolUse"], [self.checks["PreToolUse"]])
+        self.assertIn(f"TRUST: Codex runs this hook only after the operator trusts it in /hooks: "
+                      f"{self.codex_hooks.resolve()}:stop:1:0", out)
+        (self.root / "custom/sync.env").unlink()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 0, out + err)
+        self.assertEqual(self.read(self.settings)["hooks"]["Stop"][-1], self.checks["Stop"])
+
+    def test_an_unknown_stop_mode_is_an_error_and_writes_nothing(self):
+        self.write(self.root / "custom/sync.env", "CHECK_HOOKS_STOP=strict\n")
+        before = self.settings.read_text()
+        code, out, err = self.invoke("--install-hooks")
+        self.assertEqual(code, 2, out + err)
+        self.assertIn("CHECK_HOOKS_STOP must be one of warn, block, not 'strict'", err)
+        self.assertEqual(self.settings.read_text(), before)
+
     def test_an_unknown_name_in_the_off_switch_is_an_error_and_writes_nothing(self):
         self.turn_off("Stop,PostToolUse")
         before = self.settings.read_text()

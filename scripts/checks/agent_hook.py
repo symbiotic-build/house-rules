@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run the House Rules checks as Claude Code and Codex hooks.
 
-Usage: agent_hook.py PreToolUse | Stop | UserPromptSubmit   (the hook input on standard input)
+Usage: agent_hook.py PreToolUse | Stop [--block] | UserPromptSubmit   (the hook input on standard input)
 
 INSTALL-AGENTS.md §3 step 10 registers one hook per event. Claude Code and Codex send the same
 input fields for these events and read the same two channels from the hook, so one form serves
@@ -12,12 +12,13 @@ context for the model.
   refused command is blocked before it runs, with each refusal as the reason. Any other tool
   passes.
 - Stop: runs report_check.py on the final message (`last_assistant_message`), and
-  question_format.py too when the message holds a numbered question heading. On a finding it
-  blocks the stop once with the findings, so the agent rewrites the message. When the harness
-  says a stop hook already continued this turn (`stop_hook_active`), the stop goes through and
-  one line is appended to check-hooks.jsonl in the state folder ($XDG_STATE_HOME/house-rules, by
-  default ~/.local/state/house-rules), with the session id and the rules the message still breaks.
-  A warning names those rules; when the line cannot be written, the warning says so too.
+  question_format.py too when the message holds a numbered question heading. It warns by default,
+  because these checks still find faults in ordinary messages: on a finding the stop goes through,
+  a warning names the broken rules, and one line is appended to check-hooks.jsonl in the state
+  folder ($XDG_STATE_HOME/house-rules, by default ~/.local/state/house-rules) with the session id,
+  the mode and those rules. When the line cannot be written, the warning says so too. With
+  --block it blocks the stop once with the findings, so the agent rewrites the message; when the
+  harness says a stop hook already continued this turn (`stop_hook_active`), it warns and records.
 - UserPromptSubmit: runs blocker_classify.py on the operator's message (`prompt`). It never
   blocks. When the message names an operator-only blocker, it prints the class and the action.
 
@@ -74,7 +75,7 @@ def asks_numbered_question(text):
     return False
 
 
-def stop(data, stdout, stderr):
+def stop(data, stdout, stderr, block=False):
     message = data.get("last_assistant_message")
     if not isinstance(message, str) or not message.strip():
         return 0
@@ -83,17 +84,18 @@ def stop(data, stdout, stderr):
         found += question_format.check(message)
     if not found:
         return 0
-    if data.get("stop_hook_active") is not True:
+    rewritten = data.get("stop_hook_active") is True
+    if block and not rewritten:
         stderr.write("House Rules report check: the final message breaks these rules (rules/writing.md §Claim "
                      "labels and §Checks before sending, rules/session-writing.md §Questions to the operator). "
                      f"Rewrite the message and send it again:\n{listed(found)}\n")
         return BLOCK
     record = {"time": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()), "event": "Stop",
-              "session_id": data.get("session_id"), "released": True,
+              "session_id": data.get("session_id"), "mode": "block" if block else "warn",
               "rules": sorted({f"{item['check']}.{item['rule']}" for item in found})}
     path = state_folder() / STATE_FILE
-    warning = (f"House Rules report check: the rewritten final message still breaks {len(found)} rule(s) "
-               f"({', '.join(record['rules'])}); the stop went through")
+    warning = (f"House Rules report check: the {'rewritten ' if block and rewritten else ''}final message "
+               f"breaks {len(found)} rule(s) ({', '.join(record['rules'])}); the stop went through")
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as stream:
@@ -124,8 +126,9 @@ EVENTS = {"PreToolUse": pre_tool_use, "Stop": stop, "UserPromptSubmit": user_pro
 
 def main(argv=None, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr):
     argv = sys.argv[1:] if argv is None else argv
-    if len(argv) != 1 or argv[0] not in EVENTS:
-        stderr.write(f"usage: agent_hook.py {' | '.join(EVENTS)}   (the hook input on standard input)\n")
+    if not (argv in ([event] for event in EVENTS) or argv == ["Stop", "--block"]):
+        stderr.write("usage: agent_hook.py PreToolUse | Stop [--block] | UserPromptSubmit   "
+                     "(the hook input on standard input)\n")
         return findings.INPUT_ERROR
     try:
         data = json.loads(stdin.read())
@@ -135,6 +138,8 @@ def main(argv=None, stdin=sys.stdin, stdout=sys.stdout, stderr=sys.stderr):
     if not isinstance(data, dict):
         stderr.write(f"House Rules {argv[0]} hook: the hook input is not a JSON object\n")
         return findings.INPUT_ERROR
+    if argv[0] == "Stop":
+        return stop(data, stdout, stderr, block=argv[1:] == ["--block"])
     return EVENTS[argv[0]](data, stdout, stderr)
 
 

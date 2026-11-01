@@ -74,12 +74,17 @@ status 2 with a reason on standard error blocks, and standard output on exit 0 i
 | Event | Check | Input field read | Effect |
 |---|---|---|---|
 | `PreToolUse` (tool `Bash`) | `build_command.py` | `tool_input.command` | blocks a refused command |
-| `Stop` | `report_check.py`, `question_format.py` | `last_assistant_message`, `stop_hook_active` | blocks the stop once |
+| `Stop` | `report_check.py`, `question_format.py` | `last_assistant_message`, `stop_hook_active` | warns; blocks the stop once when set to `block` |
 | `UserPromptSubmit` | `blocker_classify.py` | `prompt` | adds a blocker's class and action as context |
 
 Verified 2026-11-01 against the hook input schemas in Claude Code 2.1.291 and Codex CLI
 0.159.1. Both send the final message in `last_assistant_message`, so the `Stop` hook does
 not read the transcript. Kimi Code and Hermes have no check hooks yet.
+
+The `Stop` hook warns by default: on a finding the stop goes through, the operator sees the
+broken rules, and the finding is recorded. The report and question checks still find faults
+in ordinary messages, and a blocking hook would send such turns back. `CHECK_HOOKS_STOP=block`
+(§6) makes it block the stop once instead, so the agent rewrites the message.
 
 Kimi Code runs `SessionStart` hooks but discards their output, so Kimi gets the rules with
 the first prompt of each session. Kimi 2.2.0 and later keep that prompt's hook output
@@ -230,8 +235,10 @@ For each selected product and configuration home:
     The installer also registers the check hooks (§1 check-hook table): one entry each for
     `PreToolUse`, `Stop` and `UserPromptSubmit`, running `scripts/checks/agent_hook.py` with
     the event name. `scripts/session_context.py check-hooks "<HOUSE_RULES_ROOT>"` prints them
-    for registration by hand. `CHECK_HOOKS_OFF` in `custom/sync.env` (§6) turns check hooks
-    off: the installer removes their entries and verification expects them absent.
+    for registration by hand; add `--stop block` for the blocking `Stop` entry. In
+    `custom/sync.env` (§6), `CHECK_HOOKS_OFF` turns check hooks off: the installer removes
+    their entries and verification expects them absent. `CHECK_HOOKS_STOP=block` registers
+    `Stop --block` in place of the warning `Stop` entry.
 
     Then run the installer with a Python 3.9 or later interpreter that agent sessions can run:
 
@@ -244,7 +251,7 @@ For each selected product and configuration home:
     form the installer prints, for the current or a previous root:
     `<python> -I <root>/scripts/session_context.py` followed by `claude <n>`, `codex`,
     `approved` or `approved codex`; `<python> -I <root>/scripts/checks/agent_hook.py` followed
-    by a check-hook event; the same scripts run through `house-rules exec --hook`; or a command
+    by a check-hook event or `Stop --block`; the same scripts run through `house-rules exec --hook`; or a command
     a JSON receipt lists under `replaced_hooks`. Nothing else is inferred from a command. The
     installer backs up a changed file beside it under a new name, readable only by its owner,
     replaces it atomically, and prints each backup and each file it writes as soon as it
@@ -363,7 +370,8 @@ Filesystem verification:
   and `groundwork:` markers too) and retains its surrounding operator content;
 - every Claude Code, Codex and Kimi Code hook file holds exactly the §3 step 10 entry and
   retains its other entries; every Claude Code and Codex hook file holds exactly one entry
-  for each check hook that `CHECK_HOOKS_OFF` does not turn off, and none for one it does;
+  for each check hook that `CHECK_HOOKS_OFF` does not turn off, in the `CHECK_HOOKS_STOP`
+  mode, and none for one it does;
 - no other scanned Skill folder or parent-folder instruction file holds a stale House
   Rules, Forge or Groundwork entry, or an entry for a removed House Rules Skill;
 - no owned link or alias to a removed helper remains;
@@ -438,7 +446,7 @@ then every configured home's managed block, missing or stale Skill links, owned 
 removed Skills, and same-name entries in the other scanned Skill folders. It checks that
 every Claude Code, Codex and Kimi Code home holds exactly the §3 step 10 hook entry, run by an
 existing interpreter, and that the injected rules fit the hook's parts. It checks the Claude Code
-and Codex check hooks the same way, against `CHECK_HOOKS_OFF`. Reading Kimi's
+and Codex check hooks the same way, against `CHECK_HOOKS_OFF` and `CHECK_HOOKS_STOP`. Reading Kimi's
 `config.toml` needs Python 3.11 or later; an older interpreter reports the Kimi hook as not
 checked. Git and
 filesystem errors reach the caller. Findings collected before a verification error are
@@ -465,12 +473,16 @@ The script parses these assignments as data; it never executes shell code or exp
 variables. Extra homes must exist, and extra Codex homes must meet §1's identification
 rule. Without this file, only the baseline homes are checked.
 
-The same file holds the check-hook switch. `CHECK_HOOKS_OFF` lists the check hooks (§3
-step 10) to turn off, comma-separated without spaces: `PreToolUse`, `Stop`,
-`UserPromptSubmit`. An unknown name is an error. Run `--install-hooks` after changing it.
+The same file holds the check-hook settings. Run `--install-hooks` after changing one.
+
+- `CHECK_HOOKS_OFF` lists the check hooks (§3 step 10) to turn off, comma-separated without
+  spaces: `PreToolUse`, `Stop`, `UserPromptSubmit`. An unknown name is an error.
+- `CHECK_HOOKS_STOP` is `warn` (the default) or `block`. With `block`, a final message with a
+  finding is sent back once for a rewrite. Any other value is an error.
 
 ```sh
-CHECK_HOOKS_OFF=Stop,PreToolUse
+CHECK_HOOKS_OFF=PreToolUse
+CHECK_HOOKS_STOP=block
 ```
 
 ```sh

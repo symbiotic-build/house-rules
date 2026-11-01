@@ -21,9 +21,10 @@ checkout, as an install from before the House Rules command has it.
   session_context.py hooks <product> --command <house-rules>
                                      the same entry run through the House Rules command, which
                                      resolves the repository's House Rules version first
-  session_context.py check-hooks [<root> | --command <house-rules>]
+  session_context.py check-hooks [<root> | --command <house-rules>] [--stop warn|block]
                                      the PreToolUse, Stop and UserPromptSubmit entries that run
-                                     scripts/checks/agent_hook.py, for Claude Code and Codex alike
+                                     scripts/checks/agent_hook.py, for Claude Code and Codex alike;
+                                     the Stop hook warns unless --stop block
 
 Kimi Code passes no session-start hook output to the model, so for Kimi a UserPromptSubmit
 hook prints the rules once per session id. Kimi 2.2.0 and later keep that output through
@@ -58,6 +59,7 @@ TIMEOUT = 10      # Seconds each product waits for one hook.
 ERROR = "HOUSE RULES HOOK ERROR:"
 CHECK_HOOK = "scripts/checks/agent_hook.py"  # the check hooks registered beside SessionStart
 CHECK_EVENTS = ("PreToolUse", "Stop", "UserPromptSubmit")
+STOP_MODES = ("warn", "block")  # what the Stop check hook does on a finding; warn is the default
 RULESET = "ruleset.json"  # House Rules' own defaults; its context lists the files every session receives
 LOCAL_INDEX = "custom/INDEX.md"
 RESOLUTION_HEAD = "\n===== House Rules resolution =====\n"
@@ -631,18 +633,22 @@ def hooks(product, python=None, base=None, house_rules=None):
     return {"hooks": handlers}
 
 
-def check_hooks(python=None, base=None, house_rules=None):
+def check_hooks(python=None, base=None, house_rules=None, stop="warn"):
     """{event: entry} for the check hooks INSTALL-AGENTS.md §3 registers beside SessionStart.
 
     Claude Code and Codex take the same entries: scripts/checks/agent_hook.py reads both products'
-    hook input. PreToolUse runs only on shell tool calls, which both products name `Bash`.
+    hook input. PreToolUse runs only on shell tool calls, which both products name `Bash`. The Stop
+    hook warns; with stop="block" it blocks the stop once (`Stop --block`).
     """
+    if stop not in STOP_MODES:
+        raise ValueError(f"no Stop hook mode {stop}; the modes are {', '.join(STOP_MODES)}")
     python, base = python or sys.executable, base or root()
     if house_rules:
         python = HouseRulesCommand(house_rules)
+    arguments = {"Stop": ["Stop", "--block"] if stop == "block" else ["Stop"]}
     return {event: {**({"matcher": "Bash"} if event == "PreToolUse" else {}), "hooks": [
-        {"type": "command", "command": command(python, base, event, script=CHECK_HOOK), "timeout": TIMEOUT}]}
-        for event in CHECK_EVENTS}
+        {"type": "command", "command": command(python, base, *arguments.get(event, [event]), script=CHECK_HOOK),
+         "timeout": TIMEOUT}]} for event in CHECK_EVENTS}
 
 
 def kimi_toml(python=None, base=None, house_rules=None):
@@ -672,10 +678,11 @@ def main(argv):
         elif argv == ["kimi", "prompt"]:
             kimi_prompt(sys.stdin, sys.stdout)
             output = ""
-        elif len(argv) in (1, 2) and argv[0] == "check-hooks":
-            output = json.dumps(check_hooks(base=Path(argv[1]) if len(argv) == 2 else None), indent=2)
-        elif len(argv) == 3 and argv[0] == "check-hooks" and argv[1] == "--command":
-            output = json.dumps(check_hooks(house_rules=argv[2]), indent=2)
+        elif argv[:1] == ["check-hooks"] and (len(argv) <= 2 or argv[1] == "--command" or argv[-2] == "--stop"):
+            rest, stop = (argv[1:-2], argv[-1]) if argv[-2:-1] == ["--stop"] else (argv[1:], "warn")
+            through = rest[1] if rest[:1] == ["--command"] and len(rest) == 2 else None
+            output = json.dumps(check_hooks(base=Path(rest[0]) if rest and not through else None,
+                                            house_rules=through, stop=stop), indent=2)
         elif len(argv) == 4 and argv[0] == "hooks" and argv[2] == "--command":
             output = (kimi_toml(house_rules=argv[3]).rstrip("\n") if argv[1] == "kimi" else
                       json.dumps(hooks(argv[1], house_rules=argv[3]), indent=2))
@@ -686,7 +693,7 @@ def main(argv):
         else:
             sys.exit(f"usage: session_context.py claude <1-{SLOTS}> | codex | approved [codex] | kimi prompt | "
                      "hooks <claude|codex|kimi> [<root> | --command <house-rules>] | "
-                     "check-hooks [<root> | --command <house-rules>]")
+                     "check-hooks [<root> | --command <house-rules>] [--stop warn|block]")
     except (OSError, ValueError, UnicodeDecodeError) as error:
         # The hook's output is the only channel the model sees; print the failure there.
         output = f"{ERROR} {error}"
