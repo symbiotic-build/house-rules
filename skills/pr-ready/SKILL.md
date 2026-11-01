@@ -77,10 +77,8 @@ Verification invariant: rules/delivery.md §Verification. Local build and test s
   `operator-writing` §GitHub text. A review-round commit states each fixed finding as
   before → now and cites no file outside the repository.
 - Open PRs as drafts (`gh pr create --draft`) while work is in progress; mark them ready
-  (`gh pr ready`) only once the local gate passes. After a reported build-queue timeout
-  under [Local builds](../../prompts/skills/local-builds.md), CI passing on the exact head
-  stands in for the local gate; the PR keeps the report that local verification did not
-  run. Ready means "review this": a server-side
+  (`gh pr ready`) once CI passes on the exact head. Local runs give feedback while working;
+  they do not gate readiness. Ready means "review this": a server-side
   review gate reviews each new head of a ready PR and ignores drafts. Draft status does
   not change the complete-fix push rule in rules/git.md.
 - Push; wait for CI to finish green on the exact head commit.
