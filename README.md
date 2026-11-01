@@ -59,26 +59,6 @@ reachable, they are mirrored to issues on its project board. The
 sync, branches, and pull requests; on GitHub, agents use `gh` with the `project` token
 scope.
 
-## Record and undo rule changes
-
-[rules_ledger.py](scripts/rules_ledger.py) keeps one installation's change ledger:
-`ledger.jsonl` in `$XDG_STATE_HOME/house-rules`, by default `~/.local/state/house-rules`.
-Each record names the time, the actor kind (`human`, `agent` or `service`), the file, the
-content hashes before and after, the reason and the source pull request. The contents are
-stored by hash beside the ledger, so any record can be undone.
-
-```sh
-python3 scripts/rules_ledger.py write rules/core.md --actor agent --reason "why" --pr "#52" < new-core.md
-python3 scripts/rules_ledger.py list
-python3 scripts/rules_ledger.py rollback <id>
-```
-
-`write` replaces the file and appends its record. `rollback` restores the record's before
-content and appends a rollback record, which can itself be rolled back.
-`rules_changelog.py --ledger` records each rule file that a merged pull request changed, once
-per commit and file; [pr-ready](skills/pr-ready/SKILL.md) §4 runs it after each merge.
-The tests run in a temporary home: `python3 -B -m unittest scripts/test_rules_ledger.py`.
-
 ## Check messages and commands
 
 Two scripts in [scripts/checks/](scripts/checks) check a rule mechanically before an agent
@@ -136,7 +116,7 @@ CI runs two workflows on every push and pull request. Both install the pinned do
 tooling first.
 
 - [Checks](.github/workflows/checks.yml) checks the report linter's JavaScript syntax. It
-  runs the installation sync tests, the change ledger tests, the message and command check
+  runs the installation sync tests, the message and command check
   tests and the transcript extraction tests. It prepares every
   role and lens as the review service does, and tests that staging check.
 - [Specification documents](.github/workflows/spec-docs.yml) checks the supported runtime

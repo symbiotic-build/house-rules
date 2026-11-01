@@ -13,31 +13,20 @@ frozen archive of entries recorded before this; it stays approval evidence.
   rules_changelog.py --check [--repo PATH] [--rev REV]  list first-parent merges that changed
                                                         rule text without a Rule changes
                                                         section; exit 1 when any exist
-  rules_changelog.py --ledger [--repo PATH] [--rev REV] record each rule file that a
-                                                        first-parent commit in REV changed in
-                                                        the change ledger (scripts/rules_ledger.py),
-                                                        once per commit and file
 
 --check starts at the commit on REV's first-parent line that brought this script in (for a
 merged pull request, its merge commit): merges before it predate the convention, including
 merges that landed while the script's branch was still open.
 
---ledger covers merge commits and squash merges alike. A record's reason is the commit's Rule
-changes section, or its subject when it has none; its source pull request is the `#N` the
-subject names.
-
 Rule text is what the preparer's rule-change report covers at each merge's first parent:
 its default rule paths plus that commit's .rule-changes.json extensions.
 """
 import argparse
-import datetime
 import pathlib
-import re
 import subprocess
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[3] / "scripts"))  # rules_ledger
 import prepare  # noqa: E402
 
 
@@ -93,56 +82,13 @@ def missing(repo, rev):
             if section(body) is None and (paths := changed_rules(repo, sha))]
 
 
-def content(repo, rev, path):
-    """The file's bytes at rev, or None when rev has no such file."""
-    if not git(repo, "ls-tree", rev, "--", path):
-        return None
-    return subprocess.run(["git", "-C", str(repo), "cat-file", "blob", f"{rev}:{path}"], check=True,
-                          capture_output=True, stdin=subprocess.DEVNULL).stdout
-
-
-def record(repo, rev):
-    """Append a ledger record for each rule file each first-parent commit in rev changed, unless
-    the ledger already holds that commit and file. Returns the new records, oldest first."""
-    import rules_ledger  # only this mode needs the ledger and its file lock
-    root = pathlib.Path(repo).resolve()
-    out = git(repo, "log", "--first-parent", "--reverse", "--format=%H%x1f%cI%x1f%s%x1f%b%x1e", rev)
-    with rules_ledger.locked():
-        seen = {(entry.get("commit"), entry["file"]) for entry in rules_ledger.entries()}
-        records = []
-        for line in out.split("\x1e"):
-            if not line.strip():
-                continue
-            sha, time, subject, body = line.strip("\n").split("\x1f", 3)
-            if not git(repo, "rev-list", "--parents", "-n1", sha).split()[1:]:
-                continue
-            pr = re.search(r"#(\d+)", subject)
-            for path in changed_rules(repo, sha):
-                file = str(root / path)
-                if (sha, file) in seen:
-                    continue
-                entry = rules_ledger.new_record(file, content(repo, f"{sha}^1", path), content(repo, sha, path),
-                                                "service", section(body) or subject,
-                                                f"#{pr.group(1)}" if pr else None, commit=sha)
-                entry["time"] = datetime.datetime.fromisoformat(time).astimezone(
-                    datetime.timezone.utc).isoformat(timespec="seconds")
-                records.append(entry)
-        rules_ledger.append(records)
-    return records
-
-
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--repo", default=str(pathlib.Path(__file__).resolve().parents[3]))
     parser.add_argument("--rev", default="HEAD")
     parser.add_argument("--check", action="store_true")
     parser.add_argument("--section", action="store_true")
-    parser.add_argument("--ledger", action="store_true")
     args = parser.parse_args(argv)
-    if args.ledger:
-        for entry in record(args.repo, args.rev):
-            print(f"RECORDED: {entry['id']} {entry['commit'][:12]} {entry['file']}")
-        return 0
     if args.section:
         text = section(sys.stdin.read())
         if not text:

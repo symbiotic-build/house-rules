@@ -202,9 +202,6 @@ Specialist dispatch follows
   3. **Extract the section:** `python3 skills/pr-ready/scripts/rules_changelog.py --section < "$d/body.md" > "$d/section.md"`.
      It exits 1 when the body has no Rule changes section.
   4. **Merge:** `gh pr merge <n> --merge --match-head-commit <sha> --body-file "$d/section.md"`.
-  5. **Record the merge in the change ledger:** fast-forward the installed checkout to the
-     merge, then run `python3 skills/pr-ready/scripts/rules_changelog.py --ledger --rev <merge-sha>^1..<merge-sha>`
-     in it. It appends one record per changed rule file.
 
   [rules_changelog.py](scripts/rules_changelog.py) prints the rules changelog from those merge
   commits; `--check` lists rule-changing merges that lack the section. Other repositories keep
