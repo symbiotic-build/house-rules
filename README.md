@@ -79,14 +79,57 @@ content and appends a rollback record, which can itself be rolled back.
 per commit and file; [pr-ready](skills/pr-ready/SKILL.md) §4 runs it after each merge.
 The tests run in a temporary home: `python3 -B -m unittest scripts/test_rules_ledger.py`.
 
+## Check failures and commands
+
+Two scripts in [scripts/checks/](scripts/checks) check a rule mechanically: whether a failure
+needs the operator, and whether a command keeps to the local build scope. Each reads a path, or
+standard input when the path is absent or `-`, and prints one JSON object per finding. Each exits 0 on pass, 2 on fail and
+1 when the input cannot be read. They need only a Python interpreter.
+
+```sh
+python3 scripts/checks/blocker_classify.py failures.jsonl
+echo 'cargo test --workspace' | python3 scripts/checks/build_command.py
+```
+
+[blocker_classify.py](scripts/checks/blocker_classify.py) classifies failure records or a
+text. The input is a JSON object, a JSON array, JSON lines or plain text. It reads `category`
+and `reason` (also nested in `failure`, or wrapped in `record`, as a job record holds them),
+`status`, `code`, `provider_message`, `text`, and `provider`, `route` or `family` for the name
+in the action text; other fields are ignored. Text wins over the code and the status, because
+a provider can wrap an empty balance in a throttle or an account gate in a policy refusal.
+Operator-only text rules come first across all text fields, so an ordinary failure in one field
+cannot hide a blocker in another. A status counts only from the `status` field, never as a number inside text.
+Each result gives `class`, `operator_only` and `action`, the exact step to take. The
+operator-only classes are `credential`, `account`, `balance`, `quota`, `permission` and
+`protected_asset`; the others are `rate_limit`, `timeout`, `policy_refusal`, `provider_error`,
+`network`, `job_failure`, `unknown` (a record no rule matches) and `none` (a text that names no
+failure). The exit status is 2 when any input is operator-only.
+
+[build_command.py](scripts/checks/build_command.py) checks a shell command against the local
+build scope of [rules/delivery.md §Verification](rules/delivery.md#verification) and the profile
+rule of [rust-canon](skills/rust-canon/SKILL.md). It refuses `cargo test` or `cargo nextest
+run` without a package and a test-name filter (a harness option value such as `--test-threads 4`
+is not a filter), `cargo clippy` without a package and exactly one target, a cargo build without
+`--release`, and any profile other than a release profile or the debugging profile
+(`--profile debugging`, renamed with `--debug-profile`). The default name needs a
+`[profile.debugging]` in the repository's Cargo manifest; a repository that debugs on the
+development profile passes `--debug-profile dev`. It also refuses `ctest` without a test
+selection and the `test` and `check` targets of `make`, `ninja` and `cmake --build`. It splits
+the text at unquoted separators, joins backslash line continuations and ignores redirections.
+Help, version, listing and dry-run calls pass. A repository
+without pull-request CI runs its full local gate under `pr-ready` §4 without this check.
+
+The tests use synthetic examples only:
+`python3 -B -m unittest discover -s scripts/checks -p 'test_*.py'`.
+
 ## Verify
 
 CI runs two workflows on every push and pull request. Both install the pinned documentation
 tooling first.
 
 - [Checks](.github/workflows/checks.yml) checks the report linter's JavaScript syntax. It
-  runs the installation sync tests, the change ledger tests and the transcript extraction
-  tests. It prepares every
+  runs the installation sync tests, the change ledger tests, the failure and command check
+  tests and the transcript extraction tests. It prepares every
   role and lens as the review service does, and tests that staging check.
 - [Specification documents](.github/workflows/spec-docs.yml) checks the supported runtime
   and pins. It runs the documentation checker tests and the pr-ready script tests. It
