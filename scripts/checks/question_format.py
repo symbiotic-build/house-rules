@@ -24,11 +24,12 @@ ANSWER = "**Answer like so:**"
 CONTEXT_FLAGS = ("FACT", "ASSESSMENT")
 # Work the agent's own team does: the rule lists tests, replays and verification as examples.
 TEAM_WORK = re.compile(
-    r"\b(verify|verification|replay|reproduce|re-?run|re-?test|benchmark)\b|"
+    # The agent offers to do the work: "Should I rerun …", "Do you want me to test …".
+    r"\b(i|we|me|us)\b.{0,20}\b(verify|re-?test|test|replay|reproduce|re-?run|benchmark)\b|"
+    # The operator is asked to run it: "Can you run the tests?", "Can you test the upload?".
     r"\b(run|start|do|perform|execute|repeat|redo|write|add)\b.{0,40}\b(tests?|testing|replays?|verification|"
     r"benchmarks?|reproductions?|spot[- ]checks?)\b|"
-    # "test" as a verb ("Should I test the upload?"), not as a modifier ("the test account").
-    r"\b(i|we|you|please) (re-?)?test\b|\btest (it|this|that|them|these|those|the|a|an)\b", re.IGNORECASE)
+    r"\btest (it|this|that|them|these|those|the|a|an)\b", re.IGNORECASE)
 # A request for more context starts with a request word, after an optional "please" or "could you"
 # (lead decision). Known limit: a statement that opens with a question word ("what we need is clear") passes.
 CONTEXT_REQUEST = re.compile(r"^(please |could you |can you |would you )?(explain|elaborate|expand|clarify|describe|"
@@ -97,7 +98,7 @@ def check(text):
         elif not line.code and OPTION.match(line.text) and "(recommended)" in line.text:
             loose.append(line)
         elif not line.code and any(md.mask(sentence).rstrip("*_ ").endswith("?")
-                                   for _, sentence in md.sentences(line.text.strip())):
+                                   for sentence in md.sentences(line.text.strip())):
             asked_in_prose.append(line)
 
     for line in loose:
@@ -110,7 +111,8 @@ def check(text):
             CHECK, "question_outside_heading", "the text asks the operator a question outside a question heading; "
             "write it as `### N\\. …?` under a level-2 topic, or state it without a question", line.number))
 
-    expected = 1
+    # A follow-up keeps its question's number, so the list may start above 1; it counts on from there.
+    expected = next((question.number for question in questions if question.number is not None), 1)
     seen = {}
     for question in questions:
         found.extend(check_heading(question, expected, seen))
@@ -182,22 +184,18 @@ def check_body(question):
             result.append(findings.finding(CHECK, "question_extra",
                                            "a question holds a reply line or an answer box; the answer example "
                                            "at the end shows how to answer", line.number))
-        bullet = md.LIST_ITEM.match(line.text)
-        if bullet and bullet.group(2) is None and ("(recommended)" in bullet.group(3)
-                                                   or BOLD_LINE.match(bullet.group(3).strip())):
-            result.append(findings.finding(CHECK, "options_not_numbered",
-                                           "a choice is written as a bullet; write the options as a numbered list "
-                                           "so the operator can answer with a number", line.number))
-    # The context: the first paragraph under the heading, before any list.
+    bullets = [line for line in prose if (item := md.LIST_ITEM.match(line.text)) and item.group(2) is None]
+    if bullets and not any(OPTION.match(line.text) for line in prose):
+        result.append(findings.finding(CHECK, "options_not_numbered",
+                                       "the question lists items as bullets and has no numbered options; write a "
+                                       "choice as a numbered list", bullets[0].number))
+    # The context: every prose line under the heading before the first list, blank lines included.
     context = []
     for line in prose:
-        if not line.text.strip():
-            if context:
-                break
-            continue
         if md.LIST_ITEM.match(line.text):
             break
-        context.append(line)
+        if line.text.strip():
+            context.append(line)
     if not context:
         result.append(findings.finding(CHECK, "context_missing",
                                        "the question has no context line below its heading", question.line))
@@ -217,7 +215,7 @@ def check_context(context):
                                            "a backslash may be followed by the line on what happens next",
                                            context[1].number))
     text = first.text.strip().rstrip("\\").rstrip()
-    for _, sentence in md.sentences(text):
+    for sentence in md.sentences(text):
         flag = re.match(r"`(\w+)`", sentence)
         if not flag or flag.group(1) not in CONTEXT_FLAGS:
             got = f"starts with `{flag.group(1)}`" if flag else "has no flag"

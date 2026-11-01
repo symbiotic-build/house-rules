@@ -14,6 +14,7 @@ CODE_SPAN = re.compile(r"(`+)(.+?)\1")
 LINK_TARGET = re.compile(r"\]\(([^)\s]*)\)")
 LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 QUOTED = re.compile(r"\"[^\"\n]*\"|“[^”\n]*”")
+BOLD_START = re.compile(r"^\*\*[^*]+\*\*")
 SENTENCE_END = re.compile(r"[.?!][\"”’')\]*_]*(?=\s|$)")
 
 
@@ -92,20 +93,25 @@ def mask(text):
 
 
 def sentences(text):
-    """The sentences of one paragraph, each as (offset, text), split as rules/writing.md counts them."""
+    """The sentences of one paragraph, split as rules/writing.md counts them."""
     masked = mask(text)
     result = []
     start = 0
     for match in SENTENCE_END.finditer(masked):
-        end = match.end()
-        piece = text[start:end].strip()
+        piece = text[start:match.end()].strip()
         if piece:
-            result.append((start + len(text[start:end]) - len(text[start:end].lstrip()), piece))
-        start = end
+            result.append(piece)
+        start = match.end()
     tail = text[start:].strip()
     if tail:
-        result.append((start + len(text[start:]) - len(text[start:].lstrip()), tail))
+        result.append(tail)
     return result
+
+
+def bold_start(text):
+    """The bold span a line opens with (`**…**`), found outside code spans, or ""."""
+    match = BOLD_START.match(mask(text))
+    return text[:match.end()] if match else ""
 
 
 def first_label(sentence):

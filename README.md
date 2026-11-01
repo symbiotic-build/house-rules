@@ -96,8 +96,9 @@ echo 'cargo test --workspace' | python3 scripts/checks/build_command.py
 [question_format.py](scripts/checks/question_format.py) checks the questions of an operator
 message against [rules/session-writing.md §Questions to the operator](rules/session-writing.md#questions-to-the-operator).
 A question is a numbered level-3 heading under a level-2 topic, with its number escaped
-(`### 1\.`) and unique across the message. Each context sentence starts with `FACT` or
-`ASSESSMENT`, on one source line. A choice has one flat numbered option list with exactly one
+(`### 1\.`) and unique across the message; numbers count on from the first question, so a
+follow-up keeps its question's number. Each context sentence starts with `FACT` or
+`ASSESSMENT`, on one source line. Every prose line before the first list is context. A choice has one flat numbered option list with exactly one
 whole-bold line ending in "(recommended)". The list ends with **Answer like so:** and a
 three-line `text` example after the last question, showing an option number, a request for
 more context and `ok`. The request line starts with a request word ("explain", "show", "more",

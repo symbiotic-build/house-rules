@@ -48,7 +48,6 @@ ELSEWHERE = [
                r"holds|contains)\b", re.IGNORECASE),
     re.compile(r"\bas (?:discussed|agreed) (?:earlier|before)?", re.IGNORECASE),
 ]
-BOLD_START = re.compile(r"^\*\*[^*]+\*\*")
 
 
 def has_source(claim):
@@ -70,7 +69,7 @@ def check_claims(lines):
     result = []
     for number, text, _ in md.blocks(lines):
         label = None
-        for offset, sentence in md.sentences(text):
+        for sentence in md.sentences(text):
             own = md.first_label(sentence)
             if own:
                 label = own
@@ -117,9 +116,9 @@ def labels(lines):
             continue
         item = md.LIST_ITEM.match(line.text)
         body = item.group(3) if item else line.text.strip()
-        bold = BOLD_START.match(body)
+        bold = md.bold_start(body)
         if bold:
-            result.add(normalize(bold.group(0)))
+            result.add(normalize(bold))
     return result
 
 
@@ -150,6 +149,19 @@ def check_fields(lines, fields):
             for field in fields if normalize(field) not in present]
 
 
+def operator_only_mentions(text):
+    """Every (class, matched text, offset) of an operator-only class named in a text, in text order.
+
+    It reads the classifier's own text rules, so a report names a blocker in the words the
+    classifier recognizes.
+    """
+    result = []
+    for name, pattern, _ in blocker_classify.TEXT_RULES:
+        if name in blocker_classify.OPERATOR_ONLY:
+            result.extend((name, match.group(0), match.start()) for match in pattern.finditer(text))
+    return sorted(result, key=lambda item: item[2])
+
+
 def check_blocker_line(lines):
     first = md.first_prose_line(lines)
     parsed = md.heading(first) if first else None
@@ -158,15 +170,14 @@ def check_blocker_line(lines):
         first = md.first_prose_line(lines[lines.index(first) + 1:])
     if first is None:
         return []
-    bold = BOLD_START.match(first.text.strip())
-    bold_text = bold.group(0) if bold else ""
+    bold_text = md.bold_start(first.text.strip())
     # The unbold rest of the first line counts with the body: the bold span must name each blocker.
     rest = "\n".join([first.text.strip()[len(bold_text):]] +
                      [line.text for line in lines if not line.code and line is not first])
     named = {}
-    for name, matched, _ in blocker_classify.operator_only_mentions(rest):
+    for name, matched, _ in operator_only_mentions(rest):
         named.setdefault(name, matched)
-    first_named = {name for name, _, _ in blocker_classify.operator_only_mentions(bold_text)}
+    first_named = {name for name, _, _ in operator_only_mentions(bold_text)}
     result = []
     if named and not first_named:
         result.append(findings.finding(

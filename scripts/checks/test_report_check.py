@@ -143,6 +143,14 @@ class BlockerLineTest(unittest.TestCase):
         text = "Status at 10:00 UTC.\n\n**Blocker: none named here.**\n"
         self.assertEqual(rules(text), ["blocker_first"])
 
+    def test_bold_first_line_with_a_code_wildcard_names_its_blocker(self):
+        self.assertEqual(rules("**Blocker: permission denied for `data/*`.**\n\nThe job waits.\n"), [])
+
+    def test_mentions_list_every_operator_only_class_in_order(self):
+        names = [name for name, _, _ in report_check.operator_only_mentions(
+            "Top up alpha. Beta's login expired. Gamma throttles.")]
+        self.assertEqual(names, ["balance", "credential"])
+
     def test_report_title_is_skipped(self):
         text = "# Status\n\n**Blocker, balance: top up the alpha account.**\n\nThe top-up unblocks 12 jobs.\n"
         self.assertEqual(rules(text), [])

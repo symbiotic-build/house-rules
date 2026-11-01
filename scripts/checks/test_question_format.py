@@ -62,6 +62,11 @@ class QuestionFormatTest(unittest.TestCase):
     def test_skipped_number_fails(self):
         self.assertIn("question_number_order", rules(GOOD.replace("### 2\\.", "### 3\\.")))
 
+    def test_follow_up_keeps_its_question_number(self):
+        follow_up = GOOD.replace("### 1\\.", "### 2\\.").replace("### 2\\. Send", "### 3\\. Send")
+        self.assertEqual(rules(follow_up), [])
+        self.assertIn("question_number_order", rules(follow_up.replace("### 3\\. Send", "### 5\\. Send")))
+
     def test_letter_suffix_fails(self):
         self.assertIn("question_number_suffix", rules(GOOD.replace("### 2\\.", "### 1b\\.")))
 
@@ -72,6 +77,11 @@ class QuestionFormatTest(unittest.TestCase):
     def test_assumption_flag_in_context_fails(self):
         text = GOOD.replace("`ASSESSMENT` The staging store", "`ASSUMPTION` The staging store")
         self.assertIn("context_flag", rules(text))
+
+    def test_unflagged_paragraph_after_a_blank_line_fails(self):
+        text = GOOD.replace("Either answer also applies to later imports.\n",
+                            "Either answer also applies to later imports.\n\nThe store is old.\n")
+        self.assertIn("context_wrapped", rules(text))
 
     def test_wrapped_context_line_fails(self):
         wrapped = GOOD.replace("`ASSESSMENT` The staging store fills in a week.\\",
@@ -127,6 +137,16 @@ class QuestionFormatTest(unittest.TestCase):
         text = GOOD.replace("Send the error text from the failed upload?", "Should I test the upload?")
         self.assertIn("team_work", rules(text))
 
+    def test_operator_verification_is_not_team_work(self):
+        text = GOOD.replace("Send the error text from the failed upload?", "Can you verify your account?")
+        self.assertEqual(rules(text), [])
+
+    def test_asking_the_operator_to_run_tests_is_team_work(self):
+        for title in ("Can you test the upload?", "Do you want me to test uploads?", "Can you run the tests?"):
+            with self.subTest(title=title):
+                text = GOOD.replace("Send the error text from the failed upload?", title)
+                self.assertIn("team_work", rules(text))
+
     def test_test_as_a_modifier_is_not_team_work(self):
         for title in ("Unlock the test account?", "Grant the importer access to test accounts?"):
             with self.subTest(title=title):
@@ -137,6 +157,11 @@ class QuestionFormatTest(unittest.TestCase):
         text = GOOD.replace("1. **The archive store, with one copy per day (recommended).**\n2. The staging store, "
                             "cleared by hand each week.",
                             "- **The archive store, with one copy per day (recommended).**\n- The staging store.")
+        self.assertIn("options_not_numbered", rules(text))
+
+    def test_plain_bullet_choices_fail(self):
+        text = GOOD.replace("1. **The archive store, with one copy per day (recommended).**\n2. The staging store, "
+                            "cleared by hand each week.", "- Archive store.\n- Staging store.")
         self.assertIn("options_not_numbered", rules(text))
 
     def test_indented_bullet_choices_fail(self):
