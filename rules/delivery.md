@@ -44,7 +44,10 @@
 - The check confirms that quoted source matches the source at its stated location.
 - The check measures the size distribution (minimum, median, 90th percentile, maximum, total) against the agreed shape and the model's context.
 - Run the check again after any change to the builder or its sources.
-- Put the check's output in the run's launch report.
+- The input check includes a reading check: read sample requests end to end the way the model will, at least the largest, a median one, and one per kind of target.
+- For each sampled request, list what a correct answer depends on, and confirm that each item is in the request.
+- State why each section of the request is there and its share of the tokens; remove what no question needs.
+- Put the check's output, the reading check included, in the run's launch report.
 - Single hand-written prompts and routine cheap, reproducible commands need no input check.
 - Record spend at milestones.
 - Report each paid run's start, failure and finish to the operator at once.
