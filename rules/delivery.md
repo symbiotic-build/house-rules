@@ -38,6 +38,14 @@
 - Examples include agents, model command-line interfaces, remote jobs, benchmarks, and crawls.
 - Require a durable transcript or checkpoint before the first substantive call for those runs.
 - Require a recorded session ID before that call.
+- Before an external or paid run whose input a script builds, such as prompts, request packets, maps or fixtures, check that input by script.
+- The check confirms that each item has its required parts.
+- The check confirms that the targets are the intended ones, with no duplicates and no wrong kinds.
+- The check confirms that quoted source matches the source at its stated location.
+- The check measures the size distribution (minimum, median, 90th percentile, maximum, total) against the agreed shape and the model's context.
+- Run the check again after any change to the builder or its sources.
+- Put the check's output in the run's launch report.
+- Single hand-written prompts and routine cheap, reproducible commands need no input check.
 - Record spend at milestones.
 - Report each paid run's start, failure and finish to the operator at once.
 - Include the run's identifier, its target and its spend so far in each report.
