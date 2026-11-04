@@ -25,6 +25,7 @@
 - Run a full-input run (a rebuild over a large real codebase, a whole-corpus pipeline run, any end-to-end job that takes minutes) only for an acceptance gate, or for a change whose effect shows only on the full input.
   Run it once per acceptance check.
 - After a failed full-input run, reproduce the failure on a small input before the next full run.
+  If no small input reproduces it, the next full-input run tests a fix aimed at that failure and records what it checks.
 - Keep incremental build and cache state between iteration runs.
   Start from empty state only when the check is about the cold path.
 - A worker brief names which of its checks are full-input runs.
