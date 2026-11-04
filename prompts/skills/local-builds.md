@@ -18,6 +18,17 @@
   Show that every failure also fails on the base under the same conditions.
 - Report each command with pass/fail counts.
 
+### Iteration scope
+
+- During development, size each check to the change.
+  Check a small change on the smallest input that shows it: a fixture, one package or a sample.
+- Run a full-input run (a rebuild over a large real codebase, a whole-corpus pipeline run, any end-to-end job that takes minutes) only for an acceptance gate, or for a change whose effect shows only on the full input.
+  Run it once per acceptance check.
+- After a failed full-input run, reproduce the failure on a small input before the next full run.
+- Keep incremental build and cache state between iteration runs.
+  Start from empty state only when the check is about the cold path.
+- A worker brief names which of its checks are full-input runs.
+
 ### Shared build queue
 
 - On a shared machine, run every build and test command through the machine's one build queue.
