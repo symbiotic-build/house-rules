@@ -75,18 +75,14 @@ command -v cmake                          # check: the wrapper, not the real too
   `--ignore-user-config --disable shell_snapshot`, so each reviewer is one process instead of
   the user's MCP servers, plugins and hooks.
 
-**Before a measured run.** Check the load with these commands before a benchmark or measured
-performance run starts, and apply the load rules in
+**Before a measured run.** Select the environment and record load under
 [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work).
+These commands collect shared-host measurement context; they do not gate launch.
 
 ```bash
 getconf _NPROCESSORS_ONLN                         # online cores
 sysctl -n vm.loadavg                              # macOS; Linux: cat /proc/loadavg
-ps -Ao pid,ppid,pcpu,etime,command -r | head -20  # macOS; Linux: ps -eo pid,ppid,pcpu,etime,args --sort=-pcpu
-lsof -a -d cwd -p <pid>                           # working directory: which lane owns it
 ```
-
-In the report, mark which of the heaviest processes are yours.
 
 **Waiting for another job.** Wait on its process ID or on a file it writes when it ends,
 with a deadline, and fail when the deadline passes. A `pgrep -f` pattern also matches the
