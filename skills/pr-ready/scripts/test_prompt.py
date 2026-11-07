@@ -84,8 +84,9 @@ class PromptTest(unittest.TestCase):
                 result = self.run_prompt(str(role.relative_to(ROOT)))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertNotRegex(result.stdout, r"(?m)^@rule ")
+                # The Rust canon depends on the target; packs without one never carry it.
                 for rule in (ROOT / "prompts/skills").glob("*.md"):
-                    self.assertEqual(result.stdout.count(rule.read_text()), 1)
+                    self.assertEqual(result.stdout.count(rule.read_text()), rule.name != "rust-canon.md")
 
     def test_checker_uses_shared_classes_with_cost_exception_once(self):
         role = ROOT / "prompts/roles/checker.md"
@@ -433,7 +434,8 @@ class CollectionAcceptanceTest(unittest.TestCase):
     def test_code_change_rules_are_skills_without_common_folder(self):
         rules = ROOT / "prompts/skills"
         self.assertEqual({p.stem for p in rules.glob("*.md")},
-                         {"code-canon", "local-builds", "naming-defaults", "native-first", "no-fortification", "test-discipline"})
+                         {"code-canon", "local-builds", "naming-defaults", "native-first", "no-fortification", "rust-canon",
+                          "test-discipline"})
         self.assertFalse((ROOT / "prompts/common").exists())
         self.assertTrue((ROOT / "prompts/util").is_dir())
         self.assertFalse((ROOT / "prompts/utils").exists())
@@ -1054,7 +1056,7 @@ class RuleIndexTest(unittest.TestCase):
         targets = re.findall(r"\[[^]]+\]\(([^)]+)\)", index)
         required = {"rules/core.md", "rules/outcome.md", "rules/delivery.md", "rules/writing.md",
                     "rules/git.md", "rules/priority-labels.md", "rules/session-writing.md",
-                    "rules/specifications.md",
+                    "rules/specifications.md", "prompts/skills/code-canon.md",
                     "STRUCTURE.md", "PREFERENCES.md"}
         required.update(str(path.relative_to(ROOT))
                         for path in (ROOT / "skills").glob("*/SKILL.md"))

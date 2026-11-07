@@ -1613,8 +1613,9 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
                 blocks = lambda text: Counter(part.strip() for part in re.split(r"\n\s*\n", text) if part.strip())
                 self.assertEqual(blocks(common + own), blocks(whole))
                 self.assertNotRegex(result, r"(?m)^@rule ")
+                # The Rust canon depends on the target; this target tracks no Cargo.toml.
                 for rule in (root / "prompts/skills").glob("*.md"):
-                    self.assertEqual(result.count(rule.read_text()), 1)
+                    self.assertEqual(result.count(rule.read_text()), rule.name != "rust-canon.md")
 
     def test_panel_roles_share_part_one_across_lenses_and_check_rounds(self):
         from prompt import expand_role

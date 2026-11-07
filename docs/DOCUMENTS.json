@@ -255,6 +255,11 @@
       "reason": "Agent instruction or prompt reference, not a specification or design document."
     },
     {
+      "path": "prompts/skills/rust-canon.md",
+      "kind": "other",
+      "reason": "Agent instruction or prompt reference, not a specification or design document."
+    },
+    {
       "path": "prompts/skills/test-discipline.md",
       "kind": "other",
       "reason": "Agent instruction or prompt reference, not a specification or design document."
