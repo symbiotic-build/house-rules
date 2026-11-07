@@ -15,40 +15,25 @@ Rules.
 - Cargo workspace, crates prefixed `<product>-<name>`; edition 2024 for new crates.
 - `rust-toolchain.toml` pinned and committed in every Rust repo; install Rust with rustup,
   not a system package manager.
-- Feature gates for optional subsystems (`sqlite`, `http`, `cli`, `experimental-*`);
-  experimental features default OFF and byte-identical when off.
+- Feature gates for optional subsystems (`sqlite`, `http`, `cli`, `experimental-*`).
 - Minimal dependencies — hand-roll small things before importing heavy deps. Household set: serde, serde_json,
   thiserror, anyhow, chrono, clap (derive), tokio, reqwest, rusqlite, axum, tracing.
 
 ## Code rules
 
-- `thiserror` in libraries, `anyhow` in binaries — and never `anyhow` in hot paths.
-- Never `unwrap()` in library code (tests only); errors bubble to the caller/operator —
-  no fail-open.
-- For a performance rewrite, state the measured baseline and required improvement as
-  acceptance criteria. Keep typed values and existing numeric identities through
-  performance-sensitive computation and serialization. Convert to presentation text
-  only at an output boundary that needs it. Generic value trees or reconstruction of
-  identities on these paths need a measured reason.
-- Before replacing a large representation, identify shared payloads that materially
-  control cost. Preserve useful sharing and measure distinct payloads, references and
-  encoded bytes separately. Faster writing does not excuse an unexplained storage or
-  memory regression. Do not add sharing machinery for duplication cheaper to keep.
-- Before using a serialization API per record on a high-volume path, inspect its pinned
-  implementation for allocation, copying, flushing and finalization. Keep buffering and
-  completion with the stream owner unless the format or required per-record durability
-  dictates otherwise. Confirm suspected costs with a focused profile or measurement.
-- Async on tokio; non-blocking, multi-threaded by default.
+- Rust-specific code rules: [Rust canon](../../prompts/skills/rust-canon.md).
+- Language-neutral code rules, including performance-sensitive paths and what disposable
+  code may skip: [Code canon](../../prompts/skills/code-canon.md).
+- Worker roles include the code canon. Every worker pack whose target tracks a
+  `Cargo.toml` also includes the Rust canon
+  ([prompt collection](../../prompts/README.md#one-call-pack-assembly)). A session writing
+  Rust reads both before its first edit.
 - Follow [Local builds](../../prompts/skills/local-builds.md) for build profiles. Reusing compiled outputs across gates: skill `ci-build-optimization`.
-- `///` docs on public items.
-- Property and sequence tests use `proptest`; fuzzing uses `cargo-fuzz`. When each applies:
-  [Test discipline](../../prompts/skills/test-discipline.md#systems-that-keep-durable-state).
 
 ## Repo tooling
 
-Where a repo ships build/test scripts (smoke gates, guard scripts), use them instead of
-raw commands — they encode repo law (scope checks, pinned flags) that raw cargo silently
-violates. Local test scope: [Local builds](../../prompts/skills/local-builds.md). Git itself is used directly;
+Repository build and test scripts encode repository law (scope checks, pinned flags) that
+raw cargo silently violates; the Rust canon requires them. Local test scope: [Local builds](../../prompts/skills/local-builds.md). Git itself is used directly;
 repo commit/push wrappers are retired.
 
 ## Gates

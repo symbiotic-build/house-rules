@@ -41,6 +41,7 @@ At session start and after every reset or compaction, read these files in full:
 - New projects or deliberate reconsideration of project foundations: load [project-bootstrap](skills/project-bootstrap/SKILL.md).
 - Assumptions, causal claims, or verification needing deliberate checkpoints: load [reasoning-moves](skills/reasoning-moves/SKILL.md).
 - Installing or checking repository checks in a clone, or a refused commit or push: load [repository-checks](skills/repository-checks/SKILL.md).
+- Writing, fixing or reviewing code that stays, in any language: load [code canon](prompts/skills/code-canon.md).
 - Rust implementation or crate scaffolding: load [rust-canon](skills/rust-canon/SKILL.md).
 - Writing or reviewing specs, design documents, or system maps: load [spec-writing](skills/spec-writing/SKILL.md).
 - Specifications, design documents, or their agent context: load [specification rules](rules/specifications.md).
