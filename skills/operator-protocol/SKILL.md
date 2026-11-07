@@ -30,6 +30,14 @@ when relevant (content: [rules/writing.md §Communication rules](../../rules/wri
 non-reproducible work, include the durable record and resumable session ID (rules/delivery.md
 §Verification).
 
+Name the current plan step, the question it resolves and what remains before it closes.
+Before a meaningful command group, state its purpose briefly; omit narration for trivial
+commands and unchanged status. Separate completed results, hypotheses and pending verification.
+Derive progress displays from existing work records; do not create another writable tracker.
+When repairs recur, use the campaign count under
+[rules/outcome.md §Three-occurrence reassessment](../../rules/outcome.md#three-occurrence-reassessment),
+including attempts by earlier workers.
+
 ## Decisions
 
 Use the collaboration mode recorded under rules/core.md §Autonomy. A routine implementation

@@ -60,6 +60,9 @@
 ### Three-occurrence reassessment
 
 - Reassess the mechanism before another repair on the third consecutive occurrence of the same failure class.
+- Count recurrence by the failing mechanism and requested acceptance criterion in the existing campaign record.
+- Worker restarts, renamed attempts and changed symptoms do not reset that count; unrelated defects and distinct new requirements do not share it.
+- At the threshold, the lead states why another attempt remains the cheapest valid path before it starts.
 - Follow `../prompts/skills/no-fortification.md` for repeat-defect repair order.
 - The third occurrence alone does not require operator approval.
 - Allow obvious fixes aligned with the requested outcome.
