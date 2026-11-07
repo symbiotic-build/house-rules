@@ -37,8 +37,8 @@
 - Before authorized cleanup, check whether the next planned steps need the selected artifacts.
   Preserve required development inputs or rebuild valid replacements before work resumes.
   Confirm that workers can still use the cheap inputs named in their briefs.
-  Rebuildability alone does not establish that an artifact is unused; deletion authority
-  remains in [rules/core.md §Security](../../rules/core.md#security).
+  Rebuildability alone does not establish that an artifact is unused; deletion still needs
+  the authorization the core security rules require.
 
 ### Shared build queue
 
