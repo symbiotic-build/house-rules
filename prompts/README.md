@@ -57,7 +57,9 @@ Dispatchers build every worker prompt from a named commit:
 
 The task file contains the work item's Decisions and Pre-flight sections.
 One call assembles the revision header, role, optional lens, extra includes,
-repository rules and literal task files in that order. Repeated `--include` and
+repository rules and literal task files in that order. When the target revision tracks a
+`Cargo.toml` at any depth, the pack adds [prompts/skills/rust-canon.md](skills/rust-canon.md)
+after the extra includes, once, whatever the dispatcher passed. Repeated `--include` and
 `--task` options retain their order. Rule files expand once across the whole pack.
 Cycles fail before repeat suppression. Each nonempty part ends with a newline;
 parts have one empty line between them. Task include lines remain literal.

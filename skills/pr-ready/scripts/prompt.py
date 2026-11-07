@@ -21,6 +21,7 @@ DOC_INPUTS = ("skills/pr-ready/scripts/prepare.py", DOC_TOOL, "skills/spec-writi
 DOC_METADATA = ("docs/ENTITIES.json", "docs/DOCUMENTS.json")
 INCLUDE = re.compile(r"@rule house-rules:(.*)")
 NAME = re.compile(r"[a-z0-9-]+")
+RUST_CANON = "prompts/skills/rust-canon.md"
 
 
 class PromptError(Exception):
@@ -94,6 +95,11 @@ class Commit:
         if result.returncode:
             raise PromptError("Git " + args[0] + " failed: " + result.stderr.decode("utf-8", "replace").strip())
         return result.stdout
+
+    def has_rust(self):
+        # A tracked Cargo.toml at any depth marks Rust code; one listing per pack.
+        names = self.git("ls-tree", "-r", "--name-only", "-z", self.revision).split(b"\0")
+        return any(name == b"Cargo.toml" or name.endswith(b"/Cargo.toml") for name in names)
 
     def read(self, name, *, optional=False):
         name = relative_path(name)
@@ -397,6 +403,9 @@ def build_pack(source, *, role=None, lens=None, includes=(), tasks=(), target=No
         # Mandatory shared rules own their includes before any lens can.
         requested.insert(1 if role is not None else 0, ("include", "rules/specifications.md"))
     requested.extend(("include", path) for path in includes)
+    if target is not None and target.has_rust():
+        # Every worker on a Rust target gets the Rust canon, whatever the dispatcher passed.
+        requested.append(("include", RUST_CANON))
     if structured and lens is not None:
         requested.append(("lens", f"prompts/lenses/{lens}.md"))
     for kind, path in requested:
