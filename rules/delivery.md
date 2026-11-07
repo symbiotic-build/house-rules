@@ -2,6 +2,10 @@
 
 ## Verification
 
+- Include verification and diagnostic tools in the workload's memory design for large artifacts.
+- Before expanding a compact artifact, account for decoded copies and parent and child process memory.
+- Prefer direct typed views or record streaming; serialize heavy readers until their combined memory use is verified.
+- Measure checker peaks before increasing input size or concurrency.
 - Add behavior-named red-to-green regression tests for product defects and documented invariants.
 - Prove harness repairs with only the smallest evidence that restores trust.
 - Prefer direct product-behavior evidence.
