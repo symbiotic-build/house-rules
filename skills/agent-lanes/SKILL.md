@@ -168,6 +168,7 @@ git worktree remove <wt> && git branch -D <branch>; git worktree prune
   unexpected exits, regression stops or an agreed heartbeat, including requested frequent updates.
   Do not wake the lead merely to rearm an unchanged monitor.
   A display restart must not break worker-completion delivery.
+  Feed each run's concrete counters into status lines.
   Prove work is running with its process name, output path or dashboard link.
   The [pull-request watcher](scripts/watch_prs.py) implements prime rule 15 for pull-request changes and periodic heartbeats.
   Use the harness's background-job mechanism, such as Claude Code's Bash `run_in_background`, as the supported attached launcher.

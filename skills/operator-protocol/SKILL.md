@@ -33,7 +33,8 @@ non-reproducible work, include the durable record and resumable session ID (rule
 Name the current plan step, the question it resolves and what remains before it closes.
 Before a meaningful command group, state its purpose briefly; omit narration for trivial
 commands and unchanged status. Separate completed results, hypotheses and pending verification.
-Derive progress displays from existing work records; do not create another writable tracker.
+Derive progress displays from existing work records, under
+[rules/delivery.md §Work tracking & continuity](../../rules/delivery.md#work-tracking--continuity).
 When repairs recur, use the campaign count under
 [rules/outcome.md §Three-occurrence reassessment](../../rules/outcome.md#three-occurrence-reassessment),
 including attempts by earlier workers.

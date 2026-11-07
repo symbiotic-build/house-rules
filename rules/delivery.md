@@ -88,7 +88,8 @@
 - Verify lane diffs stay within ownership.
 - Keep shared spine files append-only.
 - Measured runs must be repeatable; record inputs, effective configuration and measurement conditions.
-- A critical benchmark is one a decision or published claim depends on; run it in a repeatable CI or benchmark environment, never on a shared workstation.
+- A critical benchmark is one whose result is acceptance evidence, a regression stop or a published claim; run it in a repeatable CI or benchmark environment, never on a shared workstation.
+- A measurement used only to choose the next diagnostic or optimization step is non-critical.
 - A non-critical measurement may run under ordinary machine load; judge observed differences against the recorded load.
 - Label exploratory timings and their limits; repeat with greater precision only when the intended decision needs it.
 - Use the project's benchmark environment: by default a Linux container from Apple's `container` tool, with a fixed core count, memory size and recorded image.
@@ -99,6 +100,7 @@
 - Start no build or test suite of your own while your measured run is active.
 - Record the machine load with each run.
 - Mark a critical benchmark taken under overlap with another benchmark, measured run, build or test suite invalid, and rerun it.
+- Record any such overlap with a non-critical measurement, and judge its differences against the overlap and the recorded load.
 - The one exception: contention is the declared study and resource policy permits it.
 - Hold the machine's build queue during a measurement on a shared host, outside the benchmark environment.
 - Build and test commands need no load check. The build queue limits them.
