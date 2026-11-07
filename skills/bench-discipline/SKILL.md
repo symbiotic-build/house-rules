@@ -43,7 +43,10 @@ Retrieval evaluations also apply the [retrieval rules](references/retrieval-eval
   comparison measures and what it cannot isolate.
 - Choose an appropriate baseline or control. A feature-off arm is useful when it isolates
   the feature; a no-op or oracle is useful only when it answers the actual question.
-  Verify that controls measure the intended behavior before interpreting the treatment.
+  Before accepting a baseline or control, verify its resolved workload and effective
+  configuration. Check a representative required path in the produced artifact.
+  Record effective features, optimization and cache state when they affect the comparison.
+  A successful command or requested flag alone proves none of these conditions.
 - Prefer a single changed factor when attributing a mechanism. A planned factorial or
   bundled comparison is valid; attribute conclusions only as narrowly as the design
   supports and investigate interactions when they matter to the decision.
@@ -68,6 +71,14 @@ Retrieval evaluations also apply the [retrieval rules](references/retrieval-eval
 - Determine repeat counts from observed variability and the precision needed for the
   decision, within the approved budget. A deterministic check may need no replicates;
   one noisy observation usually supports exploration rather than a reliable comparison.
+- Select timing precision and measurement environments under
+  [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work).
+- For a multi-phase performance change, record time, peak resident memory, output size
+  and dominant structures by phase. Name each structure's owner and last use.
+  Release it after that use. When live payload and resident memory diverge materially,
+  inspect allocator statistics to distinguish live allocation, retained pages and reservations.
+  Explain changed item counts before comparing bytes per item.
+  Do not tune structures scheduled for removal unless they block the current step.
 - For evaluations and tuning of agent or model behavior, use the baseline's existing
   runs. Do not rerun a baseline or add replicates by default. Add one only when the
   decision turns on a difference no larger than the spread already seen between runs;
@@ -104,6 +115,14 @@ Retrieval evaluations also apply the [retrieval rules](references/retrieval-eval
 
 ## Execution and record
 
+- Label resource numbers as acceptance targets, regression stops or safety limits.
+  An acceptance target defines success; missing it alone does not stop measurement.
+  A regression stop names its comparable accepted baseline, measurement boundary,
+  threshold and minimum useful run size. Safety limits may require immediate stops.
+  Paid-run stop authority remains in [rules/delivery.md §Verification](../../rules/delivery.md#verification).
+- Compare each candidate with the preceding accepted step and the campaign baseline.
+  Declare expected cost increases and their reasons before launch.
+  Record who stopped a run and why.
 - Match the build profile, workload, and concurrency to the deployment or study question.
   Define expected resource behavior before diagnosing serialization or low utilization.
   Measured-run concurrency and overlap: [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work). This skill does not

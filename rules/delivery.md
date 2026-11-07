@@ -2,6 +2,10 @@
 
 ## Verification
 
+- Include verification and diagnostic tools in the workload's memory design for large artifacts.
+- Before expanding a compact artifact, account for decoded copies and parent and child process memory.
+- Prefer direct typed views or record streaming; serialize heavy readers until their combined memory use is verified.
+- Measure checker peaks before increasing input size or concurrency.
 - Add behavior-named red-to-green regression tests for product defects and documented invariants.
 - Prove harness repairs with only the smallest evidence that restores trust.
 - Prefer direct product-behavior evidence.
@@ -38,12 +42,17 @@
 - Examples include agents, model command-line interfaces, remote jobs, benchmarks, and crawls.
 - Require a durable transcript or checkpoint before the first substantive call for those runs.
 - Require a recorded session ID before that call.
-- Before an external or paid run whose input a script builds, such as prompts, request packets, maps or fixtures, check that input by script.
+- Before an external or paid run whose input a script builds, such as prompts, request packets, maps or fixtures, dry-run the builder.
+- List the conditions that make the run answer its intended question before checking input format.
+- Verify those conditions against source evidence in the reading check below.
+- Use scripts for mechanical input checks; they never replace semantic inspection.
+- Run a small proof batch when the reading check cannot establish that the run tests its intended claim.
 - The check confirms that each item has its required parts.
 - The check confirms that the targets are the intended ones, with no duplicates and no wrong kinds.
 - The check confirms that quoted source matches the source at its stated location.
+- Report how many items and source passages the check actually examined; reject success when required content went unexamined.
 - The check measures the size distribution (minimum, median, 90th percentile, maximum, total) against the agreed shape and the model's context.
-- Run the check again after any change to the builder or its sources.
+- Repeat the complete input check, including the reading check, after any change to the builder or its sources.
 - The input check includes a reading check: read sample requests end to end the way the model will, at least the largest, a median one, and one per kind of target.
 - For each sampled request, list what a correct answer depends on, and confirm that each item is in the request.
 - State why each section of the request is there and its share of the tokens; remove what no question needs.
@@ -78,22 +87,23 @@
 - Assign one lead to decide for each work item.
 - Verify lane diffs stay within ownership.
 - Keep shared spine files append-only.
-- Run a rerunnable benchmark in the project's benchmark environment: by default a Linux container from Apple's `container` tool, with a fixed core count, memory size and recorded image.
+- Measured runs must be repeatable; record inputs, effective configuration and measurement conditions.
+- A critical benchmark is one whose result is acceptance evidence, a regression stop or a published claim; run it in a repeatable CI or benchmark environment, never on a shared workstation.
+- A measurement used only to choose the next diagnostic or optimization step is non-critical.
+- A non-critical measurement may run under ordinary machine load; judge observed differences against the recorded load.
+- Label exploratory timings and their limits; repeat with greater precision only when the intended decision needs it.
+- Use the project's benchmark environment: by default a Linux container from Apple's `container` tool, with a fixed core count, memory size and recorded image.
 - Use a macOS virtual machine with the same fixed setup only for a benchmark that measures macOS-specific behaviour.
 - Run a benchmark's arms interleaved, one run of each arm per round in rotating order, and compare them by round.
   A valid stored baseline is reused instead of rerun, as `bench-discipline` allows; interleave only the arms that run.
 - Run one benchmark or measured performance run at a time per machine, across all agents, lanes and sessions.
 - Start no build or test suite of your own while your measured run is active.
 - Record the machine load with each run.
-- Mark a run taken under overlap with another benchmark, measured run, build or test suite invalid, and rerun it.
+- Mark a critical benchmark taken under overlap with another benchmark, measured run, build or test suite invalid, and rerun it.
+- Record any such overlap with a non-critical measurement, and judge its differences against the overlap and the recorded load.
 - The one exception: contention is the declared study and resource policy permits it.
-- The load gate below, and holding the machine's build queue during a measured run, apply only to a measurement taken on a shared host, outside the benchmark environment.
-- Before a benchmark or measured performance run on a shared host starts, check the machine load.
-- When the one-minute load average is above the online core count, do not start the run.
-  Send the operator a message at once that starts with this, in bold: the run you were about to start, the load, the core count and the heaviest processes with their working directories.
-  Also send it as a notification when the tool has one.
-- Start the run when the load falls below the core count, or when the operator says to start.
-- Build and test commands do not check the load. The build queue limits them.
+- Hold the machine's build queue during a measurement on a shared host, outside the benchmark environment.
+- Build and test commands need no load check. The build queue limits them.
 - Follow [Local builds](../prompts/skills/local-builds.md) for the queue every build and test command uses on a shared machine.
 - The queue gives each command the build budget as its thread limit: total cores minus efficiency cores minus 2, unless the operator sets another budget.
 - Builds and agents run at normal priority. Never use nice, renice or background quality-of-service classes.

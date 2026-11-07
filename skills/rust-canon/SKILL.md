@@ -25,6 +25,19 @@ Rules.
 - `thiserror` in libraries, `anyhow` in binaries — and never `anyhow` in hot paths.
 - Never `unwrap()` in library code (tests only); errors bubble to the caller/operator —
   no fail-open.
+- For a performance rewrite, state the measured baseline and required improvement as
+  acceptance criteria. Keep typed values and existing numeric identities through
+  performance-sensitive computation and serialization. Convert to presentation text
+  only at an output boundary that needs it. Generic value trees or reconstruction of
+  identities on these paths need a measured reason.
+- Before replacing a large representation, identify shared payloads that materially
+  control cost. Preserve useful sharing and measure distinct payloads, references and
+  encoded bytes separately. Faster writing does not excuse an unexplained storage or
+  memory regression. Do not add sharing machinery for duplication cheaper to keep.
+- Before using a serialization API per record on a high-volume path, inspect its pinned
+  implementation for allocation, copying, flushing and finalization. Keep buffering and
+  completion with the stream owner unless the format or required per-record durability
+  dictates otherwise. Confirm suspected costs with a focused profile or measurement.
 - Async on tokio; non-blocking, multi-threaded by default.
 - Follow [Local builds](../../prompts/skills/local-builds.md) for build profiles. Reusing compiled outputs across gates: skill `ci-build-optimization`.
 - `///` docs on public items.

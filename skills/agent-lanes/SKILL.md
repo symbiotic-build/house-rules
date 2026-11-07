@@ -75,18 +75,14 @@ command -v cmake                          # check: the wrapper, not the real too
   `--ignore-user-config --disable shell_snapshot`, so each reviewer is one process instead of
   the user's MCP servers, plugins and hooks.
 
-**Before a measured run.** Check the load with these commands before a benchmark or measured
-performance run starts, and apply the load rules in
+**Before a measured run.** Select the environment and record load under
 [rules/delivery.md §Parallel work](../../rules/delivery.md#parallel-work).
+These commands collect shared-host measurement context; they do not gate launch.
 
 ```bash
 getconf _NPROCESSORS_ONLN                         # online cores
 sysctl -n vm.loadavg                              # macOS; Linux: cat /proc/loadavg
-ps -Ao pid,ppid,pcpu,etime,command -r | head -20  # macOS; Linux: ps -eo pid,ppid,pcpu,etime,args --sort=-pcpu
-lsof -a -d cwd -p <pid>                           # working directory: which lane owns it
 ```
-
-In the report, mark which of the heaviest processes are yours.
 
 **Waiting for another job.** Wait on its process ID or on a file it writes when it ends,
 with a deadline, and fail when the deadline passes. A `pgrep -f` pattern also matches the
@@ -154,9 +150,26 @@ git worktree remove <wt> && git branch -D <branch>; git worktree prune
 - **Decision handling.** Lanes decide and escalate per skill `operator-protocol`
   §Decisions.
 - **Attached workers.** rules/core.md prime rule 15.
-- **Background monitors.** Every long-running run has a watcher that surfaces failures instantly
-  and feeds concrete counters into status lines. Prove work is running: process name, output
-  path, dashboard link.
+- **Noninteractive worker control.** A batch worker's brief names instruction reread points,
+  the acknowledgement channel and how blockers reach the lead. Do not rely on editing a
+  live brief without an acknowledgement or a defined reread point before affected work.
+  For urgent corrections, halt affected work under rules/core.md §Operator correction
+  and resume from preserved state with the correction acknowledged.
+  Put unresolved questions in a lead-visible handoff; continue independent authorized work.
+  Deliver completion, blocked state and unexpected exit to the lead through the attached harness.
+- **Launch dependencies.** Before launching long-running work, check its control dependencies against
+  [STRUCTURE.md §Temp storage](../../STRUCTURE.md#temp-storage--three-classes-one-rule).
+  After a restart, verify which workers and monitors remain active before restoring them
+  within existing authority.
+- **Background monitors.** Separate evidence collection from lead notification.
+  Use existing harness events to surface failures immediately; add a watcher only when
+  those events cannot deliver them. Keep routine samples and
+  unchanged status in logs or derived views. Wake the lead for completion, blockers,
+  unexpected exits, regression stops or an agreed heartbeat, including requested frequent updates.
+  Do not wake the lead merely to rearm an unchanged monitor.
+  A display restart must not break worker-completion delivery.
+  Feed each run's concrete counters into status lines.
+  Prove work is running with its process name, output path or dashboard link.
   The [pull-request watcher](scripts/watch_prs.py) implements prime rule 15 for pull-request changes and periodic heartbeats.
   Use the harness's background-job mechanism, such as Claude Code's Bash `run_in_background`, as the supported attached launcher.
   Use `--bot-login <login>` to include a review bot's status comment; repeat `--pr` for more requests.

@@ -24,11 +24,21 @@
   Check a small change on the smallest input that shows it: a fixture, one package or a sample.
 - Run a full-input run (a rebuild over a large real codebase, a whole-corpus pipeline run, any end-to-end job that takes minutes) only for an acceptance gate, or for a change whose effect shows only on the full input.
   Run it once per acceptance check.
+  A substep checkpoint alone does not make a run an acceptance gate.
+  Combine full-input checks when subsequent planned changes would invalidate the same evidence.
 - After a failed full-input run, reproduce the failure on a small input before the next full run.
   If no small input reproduces it, the next full-input run tests a fix aimed at that failure and records what it checks.
 - Keep incremental build and cache state between iteration runs.
   Start from empty state only when the check is about the cold path.
-- A worker brief names which of its checks are full-input runs.
+- For each expensive check, the worker brief names the concrete input, resolved workload
+  size, question it answers and whether it is a full-input run.
+  Before launch, verify that a selected subset remains small after dependency expansion;
+  labels such as "slice" or "targeted" do not establish its size.
+- Before authorized cleanup, check whether the next planned steps need the selected artifacts.
+  Preserve required development inputs or rebuild valid replacements before work resumes.
+  Confirm that workers can still use the cheap inputs named in their briefs.
+  Rebuildability alone does not establish that an artifact is unused; deletion still needs
+  the authorization the core security rules require.
 
 ### Shared build queue
 
