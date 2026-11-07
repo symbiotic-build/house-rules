@@ -110,6 +110,10 @@ inspectable, deliberately prunable, and inside the project's backup boundary.
 | Tool-provided session scratchpads (agent-harness temp dirs) | wherever the tool puts them | ephemeral by definition — copy anything worth keeping into the repo before session end; never host worktrees or lane state |
 | Agent worktrees and lane state — task worktrees, lane scripts, prompts, review results, logs | durable workspace paths: `<workspace>/worktrees/<repo>/<branch>` and a lane folder beside it | never in `/tmp` or a session scratchpad; a worktree is removed when its PR merges |
 
+Before launching ongoing work, place its required control scripts, prompts, baselines and
+recovery instructions in durable workspace paths. Verify those paths at launch; copying
+them at session end is too late. Only disposable one-command scratch may remain ephemeral.
+
 The two-dir split is a retention policy, not taxonomy — evidence and scratch have different
 deletion rules, so they get different homes. Exception: a shared out-of-repo cache
 (e.g. `~/.cache/<tool>`) is fine for rebuildable artifacts that are expensive to recreate
