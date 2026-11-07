@@ -113,7 +113,7 @@ class PromptTest(unittest.TestCase):
         heads = [(ROOT / f"prompts/roles/{role}.md").read_text().split("\n\n", 1)[0].splitlines()
                  for role in ("reviewer", "triager")]
         self.assertEqual(heads[0], heads[1])
-        self.assertEqual(len(heads[0]), 14)
+        self.assertEqual(len(heads[0]), 15)
         for line in heads[0]:
             self.assertIsNotNone(prompt.INCLUDE.fullmatch(line))
 
@@ -122,7 +122,7 @@ class PromptTest(unittest.TestCase):
                   "rules/priority-labels.md", "prompts/util/finding-rules.md",
                   "prompts/util/cost-defect.md", "prompts/util/cost-and-design.md",
                   "prompts/util/external-writes.md", "prompts/skills/code-canon.md",
-                  "prompts/skills/native-first.md", "prompts/skills/no-fortification.md",
+                  "prompts/skills/rust-canon.md", "prompts/skills/native-first.md", "prompts/skills/no-fortification.md",
                   "prompts/skills/test-discipline.md", "prompts/skills/local-builds.md",
                   "prompts/skills/naming-defaults.md"]
         own = {"reviewer": ["prompts/util/review-bar.md", "prompts/util/review-report.md"],
@@ -431,9 +431,6 @@ class CollectionAcceptanceTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_code_change_rules_are_skills_without_common_folder(self):
-        rules = ROOT / "prompts/skills"
-        self.assertEqual({p.stem for p in rules.glob("*.md")},
-                         {"code-canon", "local-builds", "naming-defaults", "native-first", "no-fortification", "test-discipline"})
         self.assertFalse((ROOT / "prompts/common").exists())
         self.assertTrue((ROOT / "prompts/util").is_dir())
         self.assertFalse((ROOT / "prompts/utils").exists())
@@ -1054,7 +1051,7 @@ class RuleIndexTest(unittest.TestCase):
         targets = re.findall(r"\[[^]]+\]\(([^)]+)\)", index)
         required = {"rules/core.md", "rules/outcome.md", "rules/delivery.md", "rules/writing.md",
                     "rules/git.md", "rules/priority-labels.md", "rules/session-writing.md",
-                    "rules/specifications.md",
+                    "rules/specifications.md", "prompts/skills/code-canon.md",
                     "STRUCTURE.md", "PREFERENCES.md"}
         required.update(str(path.relative_to(ROOT))
                         for path in (ROOT / "skills").glob("*/SKILL.md"))

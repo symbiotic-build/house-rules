@@ -60,6 +60,7 @@ End your final message with the output block the task part specifies, and nothin
 
 @rule house-rules:prompts/util/external-writes.md
 @rule house-rules:prompts/skills/code-canon.md
+@rule house-rules:prompts/skills/rust-canon.md
 @rule house-rules:prompts/skills/native-first.md
 @rule house-rules:prompts/skills/no-fortification.md
 @rule house-rules:prompts/skills/test-discipline.md
