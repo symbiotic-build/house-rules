@@ -77,6 +77,15 @@
 
 - Parallelize independent primary and supporting work when delegation is available and useful.
 - Parallelize autonomously inside the resource envelope.
+- The orchestrator finds parallel work itself; the operator should not have to ask for it.
+- At the start of a task, after each worker handoff, and whenever a worker or the orchestrator waits, list the work
+  that remains toward the approved outcome. Include research and preparation for later approved steps.
+- Mark a piece independent when it needs no other piece's result, its files are disjoint from theirs, and it need not
+  land in one change with another piece.
+- Start every independent piece the resource envelope allows, each in its own worktree or lane.
+- Serialize a piece only when it shares files, results or a scarce resource with another, such as the build queue,
+  the measured-run slot or memory. Name the shared item.
+- Each status report says which pieces run in parallel, which wait, and what each waiting piece waits on.
 - Never broaden the campaign through parallelism.
 - Keep lane ownership disjoint.
 - Keep rules and policy in their home file.
