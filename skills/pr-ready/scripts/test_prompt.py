@@ -84,9 +84,8 @@ class PromptTest(unittest.TestCase):
                 result = self.run_prompt(str(role.relative_to(ROOT)))
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertNotRegex(result.stdout, r"(?m)^@rule ")
-                # The Rust canon depends on the target; packs without one never carry it.
                 for rule in (ROOT / "prompts/skills").glob("*.md"):
-                    self.assertEqual(result.stdout.count(rule.read_text()), rule.name != "rust-canon.md")
+                    self.assertEqual(result.stdout.count(rule.read_text()), 1)
 
     def test_checker_uses_shared_classes_with_cost_exception_once(self):
         role = ROOT / "prompts/roles/checker.md"
@@ -114,7 +113,7 @@ class PromptTest(unittest.TestCase):
         heads = [(ROOT / f"prompts/roles/{role}.md").read_text().split("\n\n", 1)[0].splitlines()
                  for role in ("reviewer", "triager")]
         self.assertEqual(heads[0], heads[1])
-        self.assertEqual(len(heads[0]), 14)
+        self.assertEqual(len(heads[0]), 15)
         for line in heads[0]:
             self.assertIsNotNone(prompt.INCLUDE.fullmatch(line))
 
@@ -123,7 +122,7 @@ class PromptTest(unittest.TestCase):
                   "rules/priority-labels.md", "prompts/util/finding-rules.md",
                   "prompts/util/cost-defect.md", "prompts/util/cost-and-design.md",
                   "prompts/util/external-writes.md", "prompts/skills/code-canon.md",
-                  "prompts/skills/native-first.md", "prompts/skills/no-fortification.md",
+                  "prompts/skills/rust-canon.md", "prompts/skills/native-first.md", "prompts/skills/no-fortification.md",
                   "prompts/skills/test-discipline.md", "prompts/skills/local-builds.md",
                   "prompts/skills/naming-defaults.md"]
         own = {"reviewer": ["prompts/util/review-bar.md", "prompts/util/review-report.md"],
@@ -1343,19 +1342,6 @@ class CommitPackTest(CommitPackFixture, unittest.TestCase):
                 rev = self.commit(self.target)
                 self.assert_target_files([(path, data)], rev)
 
-    def test_rust_target_always_gets_the_rust_canon_once(self):
-        self.write(self.repo, "prompts/skills/rust-canon.md", "Rust canon\n")
-        revision = self.commit(self.repo)
-        pack, manifest = self.good(target=True, rev=revision)
-        self.assertNotIn(b"Rust canon", pack)
-        self.write(self.target, "tools/merge/Cargo.toml", "[package]\n")
-        self.commit(self.target)
-        for extra in ([], ["--include", "prompts/skills/rust-canon.md"]):
-            with self.subTest(extra=extra):
-                pack, manifest = self.good(*extra, target=True, rev=revision)
-                self.assertEqual(pack.count(b"Rust canon"), 1)
-                self.assertIn({"kind": "include", "path": "prompts/skills/rust-canon.md"}, manifest["parts"])
-
     def test_target_reports_no_rules_only_when_both_files_are_absent(self):
         self.assert_target_files([], self.git(self.target, "rev-parse", "HEAD"))
 
@@ -1472,16 +1458,13 @@ class CommitPackTest(CommitPackFixture, unittest.TestCase):
                 prompt.build_pack(source, role="reviewer", lens="security", includes=["common.md"], target=target)
         self.assertEqual(sum("--batch" in c for c in calls), 2)
         self.assertTrue(all(c[0:2] == ["git", "--no-replace-objects"] for c in calls), calls)
-        # One name-only listing finds Rust targets; it reads tree objects, never blobs.
-        listings = [c for c in calls if "-r" in c]
-        self.assertEqual(listings, [["git", "--no-replace-objects", "-C", str(self.target), "ls-tree", "-r",
-                                     "--name-only", "-z", self.git(self.target, "rev-parse", "HEAD")]])
+        self.assertFalse(any("-r" in c for c in calls), calls)
         for call in calls:
-            if "ls-tree" in call and "-r" not in call:
+            if "ls-tree" in call:
                 self.assertEqual(call[-2], "--")
                 self.assertNotIn(call[-1].removeprefix(":(literal)"), ("", "unrelated.md"))
         lookups = [(c[c.index("-C") + 1], c[-1].removeprefix(":(literal)"))
-                   for c in calls if "ls-tree" in c and "-r" not in c]
+                   for c in calls if "ls-tree" in c]
         self.assertEqual(len(lookups), len(set(lookups)))
         self.assertEqual(set(lookups),
                          {(str(self.repo), p) for p in ("skills/pr-ready/scripts/prompt.py",

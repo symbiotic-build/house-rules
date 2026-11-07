@@ -22,6 +22,7 @@ Output: first line "VERDICT: APPROVE" when every accepted High or Medium finding
 @rule house-rules:prompts/util/cost-and-design.md
 @rule house-rules:prompts/util/external-writes.md
 @rule house-rules:prompts/skills/code-canon.md
+@rule house-rules:prompts/skills/rust-canon.md
 @rule house-rules:prompts/skills/native-first.md
 @rule house-rules:prompts/skills/no-fortification.md
 @rule house-rules:prompts/skills/test-discipline.md

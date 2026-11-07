@@ -1,6 +1,6 @@
-Rust canon, applied together with the code canon. Every pack whose target tracks a
-Cargo.toml includes it. The scope lines of the code canon apply here too: disposable code
-follows only its "Always" lines.
+Rust canon, applied together with the code canon whenever the change touches Rust code.
+Every role that carries the code canon carries it. The scope lines of the code canon apply
+here too: disposable code follows only its "Always" lines.
 
 - No `unwrap()` in library code; tests may use it. Errors reach the caller.
 - `thiserror` in libraries, `anyhow` only in binaries and never on hot paths.

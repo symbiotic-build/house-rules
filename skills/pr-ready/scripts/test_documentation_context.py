@@ -364,8 +364,7 @@ class DocumentationSnapshotTests(DocumentationFixture, unittest.TestCase):
         batches = [call.kwargs.get('input', b'') for call in run.call_args_list if 'cat-file' in call.args[0]]
         self.assertTrue(batches)
         self.assertFalse(any(asset_oid in batch for batch in batches))
-        lookups = [call.args[0] for call in run.call_args_list
-                   if 'ls-tree' in call.args[0] and '-rz' not in call.args[0] and '-r' not in call.args[0]]
+        lookups = [call.args[0] for call in run.call_args_list if 'ls-tree' in call.args[0] and '-rz' not in call.args[0]]
         requested = [call[-1].removeprefix(':(literal)') for call in lookups]
         expected = {prompt.COMPILER, *prompt.DOC_INPUTS, *prompt.DOC_METADATA,
                     '.agents/rules.md', 'AGENTS.md', 'rules/specifications.md'}

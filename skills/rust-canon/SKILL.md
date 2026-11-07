@@ -24,10 +24,8 @@ Rules.
 - Rust-specific code rules: [Rust canon](../../prompts/skills/rust-canon.md).
 - Language-neutral code rules, including performance-sensitive paths and what disposable
   code may skip: [Code canon](../../prompts/skills/code-canon.md).
-- Worker roles include the code canon. Every worker pack whose target tracks a
-  `Cargo.toml` also includes the Rust canon
-  ([prompt collection](../../prompts/README.md#one-call-pack-assembly)). A session writing
-  Rust reads both before its first edit.
+- Every worker role that carries the code canon also carries the Rust canon. A session
+  writing Rust reads both before its first edit.
 - Follow [Local builds](../../prompts/skills/local-builds.md) for build profiles. Reusing compiled outputs across gates: skill `ci-build-optimization`.
 
 ## Repo tooling
