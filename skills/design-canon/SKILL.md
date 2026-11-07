@@ -16,6 +16,12 @@ model stack in an unrelated application.
   product. Derived indexes and summaries link back to it and are rebuildable. Verify the
   required semantic or byte equivalence; nondeterministic summaries need not be identical
   bytes. A transactional database may be canonical, not merely a cache.
+- **Earlier output is diagnostic.** Establish its correctness with independent evidence
+  and its required equivalence before using it as a correctness specification.
+  Expected test values follow [Test discipline](../../prompts/skills/test-discipline.md#every-test).
+  Before adding a comparison adapter, name the real regression it detects.
+  Do not preserve known defects or obsolete representations merely to obtain equality.
+  Explicit byte-compatibility contracts still apply.
 - **Provenance escalation.** Derived layers link back to raw; recall escalates depth on
   demand (distilled → raw detail).
 - **Truth tiers labeled end-to-end.** Consumers see which data is raw vs derived vs
@@ -55,6 +61,11 @@ model stack in an unrelated application.
 - **Pipeline-order invariants are written down** as an explicit ordered list (what runs
   before what, and why) and re-checked after every refactor — they are the first
   casualties of refactors and context resets.
+- **Prove the simple layer before refinement.** For analyses whose stronger answers
+  depend on simpler layers, define summary boundaries and representations first.
+  Inspect authoritative compiler or library facts before recreating their analysis.
+  Check known answers, composition cases and state growth before adding dependent precision.
+  Independent features do not need this ordering.
 - **State the redo-dependency DAG** for any multi-stage system: what invalidates what,
   and the cheapest valid re-entry point for each change class. Cache invalidation is
   structural, part of the flow — never a manual memory.
