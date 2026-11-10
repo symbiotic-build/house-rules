@@ -32,7 +32,13 @@ FULL_FILE_CAP = 85_000
 LOCK = re.compile(r"(^|/)([^/]*\.lock|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|go\.sum)$")
 # Lenses that run no commands and review only the structured change part.
 STRUCTURED_ONLY = ("generic",)
-PACK_NOTICE = f"Size guard: prompt exceeds {CODEX_LIMIT:,} characters; change part uses pack (hunk headers)."
+
+
+def pack_notice(size_limit):
+    return f"Size guard: prompt exceeds {size_limit:,} characters; change part uses pack (hunk headers)."
+
+
+PACK_NOTICE = pack_notice(CODEX_LIMIT)
 TEST = re.compile(r"(^|/)(tests?(/|\.)|test_[^/]*|[^/]*[_\-.](tests?|spec)\.[^/]+$)", re.I)
 
 
@@ -1057,22 +1063,23 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     compiled_chars = getattr(args, "compiled_chars", 0)
     if compiled_chars < 0 or (compiled_chars and not context_only):
         raise PrepareError("--compiled-chars requires context-only mode and a nonnegative count")
-    limit = CODEX_LIMIT - compiled_chars - reservation
+    size_limit = getattr(args, "size_limit", CODEX_LIMIT)
+    limit = size_limit - compiled_chars - reservation
     if args.cli == "codex" and context is not None and getattr(args, "assignment", None) is None:
         mandatory_size = len(display(context))
         if mandatory_size > limit:
-            raise PrepareError(f"Size guard: limit {CODEX_LIMIT:,} characters; mandatory documentation requires {mandatory_size:,} characters.\n"
+            raise PrepareError(f"Size guard: limit {size_limit:,} characters; mandatory documentation requires {mandatory_size:,} characters.\n"
                                "Documentation sections: " + ", ".join(sections or []))
     overhead = len(display("\n\n".join([*notices, *parts, requirements_part(entries, mode, predicted), *lens_parts]))) + 3
-    budget = max(0, limit - overhead) if args.cli == "codex" else CODEX_LIMIT
+    budget = max(0, limit - overhead) if args.cli == "codex" else size_limit
     packed = mode == "pack"
     try:
-        change = change_part(repo, change_rng, files, url, head, mode, budget if mode != "pack" else None,
+        change = change_part(repo, change_rng, files, url, head, mode, budget if mode != "pack" else size_limit,
                              full_file_cap=full_file_cap)
     except DiffTooLarge:
         packed = True
-        notices.append(PACK_NOTICE)
-        change = change_part(repo, change_rng, files, url, head, "pack")
+        notices.append(pack_notice(size_limit))
+        change = change_part(repo, change_rng, files, url, head, "pack", size_limit)
     trimmed = []
     def trim_notes():
         return [f"Size guard: trimmed R{n + 1} ({entries[n]['category']}): {entries[n]['source']}" for n in trimmed]
@@ -1083,8 +1090,8 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
     result = render()
     if args.cli == "codex" and len(result) > limit:
         if not packed:
-            notices.append(PACK_NOTICE)
-            change = change_part(repo, change_rng, files, url, head, "pack")
+            notices.append(pack_notice(size_limit))
+            change = change_part(repo, change_rng, files, url, head, "pack", size_limit)
             packed = True
             result = render()
         for category in ("comment", "issue", "spec"):
@@ -1105,7 +1112,7 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
             if context is not None and getattr(args, "assignment", None) is None:
                 history += "\nDocumentation sections: " + ", ".join(sections or [])
             raise PrepareError(
-                f"Size guard: limit {CODEX_LIMIT:,} characters; final size {len(result) + compiled_chars:,} characters after trimming. "
+                f"Size guard: limit {size_limit:,} characters; final size {len(result) + compiled_chars:,} characters after trimming. "
                 "Retained indexes, rules, task and author claims require a smaller input.\n"
                 "Already trimmed: change part uses pack (hunk headers).\n" + history)
     if role == "reviewer" and lens in STRUCTURED_ONLY and not context_only and not isinstance(change, ChangePart):
@@ -1116,7 +1123,9 @@ def review(repo, args, base, remote, head=None, *, documentation_prepared=False)
 
 def shows_structured_change(context, cli):
     """Whether a context the panel prepared for this CLI shows the structured change part."""
-    return cli == "codex" and PACK_NOTICE not in context.split("\n# 3. Pull request and issue\n", 1)[0]
+    return cli == "codex" and not re.search(
+        r"(?m)^Size guard: prompt exceeds [\d,]+ characters; change part uses pack \(hunk headers\)\.$",
+        context.split("\n# 3. Pull request and issue\n", 1)[0])
 
 
 def ownership(repo, remote):
@@ -1152,6 +1161,16 @@ def brief(repo, args, base, status, update_note):
     return "\n".join(out)
 
 
+def positive_integer(value):
+    try:
+        number = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be a positive integer") from exc
+    if number <= 0:
+        raise argparse.ArgumentTypeError("must be a positive integer")
+    return number
+
+
 def main(argv=None, *, documentation_prepared=False):
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1161,6 +1180,8 @@ def main(argv=None, *, documentation_prepared=False):
         p.add_argument("--base")
         p.add_argument("--no-fetch", action="store_true", help="use an already resolved --base without fetching")
         if command == "review":
+            p.add_argument("--size-limit", type=positive_integer, default=CODEX_LIMIT, metavar="CHARACTERS",
+                           help="Codex prompt character guard (default: 800000)")
             p.add_argument("--role", choices=("reviewer", "triager"), default="reviewer")
             p.add_argument("--rev", default="HEAD", help="commit to review; resolved before base preparation")
             p.add_argument("--context-only", action="store_true", help="emit task context for the commit-built pack compiler")
@@ -1191,6 +1212,8 @@ def main(argv=None, *, documentation_prepared=False):
     p = sub.add_parser("check-prompt", help="check the complete compiled prompt before dispatch")
     p.add_argument("file", type=Path)
     p.add_argument("--cli", choices=("codex", "grok", "kimi"), required=True)
+    p.add_argument("--size-limit", type=positive_integer, default=CODEX_LIMIT, metavar="CHARACTERS",
+                   help="Codex prompt character guard (default: 800000)")
     args = parser.parse_args(argv)
     try:
         if args.command == "lens":
@@ -1198,8 +1221,8 @@ def main(argv=None, *, documentation_prepared=False):
             return 0
         if args.command == "check-prompt":
             size = len(args.file.read_bytes().decode("utf-8"))
-            if args.cli == "codex" and size > CODEX_LIMIT:
-                raise PrepareError(f"Size guard: limit {CODEX_LIMIT:,} characters; complete prompt size {size:,} characters; narrow the review input")
+            if args.cli == "codex" and size > args.size_limit:
+                raise PrepareError(f"Size guard: limit {args.size_limit:,} characters; complete prompt size {size:,} characters; narrow the review input")
             return 0
         repo = Path(git(args.checkout, "rev-parse", "--show-toplevel").strip())
         head = None

@@ -1827,6 +1827,61 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
         self.assertIn("docs/spec.md", err)
 
 
+class CallerSizeLimitTests(PrepareFixture, unittest.TestCase):
+    def test_larger_size_limit_keeps_full_change_and_accepts_complete_prompt(self):
+        text = "payload = '" + "x" * 820_000 + "'\n"
+        self.write(self.repo, "large.py", text)
+        self.commit(self.repo, "Add large payload")
+        args = ("review", str(self.repo), "--base", "origin/trunk", "--no-fetch",
+                "--full-file-cap", "900000")
+        code, prompt, err = self.invoke(*args, "--size-limit", "1000000")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(800_000 < len(prompt) < 1_000_000, len(prompt))
+        self.assertIn("+     1\t" + text.rstrip("\n"), prompt)
+        self.assertNotIn("change part uses pack", prompt)
+        complete = self.root / "prompt.txt"
+        complete.write_text(prompt)
+        self.assertEqual(self.invoke("check-prompt", str(complete), "--cli", "codex",
+                                     "--size-limit", "1000000"), (0, "", ""))
+        code, _, err = self.invoke("check-prompt", str(complete), "--cli", "codex")
+        self.assertEqual(code, 1)
+        self.assertIn("limit 800,000 characters", err)
+        code, default, err = self.invoke(*args)
+        self.assertEqual(code, 0, err)
+        self.assertIn(prepare.PACK_NOTICE, default)
+
+    def test_invalid_size_limits_are_refused_by_argument_parsing(self):
+        for command in (("review", str(self.repo)), ("check-prompt", "unused", "--cli", "codex")):
+            for value in ("0", "-1", "not-a-number", "1.5"):
+                with self.subTest(command=command[0], value=value):
+                    result = subprocess.run([sys.executable, "-B", str(SCRIPT), *command,
+                                             "--size-limit", value], capture_output=True, text=True,
+                                            stdin=subprocess.DEVNULL)
+                    self.assertEqual((result.returncode, result.stdout), (2, ""))
+                    self.assertIn("argument --size-limit:", result.stderr)
+
+    def test_size_guard_messages_use_the_callers_limit(self):
+        self.write(self.repo, "large.py", "x" * 120_000 + "\n")
+        self.commit(self.repo, "Add payload")
+        args = ("review", str(self.repo), "--base", "origin/trunk", "--no-fetch", "--context-only",
+                "--size-limit", "100000")
+        code, prompt, err = self.invoke(*args)
+        self.assertEqual(code, 0, err)
+        self.assertIn("prompt exceeds 100,000 characters; change part uses pack", prompt)
+        self.assertFalse(prepare.shows_structured_change(prompt, "codex"))
+        summary = self.root / "summary.txt"
+        summary.write_text("s" * 100_001)
+        code, prompt, err = self.invoke(*args, "--summary", str(summary))
+        self.assertEqual((code, prompt), (1, ""))
+        self.assertIn("limit 100,000 characters; final size", err)
+        code, out, err = self.invoke("check-prompt", str(summary), "--cli", "codex",
+                                     "--size-limit", "100000")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("limit 100,000 characters; complete prompt size 100,001 characters", err)
+        self.assertEqual(self.invoke("check-prompt", str(summary), "--cli", "codex",
+                                     "--size-limit", "100001"), (0, "", ""))
+
+
 class RedactionTests(PrepareFixture, unittest.TestCase):
     def test_credentials_are_redacted_from_git_warnings_errors_and_prompts(self):
         url = "https://test-user:fake-password@github.com/example/project.git?access_token=fake-token&x=1&author=ada&authkey=fake-authkey&api_key=fake-prefix)fake-secret-tail"

@@ -346,8 +346,9 @@ Review instrumentation counted 4 000 000 similarity calls for 2 000 unmatched un
 The per-blob allowance rejected a harmless 80 001-byte prose rewrap before comparison.
 Git already supplies changed blocks; reviewers judge meaning after the report preserves the evidence.
 Base configuration prevents a candidate from reducing its own coverage or increasing its own report allowance.
-The default `max_report_chars` of 80 000 is 10% of the preparer's 800 000-character prompt limit, so a full report leaves room for the diff and rules.
-It is an accepted initial value, not a measured fit; repositories may set their own in base configuration.
+The default `max_report_chars` of 80 000 is 10% of the preparer's default 800 000-character prompt limit.
+At those defaults, a full report leaves room for the diff and rules. The preparer's caller can override its prompt limit for a run.
+The report allowance is an accepted initial value, not a measured fit; repositories may set their own in base configuration.
 
 **Rejected alternatives:** Suppression based on structural-line signatures repeatedly hides Markdown changes; reviewers must inspect the diff instead.
 Extending semantic unit matching repeats the same structural-loss class.

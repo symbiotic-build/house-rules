@@ -103,7 +103,12 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   until it appends context. The panel checks each complete compiled prompt before dispatch.
   Standalone calls with `--reviewers LENS...` also reserve the largest selected lens in the selected reviewer's family.
   Without that option, standalone calls reserve only their selected lens.
-  Codex prompts over 800,000 characters fall back to pack for the change, then trim comments,
+  `prepare.py review --size-limit CHARACTERS` sets the Codex character guard for that run.
+  `prepare.py check-prompt --size-limit CHARACTERS` applies the same guard to a compiled prompt.
+  Both accept a positive integer and default to 800 000 characters. Pass the same value
+  to both commands when preparing and checking a prompt. The panel and quick-review
+  launchers pass no override and retain the default. There is no environment override.
+  Codex prompts over the selected limit fall back to pack for the change, then trim comments,
   issue bodies and legacy spec documents in that order (largest first within each source type).
   Notices identify every trim. If the prompt still exceeds the limit after all trim
   steps, preparation exits nonzero without emitting a prompt; the error names the limit,
