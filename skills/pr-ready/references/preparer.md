@@ -78,6 +78,7 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   `--format diff` omits legacy spec content. `--format` overrides defaults.
   The structured change opens with two lists: the changed files shown whole, and the files
   shown as a diff only with the reason (size, deleted, binary or submodule).
+  Deleted files in that second list have a bounded section instead of a diff.
   Each changed text file up to the cap, whether source, test or documentation, is shown
   whole as uncolored `git diff` output with the whole file as context. Each line carries its
   number: the head number for context and added lines, the old number for removed lines.
@@ -85,7 +86,19 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   whole only when its size fits the remaining prompt budget. The caller's `GIT_DIFF_OPTS`
   and blank-line setting cannot shorten the context; a file whose numbered rows do not
   rebuild its head text fails preparation instead of being labeled whole.
-  Larger, deleted and binary files and submodules are shown as plain `git diff -U3` output.
+  Larger and binary files and submodules are shown as plain `git diff -U3` output.
+  In every format, a deleted blob has its path, byte size, line count and an excerpt
+  from its start, limited to 2 048 bytes and 20 lines. Binary content has
+  `binary excerpt omitted` instead. The preparer streams the removed blob to count
+  bytes and lines without retaining its full content. Lines are newline-delimited;
+  a final unterminated line counts. Each section supplies a shell-quoted
+  `git show BASE:PATH` command for the full content. Reviewers that run commands can
+  read the rest. Structured and diff use this section instead of removed-line diffs;
+  pack uses it instead of deletion hunk headers. Deleted submodules retain their
+  existing diff or hunk-header representation.
+  The rule-change report still retains complete removed rule text independently.
+  The `generic` reviewer runs no commands and sees only the metadata and excerpt;
+  it cannot assess omitted deleted logic. Command-capable reviewers can read that logic.
   Lockfiles are listed only. `--full-file-cap N` sets the per-file character cap
   (default `85000`; nonnegative). A selected spec document that the change shows whole
   appears in the requirements as a pointer to that changed file, so its text appears once,
@@ -103,7 +116,12 @@ Review task fields: [review template](review-prompt.md). `scripts/review-panel.s
   until it appends context. The panel checks each complete compiled prompt before dispatch.
   Standalone calls with `--reviewers LENS...` also reserve the largest selected lens in the selected reviewer's family.
   Without that option, standalone calls reserve only their selected lens.
-  Codex prompts over 800,000 characters fall back to pack for the change, then trim comments,
+  `prepare.py review --size-limit CHARACTERS` sets the Codex character guard for that run.
+  `prepare.py check-prompt --size-limit CHARACTERS` applies the same guard to a compiled prompt.
+  Both accept a positive integer and default to 800 000 characters. Pass the same value
+  to both commands when preparing and checking a prompt. The panel and quick-review
+  launchers pass no override and retain the default. There is no environment override.
+  Codex prompts over the selected limit fall back to pack for the change, then trim comments,
   issue bodies and legacy spec documents in that order (largest first within each source type).
   Notices identify every trim. If the prompt still exceeds the limit after all trim
   steps, preparation exits nonzero without emitting a prompt; the error names the limit,

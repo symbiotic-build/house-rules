@@ -1827,6 +1827,129 @@ class PrepareTests(PrepareFixture, unittest.TestCase):
         self.assertIn("docs/spec.md", err)
 
 
+class CallerSizeAndDeletionTests(PrepareFixture, unittest.TestCase):
+    def test_larger_size_limit_keeps_full_change_and_accepts_complete_prompt(self):
+        text = "payload = '" + "x" * 820_000 + "'\n"
+        self.write(self.repo, "large.py", text)
+        self.commit(self.repo, "Add large payload")
+        args = ("review", str(self.repo), "--base", "origin/trunk", "--no-fetch",
+                "--full-file-cap", "900000")
+        code, prompt, err = self.invoke(*args, "--size-limit", "1000000")
+        self.assertEqual(code, 0, err)
+        self.assertTrue(800_000 < len(prompt) < 1_000_000, len(prompt))
+        self.assertIn("+     1\t" + text.rstrip("\n"), prompt)
+        self.assertNotIn("change part uses pack", prompt)
+        complete = self.root / "prompt.txt"
+        complete.write_text(prompt)
+        self.assertEqual(self.invoke("check-prompt", str(complete), "--cli", "codex",
+                                     "--size-limit", "1000000"), (0, "", ""))
+        code, _, err = self.invoke("check-prompt", str(complete), "--cli", "codex")
+        self.assertEqual(code, 1)
+        self.assertIn("limit 800,000 characters", err)
+        code, default, err = self.invoke(*args)
+        self.assertEqual(code, 0, err)
+        self.assertIn(prepare.PACK_NOTICE, default)
+
+    def test_invalid_size_limits_are_refused_by_argument_parsing(self):
+        for command in (("review", str(self.repo)), ("check-prompt", "unused", "--cli", "codex")):
+            for value in ("0", "-1", "not-a-number", "1.5"):
+                with self.subTest(command=command[0], value=value):
+                    result = subprocess.run([sys.executable, "-B", str(SCRIPT), *command,
+                                             "--size-limit", value], capture_output=True, text=True,
+                                            stdin=subprocess.DEVNULL)
+                    self.assertEqual((result.returncode, result.stdout), (2, ""))
+                    self.assertIn("argument --size-limit:", result.stderr)
+
+    def test_size_guard_messages_use_the_callers_limit(self):
+        self.write(self.repo, "large.py", "x" * 120_000 + "\n")
+        self.commit(self.repo, "Add payload")
+        args = ("review", str(self.repo), "--base", "origin/trunk", "--no-fetch", "--context-only",
+                "--size-limit", "100000")
+        code, prompt, err = self.invoke(*args)
+        self.assertEqual(code, 0, err)
+        self.assertIn("prompt exceeds 100,000 characters; change part uses pack", prompt)
+        self.assertFalse(prepare.shows_structured_change(prompt, "codex"))
+        summary = self.root / "summary.txt"
+        summary.write_text("s" * 100_001)
+        code, prompt, err = self.invoke(*args, "--summary", str(summary))
+        self.assertEqual((code, prompt), (1, ""))
+        self.assertIn("limit 100,000 characters; final size", err)
+        code, out, err = self.invoke("check-prompt", str(summary), "--cli", "codex",
+                                     "--size-limit", "100000")
+        self.assertEqual((code, out), (1, ""))
+        self.assertIn("limit 100,000 characters; complete prompt size 100,001 characters", err)
+        self.assertEqual(self.invoke("check-prompt", str(summary), "--cli", "codex",
+                                     "--size-limit", "100001"), (0, "", ""))
+
+    def test_deleted_text_has_bounded_metadata_excerpt_and_retrieval_command(self):
+        # Each variant isolates a bound or line-count boundary in the requested format.
+        contents = {
+            "removed ' file.txt": b"removed row\n" * 30_000,
+            "many-lines.txt": b"x\n" * 850_000,
+            "long-line.txt": b"a" * 100_000,
+            "multibyte.txt": ("\u20ac" * 1_000).encode(),
+            "empty.txt": b"",
+            "unterminated.txt": b"one\ntwo",
+        }
+        for path, data in contents.items():
+            (self.repo / path).write_bytes(data)
+        self.commit(self.repo, "Establish files to remove")
+        base = self.git(self.repo, "rev-parse", "HEAD")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", base)
+        for path in contents:
+            (self.repo / path).unlink()
+        self.commit(self.repo, "Remove text files")
+        for mode in ("structured", "diff", "pack"):
+            with self.subTest(mode=mode):
+                prompt = self.review(format=mode, lens="generic" if mode == "structured" else "generalist-a")
+                self.assertNotIn("Size guard:", prompt)
+                self.assertLess(len(prompt.split("# 5. Change", 1)[1].split("# 7.", 1)[0]), 12_000)
+                for path, data in contents.items():
+                    with self.subTest(path=path):
+                        command = "git show " + shlex.quote(base + ":" + path)
+                        self.assertIn(command, prompt)
+                        result = subprocess.run(shlex.split(command), cwd=self.repo, capture_output=True,
+                                                stdin=subprocess.DEVNULL, check=True)
+                        self.assertEqual(result.stdout, data)
+                        section = prompt.split(". " + path + " (deleted)", 1)[1].split("\n## F", 1)[0]
+                        line_count = data.count(b"\n") + bool(data and not data.endswith(b"\n"))
+                        self.assertIn(f"Size: {prepare.grouped(len(data))} bytes; lines: {prepare.grouped(line_count)}.", section)
+                        excerpt = b"\n".join(data[:2048].split(b"\n")[:20])
+                        # Do not display a partial UTF-8 character cut by the byte bound.
+                        excerpt = excerpt.decode("utf-8", errors="ignore").rstrip("\n")
+                        self.assertIn(prepare.fenced(excerpt, "text"), section)
+                        self.assertNotIn("@@ -", section)
+
+    def test_deleted_large_text_reduces_complete_prompt_size(self):
+        data = "removed row\n" * 30_000
+        self.write(self.repo, "removed.txt", data)
+        self.commit(self.repo, "Establish removed text")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", "HEAD")
+        (self.repo / "removed.txt").unlink()
+        self.commit(self.repo, "Remove large text")
+        prompt = self.review()
+        print(f"Deleted-text fixture: {len(data)} bytes, 30000 lines; prompt: {len(prompt)} characters.")
+        self.assertLess(len(prompt), len(data))
+        self.assertIn("Size: 360 000 bytes; lines: 30 000.", prompt)
+
+    def test_deleted_binary_omits_excerpt_even_when_nul_is_after_prefix(self):
+        data = b"visible prefix\n" * 5_000 + b"\0binary tail"
+        (self.repo / "removed.bin").write_bytes(data)
+        self.commit(self.repo, "Establish binary file")
+        base = self.git(self.repo, "rev-parse", "HEAD")
+        self.git(self.repo, "update-ref", "refs/remotes/origin/trunk", base)
+        (self.repo / "removed.bin").unlink()
+        self.commit(self.repo, "Remove binary file")
+        for mode in ("structured", "diff", "pack"):
+            with self.subTest(mode=mode):
+                prompt = self.review(format=mode)
+                self.assertIn("removed.bin (deleted)", prompt)
+                self.assertIn("Size: 75 012 bytes; lines: 5 001.", prompt)
+                self.assertIn("binary excerpt omitted", prompt)
+                self.assertIn("git show " + shlex.quote(base + ":removed.bin"), prompt)
+                self.assertNotIn("visible prefix", prompt)
+
+
 class RedactionTests(PrepareFixture, unittest.TestCase):
     def test_credentials_are_redacted_from_git_warnings_errors_and_prompts(self):
         url = "https://test-user:fake-password@github.com/example/project.git?access_token=fake-token&x=1&author=ada&authkey=fake-authkey&api_key=fake-prefix)fake-secret-tail"
