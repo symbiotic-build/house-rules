@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Prepare local review, fix and PR context; registered specifications use the shared checker."""
 import argparse
-import codecs
 import json
 import os
 import re
-import shlex
 import shutil
 import subprocess
 import sys
@@ -855,43 +853,8 @@ class ChangePart(str):
         return part
 
 
-def deleted_file(repo, base, path):
-    """Stream a removed blob once, retaining only its bounded start excerpt."""
-    command = ["git", "show", f"{base}:{path}"]
-    size, lines, last, prefix, binary = 0, 0, b"", b"", False
-    with tempfile.TemporaryFile() as errors, subprocess.Popen(
-        command, cwd=repo, stdout=subprocess.PIPE, stderr=errors,
-        env=noninteractive_env(), stdin=subprocess.DEVNULL
-    ) as process:
-        try:
-            while chunk := process.stdout.read(65536):
-                size += len(chunk)
-                lines += chunk.count(b"\n")
-                last = chunk[-1:]
-                binary = binary or b"\0" in chunk
-                if len(prefix) < 2048:
-                    prefix += chunk[:2048 - len(prefix)]
-            if process.wait():
-                errors.seek(0)
-                raise PrepareError(errors.read().decode("utf-8", errors="replace").strip()
-                                   or f"git show failed for {path}")
-        finally:
-            if process.poll() is None:
-                process.terminate()
-            process.stdout.close()
-    lines += bool(last and last != b"\n")
-    excerpt = b"\n".join(prefix.split(b"\n")[:20])
-    # A byte boundary may cut a UTF-8 character. Keep invalid bytes visible, but
-    # leave an incomplete final character out of the excerpt.
-    text = codecs.getincrementaldecoder("utf-8")("surrogateescape").decode(excerpt, final=False)
-    return "\n\n".join([f"Size: {grouped(size)} bytes; lines: {grouped(lines)}.",
-                          "binary excerpt omitted" if binary else
-                          "Start excerpt (at most 2 048 bytes and 20 lines):\n" + fenced(display(text.rstrip("\n")), "text"),
-                          "Full removed content (run to read the rest):\n$ " + shlex.join(command)])
-
-
-def structured_change(repo, rng, files, head, budget, full_file_cap, deleted):
-    """Show whole files as numbered diffs, deletions as summaries, and other changes as 3-line diffs."""
+def structured_change(repo, rng, files, head, budget, full_file_cap):
+    """Show each changed text file up to the cap whole, as numbered Git diff output; others as a 3-line diff."""
     base = rng.split("..", 1)[0]
     whole, diff_only, sections, size, shown = [], [], [], 0, {}
     for n, (_, _, path) in enumerate(files, 1):
@@ -912,21 +875,17 @@ def structured_change(repo, rng, files, head, budget, full_file_cap, deleted):
                                     fenced(rows, "diff")])
         else:
             diff_only.append(f"- F{n} {display(path)} ({reason})")
-            if path in deleted:
-                section = f"## F{n}. {display(path)} (deleted)\n\n" + deleted_file(repo, base, path)
-            else:
-                diff = file_diff(repo, rng, path, "diff", max(0, budget - size), context=3)
-                section = "\n\n".join([f"## F{n}. {display(path)} (diff only, {reason})",
-                                        f"$ git diff -U3 {base[:12]} {head[:12]} -- {display(path)}",
-                                        fenced(diff, "diff")])
+            diff = file_diff(repo, rng, path, "diff", max(0, budget - size), context=3)
+            section = "\n\n".join([f"## F{n}. {display(path)} (diff only, {reason})",
+                                    f"$ git diff -U3 {base[:12]} {head[:12]} -- {display(path)}",
+                                    fenced(diff, "diff")])
         sections.append(section)
         size += len(display(section)) + 2
         if size > budget:
             raise DiffTooLarge()
     lists = "\n".join(["Files shown whole below, every line numbered, changes marked in place "
                        "(do not open or print them again):", *(whole or ["- none"]), "",
-                       "Files shown as a diff only, 3 lines of context (read their other lines in the checkout)"
-                       + ("; deleted files have bounded summaries (use their git show commands)" if deleted else "") + ":",
+                       "Files shown as a diff only, 3 lines of context (read their other lines in the checkout):",
                        *(diff_only or ["- none"])])
     result = "\n\n".join([lists, *sections])
     if len(display(result)) > budget:
@@ -936,15 +895,7 @@ def structured_change(repo, rng, files, head, budget, full_file_cap, deleted):
 
 def change_part(repo, rng, files, url, head, mode, budget=None, full_file_cap=FULL_FILE_CAP):
     budget = CODEX_LIMIT if budget is None else max(0, budget)
-    records = git(repo, "diff", "--raw", "--no-abbrev", "--no-ext-diff", "--no-textconv",
-                  "--no-renames", "--diff-filter=D", "-z", rng).split("\0")
-    deleted = {path for metadata, path in zip(records[::2], records[1::2])
-               if metadata.split()[0] != ":160000"}
-    base = rng.split("..", 1)[0]
-    if "..." in rng:
-        base = git(repo, "merge-base", base, head).strip()
     if mode != "pack" and sum(int(v) for row in files if not LOCK.search(row[2])
-                              and row[2] not in deleted
                               for v in row[:2] if v.isdigit()) > budget:
         raise DiffTooLarge()
     out = ["# 5. Change", f"Range: `{rng}`", "", "## Index"]
@@ -953,18 +904,16 @@ def change_part(repo, rng, files, url, head, mode, budget=None, full_file_cap=FU
         out.append(f"- F{n}. {display(path)} — {kind(path)} +{added}/-{removed} — {link(url, head, path)}{note}")
     size = sum(len(line) + 1 for line in out)
     if mode == "structured":
-        part = structured_change(repo, f"{base}..{head}", files, head, max(0, budget - size), full_file_cap, deleted)
+        part = structured_change(repo, rng, files, head, max(0, budget - size), full_file_cap)
         out.extend(["", part])
         return ChangePart("\n".join(out), part.shown)
     for n, (_, _, path) in enumerate(files, 1):
         if LOCK.search(path):
             continue
-        diff = "" if path in deleted else file_diff(repo, rng, path, mode, max(0, budget - size))
-        header = f"## F{n}. {display(path)}" + (" (deleted)" if path in deleted else "")
+        diff = file_diff(repo, rng, path, mode, max(0, budget - size))
+        header = f"## F{n}. {display(path)}"
         out.extend(["", header])
-        if path in deleted:
-            body = [deleted_file(repo, base, path)]
-        elif mode == "pack":
+        if mode == "pack":
             body = ["Touched functions (hunk headers):", diff or "(No textual hunks.)"]
         else:
             fence = "`" * max(3, max((len(m[0]) + 1 for m in re.finditer(r"`+", diff)), default=3))
