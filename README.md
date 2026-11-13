@@ -14,6 +14,8 @@ and established project stacks override its defaults.
   alternatives where appropriate. Choose only the components needed.
 - [STRUCTURE.md](STRUCTURE.md): default paths and naming for projects using House Rules.
 - [prompts/](prompts/README.md): role instructions, code-change rules, review lenses and shared pieces.
+- [Spec guide](skills/spec-writing/references/spec-guide.md): the entry page for writing a specification,
+  from setup to the operator's approval.
 - `skills/`: project bootstrap, design, implementation, the PR change loop, upstream
   contributions, experiments, diagnosis, reporting, decision briefs, and work tracking. Load only the
   relevant procedures. The audit-report skill includes an optional structural linter that
