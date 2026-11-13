@@ -565,6 +565,11 @@
       "reason": "Skill procedure or supporting reference, not a specification or design document."
     },
     {
+      "path": "skills/spec-writing/references/spec-guide.md",
+      "kind": "other",
+      "reason": "Skill procedure or supporting reference, not a specification or design document."
+    },
+    {
       "path": "skills/spec-writing/scripts/fixtures/miniature/acceptance.md",
       "kind": "other",
       "reason": "Synthetic test input, not a maintained technical contract."
