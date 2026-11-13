@@ -124,16 +124,17 @@ Stage 10 is the final approval, on the two outputs of stage 9.
    - The skeleton passes `generate` and `check` before any chapter body exists.
 4. **Write homes, names and sections.** Follow steps 2 and 3 of Author the document.
    - Each term has one home, and each requirement has its acceptance test.
-5. **Link, generate and check.** Follow step 4 of Author the document.
+5. **Link, generate and check.** Follow only the linking, generation and checking part of step 4 of Author the document.
    - Continue only when `check` reports no errors and every remaining warning group has a stated disposition.
+   - The review part of that step is stages 6 and 7 here; do not run it twice.
 6. **Run the lens review.** Give read-only reviewers the candidate and one lens each.
    - One fixer integrates the accepted findings. Then repeat stage 5.
 7. **Run the fresh-reader review.** Follow [Fresh-reader review](../SKILL.md#fresh-reader-review).
    - It states the readers, their questions and the pass condition.
 8. **Run the simplification pass.** Follow [prime rule 12](../../../rules/core.md#prime-rules).
    - When the pass changes the draft, repeat stage 5 and the affected reviews of stages 6 and 7 before stage 9.
-9. **Prepare the operator's package.** Write the decision brief and render the checked candidate.
-   - Send both as files the operator can open.
+9. **Prepare the operator's package.** Follow the procedure under [What the operator receives](#what-the-operator-receives).
+   - The operator gets the decision brief and the rendered specification together.
 10. **Wait for the operator's final approval.** The [design-flow](../../design-flow/SKILL.md) gate decides who may approve.
     - Apply review notes through stages 4 to 9 again. Start implementation only after approval.
 
@@ -156,6 +157,15 @@ receives two things:
 
 - **A decision brief,** as a Markdown file. It defines its terms, walks through one concrete example and lists each open decision with its real alternatives and their side effects. It ends with numbered questions. Each question recommends exactly one option and stands on its own.
 - **The rendered specification,** as an offline website or one HTML file with a chapter menu and drawn diagrams.
+
+**Procedure: prepare the operator's package**
+
+1. **Write the decision brief.** Follow [decision-brief](../../decision-brief/SKILL.md).
+   - The brief ends with the numbered questions.
+2. **Render the checked candidate.** Use the renderer from the setup.
+   - The result is the offline website or the single HTML file.
+3. **Send both files to the operator.** Use files the operator can open, never only a local path.
+   - The final approval of stage 10 starts from these two files.
 
 The operator answers by question number. A choice the operator has not answered stays an
 open question in the specification. The agent never fills it with its own proposal.
