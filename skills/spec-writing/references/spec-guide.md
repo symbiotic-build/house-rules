@@ -10,7 +10,7 @@ rules, and they win where this guide differs.
 - **Operator:** the human who owns the product, answers decisions and approves the specification.
 - **Specification:** the maintained contract for a system: how it works, what it requires and how each requirement is tested.
 - **Design document:** the proposal for one feature. Its shipped parts move into the specification when the feature closes.
-- **Entity home:** the one section that defines a term or value. Every other use links to it.
+- **Entity home:** the one section that defines a term or value. [Direct links](../../../rules/specifications.md#direct-links) states how other text links to it.
 - **Document manifest:** `docs/DOCUMENTS.json`. It lists each document, its sections, reading order, purpose and scope.
 - **Entity index:** `docs/ENTITIES.json`. It lists each term, its home, its accepted names and its rejected spellings.
 - **Checker:** the House Rules tool [spec_docs.py](../scripts/spec_docs.py). It refuses structural errors and generates the chapter map and term index.
@@ -19,31 +19,39 @@ rules, and they win where this guide differs.
 
 ## Set up once
 
+Run steps 3 to 5 in your own repository. They call the checker inside the House Rules
+checkout; do not copy it into your repository.
+[Sources and commands](../../../docs/specs/spec-system/source-formats.md#sources-and-commands)
+defines every checker command, option and exit status.
+
 **Procedure: prepare the agent and the tools**
 
 1. **Clone House Rules:** `git clone https://github.com/symbiotic-build/house-rules.git ~/house-rules`.
    - Record the full commit ID you use, as the [House Rules revision](../../../docs/specs/spec-system/source-formats.md#house-rules-revision) rule states.
 2. **Install the rules into the agent:** give the agent the prompt in [INSTALL-AGENTS.md](../../../INSTALL-AGENTS.md).
    - The agent then loads the shared rules at every session start.
-3. **Prepare the checker:** create an isolated Python environment and install the pinned lock.
+3. **Create the checker's environment:** `python3 -m venv .tmp/spec-docs-env`.
    - [runtime.json](../scripts/runtime.json) states the supported Python range.
-4. **Install a renderer:** build [md-render](https://github.com/symbiotic-build/md-render) as its README describes.
-   - It turns the Markdown chapters into an offline website for the operator.
+4. **Install the pinned lock** into that environment.
+   - A failed download or wheel hash stops the installation.
 
-> **Detail — checker commands**
->
-> ```sh
-> python3 -m venv .tmp/spec-docs-env
-> .tmp/spec-docs-env/bin/python -m pip install --require-hashes --only-binary=:all: --no-deps \
->   -r ~/house-rules/skills/spec-writing/scripts/requirements.lock
-> cd ~/house-rules
-> /path/to/your-repo/.tmp/spec-docs-env/bin/python -B skills/spec-writing/scripts/spec_docs.py check --root /path/to/your-repo
-> ```
->
-> Run the first two commands in your repository. Run the checker from the House Rules
-> checkout, and do not copy it into your repository.
-> [Sources and commands](../../../docs/specs/spec-system/source-formats.md#sources-and-commands)
-> defines every command, option and exit status.
+   > **Detail — installation call**
+   >
+   > ```sh
+   > .tmp/spec-docs-env/bin/python -m pip install --require-hashes --only-binary=:all: --no-deps -r ~/house-rules/skills/spec-writing/scripts/requirements.lock
+   > ```
+
+5. **Run the checker once:** it prints its findings, then its error and warning counts.
+   - Until `docs/DOCUMENTS.json` and `docs/ENTITIES.json` exist, it reports them as missing. Stage 3 below creates them.
+
+   > **Detail — checker call**
+   >
+   > ```sh
+   > .tmp/spec-docs-env/bin/python -B ~/house-rules/skills/spec-writing/scripts/spec_docs.py check --root .
+   > ```
+
+6. **Install a renderer:** build [md-render](https://github.com/symbiotic-build/md-render) as its README describes.
+   - It turns the Markdown chapters into an offline website for the operator.
 
 ## What to load for specification work
 
@@ -73,7 +81,7 @@ This list is for orientation. Each item names the rule that owns it.
 - **Introduction:** opening paragraphs, then one diagram with its question stated before it, then its explanation. The generated chapter map and term index follow. Owner: reader progression.
 - **One continuing example:** the tour tells one real story in plain steps. The same example returns in the mechanisms, the reference and the acceptance tests. Owner: reader progression.
 - **Chapters by behaviour:** a mechanism chapter covers one coherent part of how the system works. Never write one chapter per term. Owner: reader progression.
-- **One home per term and per value:** define each term once and state each literal value once. Owner: [authority and homes](../../../rules/specifications.md#authority-and-homes). Link the home as [direct links](../../../rules/specifications.md#direct-links) states.
+- **One home per term and per value:** define each term once and state each literal value once. Owner: [authority and homes](../../../rules/specifications.md#authority-and-homes).
 - **Names:** one name per concept in documents, code and user interfaces. Declare the naming conventions in the entity index, so the checker refuses a wrong spelling. Owner: [writing rules](../../../rules/writing.md#language).
 - **Requirements and tests:** each has a permanent identity, and they link to each other. Owner: [requirements, tests and recovery](../../../rules/specifications.md#requirements-tests-and-recovery).
 - **Failures:** every path that stops or refuses has a failure declaration. It states what the caller sees, what state remains and how to recover. Owner: requirements, tests and recovery.
@@ -82,45 +90,51 @@ This list is for orientation. Each item names the rule that owns it.
 
 ## The stages
 
-Which stage produces which output, and where does the operator decide? The diagram answers that. The procedure below gives each stage's work.
+Which stage produces which output, and where does the operator take part? The diagram answers that. The procedure below gives each stage's work.
 
 ```mermaid
 flowchart TD
-  item["1. Work item"] --> unknowns["2. Unknowns and existing facts"]
-  unknowns --> skeleton["3. Outline and checked skeleton"]
+  item["1. Work item"] --> sweep["2. Facts and unknowns (operator answers questions)"]
+  sweep --> skeleton["3. Outline and checked skeleton"]
   skeleton --> write["4. Homes, names and sections"]
   write --> check["5. Link, generate, check"]
   check --> review["6. Lens review"]
+  review -- "accepted findings" --> check
   review --> reader["7. Fresh-reader review"]
   reader --> simplify["8. Simplification pass"]
+  simplify -- "draft changed" --> check
   simplify --> brief["9. Brief and rendered specification"]
   brief --> approve{"10. Operator approves?"}
   approve -- "no, with notes" --> write
   approve -- "yes" --> implement["Implementation and closeout"]
 ```
 
-Stages 1 to 8 are the agent's work. The operator acts only at stage 10, on the two outputs of stage 9.
+The agent does the work of stages 1 to 9. The operator takes part twice before the final
+approval: the operator answers the agent's questions in stage 2, and decides each
+consequential choice that the agent may not settle alone, at whatever stage it appears.
+Stage 10 is the final approval, on the two outputs of stage 9.
 
 **Procedure: from request to approved specification**
 
 1. **Open a work item.** Create an issue for the product or feature.
    - The issue owns the design document and links it.
-2. **Settle unknowns and read what exists.** Run the blindspot pass and reverse interview from `finding-unknowns`. Inspect the code, real consumers and settled decisions.
-   - Verify inherited claims against the code, not against another document's summary.
-3. **Outline and register a skeleton.** Choose the reader, scope, chapters and the continuing example. Write the manifest, an empty entity index and anchored chapter openings.
-   - Generate navigation and run `check` before writing any chapter body.
-4. **Write homes, names and sections.** Assign each term one home and one owner. Explain ordinary behaviour before failure paths. Add each requirement together with its acceptance test.
-5. **Link, generate and check.** Run `spec_docs.py link`, then `generate`, then `check`.
-   - Continue only when `check` reports no errors. Give every remaining warning group a stated disposition.
+2. **Sweep reality.** Follow [Before writing: sweep reality](../SKILL.md#before-writing-sweep-reality).
+   - The operator answers the questions that remain. Record each answer where it applies.
+3. **Outline and register a skeleton.** Follow step 1 of [Author the document](../SKILL.md#author-the-document).
+   - The skeleton passes `generate` and `check` before any chapter body exists.
+4. **Write homes, names and sections.** Follow steps 2 and 3 of Author the document.
+   - Each term has one home, and each requirement has its acceptance test.
+5. **Link, generate and check.** Follow step 4 of Author the document.
+   - Continue only when `check` reports no errors and every remaining warning group has a stated disposition.
 6. **Run the lens review.** Give read-only reviewers the candidate and one lens each.
    - One fixer integrates the accepted findings. Then repeat stage 5.
 7. **Run the fresh-reader review.** Follow [Fresh-reader review](../SKILL.md#fresh-reader-review).
    - It states the readers, their questions and the pass condition.
 8. **Run the simplification pass.** Follow [prime rule 12](../../../rules/core.md#prime-rules).
-   - Report each mechanism you removed because no requirement needs it.
-9. **Prepare the operator's package.** Write the decision brief and render the specification.
+   - When the pass changes the draft, repeat stage 5 and the affected reviews of stages 6 and 7 before stage 9.
+9. **Prepare the operator's package.** Write the decision brief and render the checked candidate.
    - Send both as files the operator can open.
-10. **Wait for the operator's approval.** The [design-flow](../../design-flow/SKILL.md) gate decides who may approve.
+10. **Wait for the operator's final approval.** The [design-flow](../../design-flow/SKILL.md) gate decides who may approve.
     - Apply review notes through stages 4 to 9 again. Start implementation only after approval.
 
 > **Detail — lens review (stage 6)**
@@ -137,7 +151,8 @@ Stages 1 to 8 are the agent's work. The operator acts only at stage 10, on the t
 
 ## What the operator receives
 
-The operator receives two things at stage 9 and nothing to review before that.
+Before stage 9, the operator receives only questions. For the final approval, the operator
+receives two things:
 
 - **A decision brief,** as a Markdown file. It defines its terms, walks through one concrete example and lists each open decision with its real alternatives and their side effects. It ends with numbered questions. Each question recommends exactly one option and stands on its own.
 - **The rendered specification,** as an offline website or one HTML file with a chapter menu and drawn diagrams.
