@@ -56,9 +56,15 @@ Ground every claim in the current spec or code; say where the spec is silent.
    - why it was added (what it did before a removal, or what gap an addition fills);
    - what depends on it;
    - the problem;
-   - options — each with what changes, a before/after example, side effects including
-     what breaks or gets harder, and size per
+   - options — each opening with what it is physically and why it behaves as it does
+     (the mechanism behind its numbers), then what the operator would notice in daily use
+     under it, then what changes, a before/after example, side effects including what
+     breaks or gets harder, and size per
      [rules/core.md prime rule 13](../../rules/core.md#prime-rules);
+   - premise: where the recommendation's lean came from (an earlier direction, the
+     operator's own words, the order the work was built in, an uneven test), the strongest
+     case for the option not recommended as its advocate would make it, and the evidence
+     that would flip the recommendation;
    - recommendation, and why each other option is rejected;
    - next steps if chosen.
 5. **Reopened settled decisions,** each with the new evidence that reopened it, kept
@@ -81,6 +87,12 @@ it.
   dependency.
 - No option takes its shape or counts from code scheduled for removal or replacement
   ([premise check](../../prompts/util/premise-check.md)).
+- Each option's numbers come with their mechanism, and every test that measured the
+  options ran them on equal terms or says where it did not.
+- **Fresh-reader test.** An agent that has not seen the work gets only the brief. It names
+  the option it would choose and why, and lists every term, step or consequence it could
+  not follow. The author fixes the brief until that agent can answer from the brief alone,
+  and only then sends it.
 
 ## Rules
 
@@ -91,6 +103,9 @@ it.
   before/after example for every change.
 - Comparisons and diagrams follow [rules/writing.md §Format](../../rules/writing.md#format).
 - Organize by consequence, not by the order the work happened. No activity logs.
+- When new evidence arrives before the operator answers, rewrite the brief whole so it
+  reads as one current text. Never append dated updates to its body; the history of
+  changes goes into the evidence appendix.
 - After the operator answers, record each choice where it belongs (rules/core.md prime rule
   11) and stop asking about it until new evidence reopens it
   ([rules/writing.md §Claim labels](../../rules/writing.md#claim-labels)). A reopened
