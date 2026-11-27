@@ -47,8 +47,13 @@ updates itself; agents load it as its own Skill and MCP server, not as part of H
   unassign on the host.
 - Agents that share one host account tell lanes apart by the `Agent` trailer: an issue
   assigned to your login whose latest claim names another agent is taken.
-- Priority ([priority labels](../../rules/priority-labels.md)) is a `P0`–`P3` label; dependencies are the host's
+- Priority ([priority labels](../../rules/priority-labels.md)) is one `P0`–`P3` label; dependencies are the host's
   blocked-by links.
+- Work that waits on the operator's answer or action carries the label `waits-on-operator`.
+  The agent that asks posts the self-contained question as a comment on the issue or
+  pull request and also asks in chat. When the operator answers or acts, the agent records
+  the answer or action on the item and removes the label. Status views list open items
+  with this label as the operator's queue.
 - **Approved for later:** work the operator approved that waits on another step or another session
   carries the label `approved` and an `Owner:` line in its body naming the owning session or agent and its
   next action or awaited event. It is one issue per approved deliverable or plan step, not per answer;
@@ -195,9 +200,9 @@ done
 Host view on GitHub. Project operations (`gh project …` and the `--project` flags) need
 the `project` token scope (read-only use needs `read:project`); the operator grants it
 with `gh auth refresh -s project`. Set up a project once, before any item has a status:
-create the `P0`–`P3` labels with `gh label create`, set the Status options (the mutation
-replaces the whole option list and changes option IDs), then record the project number,
-project ID, and Status field and option IDs in the bible:
+create the `P0`–`P3` and `waits-on-operator` labels with `gh label create`, set the Status
+options (the mutation replaces the whole option list and changes option IDs), then record
+the project number, project ID, and Status field and option IDs in the bible:
 
 ```sh
 gh project view 7 --owner OWNER --format json --jq .id
